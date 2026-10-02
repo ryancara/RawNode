@@ -902,7 +902,13 @@ static int selfTest() {
                      std::floor(expectedStep * std::pow(10.0, expectedDigits))) > 1e-12)
       ++expectedDigits;
     const double expectedScale = std::pow(10.0, expectedDigits);
-    const double expectedDerived = std::round(0.123456789 * expectedScale) / expectedScale;
+    const auto shapeExpected = [&](double v) {
+      const double shaped = std::round(v * expectedScale) / expectedScale;
+      return std::isfinite(shaped) ? shaped : v;
+    };
+    double expectedDerived = shapeExpected(0.123456789);
+    expectedDerived = std::clamp(expectedDerived, 0.0, 0.7);
+    expectedDerived = shapeExpected(expectedDerived);
     bool derivedStep = false;
     for (const ProcessorParameter &param : adjuster.parameters())
       if (param.id == "derived") derivedStep = param.step == expectedStep;
