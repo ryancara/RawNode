@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -99,8 +100,10 @@ static int selfTest() {
     node.identifier = "FutureTransform.dctl";
     node.label = "Future Transform";
     node.enabled = true;
+    node.groupOpen["params"] = true;  // Must not shadow the sibling params object.
     node.paramsJson["amount"] = "0.75";
     node.paramsJson["futureData"] = "{\"curve\":[0,0.5,1],\"mode\":\"test\"}";
+    node.paramsJson["unicodeText"] = "\"Caf\\u00e9 \\ud83c\\udf9e\"";
     chain.nodes.push_back(node);
 
     if (!saveInputSidecar(source.string(), ColorSpace::LinearRec2020, gui, chain))
@@ -114,8 +117,18 @@ static int selfTest() {
       return fail("sidecar v2 node identity");
     const PersistNode &loadedNode = loaded.chain.nodes[0];
     if (loadedNode.backend != "dctl" || loadedNode.identifier != "FutureTransform.dctl" ||
-        loadedNode.paramsJson.at("futureData") != "{\"curve\":[0,0.5,1],\"mode\":\"test\"}")
+        loadedNode.paramsJson.at("futureData") != "{\"curve\":[0,0.5,1],\"mode\":\"test\"}" ||
+        loadedNode.paramsJson.at("amount") != "0.75" || !loadedNode.groupOpen.at("params"))
       return fail("sidecar v2 opaque state");
+
+    std::string decodedUnicode;
+    if (!parseJsonStringValue(loadedNode.paramsJson.at("unicodeText"), decodedUnicode) ||
+        decodedUnicode != "Café 🎞")
+      return fail("sidecar v2 unicode string");
+    const std::string controlString = std::string("line1\nline2\t") + char(1);
+    std::string decodedControl;
+    if (!parseJsonStringValue(jsonStringValue(controlString), decodedControl) || decodedControl != controlString)
+      return fail("sidecar v2 control string");
 
     App placeholderApp;
     applyChain(placeholderApp, loaded.chain);
@@ -132,18 +145,18 @@ static int selfTest() {
 
     // V1 remains readable and is normalised into the generic persistence model.
     const fs::path legacy = fs::temp_directory_path() / "rawnode-selftest-v1.ofxrawhost.json";
-    FILE *legacyFile = fopen(legacy.c_str(), "wb");
     static const char kV1[] =
         "{\"format\":\"ofxrawhost-sidecar\",\"version\":1,\"kind\":\"input\","
         "\"sourcePath\":\"old.nef\",\"inputColorSpace\":\"Linear Rec.2020\","
         "\"chain\":{\"selectedNode\":0,\"nodes\":[{\"pluginIdentifier\":\"example.ofx\","
         "\"pluginLabel\":\"Example\",\"enabled\":true,\"groupOpen\":{},"
         "\"params\":{\"gain\":1.25}}]}}";
-    if (!legacyFile || fwrite(kV1, 1, sizeof(kV1) - 1, legacyFile) != sizeof(kV1) - 1) {
-      if (legacyFile) fclose(legacyFile);
-      return fail("sidecar v1 test write");
+    {
+      std::ofstream legacyFile(legacy.string(), std::ios::binary);
+      if (!legacyFile) return fail("sidecar v1 test write");
+      legacyFile.write(kV1, sizeof(kV1) - 1);
+      if (!legacyFile.good()) return fail("sidecar v1 test write");
     }
-    fclose(legacyFile);
 
     PersistSidecar migrated;
     if (!loadSidecarFile(legacy.string(), migrated) || migrated.chain.nodes.size() != 1)
@@ -153,6 +166,17 @@ static int selfTest() {
         migrated.chain.nodes[0].paramsJson.at("gain") != "1.25")
       return fail("sidecar v1 normalisation");
     fs::remove(legacy);
+
+    const fs::path future = fs::temp_directory_path() / "rawnode-selftest-v3.rawnode.json";
+    {
+      std::ofstream futureFile(future.string(), std::ios::binary);
+      futureFile << "{\"format\":\"rawnode-sidecar\",\"version\":3,\"graph\":{\"nodes\":[]}}";
+      if (!futureFile.good()) return fail("sidecar v3 test write");
+    }
+    PersistSidecar futureSidecar;
+    if (loadSidecarFile(future.string(), futureSidecar) || futureSidecar.version != 3)
+      return fail("sidecar future version rejection");
+    fs::remove(future);
 
     printf("ok  Sidecar V2\n");
   }
