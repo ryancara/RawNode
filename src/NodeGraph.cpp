@@ -4,6 +4,7 @@
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
 #include "processors/NativeExposureProcessor.h"
+#include "processors/NativeCstProcessor.h"
 #include "processors/CtlProcessor.h"
 
 #include <cctype>
@@ -222,6 +223,11 @@ bool addNativeExposureNode(App &app) {
   return appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
 }
 
+bool addNativeCstNode(App &app) {
+  waitRenderIdle(app);
+  return appendProcessorNode(app, std::make_unique<NativeCstProcessor>());
+}
+
 bool addCtlNode(App &app, const std::string &path) {
   waitRenderIdle(app);
   std::string error;
@@ -287,6 +293,8 @@ void applyChain(App &app, const PersistChain &chain) {
       created = pluginIndex >= 0 && addNode(app, pluginIndex);
     } else if (backend == "native" && persisted.identifier == NativeExposureProcessor::kIdentifier) {
       created = addNativeExposureNode(app);
+    } else if (backend == "native" && persisted.identifier == NativeCstProcessor::kIdentifier) {
+      created = addNativeCstNode(app);
     } else if (backend == "ctl") {
       created = addCtlNode(app, persisted.identifier);
     }
