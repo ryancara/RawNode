@@ -9,7 +9,10 @@
 enum class ColorSpace;
 
 struct PersistGui {
+  // outputIndex is retained only for migration from older V2/workspace JSON.
   int outputIndex = 0;
+  std::string outputColorSpace;
+  std::string outputGamma;
   int exportFormat = 1;
   int jpegQuality = 92;
   int previewRes = 1;
@@ -80,10 +83,10 @@ std::string jsonStringValue(const std::string &value);
 bool parseJsonStringValue(const std::string &raw, std::string &out);
 
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);
-bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui,
+bool saveInputSidecar(const std::string &imagePath, ColorEncoding inputEncoding, const PersistGui &gui,
                       const PersistChain &chain, const ColorEncoding *rawEncoding = nullptr);
-bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace inputSpace,
-                       const PersistGui &gui, const PersistChain &chain,
-                       const ColorEncoding *rawEncoding = nullptr);
+bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath,
+                       ColorEncoding inputEncoding, const PersistGui &gui,
+                       const PersistChain &chain, const ColorEncoding *rawEncoding = nullptr);
 
 std::string relativeToWorkspace(const std::string &workspaceDir, const std::string &absPath);
