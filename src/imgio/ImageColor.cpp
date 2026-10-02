@@ -452,9 +452,9 @@ void toDisplayRGBA8(const Image &img, RgbGamut gamut, TransferFunction gamma,
     };
     float converted[3] = {};
     applyLinearColorMatrix(toRec709, linear, converted);
-    rec709.px[i + 0] = converted[0];
-    rec709.px[i + 1] = converted[1];
-    rec709.px[i + 2] = converted[2];
+    rec709.px[i + 0] = std::isfinite(converted[0]) ? converted[0] : 0.0f;
+    rec709.px[i + 1] = std::isfinite(converted[1]) ? converted[1] : 0.0f;
+    rec709.px[i + 2] = std::isfinite(converted[2]) ? converted[2] : 0.0f;
   }
 
   toDisplayRGBA8(rec709, ColorSpace::LinearRec709, out);
