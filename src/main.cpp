@@ -614,6 +614,132 @@ static int selfTest() {
     if (!renderChain(artRestored, src, artRestoredOut, 0).ok || artRestoredOut.px != artOut.px)
       return fail("ART CTL restored render");
 
+    // @ART-param metadata supplies defaults with ART's documented precedence:
+    // metadata default, then the CTL default, then zero. Each layer is used by
+    // one parameter here, and gain's metadata default must beat its CTL one.
+    const fs::path artMetaPath = artDir / "ArtMeta.ctl";
+    {
+      std::ofstream script(artMetaPath.string(), std::ios::binary);
+      script <<
+          "// @ART-param: [\"gain\", \"Gain\", 0.0, 4.0, 1.5, 0.01]\n"
+          "// @ART-param: [\"mode\", \"Mode\", [\"All\", \"Red only\"], 1]\n"
+          "// @ART-param: [\"enabled\", \"Enabled\", true]\n"
+          "// @ART-param: [\"bias\", \"Bias\", -1.0, 1.0]\n"
+          "// @ART-param: [\"steps\", \"Steps\", 0, 10]\n"
+          "void ART_main(\n"
+          "  varying float r, varying float g, varying float b,\n"
+          "  output varying float ro, output varying float go, output varying float bo,\n"
+          "  int mode, bool enabled, float bias, float gain = 9.0, int steps = 4)\n"
+          "{\n"
+          "  if (!enabled) { ro = r; go = g; bo = b; }\n"
+          "  else {\n"
+          "    ro = r * gain + bias; go = g * gain; bo = b * steps / 4.0;\n"
+          "    if (mode == 1) go = g;\n"
+          "  }\n"
+          "}\n";
+      if (!script.good()) return fail("ART metadata script test write");
+    }
+    App artMeta;
+    if (!addCtlNode(artMeta, artMetaPath.string())) return fail("ART metadata script load");
+    {
+      bool ok = true;
+      int seen = 0;
+      for (const ProcessorParameter &param : artMeta.nodes[0].processor->parameters()) {
+        ++seen;
+        if (param.id == "gain") ok = ok && std::get<double>(param.defaultValue) == 1.5 && std::get<double>(param.value) == 1.5;
+        else if (param.id == "mode") ok = ok && std::get<int>(param.defaultValue) == 1;
+        else if (param.id == "enabled") ok = ok && std::get<bool>(param.defaultValue);
+        else if (param.id == "bias") ok = ok && std::get<double>(param.defaultValue) == 0.0;
+        else if (param.id == "steps") ok = ok && std::get<int>(param.defaultValue) == 4;
+        else ok = false;
+      }
+      if (!ok || seen != 5) return fail("ART @ART-param default precedence");
+    }
+    Image artMetaOut;
+    if (!renderChain(artMeta, src, artMetaOut, 0).ok) return fail("ART metadata render");
+    for (size_t i = 0; i + 3 < src.px.size(); i += 4) {
+      if (std::fabs(artMetaOut.px[i] - src.px[i] * 1.5f) > 1e-6f || artMetaOut.px[i + 1] != src.px[i + 1] ||
+          std::fabs(artMetaOut.px[i + 2] - src.px[i + 2]) > 1e-6f)
+        return fail("ART metadata default render");
+    }
+
+    // Untouched parameters reach Sidecar V2 with ART's defaults, not zeros.
+    const PersistChain artMetaSaved = captureChain(artMeta);
+    const auto &metaJson = artMetaSaved.nodes[0].paramsJson;
+    if (metaJson.at("gain") != "1.5" || metaJson.at("mode") != "1" || metaJson.at("enabled") != "true" ||
+        metaJson.at("bias") != "0" || metaJson.at("steps") != "4")
+      return fail("ART metadata defaults in Sidecar V2");
+    App artMetaRestored;
+    applyChain(artMetaRestored, artMetaSaved);
+    Image artMetaRestoredOut;
+    if (artMetaRestored.nodes.size() != 1 || !artMetaRestored.nodes[0].processor ||
+        !renderChain(artMetaRestored, src, artMetaRestoredOut, 0).ok || artMetaRestoredOut.px != artMetaOut.px)
+      return fail("ART metadata restored render");
+    fs::remove(artMetaPath);
+
+    // Entry-point selection and ART contract errors.
+    const auto artLoadError = [&](const char *name, const std::string &source) {
+      const fs::path path = artDir / name;
+      {
+        std::ofstream script(path.string(), std::ios::binary);
+        script << source;
+      }
+      std::string error;
+      const bool loaded = CtlProcessor::create(path.string(), &error) != nullptr;
+      fs::remove(path);
+      return loaded ? std::string("<loaded>") : error;
+    };
+    const auto contains = [](const std::string &text, const char *part) { return text.find(part) != std::string::npos; };
+    const std::string artRgb =
+        "varying float r, varying float g, varying float b, "
+        "output varying float ro, output varying float go, output varying float bo";
+    {
+      // A script defining both entry points uses standard main().
+      const fs::path bothPath = artDir / "Both.ctl";
+      {
+        std::ofstream script(bothPath.string(), std::ios::binary);
+        script << "void main(input varying float rIn, input varying float gIn, input varying float bIn,\n"
+                  "  output varying float rOut, output varying float gOut, output varying float bOut)\n"
+                  "{ rOut = rIn * 2.0; gOut = gIn; bOut = bIn; }\n"
+                  "void ART_main(" << artRgb << ") { ro = r * 10.0; go = g; bo = b; }\n";
+      }
+      auto both = CtlProcessor::create(bothPath.string());
+      Image bothOut;
+      if (!both || !both->render(src, bothOut, 0).ok || std::fabs(bothOut.px[0] - src.px[0] * 2.0f) > 1e-6f)
+        return fail("CTL main() preferred over ART_main()");
+      fs::remove(bothPath);
+    }
+    if (artLoadError("Neither.ctl", "float f(float x) { return x; }\n") !=
+        "CTL script defines neither main() nor ART_main()")
+      return fail("CTL missing entry point error");
+    if (!contains(artLoadError("FourOut.ctl", "void ART_main(" + artRgb + ", output varying float extra)"
+                                              " { ro = r; go = g; bo = b; extra = r; }\n"),
+                  "exactly three varying float RGB outputs"))
+      return fail("ART exactly three outputs");
+    if (!contains(artLoadError("TwoIn.ctl", "void ART_main(varying float r, varying float g,"
+                                            " output varying float ro, output varying float go, output varying float bo)"
+                                            " { ro = r; go = g; bo = g; }\n"),
+                  "three varying float RGB inputs"))
+      return fail("ART three inputs");
+    if (!contains(artLoadError("Curve.ctl", "void ART_main(" + artRgb + ", float curve[4]) { ro = r * curve[0]; go = g; bo = b; }\n"),
+                  "is a curve (float array); ART curve parameters are not supported yet"))
+      return fail("ART curve parameter error");
+    if (!contains(artLoadError("VaryingParam.ctl", "void ART_main(" + artRgb + ", varying float k) { ro = r * k; go = g; bo = b; }\n"),
+                  "must be uniform, not varying"))
+      return fail("ART varying parameter error");
+    if (!contains(artLoadError("UnknownMeta.ctl", "// @ART-param: [\"nope\", \"Nope\", 0.0, 1.0, 0.5]\n"
+                                                  "void ART_main(" + artRgb + ") { ro = r; go = g; bo = b; }\n"),
+                  "@ART-param refers to unknown ART_main parameter nope"))
+      return fail("ART unknown @ART-param error");
+    if (!contains(artLoadError("BadMeta.ctl", "// @ART-param: [\"k\", \"K\", 0.0, 1.0, \"high\"]\n"
+                                              "void ART_main(" + artRgb + ", float k) { ro = r * k; go = g; bo = b; }\n"),
+                  "invalid @ART-param definition for k"))
+      return fail("ART malformed @ART-param error");
+    if (!contains(artLoadError("NoLib.ctl", "import \"_artlib_missing\";\n"
+                                            "void ART_main(" + artRgb + ") { ro = r; go = g; bo = b; }\n"),
+                  "Cannot find CTL module \"_artlib_missing\""))
+      return fail("ART missing library import error");
+
     fs::remove(artScriptPath);
     fs::remove(artLibPath);
     fs::remove(artDir);
