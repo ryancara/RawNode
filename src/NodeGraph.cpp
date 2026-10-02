@@ -95,10 +95,11 @@ static std::string trim(std::string value) {
   return value;
 }
 
-static std::string parseJsonString(const std::string &raw) {
+// Returns false for non-string JSON so callers keep the current value, matching Sidecar V1 restore.
+static bool parseJsonString(const std::string &raw, std::string &out) {
   const std::string value = trim(raw);
-  if (value.size() < 2 || value.front() != '"') return {};
-  std::string out;
+  if (value.size() < 2 || value.front() != '"') return false;
+  out.clear();
   for (size_t i = 1; i < value.size(); ++i) {
     if (value[i] == '\\' && i + 1 < value.size()) {
       out += value[++i];
@@ -107,16 +108,18 @@ static std::string parseJsonString(const std::string &raw) {
     if (value[i] == '"') break;
     out += value[i];
   }
-  return out;
+  return true;
 }
 
 static void applyParamValueJson(Processor &processor, const ProcessorParameter &param, const std::string &raw) {
   const std::string value = trim(raw);
   switch (param.type) {
     case ParameterType::String:
-    case ParameterType::Custom:
-      processor.setParameterValue(param.id, parseJsonString(value), false);
+    case ParameterType::Custom: {
+      std::string parsed;
+      if (parseJsonString(value, parsed)) processor.setParameterValue(param.id, parsed, false);
       return;
+    }
     case ParameterType::Boolean:
       processor.setParameterValue(param.id, value == "true" || value == "1", false);
       return;
