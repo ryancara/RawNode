@@ -9,6 +9,7 @@
 #include "processors/NativeCstProcessor.h"
 #include "processors/OfxProcessor.h"
 #include "persist/ProjectPersist.h"
+#include "persist/DocumentActions.h"
 #include "UI.h"
 
 #include <tiffio.h>
