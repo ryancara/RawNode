@@ -3,6 +3,7 @@
 #include "imgio/ImageIO.h"
 
 #include <string>
+#include <utility>
 
 enum class ProcessorBackend {
   OFX,
