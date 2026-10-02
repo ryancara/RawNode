@@ -95,7 +95,7 @@ void drawLeftPanel(App &app) {
     ImGui::PushID(i);
     Node &node = app.nodes[i];
     const bool selected = app.selectedNode == i;
-    const std::string label = gPlugins[node.pluginIndex].label;
+    const std::string label = node.processor ? node.processor->displayName() : "Missing processor";
     if (!node.enabled) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
     if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(ImGui::GetContentRegionAvail().x - btnsW - btnGap, btnH))) {
       app.selectedNode = i;
