@@ -626,6 +626,8 @@ static int selfTest() {
           "// @ART-param: [\"mode\", \"$CTL_MODE;Mode\", [[\"$CTL_ALL;All\", 0], [\"$CTL_RED_ONLY;Red only\", 3]], 3, \"$CTL_TONE;Tone\"]\n"
           "// @ART-param: [\"bias\", \"Bias\", -1.0, 1.0]\n"
           "// @ART-param: [\"steps\", \"Steps\", 0, 10]\n"
+          "// @ART-preset: [\"boost\", \"$CTL_PRESET_BOOST;Boost\", {\"gain\": 2.0, \"mode\": 0, \"steps\": 8}]\n"
+          "// @ART-preset: [\"disabled\", \"Disabled\", {\"enabled\": false}]\n"
           "void ART_main(\n"
           "  varying float r, varying float g, varying float b,\n"
           "  output varying float ro, output varying float go, output varying float bo,\n"
@@ -650,6 +652,12 @@ static int selfTest() {
         if (param.type == ParameterType::Group) {
           ++groups;
           ok = ok && param.id == toneGroup && param.label == "Tone";
+          continue;
+        }
+        if (param.id == "__rawnode_art_preset") {
+          ok = ok && param.label == "Preset" && param.type == ParameterType::Choice && !param.persistValue &&
+               param.choices == std::vector<std::string>({"(None)", "Boost", "Disabled"}) &&
+               param.choiceValues == std::vector<int>({0, 1, 2}) && std::get<int>(param.value) == 0;
           continue;
         }
         ++seen;
@@ -679,7 +687,7 @@ static int selfTest() {
       // and a group appears where its first member does, as in ART's panel.
       std::vector<std::string> order;
       for (const ProcessorParameter &param : artMeta.nodes[0].processor->parameters()) order.push_back(param.id);
-      if (order != std::vector<std::string>({"enabled", toneGroup, "gain", "mode", "bias", "steps"}))
+      if (order != std::vector<std::string>({"__rawnode_art_preset", "enabled", toneGroup, "gain", "mode", "bias", "steps"}))
         return fail("ART @ART-param control order");
     }
     Image artMetaOut;
@@ -722,7 +730,60 @@ static int selfTest() {
     if (!artMeta.nodes[0].processor->setParameterValue("mode", 3))
       return fail("ART explicit choice value restore");
 
+    // @ART-preset is exposed as a transient dropdown. Applying a preset
+    // updates its partial parameter map atomically, while Sidecar V2 stores only
+    // the resulting edit values, not the preset selector itself.
+    if (!artMeta.nodes[0].processor->setParameterValue("__rawnode_art_preset", 1))
+      return fail("ART preset apply");
+    {
+      bool gainOk = false, modeOk = false, stepsOk = false, presetOk = false;
+      for (const ProcessorParameter &param : artMeta.nodes[0].processor->parameters()) {
+        if (param.id == "gain") gainOk = std::get<double>(param.value) == 2.0;
+        else if (param.id == "mode") modeOk = std::get<int>(param.value) == 0;
+        else if (param.id == "steps") stepsOk = std::get<int>(param.value) == 8;
+        else if (param.id == "__rawnode_art_preset") presetOk = std::get<int>(param.value) == 1;
+      }
+      if (!gainOk || !modeOk || !stepsOk || !presetOk) return fail("ART preset parameter values");
+    }
+    Image artPresetOut;
+    if (!renderChain(artMeta, src, artPresetOut, 0).ok) return fail("ART preset render");
+    for (size_t i = 0; i + 3 < src.px.size(); i += 4) {
+      if (std::fabs(artPresetOut.px[i + 0] - src.px[i + 0] * 2.0f) > 1e-6f ||
+          std::fabs(artPresetOut.px[i + 1] - src.px[i + 1] * 2.0f) > 1e-6f ||
+          std::fabs(artPresetOut.px[i + 2] - src.px[i + 2] * 2.0f) > 1e-6f)
+        return fail("ART preset rendered result");
+    }
+    {
+      const PersistChain presetSaved = captureChain(artMeta);
+      const auto &presetJson = presetSaved.nodes[0].paramsJson;
+      if (presetJson.find("__rawnode_art_preset") != presetJson.end() ||
+          presetJson.at("gain") != "2" || presetJson.at("mode") != "0" || presetJson.at("steps") != "8")
+        return fail("ART preset Sidecar V2 capture");
+      App presetRestored;
+      applyChain(presetRestored, presetSaved);
+      bool presetDetected = false;
+      if (presetRestored.nodes.size() == 1 && presetRestored.nodes[0].processor) {
+        for (const ProcessorParameter &param : presetRestored.nodes[0].processor->parameters())
+          if (param.id == "__rawnode_art_preset") presetDetected = std::get<int>(param.value) == 1;
+      }
+      Image presetRestoredOut;
+      if (!presetDetected || !renderChain(presetRestored, src, presetRestoredOut, 0).ok ||
+          presetRestoredOut.px != artPresetOut.px)
+        return fail("ART preset Sidecar V2 restore");
+    }
+    if (!artMeta.nodes[0].processor->resetParameter("__rawnode_art_preset"))
+      return fail("ART preset reset");
+    {
+      bool defaultsRestored = false;
+      for (const ProcessorParameter &param : artMeta.nodes[0].processor->parameters())
+        if (param.id == "gain") defaultsRestored = std::get<double>(param.value) == 1.5;
+      if (!defaultsRestored) return fail("ART preset reset defaults");
+    }
+
     // Untouched parameters reach Sidecar V2 with ART's defaults, not zeros.
+    // Restore the explicit choice default after the preset/reset tests.
+    if (!artMeta.nodes[0].processor->setParameterValue("mode", 3))
+      return fail("ART metadata mode restore after preset");
     const PersistChain artMetaSaved = captureChain(artMeta);
     const auto &metaJson = artMetaSaved.nodes[0].paramsJson;
     if (metaJson.at("gain") != "1.5" || metaJson.at("mode") != "3" || metaJson.at("enabled") != "true" ||
