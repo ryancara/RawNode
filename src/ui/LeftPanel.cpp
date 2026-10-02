@@ -41,13 +41,25 @@ void drawLeftPanel(App &app) {
   ImGui::SameLine();
   if (ImGui::Button("Export")) doExport(app);
 
+  ColorEncoding inputEncoding;
+  ColorEncoding rawDefaultEncoding;
+  ColorEncoding outputEncoding;
+  bool inputIsRaw = false;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    inputEncoding = app.inputEncoding;
+    rawDefaultEncoding = app.rawWorkingEncoding;
+    outputEncoding = app.outputEncoding;
+    inputIsRaw = app.inputIsRaw;
+  }
+
   if (app.path.empty())
     ImGui::TextUnformatted("Input: —");
   else
-    ImGui::Text("Input: %s", colorEncodingName(app.inputEncoding).c_str());
+    ImGui::Text("Input: %s", colorEncodingName(inputEncoding).c_str());
 
-  const bool currentIsRaw = !app.path.empty() && app.inputIsRaw;
-  const ColorEncoding rawShown = currentIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
+  const bool currentIsRaw = !app.path.empty() && inputIsRaw;
+  const ColorEncoding rawShown = currentIsRaw ? inputEncoding : rawDefaultEncoding;
 
   std::vector<const char *> gamutItems;
   gamutItems.reserve((size_t)rgbGamutCount());
@@ -66,19 +78,29 @@ void drawLeftPanel(App &app) {
 
   int rawGammaIndex = std::max(0, transferFunctionIndex(rawShown.gamma));
   if (ImGui::Combo("RAW gamma", &rawGammaIndex, gammaItems.data(), (int)gammaItems.size())) {
-    const ColorEncoding currentRaw = currentIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
+    ColorEncoding currentRaw;
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      currentRaw = app.inputIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
+    }
     setRawWorkingEncoding(app, currentRaw.gamut, transferFunctionDefinition(rawGammaIndex).value);
   }
 
-  int outputGamutIndex = std::max(0, rgbGamutIndex(app.outputEncoding.gamut));
+  int outputGamutIndex = std::max(0, rgbGamutIndex(outputEncoding.gamut));
   if (ImGui::Combo("Output colour space", &outputGamutIndex, gamutItems.data(), (int)gamutItems.size())) {
-    app.outputEncoding.gamut = rgbGamutDefinition(outputGamutIndex).value;
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      app.outputEncoding.gamut = rgbGamutDefinition(outputGamutIndex).value;
+    }
     scheduleDisplayRecolor(app);
   }
 
-  int outputGammaIndex = std::max(0, transferFunctionIndex(app.outputEncoding.gamma));
+  int outputGammaIndex = std::max(0, transferFunctionIndex(outputEncoding.gamma));
   if (ImGui::Combo("Output gamma", &outputGammaIndex, gammaItems.data(), (int)gammaItems.size())) {
-    app.outputEncoding.gamma = transferFunctionDefinition(outputGammaIndex).value;
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      app.outputEncoding.gamma = transferFunctionDefinition(outputGammaIndex).value;
+    }
     scheduleDisplayRecolor(app);
   }
 
