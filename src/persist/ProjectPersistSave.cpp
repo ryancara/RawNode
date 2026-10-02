@@ -53,6 +53,8 @@ void appendGuiJson(std::ostringstream &o, const PersistGui &g) {
     << "\"outputIndex\":" << g.outputIndex << ","
     << "\"outputColorSpace\":\"" << jsonEscape(g.outputColorSpace) << "\","
     << "\"outputGamma\":\"" << jsonEscape(g.outputGamma) << "\","
+    << "\"rawDefaultColorSpace\":\"" << jsonEscape(g.rawDefaultColorSpace) << "\","
+    << "\"rawDefaultGamma\":\"" << jsonEscape(g.rawDefaultGamma) << "\","
     << "\"exportFormat\":" << g.exportFormat << ","
     << "\"jpegQuality\":" << g.jpegQuality << ","
     << "\"previewRes\":" << g.previewRes << ","
