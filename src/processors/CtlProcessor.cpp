@@ -156,7 +156,7 @@ struct CtlProcessor::Impl {
       case ParameterType::Integer:
         return *reinterpret_cast<const int *>(arg->data());
       case ParameterType::Boolean:
-        return *reinterpret_cast<const unsigned char *>(arg->data()) != 0;
+        return *reinterpret_cast<const bool *>(arg->data());
       default:
         return {};
     }
@@ -198,8 +198,8 @@ struct CtlProcessor::Impl {
             std::get<int>(binding.value);
         break;
       case ParameterType::Boolean:
-        *reinterpret_cast<unsigned char *>(binding.arg->data()) =
-            std::get<bool>(binding.value) ? 1 : 0;
+        *reinterpret_cast<bool *>(binding.arg->data()) =
+            std::get<bool>(binding.value);
         break;
       default:
         break;
