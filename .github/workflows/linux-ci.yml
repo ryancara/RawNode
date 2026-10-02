@@ -27,7 +27,11 @@ jobs:
             liblcms2-dev \
             libopenexr-dev \
             libgl1-mesa-dev \
-            xorg-dev
+            xorg-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            wayland-protocols \
+            extra-cmake-modules
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
