@@ -21,10 +21,9 @@ class NativeCstProcessor final : public Processor {
   ProcessorResult render(const Image &input, Image &output, int generation) override;
 
  private:
-  // Gamut choice indices: Rec.709/sRGB, Rec.2020, AP0, AP1, DWG.
-  // Gamma choice indices: Linear, sRGB, Rec.709, DaVinci Intermediate.
-  std::atomic<int> inputSpace_{1};
-  std::atomic<int> inputGamma_{0};
-  std::atomic<int> outputSpace_{1};
-  std::atomic<int> outputGamma_{0};
+  // Store stable enum values, not menu positions.
+  std::atomic<int> inputSpace_{(int)RgbGamut::Rec2020};
+  std::atomic<int> inputGamma_{(int)TransferFunction::Linear};
+  std::atomic<int> outputSpace_{(int)RgbGamut::Rec2020};
+  std::atomic<int> outputGamma_{(int)TransferFunction::Linear};
 };
