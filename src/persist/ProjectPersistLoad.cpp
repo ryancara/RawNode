@@ -446,8 +446,11 @@ bool loadSidecarFile(const std::string &path, PersistSidecar &out) {
     extractStringField(json, "source", out.sourcePath);
     extractStringField(json, "workingSpace", out.workingSpace);
     std::string rawObj;
-    if (extractObject(json, "raw", rawObj))
+    if (extractObject(json, "raw", rawObj)) {
       extractStringField(rawObj, "workingSpace", out.rawWorkingSpace);
+      extractStringField(rawObj, "colorSpace", out.rawColorSpace);
+      extractStringField(rawObj, "gamma", out.rawGamma);
+    }
     std::string graphObj;
     if (!extractObject(json, "graph", graphObj)) return false;
     return loadGraphV2FromJson(graphObj, out.chain);
