@@ -353,11 +353,51 @@ static bool loadTiff(const std::string &path, Image &out, std::vector<uint8_t> &
   return ok;
 }
 
-static bool loadStb(const std::string &path, Image &out) {
+static bool loadStbEncoded(const std::string &path, Image &out) {
   int w = 0, h = 0, n = 0;
-  float *data = stbi_loadf(path.c_str(), &w, &h, &n, 4);
+  out = {};
+
+  if (stbi_is_16_bit(path.c_str())) {
+    stbi_us *data = stbi_load_16(path.c_str(), &w, &h, &n, 4);
+    if (!data) return false;
+    out.w = w;
+    out.h = h;
+    out.px.resize((size_t)w * h * 4);
+    constexpr float scale = 1.0f / 65535.0f;
+    for (int y = 0; y < h; ++y) {
+      const stbi_us *src = data + (size_t)y * w * 4;
+      float *dst = out.px.data() + (size_t)(h - 1 - y) * w * 4;
+      for (int x = 0; x < w; ++x) {
+        dst[0] = src[0] * scale;
+        dst[1] = src[1] * scale;
+        dst[2] = src[2] * scale;
+        dst[3] = src[3] * scale;
+        src += 4;
+        dst += 4;
+      }
+    }
+    stbi_image_free(data);
+    return true;
+  }
+
+  unsigned char *data = stbi_load(path.c_str(), &w, &h, &n, 4);
   if (!data) return false;
-  fromRGBAFloatTopDown(data, w, h, out);
+  out.w = w;
+  out.h = h;
+  out.px.resize((size_t)w * h * 4);
+  constexpr float scale = 1.0f / 255.0f;
+  for (int y = 0; y < h; ++y) {
+    const unsigned char *src = data + (size_t)y * w * 4;
+    float *dst = out.px.data() + (size_t)(h - 1 - y) * w * 4;
+    for (int x = 0; x < w; ++x) {
+      dst[0] = src[0] * scale;
+      dst[1] = src[1] * scale;
+      dst[2] = src[2] * scale;
+      dst[3] = src[3] * scale;
+      src += 4;
+      dst += 4;
+    }
+  }
   stbi_image_free(data);
   return true;
 }
@@ -482,20 +522,27 @@ bool makePreview(const Image &src, int maxEdge, Image &out) {
   return true;
 }
 
-static ColorEncoding rasterBufferEncoding(ColorSpace tag) {
-  ColorEncoding encoding = legacyColorSpaceEncoding(tag);
-  // Raster loaders feed processing buffers as linear float. Preserve the
-  // detected primaries while describing the actual pixels in memory.
-  encoding.gamma = TransferFunction::Linear;
-  return encoding;
+static ColorEncoding linearizeRasterBuffer(Image &img, ColorSpace tag) {
+  ColorEncoding sourceEncoding = legacyColorSpaceEncoding(tag);
+  if (sourceEncoding.gamma != TransferFunction::Linear) {
+    for (size_t i = 0; i + 3 < img.px.size(); i += 4) {
+      img.px[i + 0] = (float)decodeTransfer(img.px[i + 0], sourceEncoding.gamma);
+      img.px[i + 1] = (float)decodeTransfer(img.px[i + 1], sourceEncoding.gamma);
+      img.px[i + 2] = (float)decodeTransfer(img.px[i + 2], sourceEncoding.gamma);
+    }
+  }
+  sourceEncoding.gamma = TransferFunction::Linear;
+  return sourceEncoding;
 }
 
-bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncoding,
-               bool &decodedRaw, ColorEncoding rawWorkingEncoding) {
+static bool loadImageImpl(const std::string &path, Image &out, ColorEncoding &detectedEncoding,
+                          bool &decodedRaw, ColorEncoding rawWorkingEncoding,
+                          ColorSpace *legacyDetectedTag) {
   PerfScope _ps("loadImage");
   out = {};
   decodedRaw = false;
   detectedEncoding = {RgbGamut::Rec709, TransferFunction::Linear};
+  if (legacyDetectedTag) *legacyDetectedTag = ColorSpace::sRGB;
 
   std::string e = fs::path(path).extension().string();
   for (char &ch : e) ch = (char)tolower((unsigned char)ch);
@@ -503,28 +550,34 @@ bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncod
   if (e == ".exr") {
     if (!loadExr(path, out)) return false;
     detectedEncoding = {RgbGamut::Rec2020, TransferFunction::Linear};
+    if (legacyDetectedTag) *legacyDetectedTag = ColorSpace::LinearRec2020;
     return true;
   }
 
   if (e == ".tif" || e == ".tiff") {
     std::vector<uint8_t> icc;
     bool isFloat = false;
-    if (!loadTiff(path, out, icc, isFloat)) return false;
-    const ColorSpace tag =
-        !icc.empty() ? classifyIcc(icc)
-                     : (isFloat ? ColorSpace::LinearRec2020 : ColorSpace::sRGB);
-    detectedEncoding = rasterBufferEncoding(tag);
-    return true;
-  }
+    if (loadTiff(path, out, icc, isFloat)) {
+      const ColorSpace tag =
+          !icc.empty() ? classifyIcc(icc)
+                       : (isFloat ? ColorSpace::LinearRec2020 : ColorSpace::sRGB);
+      detectedEncoding = linearizeRasterBuffer(out, tag);
+      if (legacyDetectedTag) *legacyDetectedTag = tag;
+      return true;
+    }
+    // Some camera RAW formats are TIFF-based. If libtiff cannot decode the
+    // source as an ordinary raster, still give LibRaw the normal fallback.
+  } else {
+    std::vector<uint8_t> icc;
+    if (e == ".png") extractPngIcc(path, icc);
+    else if (e == ".jpg" || e == ".jpeg") extractJpgIcc(path, icc);
 
-  std::vector<uint8_t> icc;
-  if (e == ".png") extractPngIcc(path, icc);
-  else if (e == ".jpg" || e == ".jpeg") extractJpgIcc(path, icc);
-
-  if (loadStb(path, out)) {
-    const ColorSpace tag = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
-    detectedEncoding = rasterBufferEncoding(tag);
-    return true;
+    if (loadStbEncoded(path, out)) {
+      const ColorSpace tag = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
+      detectedEncoding = linearizeRasterBuffer(out, tag);
+      if (legacyDetectedTag) *legacyDetectedTag = tag;
+      return true;
+    }
   }
 
   // LibRaw is the final decoder fallback regardless of filename extension.
@@ -532,23 +585,26 @@ bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncod
   if (loadRaw(path, out, rawWorkingEncoding.gamut, rawWorkingEncoding.gamma)) {
     decodedRaw = true;
     detectedEncoding = rawWorkingEncoding;
+    if (legacyDetectedTag) {
+      if (!legacyColorSpaceFromEncoding(rawWorkingEncoding, *legacyDetectedTag))
+        *legacyDetectedTag = ColorSpace::LinearRec2020;
+    }
     return true;
   }
 
   return false;
 }
 
+bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncoding,
+               bool &decodedRaw, ColorEncoding rawWorkingEncoding) {
+  return loadImageImpl(path, out, detectedEncoding, decodedRaw, rawWorkingEncoding, nullptr);
+}
+
 bool loadImage(const std::string &path, Image &out, ColorSpace &detected,
                RgbGamut rawGamut, TransferFunction rawGamma) {
   ColorEncoding encoding;
   bool decodedRaw = false;
-  if (!loadImage(path, out, encoding, decodedRaw, {rawGamut, rawGamma})) return false;
-
-  // Legacy callers cannot describe every encoding. Return an exact legacy tag
-  // where possible; otherwise retain the historical Linear Rec.2020 stand-in.
-  if (!legacyColorSpaceFromEncoding(encoding, detected))
-    detected = ColorSpace::LinearRec2020;
-  return true;
+  return loadImageImpl(path, out, encoding, decodedRaw, {rawGamut, rawGamma}, &detected);
 }
 
 bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace rawWorkingSpace) {
