@@ -10,6 +10,7 @@ This document defines the non-destructive per-image edit state used by RawNode.
 - Sidecars are human-readable and versioned.
 - Node instance identity survives reordering and application restarts.
 - Unavailable processors and unknown parameter values should survive load-save cycles rather than being silently deleted.
+- RAW initial working space is edit state and is stored per image when explicitly available.
 
 ## Sidecar V2
 
@@ -27,9 +28,11 @@ The current V2 shape is:
   "version": 2,
   "kind": "input",
   "source": "DSC_0001.NEF",
-  "inputColorSpace": "Linear Rec.709",
-  "workingSpace": "Linear Rec.709",
-  "raw": {},
+  "inputColorSpace": "Linear Rec.2020",
+  "workingSpace": "Linear Rec.2020",
+  "raw": {
+    "workingSpace": "Linear Rec.2020"
+  },
   "gui": {
     "outputIndex": 0,
     "exportFormat": 1,
@@ -60,6 +63,15 @@ The current V2 shape is:
   }
 }
 ```
+
+### RAW working space
+
+For RAW inputs, new Sidecar V2 files store the selected initial working space in `raw.workingSpace`.
+Current choices are Linear Rec.709, Linear Rec.2020, and ACES2065-1.
+
+The field is additive within V2. Older V2 and V1 sidecars do not contain it; RawNode treats those RAW edits as Linear Rec.709 so projects created before the selectable working-space feature retain the colour-boundary behaviour introduced in PR #15.
+
+The top-level `inputColorSpace` / `workingSpace` fields remain descriptive. `raw.workingSpace` is the explicit RAW-decode choice used when reconstructing the image.
 
 ### Serial order and future graph connections
 

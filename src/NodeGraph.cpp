@@ -163,54 +163,6 @@ static void applyParamValueJson(Processor &processor, const ProcessorParameter &
   }
 }
 
-void applyColorDefaults(App &app, Node &node) {
-  if (!node.processor) return;
-  const auto params = node.processor->parameters();
-  for (const ProcessorParameter &param : params) {
-    if (param.type != ParameterType::Choice) continue;
-    const char *wanted =
-        param.label == "Input Color Space" ? colorSpaceName(app.inputSpace)
-        : param.label == "Output Color Space" ? "sRGB"
-                                                : nullptr;
-    if (!wanted) continue;
-
-    for (size_t i = 0; i < param.choices.size(); ++i) {
-      if (param.choices[i] != wanted) continue;
-      const int value = param.choiceValues.size() == param.choices.size() ? param.choiceValues[i] : (int)i;
-      node.processor->setParameterValue(param.id, value);
-      break;
-    }
-  }
-}
-
-void syncOutputTag(App &app) {
-  for (int n = (int)app.nodes.size() - 1; n >= 0; --n) {
-    if (!app.nodes[n].processor) continue;
-    for (const ProcessorParameter &param : app.nodes[n].processor->parameters()) {
-      if (param.secret || param.type != ParameterType::Choice || param.label != "Output Color Space") continue;
-      const int *value = std::get_if<int>(&param.value);
-      if (!value) continue;
-      int choiceIndex = *value;
-      if (param.choiceValues.size() == param.choices.size()) {
-        choiceIndex = -1;
-        for (size_t i = 0; i < param.choiceValues.size(); ++i) {
-          if (param.choiceValues[i] == *value) {
-            choiceIndex = (int)i;
-            break;
-          }
-        }
-      }
-      if (choiceIndex < 0 || choiceIndex >= (int)param.choices.size()) continue;
-      for (int i = 0; i < 4; ++i) {
-        if (param.choices[(size_t)choiceIndex] == kOutputSpaces[i]) {
-          app.outputIndex = i;
-          return;
-        }
-      }
-    }
-  }
-}
-
 void destroyNode(App &app, int index) {
   if (index < 0 || index >= (int)app.nodes.size()) return;
   waitRenderIdle(app);
@@ -243,14 +195,12 @@ static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor) 
   node.storedLabel = node.processor->displayName();
 
   if (app.preview.w) node.processor->setRenderSize(app.preview.w, app.preview.h);
-  applyColorDefaults(app, node);
   for (const ProcessorParameter &param : node.processor->parameters())
     if (param.type == ParameterType::Group) node.groupOpen[param.id] = param.groupInitiallyOpen;
 
   app.nodes.push_back(std::move(node));
   app.selectedNode = (int)app.nodes.size() - 1;
   app.paramFilter[0] = '\0';
-  syncOutputTag(app);
   scheduleRender(app);
   return true;
 }
@@ -290,7 +240,6 @@ void moveNode(App &app, int from, int to) {
   app.nodes.erase(app.nodes.begin() + from);
   app.nodes.insert(app.nodes.begin() + to, std::move(node));
   app.selectedNode = to;
-  syncOutputTag(app);
   scheduleRender(app);
 }
 
@@ -389,6 +338,5 @@ void applyChain(App &app, const PersistChain &chain) {
     app.selectedNode = chain.selectedNode;
   if (app.selectedNode < 0 && !app.nodes.empty()) app.selectedNode = 0;
 
-  syncOutputTag(app);
   scheduleRender(app);
 }

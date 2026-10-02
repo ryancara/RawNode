@@ -106,6 +106,30 @@ static int selfTest() {
         std::fabs(rgb[1] - 1.875f) > 1e-7f ||
         std::fabs(rgb[2] - 0.625f) > 1e-7f)
       return fail("RAW camera matrix float boundary");
+
+    const float identityCamera[3][4] = {
+        {1.0f, 0.0f, 0.0f, 0.0f},
+        {0.0f, 1.0f, 0.0f, 0.0f},
+        {0.0f, 0.0f, 1.0f, 0.0f},
+    };
+    float working[3][4] = {};
+    if (!makeCameraToWorkingMatrix(identityCamera, ColorSpace::LinearRec2020, working) ||
+        std::fabs(working[0][0] - 0.627403896f) > 1e-6f ||
+        std::fabs(working[1][1] - 0.919540395f) > 1e-6f ||
+        std::fabs(working[2][2] - 0.895595253f) > 1e-6f)
+      return fail("RAW Linear Rec.2020 matrix");
+
+    if (!makeCameraToWorkingMatrix(identityCamera, ColorSpace::ACES2065_1, working) ||
+        std::fabs(working[0][0] - 0.439632982f) > 1e-6f ||
+        std::fabs(working[1][1] - 0.813439429f) > 1e-6f ||
+        std::fabs(working[2][2] - 0.870912276f) > 1e-6f)
+      return fail("RAW ACES2065-1 matrix");
+
+    // AP0 must have a usable linear ICC interpretation for preview/output-tag
+    // colour management, despite its imaginary primaries.
+    std::vector<uint8_t> ap0Icc;
+    if (!profileBytes(ColorSpace::ACES2065_1, ap0Icc) || ap0Icc.empty())
+      return fail("ACES2065-1 ICC profile");
   }
 
   {
@@ -135,6 +159,7 @@ static int selfTest() {
     const std::string sidecar = inputSidecarPath(source.string());
     if (!loadSidecarFile(sidecar, loaded)) return fail("sidecar v2 load");
     if (loaded.format != "rawnode-sidecar" || loaded.version != 2) return fail("sidecar v2 version");
+    if (loaded.rawWorkingSpace != "Linear Rec.2020") return fail("sidecar v2 RAW working space");
     if (loaded.chain.selectedNodeId != "node-future" || loaded.chain.nodes.size() != 1)
       return fail("sidecar v2 node identity");
     const PersistNode &loadedNode = loaded.chain.nodes[0];

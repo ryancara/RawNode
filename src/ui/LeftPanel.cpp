@@ -39,7 +39,12 @@ void drawLeftPanel(App &app) {
   if (ImGui::Button("Export")) doExport(app);
 
   ImGui::Text("Input: %s", app.path.empty() ? "—" : colorSpaceName(app.inputSpace));
-  ImGui::Combo("Output tag", &app.outputIndex, kOutputSpaces, 4);
+  const ColorSpace shownRawSpace =
+      (!app.path.empty() && isRawImagePath(app.path)) ? app.inputSpace : app.rawWorkingSpace;
+  int rawSpaceIndex = rawWorkingSpaceIndex(shownRawSpace);
+  if (ImGui::Combo("RAW working space", &rawSpaceIndex, kRawWorkingSpaces, kRawWorkingSpaceCount))
+    setRawWorkingSpace(app, rawWorkingSpace(rawSpaceIndex));
+  ImGui::Combo("Output tag", &app.outputIndex, kOutputSpaces, kOutputSpaceCount);
   if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) scheduleDisplayRecolor(app);
   {
     const char *items[kPreviewResCount];

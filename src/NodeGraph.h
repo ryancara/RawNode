@@ -12,8 +12,5 @@ bool addCtlNode(App &app, const std::string &path);
 void destroyNode(App &app, int index);
 void moveNode(App &app, int from, int to);
 
-void syncOutputTag(App &app);
-void applyColorDefaults(App &app, Node &node);
-
 PersistChain captureChain(const App &app);
 void applyChain(App &app, const PersistChain &chain);

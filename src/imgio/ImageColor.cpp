@@ -21,8 +21,24 @@ const char *colorSpaceName(ColorSpace cs) {
     case ColorSpace::DisplayP3: return "Display P3";
     case ColorSpace::LinearRec709: return "Linear Rec.709";
     case ColorSpace::LinearRec2020: return "Linear Rec.2020";
+    case ColorSpace::ACES2065_1: return "ACES2065-1";
   }
   return "sRGB";
+}
+
+bool colorSpaceFromName(const std::string &name, ColorSpace &cs) {
+  for (ColorSpace candidate : {ColorSpace::sRGB, ColorSpace::DisplayP3, ColorSpace::LinearRec709,
+                               ColorSpace::LinearRec2020, ColorSpace::ACES2065_1}) {
+    if (name == colorSpaceName(candidate)) {
+      cs = candidate;
+      return true;
+    }
+  }
+  if (name == "ACES2065-1 (AP0)" || name == "AP0") {
+    cs = ColorSpace::ACES2065_1;
+    return true;
+  }
+  return false;
 }
 
 static cmsToneCurve *srgbCurve() {
@@ -33,6 +49,7 @@ static cmsToneCurve *srgbCurve() {
 
 static cmsHPROFILE makeProfile(ColorSpace cs) {
   const cmsCIExyY d65 = {0.3127, 0.3290, 1.0};
+  const cmsCIExyY d60 = {0.32168, 0.33767, 1.0};
   switch (cs) {
     case ColorSpace::sRGB:
       return cmsCreate_sRGBProfile();
@@ -60,6 +77,15 @@ static cmsHPROFILE makeProfile(ColorSpace cs) {
       cmsFreeToneCurve(lin);
       return p;
     }
+    case ColorSpace::ACES2065_1: {
+      // ACES2065-1 / AP0 primaries and D60 white from SMPTE ST 2065-1.
+      cmsCIExyYTRIPLE ap0 = {{0.73470, 0.26530, 1.0}, {0.00000, 1.00000, 1.0}, {0.00010, -0.07700, 1.0}};
+      cmsToneCurve *lin = cmsBuildGamma(nullptr, 1.0);
+      cmsToneCurve *curves[3] = {lin, lin, lin};
+      cmsHPROFILE p = cmsCreateRGBProfile(&d60, &ap0, curves);
+      cmsFreeToneCurve(lin);
+      return p;
+    }
   }
   return cmsCreate_sRGBProfile();
 }
@@ -68,7 +94,7 @@ static cmsHPROFILE makeProfile(ColorSpace cs) {
 // Profiles are recreated from scratch on every call without this cache, which is
 // expensive (lcms2 profile building + CMS transform linking) and called per-frame.
 static cmsHPROFILE cachedProfile(ColorSpace cs) {
-  static std::array<cmsHPROFILE, 4> profiles{};
+  static std::array<cmsHPROFILE, 5> profiles{};
   const int idx = (int)cs;
   if (!profiles[idx]) profiles[idx] = makeProfile(cs);
   return profiles[idx];
@@ -80,8 +106,8 @@ static cmsHPROFILE srgbProfile() {
 }
 
 static const std::vector<uint8_t> &cachedIccBytes(ColorSpace cs) {
-  static std::array<std::vector<uint8_t>, 4> bytes{};
-  static std::array<bool, 4> tried{};
+  static std::array<std::vector<uint8_t>, 5> bytes{};
+  static std::array<bool, 5> tried{};
   const int idx = (int)cs;
   if (tried[idx]) return bytes[idx];
   tried[idx] = true;
@@ -99,8 +125,8 @@ static const std::vector<uint8_t> &cachedIccBytes(ColorSpace cs) {
 }
 
 static cmsHTRANSFORM cachedTransform(ColorSpace cs) {
-  static std::array<cmsHTRANSFORM, 4> transforms{};
-  static std::array<bool, 4> tried{};
+  static std::array<cmsHTRANSFORM, 5> transforms{};
+  static std::array<bool, 5> tried{};
   const int idx = (int)cs;
   if (tried[idx]) return transforms[idx];
   tried[idx] = true;

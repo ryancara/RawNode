@@ -11,14 +11,6 @@
 
 namespace fs = std::filesystem;
 
-static bool isRawImagePath(const std::string &path) {
-  std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
-  return e == ".cr2" || e == ".cr3" || e == ".nef" || e == ".arw" || e == ".dng" ||
-         e == ".raf" || e == ".orf" || e == ".rw2" || e == ".pef" || e == ".srw" ||
-         e == ".raw";
-}
-
 void drawFilmstripPanel(App &app) {
   if (app.workspaceDir.empty() || app.filmstrip.empty()) {
     ImGui::TextDisabled("Open a workspace folder to browse images.");
