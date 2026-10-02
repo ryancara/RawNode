@@ -445,7 +445,8 @@ ArtPresentation artPresentation(const ArtParamDefinition &def, ParameterType bas
   switch (baseType) {
     case ParameterType::Boolean:
       if (items.size() < 2 || items.size() > 5) throw bad();
-      if (items.size() >= 3 && items[2].kind != JsonValue::Kind::Bool) throw bad();
+      // ART treats a non-bool third item as "no metadata default" and falls
+      // through to the CTL/zero default; preserve that compatibility.
       if (items.size() >= 4) setGroupTooltip(3);
       break;
 
@@ -457,6 +458,7 @@ ArtPresentation artPresentation(const ArtParamDefinition &def, ParameterType bas
       out.hasRange = true;
       out.min = items[2].number;
       out.max = items[3].number;
+      out.step = 1.0;  // ART's default GUI precision for a float parameter.
       if (items.size() >= 5 && items[4].kind != JsonValue::Kind::Number) throw bad();
       if (items.size() >= 6) {
         if (items[5].kind != JsonValue::Kind::Number || !std::isfinite(items[5].number)) throw bad();
