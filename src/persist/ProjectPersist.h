@@ -66,6 +66,11 @@ std::vector<std::string> listWorkspaceImages(const std::string &workspaceDir);
 bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std::string &activeImageRel);
 bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui, const std::string &activeImageRel);
 
+// Encode/decode one JSON string value, including quotes. These helpers keep
+// processor string parameters valid JSON and correctly handle escaped Unicode.
+std::string jsonStringValue(const std::string &value);
+bool parseJsonStringValue(const std::string &raw, std::string &out);
+
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);
 bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui, const PersistChain &chain);
 bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace inputSpace,
