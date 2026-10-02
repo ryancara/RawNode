@@ -135,6 +135,24 @@ static int selfTest() {
         std::fabs(working[2][2] - 0.870912276f) > 1e-6f)
       return fail("RAW ACES2065-1 matrix");
 
+    if (!makeCameraToWorkingMatrix(identityCamera, RgbGamut::ACES_AP1, working) ||
+        std::fabs(working[0][0] - 0.613097402f) > 1e-6f ||
+        std::fabs(working[1][1] - 0.916353879f) > 1e-6f ||
+        std::fabs(working[2][2] - 0.869814634f) > 1e-6f)
+      return fail("RAW ACES AP1 registry matrix");
+
+    if (!makeCameraToWorkingMatrix(identityCamera, RgbGamut::DaVinciWideGamut, working) ||
+        std::fabs(working[0][0] - 0.562767456f) > 1e-6f ||
+        std::fabs(working[1][1] - 0.749577346f) > 1e-6f ||
+        std::fabs(working[2][2] - 0.743332108f) > 1e-6f)
+      return fail("RAW DWG registry matrix");
+
+    if (!makeCameraToWorkingMatrix(identityCamera, RgbGamut::DisplayP3, working) ||
+        std::fabs(working[0][0] - 0.822461969f) > 1e-6f ||
+        std::fabs(working[1][1] - 0.966805801f) > 1e-6f ||
+        std::fabs(working[2][2] - 0.910519929f) > 1e-6f)
+      return fail("RAW Display P3 registry matrix");
+
     // AP0 must have a usable linear ICC interpretation for preview/output-tag
     // colour management, despite its imaginary primaries.
     std::vector<uint8_t> ap0Icc;
@@ -397,6 +415,44 @@ static int selfTest() {
       return fail("sidecar v2 missing processor preservation");
 
     fs::remove(sidecar);
+
+    // Unknown future colour identifiers must be readable but write-protected,
+    // rather than silently replaced by this build's fallback.
+    const fs::path protectedImage = fs::temp_directory_path() / "rawnode-selftest-protected.tif";
+    if (!writeTinyTiff(protectedImage, false)) return fail("protected sidecar image write");
+    PersistChain emptyChain;
+    const ColorEncoding protectedRaw{RgbGamut::Rec2020, TransferFunction::Linear};
+    if (!saveInputSidecar(protectedImage.string(), ColorSpace::LinearRec2020, gui, emptyChain, &protectedRaw))
+      return fail("protected sidecar initial save");
+    const std::string protectedSidecar = inputSidecarPath(protectedImage.string());
+    std::string protectedJson;
+    {
+      std::ifstream in(protectedSidecar, std::ios::binary);
+      protectedJson.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    const std::string knownGamma = "\"gamma\":\"linear\"";
+    const size_t gammaPos = protectedJson.find(knownGamma);
+    if (gammaPos == std::string::npos) return fail("protected sidecar gamma locate");
+    protectedJson.replace(gammaPos, knownGamma.size(), "\"gamma\":\"Gamma 2.4\"");
+    {
+      std::ofstream out(protectedSidecar, std::ios::binary | std::ios::trunc);
+      out << protectedJson;
+      if (!out.good()) return fail("protected sidecar rewrite");
+    }
+    App protectedApp;
+    openPath(protectedApp, protectedImage.string(), true);
+    if (protectedApp.sidecarWriteBlockedPath != protectedImage.string())
+      return fail("unknown colour sidecar write protection");
+    saveCurrentInputSidecar(protectedApp);
+    std::string protectedAfter;
+    {
+      std::ifstream in(protectedSidecar, std::ios::binary);
+      protectedAfter.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    if (protectedAfter.find("\"gamma\":\"Gamma 2.4\"") == std::string::npos)
+      return fail("unknown colour sidecar preservation");
+    fs::remove(protectedSidecar);
+    fs::remove(protectedImage);
 
     // V1 remains readable and is normalised into the generic persistence model.
     const fs::path legacy = fs::temp_directory_path() / "rawnode-selftest-v1.ofxrawhost.json";
