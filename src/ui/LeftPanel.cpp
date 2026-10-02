@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <vector>
 
 static bool icontains(const std::string &hay, const std::string &needle) {
   if (needle.empty()) return true;
