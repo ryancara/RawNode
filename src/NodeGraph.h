@@ -4,6 +4,7 @@
 #include "persist/ProjectPersist.h"
 
 Node *selectedNode(App &app);
+std::string nodeDisplayName(const Node &node);
 void clearNodes(App &app);
 bool addNode(App &app, int pluginIndex);
 void destroyNode(App &app, int index);
