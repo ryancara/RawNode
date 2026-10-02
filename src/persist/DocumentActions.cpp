@@ -181,7 +181,6 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
     loadSidecarForPath(app, path);
   } else {
     app.sidecarWriteBlockedPath.clear();
-    for (auto &node : app.nodes) applyColorDefaults(app, node);
   }
   rebuildPreview(app);
   persistWorkspace(app);
@@ -212,24 +211,10 @@ void setRawWorkingSpace(App &app, ColorSpace space) {
 
   app.full = std::move(img);
   app.inputSpace = detected;
-
-  // OFX colour-space parameters are host metadata, not hidden pixel
-  // conversions. Keep scene-linear inputs that were already following one of
-  // RawNode's working spaces in sync with the newly decoded pixels. Explicit
-  // non-working-space choices are left untouched.
-  const InputColorSyncResult colorSync = syncOfxInputColorSpace(app, detected);
-
   rebuildPreview(app);
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
-
-  std::string status = "RAW working space: " + std::string(colorSpaceName(detected));
-  if (colorSync.unsupported > 0) {
-    status += "; " + std::to_string(colorSync.unsupported) + " OFX node";
-    if (colorSync.unsupported != 1) status += "s";
-    status += " has no matching Input Color Space";
-  }
-  app.setStatus(status);
+  app.setStatus("RAW working space: " + std::string(colorSpaceName(detected)));
 }
 
 void doExport(App &app) {
