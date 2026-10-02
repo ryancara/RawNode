@@ -1,4 +1,5 @@
 #include "imgio/ImageIO.h"
+#include "color/LinearColorTransform.h"
 #include "imgio/ImageIOPriv.h"
 #include "perf.h"
 
@@ -74,34 +75,8 @@ bool isRawImagePath(const std::string &path) {
 }
 
 bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], ColorSpace target, float out[3][4]) {
-  // Linear Rec.709/sRGB D65 -> Linear Rec.2020 D65.
-  static constexpr double kRec709ToRec2020[3][3] = {
-      {0.627403895934699, 0.329283038377883, 0.043313065687418},
-      {0.069097289358232, 0.919540395075459, 0.011362315566309},
-      {0.016391438875150, 0.088013307877226, 0.895595253247624},
-  };
-
-  // Linear Rec.709/sRGB D65 -> ACES2065-1/AP0 D60. This is the inverse
-  // of the AP0 -> Linear Rec.709 matrix used by the ACES/OCIO reference
-  // configuration and therefore includes the D65 <-> D60 adaptation.
-  static constexpr double kRec709ToAces2065[3][3] = {
-      {0.439632981919492, 0.382988698151554, 0.177378319928956},
-      {0.089776442958842, 0.813439428748978, 0.096784128292177},
-      {0.017541170383173, 0.111546553302387, 0.870912276314442},
-  };
-
-  double identity[3][3] = {
-      {1.0, 0.0, 0.0},
-      {0.0, 1.0, 0.0},
-      {0.0, 0.0, 1.0},
-  };
-  const double (*workingFromRec709)[3] = nullptr;
-  switch (target) {
-    case ColorSpace::LinearRec709: workingFromRec709 = identity; break;
-    case ColorSpace::LinearRec2020: workingFromRec709 = kRec709ToRec2020; break;
-    case ColorSpace::ACES2065_1: workingFromRec709 = kRec709ToAces2065; break;
-    default: return false;
-  }
+  double workingFromRec709[3][3] = {};
+  if (!linearColorTransformMatrix(ColorSpace::LinearRec709, target, workingFromRec709)) return false;
 
   for (int row = 0; row < 3; ++row) {
     for (int c = 0; c < 4; ++c) {
