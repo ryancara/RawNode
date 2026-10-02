@@ -23,19 +23,56 @@ constexpr Matrix3 kRec709ToRec2020 = {
 // This is the inverse of the AP0 -> Linear Rec.709 matrix used by the
 // ACES/OCIO reference configuration, so the D65 <-> D60 adaptation is part
 // of the matrix rather than a separate hidden operation.
-constexpr Matrix3 kRec709ToAces2065 = {
+constexpr Matrix3 kRec709ToAcesAp0 = {
     {0.439632981919492, 0.382988698151554, 0.177378319928956},
     {0.089776442958842, 0.813439428748978, 0.096784128292177},
     {0.017541170383173, 0.111546553302387, 0.870912276314442},
 };
 
-const double (*rec709To(ColorSpace space))[3] {
-  switch (space) {
-    case ColorSpace::LinearRec709: return kIdentity;
-    case ColorSpace::LinearRec2020: return kRec709ToRec2020;
-    case ColorSpace::ACES2065_1: return kRec709ToAces2065;
-    default: return nullptr;
+// Rec.709 D65 -> ACES AP1 D60. Derived from the reviewed Rec.709 -> AP0
+// transform above followed by the ACES reference AP0 -> AP1 matrix.
+constexpr Matrix3 kRec709ToAcesAp1 = {
+    {0.613097402379707, 0.339523146156163, 0.047379451364133},
+    {0.070193722465476, 0.916353879032696, 0.013452398501823},
+    {0.020615592870732, 0.109569772924858, 0.869814634204413},
+};
+
+// Rec.709 D65 -> DaVinci Wide Gamut D65. Derived from Blackmagic Design's
+// published DWG primaries/white point (v1.1) and the standard Rec.709 D65
+// primaries. Both spaces are D65, so no chromatic adaptation is required.
+constexpr Matrix3 kRec709ToDwg = {
+    {0.562767456007108, 0.323516588703959, 0.113715955288933},
+    {0.077754635285046, 0.749577346163222, 0.172668018551732},
+    {0.064669199916328, 0.191998692046299, 0.743332108037373},
+};
+
+const double (*rec709To(RgbGamut gamut))[3] {
+  switch (gamut) {
+    case RgbGamut::Rec709: return kIdentity;
+    case RgbGamut::Rec2020: return kRec709ToRec2020;
+    case RgbGamut::ACES_AP0: return kRec709ToAcesAp0;
+    case RgbGamut::ACES_AP1: return kRec709ToAcesAp1;
+    case RgbGamut::DaVinciWideGamut: return kRec709ToDwg;
   }
+  return nullptr;
+}
+
+bool colorSpaceToGamut(ColorSpace space, RgbGamut &gamut) {
+  switch (space) {
+    case ColorSpace::LinearRec709:
+      gamut = RgbGamut::Rec709;
+      return true;
+    case ColorSpace::LinearRec2020:
+      gamut = RgbGamut::Rec2020;
+      return true;
+    case ColorSpace::ACES2065_1:
+      gamut = RgbGamut::ACES_AP0;
+      return true;
+    case ColorSpace::sRGB:
+    case ColorSpace::DisplayP3:
+      return false;
+  }
+  return false;
 }
 
 bool invert3x3(const double m[3][3], double out[3][3]) {
@@ -72,7 +109,18 @@ void multiply3x3(const double a[3][3], const double b[3][3], double out[3][3]) {
 
 }  // namespace
 
-bool linearColorTransformMatrix(ColorSpace source, ColorSpace target, double out[3][3]) {
+const char *rgbGamutName(RgbGamut gamut) {
+  switch (gamut) {
+    case RgbGamut::Rec709: return "Rec.709 / sRGB";
+    case RgbGamut::Rec2020: return "Rec.2020";
+    case RgbGamut::ACES_AP0: return "ACES AP0";
+    case RgbGamut::ACES_AP1: return "ACES AP1";
+    case RgbGamut::DaVinciWideGamut: return "DaVinci Wide Gamut";
+  }
+  return "Rec.709 / sRGB";
+}
+
+bool linearColorTransformMatrix(RgbGamut source, RgbGamut target, double out[3][3]) {
   const double (*rec709ToSource)[3] = rec709To(source);
   const double (*rec709ToTarget)[3] = rec709To(target);
   if (!rec709ToSource || !rec709ToTarget) return false;
@@ -88,4 +136,10 @@ bool linearColorTransformMatrix(ColorSpace source, ColorSpace target, double out
   if (!invert3x3(rec709ToSource, sourceToRec709)) return false;
   multiply3x3(rec709ToTarget, sourceToRec709, out);
   return true;
+}
+
+bool linearColorTransformMatrix(ColorSpace source, ColorSpace target, double out[3][3]) {
+  RgbGamut sourceGamut, targetGamut;
+  if (!colorSpaceToGamut(source, sourceGamut) || !colorSpaceToGamut(target, targetGamut)) return false;
+  return linearColorTransformMatrix(sourceGamut, targetGamut, out);
 }
