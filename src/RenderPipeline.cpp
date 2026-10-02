@@ -1,5 +1,6 @@
 #include "RenderPipeline.h"
 #include "perf.h"
+#include "ofx/OfxHost.h"  // gLatestGen cancellation token; move to generic render state later.
 
 #include <GLFW/glfw3.h>
 
@@ -32,12 +33,8 @@ void scheduleRender(App &app) {
     showSourcePreview(app);
     return;
   }
-  for (auto &n : app.nodes) {
-    if (n.instance) {
-      n.instance->w = app.preview.w;
-      n.instance->h = app.preview.h;
-    }
-  }
+  for (auto &n : app.nodes)
+    if (n.processor) n.processor->setRenderSize(app.preview.w, app.preview.h);
   ++gLatestGen;
   app.renderPending = true;
   app.renderCv.notify_one();
@@ -99,12 +96,12 @@ static bool anyEnabledNode(const App &app) {
   return false;
 }
 
-OfxStatus renderChain(App &app, const Image &src, Image &out, int gen) {
+ProcessorResult renderChain(App &app, const Image &src, Image &out, int gen) {
   static thread_local Image cur, next;
 
   if (!anyEnabledNode(app)) {
     out = src;
-    return kOfxStatOK;
+    return ProcessorResult::success();
   }
 
   cur.w = src.w;
@@ -113,26 +110,22 @@ OfxStatus renderChain(App &app, const Image &src, Image &out, int gen) {
   for (size_t i = 0; i < app.nodes.size(); ++i) {
     Node &n = app.nodes[i];
     if (!n.enabled) continue;
-    if (!n.instance) return kOfxStatFailed;
-    OfxPlugin *plugin = gPlugins[n.pluginIndex].plugin;
-    int ow = cur.w, oh = cur.h;
-    queryOutputSize(plugin, n.instance.get(), cur.w, cur.h, &ow, &oh);
-    next.w = ow;
-    next.h = oh;
-    const size_t need = (size_t)ow * oh * 4;
-    if (next.px.size() < need) next.px.resize(need);
+    if (!n.processor) return ProcessorResult::failure(-1, "Missing processor");
+
     const auto t0 = std::chrono::steady_clock::now();
-    const OfxStatus st =
-        renderEffect(plugin, n.instance.get(), cur.px.data(), next.px.data(), cur.w, cur.h, ow, oh, gen);
+    ProcessorResult result = n.processor->render(cur, next, gen);
     const auto t1 = std::chrono::steady_clock::now();
-    perfLog(("node: " + gPlugins[n.pluginIndex].label).c_str(),
+    perfLog(("node: " + n.processor->displayName()).c_str(),
             std::chrono::duration<double, std::milli>(t1 - t0).count());
-    if (st != kOfxStatOK) return st;
-    if (gen != 0 && gen != gLatestGen) return kOfxStatFailed;
+
+    if (!result.ok) return result;
+    if (gen != 0 && gen != gLatestGen)
+      return ProcessorResult::failure(-1, "Render superseded");
+
     cur.swap(next);
   }
   out = std::move(cur);
-  return kOfxStatOK;
+  return ProcessorResult::success();
 }
 
 void renderWorker(App *app) {
@@ -168,9 +161,9 @@ void renderWorker(App *app) {
     const int ph = app->preview.h;
     app->setStatus("Rendering...");
     Image out;
-    const OfxStatus st = renderChain(*app, app->preview, out, gen);
+    const ProcessorResult result = renderChain(*app, app->preview, out, gen);
     if (gen != gLatestGen) continue;
-    if (st == kOfxStatOK) {
+    if (result.ok) {
       const ColorSpace space = outputSpace(app->outputIndex);
       std::vector<unsigned char> rgba;
       toDisplayRGBA8(out, space, rgba);
@@ -182,7 +175,7 @@ void renderWorker(App *app) {
       app->displayGen = gen;
       app->setStatus(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
     } else {
-      app->setStatus("Render failed (OFX status " + std::to_string(st) + ")");
+      app->setStatus("Render failed" + (result.message.empty() ? std::string() : ": " + result.message));
     }
   }
 }

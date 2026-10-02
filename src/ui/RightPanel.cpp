@@ -14,7 +14,7 @@ void drawRightPanel(App &app) {
     return;
   }
   ImGui::AlignTextToFramePadding();
-  ImGui::TextUnformatted(gPlugins[node->pluginIndex].label.c_str());
+  ImGui::TextUnformatted(node->processor ? node->processor->displayName().c_str() : "Missing processor");
   ImGui::Separator();
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F))
     ImGui::SetKeyboardFocusHere();

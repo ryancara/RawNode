@@ -2,6 +2,7 @@
 
 #include "AppState.h"
 #include "persist/ProjectPersist.h"
+#include "ofx/OfxHost.h"
 
 Node *selectedNode(App &app);
 void clearNodes(App &app);

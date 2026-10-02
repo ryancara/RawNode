@@ -89,3 +89,20 @@ Future keyboard, mouse, MIDI, OSC/TouchOSC, and hardware input should share the 
 **Status:** Accepted
 
 Do not introduce CTL, DCTL, alternate RAW decoding, masks, and a processing-core rewrite simultaneously. Prove architectural seams one at a time and preserve existing behaviour during foundational refactors.
+
+## D013 — Prefer upstream-friendly infrastructure
+
+**Status:** Accepted
+
+Where practical, foundational refactors should remain useful to OFX Raw Host independently of RawNode-specific features.
+
+**Reason:** This makes it easier to contribute broadly useful work back upstream and easier for RawNode to absorb future upstream changes. RawNode-specific features may still build independently on top of those shared seams.
+
+## D014 — Reserve graph/node extension points before enabling them
+
+**Status:** Accepted
+
+The node data model may reserve neutral extension points for future multiple image inputs, mask inputs, opacity/compositing, and branching while the initial renderer remains serial.
+
+Detailed qualifier, mask, and compositing implementations should not be designed prematurely. A qualifier should ultimately be one possible mask/matte generator rather than a special case embedded in every processor.
+

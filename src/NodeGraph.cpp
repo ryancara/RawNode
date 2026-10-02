@@ -1,10 +1,28 @@
 #include "NodeGraph.h"
 
 #include "RenderPipeline.h"
+#include "processors/OfxProcessor.h"
 #include "ofxParam.h"
 
 #include <cctype>
 #include <sstream>
+#include <stdexcept>
+
+// Node creation currently happens on the UI thread. IDs become persistent
+// across sessions when Sidecar V2 begins storing them.
+static unsigned long long gNextNodeId = 1;
+
+static OfxProcessor *asOfx(Node &node) {
+  return dynamic_cast<OfxProcessor *>(node.processor.get());
+}
+
+static const OfxProcessor *asOfx(const Node &node) {
+  return dynamic_cast<const OfxProcessor *>(node.processor.get());
+}
+
+static std::string makeNodeId() {
+  return "node-" + std::to_string(gNextNodeId++);
+}
 
 Node *selectedNode(App &app) {
   if (app.selectedNode < 0 || app.selectedNode >= (int)app.nodes.size()) return nullptr;
@@ -107,14 +125,18 @@ void notifyChanged(App &app, Node &node, Param *p) {
   propSetString(a, kOfxPropChangeReason, 0, kOfxChangeUserEdited);
   propSetDouble(a, kOfxPropTime, 0, 0);
   propSetN<double, propSetDouble>(a, kOfxImageEffectPropRenderScale, 2, scale);
-  OfxPlugin *plugin = gPlugins[node.pluginIndex].plugin;
-  callAction(plugin, kOfxActionBeginInstanceChanged, node.instance.get(), &in);
-  callAction(plugin, kOfxActionInstanceChanged, node.instance.get(), &in);
-  callAction(plugin, kOfxActionEndInstanceChanged, node.instance.get(), &in);
+  OfxProcessor *ofx = asOfx(node);
+  if (!ofx || !ofx->effect()) return;
+  OfxPlugin *plugin = gPlugins[ofx->pluginIndex()].plugin;
+  callAction(plugin, kOfxActionBeginInstanceChanged, ofx->effect(), &in);
+  callAction(plugin, kOfxActionInstanceChanged, ofx->effect(), &in);
+  callAction(plugin, kOfxActionEndInstanceChanged, ofx->effect(), &in);
 }
 
 void applyColorDefaults(App &app, Node &node) {
-  for (auto &up : node.instance->params) {
+  OfxProcessor *ofx = asOfx(node);
+  if (!ofx || !ofx->effect()) return;
+  for (auto &up : ofx->effect()->params) {
     Param *p = up.get();
     if (p->type != kOfxParamTypeChoice) continue;
     const std::string label = sprop(p->props, kOfxPropLabel);
@@ -136,7 +158,9 @@ void applyColorDefaults(App &app, Node &node) {
 
 void syncOutputTag(App &app) {
   for (int n = (int)app.nodes.size() - 1; n >= 0; --n) {
-    for (auto &up : app.nodes[n].instance->params) {
+    OfxProcessor *ofx = asOfx(app.nodes[n]);
+    if (!ofx || !ofx->effect()) continue;
+    for (auto &up : ofx->effect()->params) {
       Param *p = up.get();
       if (p->type != kOfxParamTypeChoice || sprop(p->props, kOfxPropLabel) != "Output Color Space" ||
           dprop(p->props, kOfxParamPropSecret, 0, 0) != 0)
@@ -157,8 +181,6 @@ void syncOutputTag(App &app) {
 void destroyNode(App &app, int index) {
   if (index < 0 || index >= (int)app.nodes.size()) return;
   waitRenderIdle(app);
-  Node &n = app.nodes[index];
-  if (n.instance) callAction(gPlugins[n.pluginIndex].plugin, kOfxActionDestroyInstance, n.instance.get());
   app.nodes.erase(app.nodes.begin() + index);
   if (app.nodes.empty())
     app.selectedNode = -1;
@@ -172,8 +194,6 @@ void destroyNode(App &app, int index) {
 
 void clearNodes(App &app) {
   waitRenderIdle(app);
-  for (auto &n : app.nodes)
-    if (n.instance) callAction(gPlugins[n.pluginIndex].plugin, kOfxActionDestroyInstance, n.instance.get());
   app.nodes.clear();
   app.selectedNode = -1;
   app.paramFilter[0] = '\0';
@@ -183,18 +203,16 @@ bool addNode(App &app, int pluginIndex) {
   if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return false;
   waitRenderIdle(app);
   Node node;
-  node.pluginIndex = pluginIndex;
-  node.instance = createInstance(gPlugins[pluginIndex]);
-  if (!node.instance) {
+  node.id = makeNodeId();
+  node.processor = OfxProcessor::create(pluginIndex);
+  if (!node.processor) {
     app.setStatus("Plugin failed to create an instance");
     return false;
   }
-  if (app.preview.w) {
-    node.instance->w = app.preview.w;
-    node.instance->h = app.preview.h;
-  }
+  if (app.preview.w) node.processor->setRenderSize(app.preview.w, app.preview.h);
   applyColorDefaults(app, node);
-  for (auto &p : node.instance->params)
+  OfxProcessor *ofx = asOfx(node);
+  for (auto &p : ofx->effect()->params)
     if (p->type == kOfxParamTypeGroup) node.groupOpen[p->name] = dprop(p->props, kOfxParamPropGroupOpen, 0, 1) != 0;
   app.nodes.push_back(std::move(node));
   app.selectedNode = (int)app.nodes.size() - 1;
@@ -220,13 +238,15 @@ PersistChain captureChain(const App &app) {
   chain.selectedNode = app.selectedNode;
   for (const Node &n : app.nodes) {
     PersistNode pn;
-    OfxPlugin *pl = gPlugins[n.pluginIndex].plugin;
-    pn.pluginIdentifier = pl && pl->pluginIdentifier ? pl->pluginIdentifier : "";
-    pn.pluginLabel = gPlugins[n.pluginIndex].label;
+    const OfxProcessor *ofx = asOfx(n);
+    if (!ofx)
+      throw std::logic_error("Sidecar V1 only supports OFX processors; add generic persistence before another backend");
+    pn.pluginIdentifier = n.processor->identifier();
+    pn.pluginLabel = n.processor->displayName();
     pn.enabled = n.enabled;
     pn.groupOpen = n.groupOpen;
-    if (n.instance) {
-      for (const auto &up : n.instance->params) {
+    if (ofx->effect()) {
+      for (const auto &up : ofx->effect()->params) {
         Param *p = up.get();
         if (dprop(p->props, kOfxParamPropSecret, 0, 0) != 0) continue;
         if (p->type == kOfxParamTypeGroup || p->type == kOfxParamTypePage || p->type == kOfxParamTypePushButton) continue;
@@ -246,8 +266,9 @@ void applyChain(App &app, const PersistChain &chain) {
     Node &node = app.nodes.back();
     node.enabled = pn.enabled;
     node.groupOpen = pn.groupOpen;
-    if (node.instance) {
-      for (auto &up : node.instance->params) {
+    OfxProcessor *ofx = asOfx(node);
+    if (ofx && ofx->effect()) {
+      for (auto &up : ofx->effect()->params) {
         Param *p = up.get();
         auto it = pn.paramsJson.find(p->name);
         if (it != pn.paramsJson.end()) applyParamValueJson(p, it->second);

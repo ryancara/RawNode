@@ -76,7 +76,9 @@ This shared representation should drive:
 
 ## Node identity
 
-Every node instance must have a persistent unique instance ID separate from the processor/plugin identifier.
+Every node instance should ultimately have a persistent unique instance ID separate from the processor/plugin identifier.
+
+The current Phase 1 implementation only assigns a session-local ID. Sidecar V2 is responsible for persisting that ID across sessions.
 
 Example:
 
@@ -109,12 +111,17 @@ Potential future structure:
 
 ```text
 Node
+    persistent instance ID
     processor
     parameters
     enabled
+    image input(s)
+    mask/matte input(s)
     opacity
-    mask input(s)
+    composite mode
 ```
+
+The first generic-node refactor may reserve these neutral fields while leaving them inactive. The serial renderer remains the source of truth until graph routing is deliberately implemented. Detailed qualifier/mask implementations should come later; qualifiers should be able to act as mask generators rather than requiring a special processing architecture.
 
 Mask generation should remain separable from image adjustment. AI features should initially generate masks rather than become a separate image-processing architecture.
 

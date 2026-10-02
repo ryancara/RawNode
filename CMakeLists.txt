@@ -86,6 +86,7 @@ add_executable(OfxRawHost
   src/imgio/ImageWrite.cpp
   src/UI.cpp
   src/NodeGraph.cpp
+  src/processors/OfxProcessor.cpp
   src/RenderPipeline.cpp
   src/persist/DocumentActions.cpp
   src/persist/ProjectPersistSave.cpp
