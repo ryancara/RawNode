@@ -11,7 +11,10 @@
 #include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <limits>
+#include <locale>
+#include <map>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -117,6 +120,279 @@ std::string canonicalScriptPath(const std::string &path) {
   if (ec) return path;
   const fs::path canonical = fs::weakly_canonical(absolute, ec);
   return ec ? absolute.string() : canonical.string();
+}
+
+// --- ART metadata ---------------------------------------------------------
+// ART scripts describe each ART_main parameter in a comment line such as
+//   // @ART-param: ["gain", "Gain", 0.0, 4.0, 1.0, 0.01]
+// whose value is a JSON array. Only what RawNode uses so far is interpreted:
+// the parameter name and its default. Labels, ranges, groups and choices are
+// parsed past but left for the presentation step.
+
+struct JsonValue {
+  enum class Kind { Null, Bool, Number, String, Array, Object } kind = Kind::Null;
+  bool boolean = false;
+  double number = 0.0;
+  std::string string;
+  std::vector<JsonValue> items;  // Array only
+};
+
+class JsonReader {
+ public:
+  explicit JsonReader(const std::string &text) : text_(text) {}
+
+  // Parses exactly one JSON value spanning the whole text.
+  bool parseDocument(JsonValue &out) {
+    if (!parseValue(out, 0)) return false;
+    skipWs();
+    return pos_ == text_.size();
+  }
+
+ private:
+  static constexpr int kMaxDepth = 32;
+
+  void skipWs() {
+    while (pos_ < text_.size() && std::isspace((unsigned char)text_[pos_])) ++pos_;
+  }
+
+  bool literal(const char *word) {
+    const size_t n = std::char_traits<char>::length(word);
+    if (text_.compare(pos_, n, word) != 0) return false;
+    pos_ += n;
+    return true;
+  }
+
+  bool parseValue(JsonValue &out, int depth) {
+    if (depth > kMaxDepth) return false;
+    skipWs();
+    if (pos_ >= text_.size()) return false;
+    const char c = text_[pos_];
+    if (c == '"') {
+      out.kind = JsonValue::Kind::String;
+      return parseString(out.string);
+    }
+    if (c == '[' || c == '{') return parseContainer(out, depth);
+    if (literal("true")) { out.kind = JsonValue::Kind::Bool; out.boolean = true; return true; }
+    if (literal("false")) { out.kind = JsonValue::Kind::Bool; out.boolean = false; return true; }
+    if (literal("null")) { out.kind = JsonValue::Kind::Null; return true; }
+    return parseNumber(out);
+  }
+
+  // Locale-independent, unlike strtod under a non-"C" LC_NUMERIC.
+  bool parseNumber(JsonValue &out) {
+    const size_t start = pos_;
+    while (pos_ < text_.size() && (std::isdigit((unsigned char)text_[pos_]) || text_[pos_] == '-' ||
+                                   text_[pos_] == '+' || text_[pos_] == '.' || text_[pos_] == 'e' ||
+                                   text_[pos_] == 'E'))
+      ++pos_;
+    if (pos_ == start) return false;
+    std::istringstream in(text_.substr(start, pos_ - start));
+    in.imbue(std::locale::classic());
+    double value = 0.0;
+    if (!(in >> value) || in.peek() != std::char_traits<char>::eof()) return false;
+    out.kind = JsonValue::Kind::Number;
+    out.number = value;
+    return true;
+  }
+
+  static void appendUtf8(std::string &out, unsigned cp) {
+    if (cp < 0x80) {
+      out += (char)cp;
+    } else if (cp < 0x800) {
+      out += (char)(0xC0 | (cp >> 6));
+      out += (char)(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+      out += (char)(0xE0 | (cp >> 12));
+      out += (char)(0x80 | ((cp >> 6) & 0x3F));
+      out += (char)(0x80 | (cp & 0x3F));
+    } else {
+      out += (char)(0xF0 | (cp >> 18));
+      out += (char)(0x80 | ((cp >> 12) & 0x3F));
+      out += (char)(0x80 | ((cp >> 6) & 0x3F));
+      out += (char)(0x80 | (cp & 0x3F));
+    }
+  }
+
+  bool parseHex4(unsigned &value) {
+    if (pos_ + 4 > text_.size()) return false;
+    value = 0;
+    for (int i = 0; i < 4; ++i) {
+      const char h = text_[pos_++];
+      value <<= 4;
+      if (h >= '0' && h <= '9') value |= (unsigned)(h - '0');
+      else if (h >= 'a' && h <= 'f') value |= (unsigned)(h - 'a' + 10);
+      else if (h >= 'A' && h <= 'F') value |= (unsigned)(h - 'A' + 10);
+      else return false;
+    }
+    return true;
+  }
+
+  bool parseString(std::string &out) {
+    ++pos_;  // opening quote
+    out.clear();
+    while (pos_ < text_.size()) {
+      const char c = text_[pos_++];
+      if (c == '"') return true;
+      if (c != '\\') {
+        out += c;
+        continue;
+      }
+      if (pos_ >= text_.size()) return false;
+      const char e = text_[pos_++];
+      switch (e) {
+        case '"': out += '"'; break;
+        case '\\': out += '\\'; break;
+        case '/': out += '/'; break;
+        case 'b': out += '\b'; break;
+        case 'f': out += '\f'; break;
+        case 'n': out += '\n'; break;
+        case 'r': out += '\r'; break;
+        case 't': out += '\t'; break;
+        case 'u': {
+          unsigned cp = 0;
+          if (!parseHex4(cp)) return false;
+          if (cp >= 0xD800 && cp <= 0xDBFF) {
+            unsigned low = 0;
+            if (pos_ + 2 > text_.size() || text_[pos_] != '\\' || text_[pos_ + 1] != 'u') return false;
+            pos_ += 2;
+            if (!parseHex4(low) || low < 0xDC00 || low > 0xDFFF) return false;
+            cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
+          } else if (cp >= 0xDC00 && cp <= 0xDFFF) {
+            return false;
+          }
+          appendUtf8(out, cp);
+          break;
+        }
+        default:
+          return false;
+      }
+    }
+    return false;
+  }
+
+  // Arrays keep their items; objects are validated and skipped (unused).
+  bool parseContainer(JsonValue &out, int depth) {
+    const bool isArray = text_[pos_] == '[';
+    const char close = isArray ? ']' : '}';
+    out.kind = isArray ? JsonValue::Kind::Array : JsonValue::Kind::Object;
+    ++pos_;
+    skipWs();
+    if (pos_ < text_.size() && text_[pos_] == close) {
+      ++pos_;
+      return true;
+    }
+    for (;;) {
+      if (!isArray) {
+        skipWs();
+        std::string key;
+        if (pos_ >= text_.size() || text_[pos_] != '"' || !parseString(key)) return false;
+        skipWs();
+        if (pos_ >= text_.size() || text_[pos_++] != ':') return false;
+      }
+      JsonValue item;
+      if (!parseValue(item, depth + 1)) return false;
+      if (isArray) out.items.push_back(std::move(item));
+      skipWs();
+      if (pos_ >= text_.size()) return false;
+      const char c = text_[pos_++];
+      if (c == close) return true;
+      if (c != ',') return false;
+    }
+  }
+
+  const std::string &text_;
+  size_t pos_ = 0;
+};
+
+struct ArtParamDefinition {
+  int line = 0;
+  JsonValue spec;  // the JSON array; spec.items[0] is the parameter name
+};
+
+// Collects "@ART-param:" lines (optionally behind "//"), keyed by parameter
+// name, matching how ART scans scripts. Malformed definitions are errors, as
+// they are in ART.
+std::map<std::string, ArtParamDefinition> readArtParamDefinitions(const std::string &path) {
+  std::map<std::string, ArtParamDefinition> defs;
+  std::ifstream in(path, std::ios::binary);
+  const std::string file = fs::path(path).filename().string();
+  std::string line;
+  for (int number = 1; std::getline(in, line); ++number) {
+    size_t s = 0;
+    while (s < line.size() && std::isspace((unsigned char)line[s])) ++s;
+    if (line.compare(s, 2, "//") == 0) s += 2;
+    while (s < line.size() && std::isspace((unsigned char)line[s])) ++s;
+    static const std::string kTag = "@ART-param:";
+    if (line.compare(s, kTag.size(), kTag) != 0) continue;
+
+    const std::string where = file + ":" + std::to_string(number) + ": ";
+    ArtParamDefinition def;
+    def.line = number;
+    const std::string json = line.substr(s + kTag.size());
+    if (!JsonReader(json).parseDocument(def.spec) || def.spec.kind != JsonValue::Kind::Array ||
+        def.spec.items.size() < 2 || def.spec.items[0].kind != JsonValue::Kind::String)
+      throw ContractError(where + "invalid @ART-param definition");
+    const std::string name = def.spec.items[0].string;
+    if (!defs.emplace(name, std::move(def)).second)
+      throw ContractError(where + "duplicate @ART-param definition for " + name);
+  }
+  return defs;
+}
+
+bool jsonInteger(const JsonValue &value, int &out) {
+  if (value.kind != JsonValue::Kind::Number || !std::isfinite(value.number) ||
+      std::fabs(value.number) > (double)std::numeric_limits<int>::max() || value.number != std::trunc(value.number))
+    return false;
+  out = (int)value.number;
+  return true;
+}
+
+// Reads the default declared by an @ART-param definition, using ART's
+// positional layouts:
+//   bool   [name, label, default?, group?, tooltip?]
+//   float  [name, label, min, max, default?, step?, group?, tooltip?]
+//   int    [name, label, min, max, default?, group?, tooltip?]
+//   choice [name, label, [options...], default?, group?, tooltip?]  (int)
+// Returns false when the definition gives no default; throws when it is
+// malformed for the parameter's type.
+bool artMetadataDefault(const ArtParamDefinition &def, ParameterType type, const std::string &file,
+                        ParameterValue &out) {
+  const auto &items = def.spec.items;
+  const auto bad = [&]() {
+    return ContractError(file + ":" + std::to_string(def.line) + ": invalid @ART-param definition for " +
+                         items[0].string);
+  };
+  switch (type) {
+    case ParameterType::Boolean:
+      if (items.size() >= 3 && items[2].kind == JsonValue::Kind::Bool) {
+        out = items[2].boolean;
+        return true;
+      }
+      return false;
+    case ParameterType::Double:
+      if (items.size() < 4 || items[2].kind != JsonValue::Kind::Number || items[3].kind != JsonValue::Kind::Number)
+        throw bad();
+      if (items.size() < 5) return false;
+      if (items[4].kind != JsonValue::Kind::Number || !std::isfinite(items[4].number) ||
+          std::fabs(items[4].number) > std::numeric_limits<float>::max())
+        throw bad();
+      out = (double)(float)items[4].number;  // CTL float storage
+      return true;
+    case ParameterType::Integer: {
+      const bool choice = items.size() >= 3 && items[2].kind == JsonValue::Kind::Array;
+      const size_t at = choice ? 3 : 4;
+      if (!choice && (items.size() < 4 || items[2].kind != JsonValue::Kind::Number ||
+                      items[3].kind != JsonValue::Kind::Number))
+        throw bad();
+      if (items.size() <= at) return false;
+      int v = 0;
+      if (!jsonInteger(items[at], v)) throw bad();
+      out = v;
+      return true;
+    }
+    default:
+      return false;
+  }
 }
 
 }  // namespace
@@ -239,7 +515,14 @@ struct CtlProcessor::Impl {
       function = interpreter.newFunctionCall("main");
     } catch (const std::exception &e) {
       if (std::string(e.what()) != "Cannot find CTL function main.") throw;
-      function = interpreter.newFunctionCall("ART_main");
+      try {
+        function = interpreter.newFunctionCall("ART_main");
+      } catch (const std::exception &artError) {
+        if (std::string(artError.what()) != "Cannot find CTL function ART_main.") throw;
+        // Not a ContractError: when compilation or an import failed, CTL's own
+        // diagnostics explain why no entry point exists and are preferred.
+        throw std::runtime_error("CTL script defines neither main() nor ART_main()");
+      }
       artDialect = true;
     }
 
@@ -247,10 +530,14 @@ struct CtlProcessor::Impl {
       throw ContractError(artDialect ? "ART_main() must return void" : "CTL main() must return void");
 
     if (artDialect) {
-      // ART defines the first three inputs/outputs positionally as varying
-      // float RGB channels; parameter names after them are script-defined.
-      if (function->numInputArgs() < 3 || function->numOutputArgs() < 3)
-        throw ContractError("ART_main() must provide three varying float RGB inputs and outputs");
+      // ART defines the first three inputs positionally as varying float RGB
+      // channels, followed by script-defined parameters, and requires exactly
+      // three varying float RGB outputs.
+      if (function->numInputArgs() < 3)
+        throw ContractError("ART_main() must take three varying float RGB inputs");
+      if (function->numOutputArgs() != 3)
+        throw ContractError("ART_main() must have exactly three varying float RGB outputs (found " +
+                            std::to_string(function->numOutputArgs()) + ")");
 
       rIn = function->inputArg(0);
       gIn = function->inputArg(1);
@@ -263,21 +550,40 @@ struct CtlProcessor::Impl {
           !validVaryingFloat(rOut) || !validVaryingFloat(gOut) || !validVaryingFloat(bOut))
         throw ContractError("ART_main() RGB inputs and outputs must be varying float");
 
-      // ART parameters may omit CTL defaults; ART specifies zero as the final
-      // fallback. Metadata defaults/ranges/labels are added by the next adapter
-      // step, but scalar float/int/bool parameters are executable now.
+      // Defaults follow ART's documented precedence: the @ART-param default,
+      // then the CTL default in ART_main, then zero/false. The resolved value
+      // is the parameter's default and initial value, so Sidecar V2 records
+      // ART's starting values for untouched parameters. Labels, ranges, groups
+      // and choices from the same metadata are left for the presentation step.
+      const std::string file = fs::path(path).filename().string();
+      std::map<std::string, ArtParamDefinition> metadata = readArtParamDefinitions(path);
       for (size_t i = 3; i < function->numInputArgs(); ++i) {
         Ctl::FunctionArgPtr arg = function->inputArg(i);
+        const std::string &name = arg->name();
         const ParameterType type = exposedParameterType(arg);
-        if (type == ParameterType::Unsupported)
-          throw ContractError("Unsupported ART CTL parameter type: " + arg->name());
+        if (type == ParameterType::Unsupported) {
+          if (arg->isVarying())
+            throw ContractError("ART CTL parameter " + name + " must be uniform, not varying");
+          const Ctl::ArrayTypePtr array = arg->type().cast<Ctl::ArrayType>();
+          if (array.refcount() != 0 && array->elementType().cast<Ctl::FloatType>().refcount() != 0)
+            throw ContractError("ART CTL parameter " + name +
+                                " is a curve (float array); ART curve parameters are not supported yet");
+          if (array.refcount() != 0)
+            throw ContractError("ART CTL parameter " + name + " is an array; array parameters are not supported");
+          throw ContractError("ART CTL parameter " + name +
+                              " has an unsupported type; ART parameters must be float, int or bool");
+        }
 
         ParameterBinding binding;
-        binding.id = arg->name();
+        binding.id = name;
         binding.arg = arg;
         binding.type = type;
 
-        if (arg->hasDefaultValue()) {
+        ParameterValue metadataDefault;
+        const auto def = metadata.find(name);
+        if (def != metadata.end() && artMetadataDefault(def->second, type, file, metadataDefault)) {
+          binding.defaultValue = metadataDefault;
+        } else if (arg->hasDefaultValue()) {
           arg->setDefaultValue();
           binding.defaultValue = readValue(arg, type);
         } else {
@@ -288,10 +594,16 @@ struct CtlProcessor::Impl {
             default: break;
           }
         }
+        if (def != metadata.end()) metadata.erase(def);
 
         parameterValues.push_back(binding.defaultValue);
         exposedParameters.push_back(std::move(binding));
       }
+
+      // As in ART, metadata must describe parameters that exist.
+      if (!metadata.empty())
+        throw ContractError(file + ":" + std::to_string(metadata.begin()->second.line) +
+                            ": @ART-param refers to unknown ART_main parameter " + metadata.begin()->first);
     } else {
       rIn = function->findInputArg("rIn");
       gIn = function->findInputArg("gIn");
@@ -393,7 +705,7 @@ std::vector<ProcessorParameter> CtlProcessor::parameters() const {
     ProcessorParameter param;
     param.id = binding.id;
     param.label = binding.id;
-    param.hint = impl_->artDialect ? "ART CTL input parameter (presentation metadata not yet applied)"
+    param.hint = impl_->artDialect ? "ART CTL input parameter (ART labels and ranges not yet applied)"
                                    : "Standard CTL input parameter";
     param.type = binding.type;
     param.value = impl_->parameterValues[i];
