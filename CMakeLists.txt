@@ -87,6 +87,7 @@ add_executable(OfxRawHost
   src/UI.cpp
   src/NodeGraph.cpp
   src/processors/OfxProcessor.cpp
+  src/processors/NativeExposureProcessor.cpp
   src/RenderPipeline.cpp
   src/persist/DocumentActions.cpp
   src/persist/ProjectPersistSave.cpp
