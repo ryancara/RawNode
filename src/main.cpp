@@ -18,6 +18,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -333,6 +334,91 @@ static int selfTest() {
     Image ctlResetOut;
     if (!renderChain(ctlApp, src, ctlResetOut, 0).ok || ctlResetOut.px != ctlOut.px)
       return fail("ctl parameter reset render");
+
+    // Values are validated against CTL's 32-bit float storage and exact types,
+    // and a rejected write leaves the current value untouched.
+    Processor &ctlProc = *ctlApp.nodes[0].processor;
+    const auto ctlGain = [&]() {
+      for (const ProcessorParameter &param : ctlProc.parameters())
+        if (param.id == "gain") return std::get<double>(param.value);
+      return -1.0;
+    };
+    if (ctlProc.setParameterValue("gain", std::numeric_limits<double>::infinity()) ||
+        ctlProc.setParameterValue("gain", std::numeric_limits<double>::quiet_NaN()) ||
+        ctlProc.setParameterValue("gain", 1e39) ||               // overflows 32-bit float
+        ctlProc.setParameterValue("gain", 2) ||                  // int for a float input
+        ctlProc.setParameterValue("mode", 1.0) ||                // double for an int input
+        ctlProc.setParameterValue("enabled", 1) ||               // int for a bool input
+        ctlProc.setParameterValue("noSuchParameter", 1.0) || ctlGain() != 2.0)
+      return fail("ctl parameter validation");
+    if (!ctlProc.setParameterValue("gain", (double)std::numeric_limits<float>::max()) ||
+        ctlGain() != (double)std::numeric_limits<float>::max() || !ctlProc.resetParameter("gain"))
+      return fail("ctl parameter float range");
+
+    // More pixels than one SIMD chunk (maxSamples() = 4096), so the parameter
+    // snapshot written before rendering must hold for every chunk.
+    Image ctlWide;
+    ctlWide.w = 101;
+    ctlWide.h = 77;  // 7777 pixels
+    ctlWide.px.resize((size_t)ctlWide.w * ctlWide.h * 4);
+    for (size_t i = 0; i < ctlWide.px.size(); ++i) ctlWide.px[i] = (i % 4 == 3) ? 0.5f : 0.001f * (float)(i % 997);
+    if (!ctlProc.setParameterValue("gain", 3.0) || !ctlProc.setParameterValue("mode", 1))
+      return fail("ctl multi-chunk parameter set");
+    Image ctlWideOut;
+    if (!ctlProc.render(ctlWide, ctlWideOut, 0).ok || ctlWideOut.px.size() != ctlWide.px.size())
+      return fail("ctl multi-chunk render");
+    for (size_t i = 0; i + 3 < ctlWide.px.size(); i += 4) {
+      if (ctlWideOut.px[i + 0] != ctlWide.px[i + 0] ||
+          std::fabs(ctlWideOut.px[i + 1] - ctlWide.px[i + 1] * 3.0f) > 1e-6f ||
+          ctlWideOut.px[i + 2] != ctlWide.px[i + 2] || ctlWideOut.px[i + 3] != ctlWide.px[i + 3])
+        return fail("ctl multi-chunk parameter values");
+    }
+    if (!ctlProc.resetParameter("gain") || !ctlProc.resetParameter("mode"))
+      return fail("ctl multi-chunk parameter reset");
+
+    // Only defaulted scalar uniform float/int/bool inputs are exposed. An
+    // unqualified input is uniform in CTL; varying, half, unsigned int and
+    // array inputs stay hidden but their defaults must still apply.
+    {
+      const fs::path exposurePath = ctlDir / "ExposureRules.ctl";
+      {
+        std::ofstream script(exposurePath.string(), std::ios::binary);
+        script <<
+            "void main(\n"
+            "  input varying float rIn, input varying float gIn, input varying float bIn,\n"
+            "  output varying float rOut, output varying float gOut, output varying float bOut,\n"
+            "  input float unqualified = 2.0, input varying float varyingGain = 3.0,\n"
+            "  input uniform half halfGain = 0.5, input uniform unsigned int uintGain = 4,\n"
+            "  input uniform float arrayGain[2] = {5.0, 7.0})\n"
+            "{\n"
+            "  rOut = rIn * unqualified * varyingGain * halfGain * uintGain * arrayGain[1];\n"
+            "  gOut = gIn; bOut = bIn;\n"
+            "}\n";
+        if (!script.good()) return fail("ctl exposure rules test write");
+      }
+      std::string exposureError;
+      auto exposure = CtlProcessor::create(exposurePath.string(), &exposureError);
+      if (!exposure) return fail(("ctl exposure rules load: " + exposureError).c_str());
+      const auto exposed = exposure->parameters();
+      if (exposed.size() != 1 || exposed[0].id != "unqualified" || exposed[0].type != ParameterType::Double ||
+          exposed[0].hasRange || std::get<double>(exposed[0].defaultValue) != 2.0)
+        return fail("ctl exposure rules parameters");
+
+      const auto checkRed = [&](float factor) {
+        Image out;
+        if (!exposure->render(ctlWide, out, 0).ok || out.px.size() != ctlWide.px.size()) return false;
+        for (size_t i = 0; i + 3 < ctlWide.px.size(); i += 4) {
+          const float want = ctlWide.px[i] * factor;
+          if (std::fabs(out.px[i] - want) > 1e-5f * std::max(1.0f, std::fabs(want))) return false;
+        }
+        return true;
+      };
+      if (!checkRed(2.0f * 3.0f * 0.5f * 4.0f * 7.0f)) return fail("ctl hidden input defaults");
+      if (!exposure->setParameterValue("unqualified", 1.0) || !checkRed(3.0f * 0.5f * 4.0f * 7.0f))
+        return fail("ctl unqualified uniform parameter");
+      exposure.reset();
+      fs::remove(exposurePath);
+    }
 
     // Persist non-default values so Sidecar V2 proves CTL parameter state is
     // restored through the same backend-neutral path as OFX/native controls.
