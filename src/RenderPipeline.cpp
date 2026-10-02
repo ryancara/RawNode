@@ -13,7 +13,12 @@
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
 
 static void sourceToDisplayRGBA8(const App &app, const Image &img, std::vector<unsigned char> &rgba) {
-  toDisplayRGBA8(img, app.inputEncoding, rgba);
+  ColorEncoding encoding;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    encoding = app.inputEncoding;
+  }
+  toDisplayRGBA8(img, encoding, rgba);
 }
 
 static void showSourcePreview(App &app) {
@@ -47,22 +52,27 @@ void scheduleRender(App &app) {
 void rebuildPreview(App &app) {
   if (app.full.px.empty()) return;
   const int maxEdge = kPreviewRes[std::clamp(app.previewRes, 0, kPreviewResCount - 1)].maxEdge;
+  ColorEncoding inputEncoding;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    inputEncoding = app.inputEncoding;
+  }
 
-  if (app.inputEncoding.gamma != TransferFunction::Linear && maxEdge > 0) {
-    // Resample RAW previews in linear light, then restore the selected working
-    // encoding. This keeps a non-linear RAW working gamma from changing the
-    // interpolation maths relative to the full-resolution source.
+  if (inputEncoding.gamma != TransferFunction::Linear && maxEdge > 0) {
+    // Resample encoded working buffers in linear light, then restore the
+    // selected encoding. Raster inputs are normally already linearised by the
+    // loader; non-linear RAW working encodings still take this path.
     Image linear = app.full;
     for (size_t i = 0; i + 3 < linear.px.size(); i += 4) {
-      linear.px[i + 0] = (float)decodeTransfer(linear.px[i + 0], app.inputEncoding.gamma);
-      linear.px[i + 1] = (float)decodeTransfer(linear.px[i + 1], app.inputEncoding.gamma);
-      linear.px[i + 2] = (float)decodeTransfer(linear.px[i + 2], app.inputEncoding.gamma);
+      linear.px[i + 0] = (float)decodeTransfer(linear.px[i + 0], inputEncoding.gamma);
+      linear.px[i + 1] = (float)decodeTransfer(linear.px[i + 1], inputEncoding.gamma);
+      linear.px[i + 2] = (float)decodeTransfer(linear.px[i + 2], inputEncoding.gamma);
     }
     makePreview(linear, maxEdge, app.preview);
     for (size_t i = 0; i + 3 < app.preview.px.size(); i += 4) {
-      app.preview.px[i + 0] = (float)encodeTransfer(app.preview.px[i + 0], app.inputEncoding.gamma);
-      app.preview.px[i + 1] = (float)encodeTransfer(app.preview.px[i + 1], app.inputEncoding.gamma);
-      app.preview.px[i + 2] = (float)encodeTransfer(app.preview.px[i + 2], app.inputEncoding.gamma);
+      app.preview.px[i + 0] = (float)encodeTransfer(app.preview.px[i + 0], inputEncoding.gamma);
+      app.preview.px[i + 1] = (float)encodeTransfer(app.preview.px[i + 1], inputEncoding.gamma);
+      app.preview.px[i + 2] = (float)encodeTransfer(app.preview.px[i + 2], inputEncoding.gamma);
     }
   } else {
     makePreview(app.full, maxEdge, app.preview);
@@ -93,8 +103,14 @@ void uploadTexture(App &app, const Image &img) {
   std::vector<unsigned char> rgba;
   if (app.nodes.empty())
     sourceToDisplayRGBA8(app, img, rgba);
-  else
-    toDisplayRGBA8(img, app.outputEncoding, rgba);
+  else {
+    ColorEncoding outputEncoding;
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      outputEncoding = app.outputEncoding;
+    }
+    toDisplayRGBA8(img, outputEncoding, rgba);
+  }
   uploadTextureRGBA(app, rgba.data(), img.w, img.h);
 }
 
@@ -166,8 +182,14 @@ void renderWorker(App *app) {
       std::vector<unsigned char> rgba;
       if (app->nodes.empty())
         sourceToDisplayRGBA8(*app, img, rgba);
-      else
-        toDisplayRGBA8(img, app->outputEncoding, rgba);
+      else {
+        ColorEncoding outputEncoding;
+        {
+          std::lock_guard<std::mutex> colorLock(app->colorMutex);
+          outputEncoding = app->outputEncoding;
+        }
+        toDisplayRGBA8(img, outputEncoding, rgba);
+      }
       std::lock_guard<std::mutex> lock(app->displayMutex);
       app->displayRGBA = std::move(rgba);
       app->displayDirty = true;
@@ -182,8 +204,13 @@ void renderWorker(App *app) {
     const ProcessorResult result = renderChain(*app, app->preview, out, gen);
     if (gen != gLatestGen) continue;
     if (result.ok) {
+      ColorEncoding outputEncoding;
+      {
+        std::lock_guard<std::mutex> colorLock(app->colorMutex);
+        outputEncoding = app->outputEncoding;
+      }
       std::vector<unsigned char> rgba;
-      toDisplayRGBA8(out, app->outputEncoding, rgba);
+      toDisplayRGBA8(out, outputEncoding, rgba);
       const int ow = out.w, oh = out.h;
       std::lock_guard<std::mutex> lock(app->displayMutex);
       app->display = std::move(out);
