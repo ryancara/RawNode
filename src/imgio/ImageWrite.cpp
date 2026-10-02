@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdint>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -30,6 +31,10 @@ static void toTopDown8(const Image &img, std::vector<unsigned char> &out) {
     unsigned char *dst = out.data() + (size_t)y * img.w * 4;
     for (int x = 0; x < img.w; ++x) {
       for (int c = 0; c < 4; ++c) {
+        if (!std::isfinite(src[c])) {
+          dst[c] = 0;
+          continue;
+        }
         const float v = src[c] * 255.0f + 0.5f;
         dst[c] = v < 0.0f ? 0 : (v > 255.0f ? 255 : (unsigned char)v);
       }
