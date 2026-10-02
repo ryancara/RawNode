@@ -55,6 +55,16 @@ static cmsHPROFILE makeProfile(ColorEncoding encoding) {
   cmsToneCurve *curves[3] = {trc, trc, trc};
   cmsHPROFILE profile = cmsCreateRGBProfile(&white, &primaries, curves);
   cmsFreeToneCurve(trc);
+  if (!profile) return nullptr;
+
+  const std::string description =
+      std::string("RawNode ") + rgbGamutId(encoding.gamut) + " / " + transferFunctionId(encoding.gamma);
+  cmsMLU *mlu = cmsMLUalloc(nullptr, 1);
+  if (mlu) {
+    cmsMLUsetASCII(mlu, "en", "US", description.c_str());
+    cmsWriteTag(profile, cmsSigProfileDescriptionTag, mlu);
+    cmsMLUfree(mlu);
+  }
   return profile;
 }
 
@@ -283,78 +293,124 @@ static double primDist2(const cmsCIExyYTRIPLE &a, const cmsCIExyYTRIPLE &b) {
   return d(a.Red, b.Red) + d(a.Green, b.Green) + d(a.Blue, b.Blue);
 }
 
-ColorSpace classifyIcc(const std::vector<uint8_t> &icc) {
-  if (icc.empty()) return ColorSpace::sRGB;
+static TransferFunction inferTransferFunction(cmsHPROFILE p) {
+  const cmsToneCurve *trc = (const cmsToneCurve *)cmsReadTag(p, cmsSigRedTRCTag);
+  if (!trc) return TransferFunction::SRGB;
+
+  constexpr double samples[] = {0.18, 0.5, 0.8};
+  double bestError = 1e30;
+  TransferFunction best = TransferFunction::SRGB;
+  for (int i = 0; i < transferFunctionCount(); ++i) {
+    const TransferFunction tf = transferFunctionDefinition(i).value;
+    // Scene-log transfer functions can exceed the ICC TRC's practical range;
+    // RawNode-generated profiles identify those explicitly in the description.
+    if (tf == TransferFunction::DaVinciIntermediate) continue;
+
+    double error = 0.0;
+    for (double encoded : samples) {
+      const double actual = cmsEvalToneCurveFloat((cmsToneCurve *)trc, (cmsFloat32Number)encoded);
+      const double expected = decodeTransfer(encoded, tf);
+      const double d = actual - expected;
+      error += d * d;
+    }
+    if (error < bestError) {
+      bestError = error;
+      best = tf;
+    }
+  }
+  return best;
+}
+
+ColorEncoding classifyIccEncoding(const std::vector<uint8_t> &icc) {
+  if (icc.empty()) return {RgbGamut::Rec709, TransferFunction::SRGB};
   cmsHPROFILE p = cmsOpenProfileFromMem(icc.data(), (cmsUInt32Number)icc.size());
-  if (!p) return ColorSpace::sRGB;
+  if (!p) return {RgbGamut::Rec709, TransferFunction::SRGB};
 
   char desc[256] = {};
   cmsGetProfileInfoASCII(p, cmsInfoDescription, "en", "US", desc, sizeof desc);
-  const std::string d = lowerCopy(desc);
-  ColorSpace fromDesc = ColorSpace::sRGB;
-  bool haveDesc = false;
-  if (d.find("prophoto") != std::string::npos || d.find("rec2020") != std::string::npos ||
-      d.find("rec-2020") != std::string::npos || d.find("rec.2020") != std::string::npos ||
-      d.find("bt.2020") != std::string::npos || d.find("bt2020") != std::string::npos) {
-    fromDesc = ColorSpace::LinearRec2020;
-    haveDesc = true;
+  const std::string description = desc;
+  const std::string d = lowerCopy(description);
+
+  // RawNode exports write stable IDs into the profile description so every
+  // supported gamut/transfer pair, including AP1 and DWG, can round-trip.
+  if (d.rfind("rawnode ", 0) == 0) {
+    for (int gi = 0; gi < rgbGamutCount(); ++gi) {
+      const auto &g = rgbGamutDefinition(gi);
+      if (d.find(g.id) == std::string::npos) continue;
+      for (int ti = 0; ti < transferFunctionCount(); ++ti) {
+        const auto &t = transferFunctionDefinition(ti);
+        if (d.find(t.id) != std::string::npos) {
+          cmsCloseProfile(p);
+          return {g.value, t.value};
+        }
+      }
+    }
+  }
+
+  RgbGamut describedGamut = RgbGamut::Rec709;
+  bool haveDescribedGamut = false;
+  if (d.find("acescg") != std::string::npos || d.find("ap1") != std::string::npos) {
+    describedGamut = RgbGamut::ACES_AP1;
+    haveDescribedGamut = true;
+  } else if (d.find("aces2065") != std::string::npos || d.find("ap0") != std::string::npos) {
+    describedGamut = RgbGamut::ACES_AP0;
+    haveDescribedGamut = true;
+  } else if (d.find("davinci wide gamut") != std::string::npos || d.find("dwg") != std::string::npos) {
+    describedGamut = RgbGamut::DaVinciWideGamut;
+    haveDescribedGamut = true;
   } else if (d.find("display p3") != std::string::npos || d.find("display-p3") != std::string::npos ||
              (d.find("p3") != std::string::npos && d.find("dci") == std::string::npos)) {
-    fromDesc = ColorSpace::DisplayP3;
-    haveDesc = true;
+    describedGamut = RgbGamut::DisplayP3;
+    haveDescribedGamut = true;
+  } else if (d.find("rec2020") != std::string::npos || d.find("rec-2020") != std::string::npos ||
+             d.find("rec.2020") != std::string::npos || d.find("bt.2020") != std::string::npos ||
+             d.find("bt2020") != std::string::npos || d.find("prophoto") != std::string::npos) {
+    describedGamut = RgbGamut::Rec2020;
+    haveDescribedGamut = true;
   } else if (d.find("rec709") != std::string::npos || d.find("rec-709") != std::string::npos ||
              d.find("rec.709") != std::string::npos || d.find("bt.709") != std::string::npos ||
-             d.find("bt709") != std::string::npos) {
-    fromDesc = profileLooksLinear(p) ? ColorSpace::LinearRec709 : ColorSpace::sRGB;
-    haveDesc = true;
-  } else if (d.find("srgb") != std::string::npos) {
-    fromDesc = ColorSpace::sRGB;
-    haveDesc = true;
+             d.find("bt709") != std::string::npos || d.find("srgb") != std::string::npos) {
+    describedGamut = RgbGamut::Rec709;
+    haveDescribedGamut = true;
   }
-  if (haveDesc) {
-    // Wide-gamut linear names (ProPhoto) already mapped to Rec.2020.
-    if (fromDesc == ColorSpace::DisplayP3 && profileLooksLinear(p)) {
-      // Linear P3 is rare; keep Display P3 tag (plugin list has no Linear P3).
-    }
+
+  const TransferFunction inferredTf = inferTransferFunction(p);
+  if (haveDescribedGamut) {
     cmsCloseProfile(p);
-    return fromDesc;
+    return {describedGamut, inferredTf};
   }
 
   cmsCIExyYTRIPLE prim{};
   cmsCIExyY wp{};
   if (!profilePrimaries(p, prim, wp)) {
     cmsCloseProfile(p);
-    return ColorSpace::sRGB;
+    return {RgbGamut::Rec709, inferredTf};
   }
-  const bool linear = profileLooksLinear(p);
-  struct Candidate {
-    RgbGamut gamut;
-    ColorSpace encoded;
-    ColorSpace linear;
-  };
-  const Candidate candidates[] = {
-      {RgbGamut::Rec709, ColorSpace::sRGB, ColorSpace::LinearRec709},
-      {RgbGamut::DisplayP3, ColorSpace::DisplayP3, ColorSpace::DisplayP3},
-      {RgbGamut::Rec2020, ColorSpace::LinearRec2020, ColorSpace::LinearRec2020},
-  };
 
-  double best = 1e9;
-  ColorSpace pick = ColorSpace::sRGB;
-  for (const Candidate &candidate : candidates) {
-    const auto &d = rgbGamutDefinition(candidate.gamut);
+  double best = 1e30;
+  RgbGamut gamut = RgbGamut::Rec709;
+  for (int i = 0; i < rgbGamutCount(); ++i) {
+    const auto &g = rgbGamutDefinition(i);
     const cmsCIExyYTRIPLE known = {
-        {d.redX, d.redY, 1.0},
-        {d.greenX, d.greenY, 1.0},
-        {d.blueX, d.blueY, 1.0},
+        {g.redX, g.redY, 1.0},
+        {g.greenX, g.greenY, 1.0},
+        {g.blueX, g.blueY, 1.0},
     };
     const double dist = primDist2(prim, known);
     if (dist < best) {
       best = dist;
-      pick = linear ? candidate.linear : candidate.encoded;
+      gamut = g.value;
     }
   }
+
   cmsCloseProfile(p);
-  return pick;
+  return {gamut, inferredTf};
+}
+
+ColorSpace classifyIcc(const std::vector<uint8_t> &icc) {
+  ColorSpace legacy = ColorSpace::sRGB;
+  if (legacyColorSpaceFromEncoding(classifyIccEncoding(icc), legacy)) return legacy;
+  return ColorSpace::LinearRec2020;
 }
 
 void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out) {
