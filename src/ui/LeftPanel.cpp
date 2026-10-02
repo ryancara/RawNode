@@ -52,8 +52,8 @@ void drawLeftPanel(App &app) {
   ImGui::TextWrapped("%s", status.c_str());
   ImGui::Separator();
 
-  ImGui::TextUnformatted("OFX Plugin Nodes");
-  if (ImGui::Button("Add plugin…", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
+  ImGui::TextUnformatted("Processing Nodes");
+  if (ImGui::Button("Add OFX plugin…", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
