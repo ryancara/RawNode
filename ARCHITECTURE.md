@@ -179,6 +179,8 @@ Host-specific conventions belong in adapters above that backend. ART compatibili
 
 The initial Sidecar V2 identifier for a CTL processor is the canonical script path. If the script is unavailable on another system, the normal missing-processor placeholder preserves the node.
 
+Defaulted uniform scalar `float`, `int`, and `bool` CTL inputs map directly to RawNode's generic parameter model. Plain CTL does not define presentation metadata such as slider ranges or friendly labels, so RawNode exposes numeric values without inventing ranges. Host-specific adapters may layer richer presentation metadata on top later.
+
 ## UI
 
 Retain Dear ImGui + GLFW unless a concrete blocker appears.

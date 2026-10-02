@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 static void drawPencilIcon(ImVec2 a, ImVec2 b) {
@@ -161,6 +162,38 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       } else if (const double *v = std::get_if<double>(&param.value)) {
         value = *v;
       }
+    }
+
+    if (!param.hasRange) {
+      // No declared range: edit the number directly and commit once editing
+      // finishes (Enter, Tab or focus loss) rather than rendering on every
+      // keystroke. The value being typed is kept here because `value` is
+      // re-read from the processor each frame.
+      static std::unordered_map<ImGuiID, double> pendingEdits;
+      ImGui::SameLine(0, gap);
+      ImGui::SetNextItemWidth(valueWidth());
+      const ImGuiID editId = ImGui::GetID(idLabel.c_str());
+      const auto pending = pendingEdits.find(editId);
+      double edit = pending != pendingEdits.end() ? pending->second : value;
+      bool edited = false;
+      if (asInt) {
+        int iv = (int)std::lround(edit);
+        edited = ImGui::InputInt(idLabel.c_str(), &iv, 0, 0);
+        edit = iv;
+      } else {
+        edited = ImGui::InputDouble(idLabel.c_str(), &edit, 0.0, 0.0, "%.6g");
+      }
+      if (edited) pendingEdits[editId] = edit;
+      if (ImGui::IsItemDeactivatedAfterEdit()) {
+        if (edit != value) commitNumeric(edit);  // Escape restores the old text
+        pendingEdits.erase(editId);
+      } else if (!ImGui::IsItemActive()) {
+        pendingEdits.erase(editId);
+      }
+      if (!param.enabled) ImGui::EndDisabled();
+      ImGui::PopID();
+      finishParameterChange(app, changed);
+      return;
     }
 
     ImGui::SameLine(0, gap);

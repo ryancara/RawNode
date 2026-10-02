@@ -72,7 +72,9 @@ Initial standard-CTL target:
 - execute a conventional `void main(...)`;
 - support varying float `rIn/gIn/bIn` and `rOut/gOut/bOut`;
 - support optional `aIn/aOut`;
-- honour defaulted extra CTL inputs, while leaving editable CTL parameters for a later step;
+- expose defaulted uniform scalar `float`, `int`, and `bool` inputs through the generic parameter API;
+- use direct numeric fields when plain CTL provides no min/max metadata rather than inventing slider ranges;
+- leave arrays/vectors, richer metadata, and host-specific parameter conventions for later;
 - resolve sibling/imported CTL modules using the script directory plus the normal CTL module path;
 - persist the script path through Sidecar V2 and preserve a missing script as a placeholder.
 

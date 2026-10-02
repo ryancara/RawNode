@@ -9,7 +9,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <filesystem>
+#include <limits>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
@@ -120,6 +122,14 @@ std::string canonicalScriptPath(const std::string &path) {
 }  // namespace
 
 struct CtlProcessor::Impl {
+  // Fixed after load(): which CTL inputs are exposed and how.
+  struct ParameterBinding {
+    std::string id;
+    Ctl::FunctionArgPtr arg;
+    ParameterType type = ParameterType::Unsupported;
+    ParameterValue defaultValue;
+  };
+
   Ctl::SimdInterpreter interpreter;
   Ctl::FunctionCallPtr function;
   Ctl::FunctionArgPtr rIn;
@@ -130,7 +140,87 @@ struct CtlProcessor::Impl {
   Ctl::FunctionArgPtr gOut;
   Ctl::FunctionArgPtr bOut;
   Ctl::FunctionArgPtr aOut;
-  std::mutex mutex;
+  std::vector<ParameterBinding> exposedParameters;
+
+  // Two locks, never held together:
+  // - parameterMutex guards parameterValues, the UI-facing state (parallel to
+  //   exposedParameters). It is held only briefly, so parameter reads and edits
+  //   never wait for a CTL render.
+  // - renderMutex guards the interpreter and its argument registers for the
+  //   whole of a render.
+  std::mutex parameterMutex;
+  std::vector<ParameterValue> parameterValues;
+  std::mutex renderMutex;
+
+  static ParameterType exposedParameterType(const Ctl::FunctionArgPtr &arg) {
+    if (!arg.refcount() || arg->isVarying()) return ParameterType::Unsupported;
+    if (arg->type().cast<Ctl::FloatType>().refcount() != 0) return ParameterType::Double;
+    if (arg->type().cast<Ctl::IntType>().refcount() != 0) return ParameterType::Integer;
+    if (arg->type().cast<Ctl::BoolType>().refcount() != 0) return ParameterType::Boolean;
+    return ParameterType::Unsupported;
+  }
+
+  static ParameterValue readValue(const Ctl::FunctionArgPtr &arg, ParameterType type) {
+    switch (type) {
+      case ParameterType::Double:
+        return (double)*reinterpret_cast<const float *>(arg->data());
+      case ParameterType::Integer:
+        return *reinterpret_cast<const int *>(arg->data());
+      case ParameterType::Boolean:
+        return *reinterpret_cast<const bool *>(arg->data());
+      default:
+        return {};
+    }
+  }
+
+  static bool normaliseValue(ParameterType type, const ParameterValue &value, ParameterValue &out) {
+    switch (type) {
+      case ParameterType::Double: {
+        // CTL float inputs are 32-bit. Reject NaN/inf and values that would
+        // overflow (converting an out-of-range double to float is undefined).
+        const double *v = std::get_if<double>(&value);
+        if (!v || !std::isfinite(*v) || std::fabs(*v) > std::numeric_limits<float>::max()) return false;
+        out = (double)(float)*v;
+        return true;
+      }
+      case ParameterType::Integer: {
+        const int *v = std::get_if<int>(&value);
+        if (!v) return false;
+        out = *v;
+        return true;
+      }
+      case ParameterType::Boolean: {
+        const bool *v = std::get_if<bool>(&value);
+        if (!v) return false;
+        out = *v;
+        return true;
+      }
+      default:
+        return false;
+    }
+  }
+
+  static void writeValue(const ParameterBinding &binding, const ParameterValue &value) {
+    switch (binding.type) {
+      case ParameterType::Double:
+        *reinterpret_cast<float *>(binding.arg->data()) = (float)std::get<double>(value);
+        break;
+      case ParameterType::Integer:
+        *reinterpret_cast<int *>(binding.arg->data()) = std::get<int>(value);
+        break;
+      case ParameterType::Boolean:
+        *reinterpret_cast<bool *>(binding.arg->data()) = std::get<bool>(value);
+        break;
+      default:
+        break;
+    }
+  }
+
+  int findParameter(const std::string &id) const {
+    for (size_t i = 0; i < exposedParameters.size(); ++i)
+      if (exposedParameters[i].id == id) return (int)i;
+    return -1;
+  }
 
   void load(const std::string &path) {
     std::vector<std::string> modulePaths = Ctl::Interpreter::modulePaths();
@@ -169,7 +259,21 @@ struct CtlProcessor::Impl {
       if (name == "rIn" || name == "gIn" || name == "bIn" || name == "aIn") continue;
       if (!arg->hasDefaultValue())
         throw ContractError("Unsupported required CTL input parameter: " + name);
+
+      // Plain CTL provides a type/name/default but no UI range metadata.
+      // Defaulted scalar uniform float/int/bool inputs are therefore exposed
+      // through RawNode's generic parameter API as unbounded controls.
       arg->setDefaultValue();
+      const ParameterType type = exposedParameterType(arg);
+      if (type == ParameterType::Unsupported) continue;
+
+      ParameterBinding binding;
+      binding.id = name;
+      binding.arg = arg;
+      binding.type = type;
+      binding.defaultValue = readValue(arg, type);
+      parameterValues.push_back(binding.defaultValue);
+      exposedParameters.push_back(std::move(binding));
     }
 
     if (aIn.refcount() != 0 && aIn->hasDefaultValue()) aIn->setDefaultValue();
@@ -219,17 +323,52 @@ std::string CtlProcessor::identifier() const { return path_; }
 
 std::string CtlProcessor::displayName() const { return name_; }
 
+std::vector<ProcessorParameter> CtlProcessor::parameters() const {
+  std::vector<ProcessorParameter> out;
+  if (!impl_) return out;
+
+  std::lock_guard<std::mutex> lock(impl_->parameterMutex);
+  out.reserve(impl_->exposedParameters.size());
+  for (size_t i = 0; i < impl_->exposedParameters.size(); ++i) {
+    const auto &binding = impl_->exposedParameters[i];
+    ProcessorParameter param;
+    param.id = binding.id;
+    param.label = binding.id;
+    param.hint = "Standard CTL input parameter";
+    param.type = binding.type;
+    param.value = impl_->parameterValues[i];
+    param.defaultValue = binding.defaultValue;
+    param.hasRange = false;
+    out.push_back(std::move(param));
+  }
+  return out;
+}
+
 bool CtlProcessor::setParameterValue(const std::string &id, const ParameterValue &value, bool notify) {
-  (void)id;
-  (void)value;
   (void)notify;
-  return false;
+  if (!impl_) return false;
+
+  const int index = impl_->findParameter(id);
+  if (index < 0) return false;
+  ParameterValue normalised;
+  if (!Impl::normaliseValue(impl_->exposedParameters[index].type, value, normalised)) return false;
+
+  // Takes effect from the next render; never waits for one in progress.
+  std::lock_guard<std::mutex> lock(impl_->parameterMutex);
+  impl_->parameterValues[index] = std::move(normalised);
+  return true;
 }
 
 bool CtlProcessor::resetParameter(const std::string &id, bool notify) {
-  (void)id;
   (void)notify;
-  return false;
+  if (!impl_) return false;
+
+  const int index = impl_->findParameter(id);
+  if (index < 0) return false;
+
+  std::lock_guard<std::mutex> lock(impl_->parameterMutex);
+  impl_->parameterValues[index] = impl_->exposedParameters[index].defaultValue;
+  return true;
 }
 
 bool CtlProcessor::activateParameter(const std::string &id) {
@@ -246,8 +385,20 @@ ProcessorResult CtlProcessor::render(const Image &input, Image &output, int gene
   (void)generation;
   if (!impl_) return ProcessorResult::failure(-1, "Invalid CTL processor");
 
-  std::lock_guard<std::mutex> lock(impl_->mutex);
+  std::vector<ParameterValue> values;
+  {
+    std::lock_guard<std::mutex> lock(impl_->parameterMutex);
+    values = impl_->parameterValues;
+  }
+
+  std::lock_guard<std::mutex> lock(impl_->renderMutex);
   try {
+    // One snapshot per render keeps every chunk of the frame consistent. CTL
+    // rejects assignments to input parameters, so the script cannot change
+    // these registers and they need no per-chunk re-application.
+    for (size_t i = 0; i < impl_->exposedParameters.size(); ++i)
+      Impl::writeValue(impl_->exposedParameters[i], values[i]);
+
     output.w = input.w;
     output.h = input.h;
     output.px.resize(input.px.size());
