@@ -36,9 +36,13 @@ class Processor {
   virtual std::string displayName() const = 0;
 
   // Allows backends to update any size-dependent state before rendering.
+  // The current app calls this from the UI thread before preview/export renders.
   virtual void setRenderSize(int width, int height) = 0;
 
-  // Input and output are scene-linear float RGBA Images. Backends own any
-  // backend-specific details such as output-size queries or GPU dispatch.
+  // Input/output are bottom-up float RGBA in whatever colour space the chain
+  // has reached at this node. Input and output must be distinct Images.
+  //
+  // generation == 0 means "do not cancel". Non-zero values are currently used
+  // by interactive preview rendering to abandon superseded work.
   virtual ProcessorResult render(const Image &input, Image &output, int generation) = 0;
 };
