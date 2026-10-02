@@ -11,6 +11,12 @@
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
 
+static bool anyRenderableNode(const App &app) {
+  for (const auto &node : app.nodes)
+    if (node.enabled && node.processor) return true;
+  return false;
+}
+
 static void showSourcePreview(App &app) {
   if (app.preview.px.empty()) return;
   const ColorSpace space = linearWorkingSpace(app.inputSpace);
@@ -29,7 +35,7 @@ void waitRenderIdle(App &app) {
 }
 
 void scheduleRender(App &app) {
-  if (app.nodes.empty() || app.preview.px.empty()) {
+  if (!anyRenderableNode(app) || app.preview.px.empty()) {
     showSourcePreview(app);
     return;
   }
@@ -67,7 +73,7 @@ static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h)
 
 void uploadTexture(App &app, const Image &img) {
   const ColorSpace space =
-      app.nodes.empty() ? linearWorkingSpace(app.inputSpace) : outputSpace(app.outputIndex);
+      !anyRenderableNode(app) ? linearWorkingSpace(app.inputSpace) : outputSpace(app.outputIndex);
   std::vector<unsigned char> rgba;
   toDisplayRGBA8(img, space, rgba);
   uploadTextureRGBA(app, rgba.data(), img.w, img.h);
@@ -89,17 +95,10 @@ void pumpDisplayUpload(App &app) {
   }
 }
 
-
-static bool anyEnabledNode(const App &app) {
-  for (const auto &n : app.nodes)
-    if (n.enabled) return true;
-  return false;
-}
-
 ProcessorResult renderChain(App &app, const Image &src, Image &out, int gen) {
   static thread_local Image cur, next;
 
-  if (!anyEnabledNode(app)) {
+  if (!anyRenderableNode(app)) {
     out = src;
     return ProcessorResult::success();
   }
@@ -109,8 +108,7 @@ ProcessorResult renderChain(App &app, const Image &src, Image &out, int gen) {
   cur.px = src.px;
   for (size_t i = 0; i < app.nodes.size(); ++i) {
     Node &n = app.nodes[i];
-    if (!n.enabled) continue;
-    if (!n.processor) return ProcessorResult::failure(-1, "Missing processor");
+    if (!n.enabled || !n.processor) continue;
 
     const auto t0 = std::chrono::steady_clock::now();
     ProcessorResult result = n.processor->render(cur, next, gen);
@@ -146,7 +144,7 @@ void renderWorker(App *app) {
         std::lock_guard<std::mutex> lock(app->displayMutex);
         if (app->display.px.empty()) continue;
         img = app->display;
-        space = app->nodes.empty() ? linearWorkingSpace(app->inputSpace) : outputSpace(app->outputIndex);
+        space = !anyRenderableNode(*app) ? linearWorkingSpace(app->inputSpace) : outputSpace(app->outputIndex);
       }
       std::vector<unsigned char> rgba;
       toDisplayRGBA8(img, space, rgba);
