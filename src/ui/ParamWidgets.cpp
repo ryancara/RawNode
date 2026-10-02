@@ -159,7 +159,8 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     const double hi = param.displayMax;
     const double hardLo = param.min;
     const double hardHi = param.max;
-    const double step = asInt ? 1.0 : std::max((hi - lo) / 100.0, 1e-6);
+    const double step = asInt ? 1.0
+                              : (param.step > 0.0 ? param.step : std::max((hi - lo) / 100.0, 1e-6));
 
     auto commitNumeric = [&](double v) {
       if (asInt) {
@@ -237,7 +238,19 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     ImGui::SameLine(0, gap);
     ImGui::SetNextItemWidth(valueWidth());
     float fv = (float)value;
-    if (ImGui::SliderFloat(idLabel.c_str(), &fv, (float)lo, (float)hi)) commitNumeric(fv);
+    char sliderFormat[16] = "%.3f";
+    if (asInt) {
+      std::snprintf(sliderFormat, sizeof sliderFormat, "%%.0f");
+    } else if (param.step > 0.0) {
+      int decimals = 0;
+      double scaled = param.step;
+      while (decimals < 6 && std::fabs(scaled - std::round(scaled)) > 1e-9) {
+        scaled *= 10.0;
+        ++decimals;
+      }
+      std::snprintf(sliderFormat, sizeof sliderFormat, "%%.%df", decimals);
+    }
+    if (ImGui::SliderFloat(idLabel.c_str(), &fv, (float)lo, (float)hi, sliderFormat)) commitNumeric(fv);
 
   } else if (param.type == ParameterType::Boolean) {
     bool value = false;
@@ -252,12 +265,24 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     if (ImGui::Checkbox(idLabel.c_str(), &value) && node.processor->setParameterValue(param.id, value)) changed = true;
 
   } else if (param.type == ParameterType::Choice) {
-    int current = 0;
-    if (const int *v = std::get_if<int>(&param.value)) current = *v;
+    int currentValue = 0;
+    if (const int *v = std::get_if<int>(&param.value)) currentValue = *v;
 
     if (paramResetButton() && node.processor->resetParameter(param.id)) {
-      if (const int *v = std::get_if<int>(&param.defaultValue)) current = *v;
+      if (const int *v = std::get_if<int>(&param.defaultValue)) currentValue = *v;
       changed = true;
+    }
+
+    const bool explicitValues = param.choiceValues.size() == param.choices.size();
+    int currentIndex = currentValue;
+    if (explicitValues) {
+      currentIndex = 0;
+      for (size_t i = 0; i < param.choiceValues.size(); ++i) {
+        if (param.choiceValues[i] == currentValue) {
+          currentIndex = (int)i;
+          break;
+        }
+      }
     }
 
     ImGui::SameLine(0, gap);
@@ -265,9 +290,10 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     items.reserve(param.choices.size());
     for (const std::string &choice : param.choices) items.push_back(choice.c_str());
     ImGui::SetNextItemWidth(valueWidth());
-    if (!items.empty() && ImGui::Combo(idLabel.c_str(), &current, items.data(), (int)items.size()) &&
-        node.processor->setParameterValue(param.id, current))
-      changed = true;
+    if (!items.empty() && ImGui::Combo(idLabel.c_str(), &currentIndex, items.data(), (int)items.size())) {
+      const int value = explicitValues ? param.choiceValues[(size_t)currentIndex] : currentIndex;
+      if (node.processor->setParameterValue(param.id, value)) changed = true;
+    }
 
   } else if (param.type == ParameterType::PushButton) {
     if (ImGui::Button(idLabel.c_str()) && node.processor->activateParameter(param.id)) changed = true;
