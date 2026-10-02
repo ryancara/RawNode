@@ -20,4 +20,5 @@ void applyCameraMatrix(const float camera[4], int channels, const float matrix[3
 
 // Compose LibRaw's camera -> Linear Rec.709 matrix with RawNode's selected
 // initial working-space transform. Returns false for unsupported targets.
+bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], RgbGamut target, float out[3][4]);
 bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], ColorSpace target, float out[3][4]);
