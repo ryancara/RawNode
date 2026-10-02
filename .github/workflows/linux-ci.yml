@@ -1,0 +1,39 @@
+name: Linux CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gcc-build-selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            g++ \
+            pkg-config \
+            libraw-dev \
+            libtiff-dev \
+            liblcms2-dev \
+            libopenexr-dev \
+            libgl1-mesa-dev \
+            xorg-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Self-test
+        run: ./build/OfxRawHost --selftest
