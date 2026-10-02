@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -185,6 +186,17 @@ static std::string iso8601Now() {
   return buf;
 }
 
+static ColorSpace persistedWorkingSpace(ColorSpace inputSpace) {
+  switch (inputSpace) {
+    case ColorSpace::sRGB: return ColorSpace::LinearRec709;
+    case ColorSpace::DisplayP3: return ColorSpace::LinearRec2020;
+    case ColorSpace::LinearRec709:
+    case ColorSpace::LinearRec2020:
+      return inputSpace;
+  }
+  return ColorSpace::LinearRec709;
+}
+
 static void appendSidecarHeader(std::ostringstream &o, const std::string &kind, const std::string &sourcePath,
                                 ColorSpace inputSpace) {
   o << '{'
@@ -193,7 +205,7 @@ static void appendSidecarHeader(std::ostringstream &o, const std::string &kind, 
     << "\"kind\":\"" << jsonEscape(kind) << "\","
     << "\"source\":\"" << jsonEscape(sourcePath) << "\","
     << "\"inputColorSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\","
-    << "\"workingSpace\":\"" << jsonEscape(colorSpaceName(linearWorkingSpace(inputSpace))) << "\","
+    << "\"workingSpace\":\"" << jsonEscape(colorSpaceName(persistedWorkingSpace(inputSpace))) << "\","
     << "\"raw\":{},";
 }
 
