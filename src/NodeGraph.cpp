@@ -312,7 +312,7 @@ PersistChain captureChain(const App &app) {
       persisted.label = node.processor->displayName();
 
       for (const ProcessorParameter &param : node.processor->parameters()) {
-        if (param.secret || !persistedParameterType(param.type)) continue;
+        if (param.secret || !param.persistValue || !persistedParameterType(param.type)) continue;
         persisted.paramsJson[param.id] = paramValueJson(param);
       }
     } else {
