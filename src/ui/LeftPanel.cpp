@@ -73,6 +73,18 @@ void drawLeftPanel(App &app) {
       ++shown;
     }
 
+    if (q.empty() || icontains("CTL", q) || icontains("script", q)) {
+      ImGui::SeparatorText("CTL");
+      if (ImGui::Selectable("Load CTL script…")) {
+        auto file = pfd::open_file("Load CTL script", "", {"CTL script", "*.ctl"});
+        const auto paths = file.result();
+        if (!paths.empty()) addCtlNode(app, paths[0]);
+        app.pluginFilter[0] = '\0';
+        ImGui::CloseCurrentPopup();
+      }
+      ++shown;
+    }
+
     std::string curAuthor;
     bool showedOfxHeader = false;
     for (int i = 0; i < (int)gPlugins.size(); ++i) {
