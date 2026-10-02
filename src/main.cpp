@@ -302,14 +302,18 @@ static int selfTest() {
     node.paramsJson["unicodeText"] = "\"Caf\\u00e9 \\ud83c\\udf9e\"";
     chain.nodes.push_back(node);
 
-    if (!saveInputSidecar(source.string(), ColorSpace::LinearRec2020, gui, chain))
+    const ColorEncoding rawEncoding{RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate};
+    if (!saveInputSidecar(source.string(), ColorSpace::LinearRec2020, gui, chain, &rawEncoding))
       return fail("sidecar v2 save");
 
     PersistSidecar loaded;
     const std::string sidecar = inputSidecarPath(source.string());
     if (!loadSidecarFile(sidecar, loaded)) return fail("sidecar v2 load");
     if (loaded.format != "rawnode-sidecar" || loaded.version != 2) return fail("sidecar v2 version");
-    if (loaded.rawWorkingSpace != "Linear Rec.2020") return fail("sidecar v2 RAW working space");
+    if (loaded.rawWorkingSpace != "DaVinci Wide Gamut / DaVinci Intermediate" ||
+        loaded.rawColorSpace != "DaVinci Wide Gamut" ||
+        loaded.rawGamma != "DaVinci Intermediate")
+      return fail("sidecar v2 RAW encoding");
     if (loaded.chain.selectedNodeId != "node-future" || loaded.chain.nodes.size() != 1)
       return fail("sidecar v2 node identity");
     const PersistNode &loadedNode = loaded.chain.nodes[0];
