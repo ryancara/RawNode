@@ -90,10 +90,26 @@ static std::string paramValueJson(const ProcessorParameter &param) {
       const bool *value = std::get_if<bool>(&param.value);
       return value && *value ? "true" : "false";
     }
-    case ParameterType::Integer:
-    case ParameterType::Choice: {
+    case ParameterType::Integer: {
       const int *value = std::get_if<int>(&param.value);
       return std::to_string(value ? *value : 0);
+    }
+    case ParameterType::Choice: {
+      const int *value = std::get_if<int>(&param.value);
+      const int selected = value ? *value : 0;
+      if (param.choiceIds.size() == param.choices.size() && !param.choiceIds.empty()) {
+        size_t index = (size_t)selected;
+        if (param.choiceValues.size() == param.choices.size()) {
+          index = param.choiceIds.size();
+          for (size_t i = 0; i < param.choiceValues.size(); ++i)
+            if (param.choiceValues[i] == selected) {
+              index = i;
+              break;
+            }
+        }
+        if (index < param.choiceIds.size()) return jsonStringValue(param.choiceIds[index]);
+      }
+      return std::to_string(selected);
     }
     case ParameterType::Vector: {
       const auto *value = std::get_if<std::vector<double>>(&param.value);
@@ -138,9 +154,25 @@ static void applyParamValueJson(Processor &processor, const ProcessorParameter &
       processor.setParameterValue(param.id, value == "true" || value == "1", false);
       return;
     case ParameterType::Integer:
-    case ParameterType::Choice:
       processor.setParameterValue(param.id, (int)std::strtol(value.c_str(), nullptr, 10), false);
       return;
+    case ParameterType::Choice: {
+      std::string id;
+      if (param.choiceIds.size() == param.choices.size() &&
+          parseJsonStringValue(value, id)) {
+        for (size_t i = 0; i < param.choiceIds.size(); ++i) {
+          if (param.choiceIds[i] != id) continue;
+          const int selected =
+              param.choiceValues.size() == param.choices.size() ? param.choiceValues[i] : (int)i;
+          processor.setParameterValue(param.id, selected, false);
+          return;
+        }
+        return;
+      }
+      // Backwards compatibility with sidecars that persisted menu positions.
+      processor.setParameterValue(param.id, (int)std::strtol(value.c_str(), nullptr, 10), false);
+      return;
+    }
     case ParameterType::Double:
       processor.setParameterValue(param.id, std::strtod(value.c_str(), nullptr), false);
       return;
