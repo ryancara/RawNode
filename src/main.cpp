@@ -338,7 +338,7 @@ static int selfTest() {
     // restored through the same backend-neutral path as OFX/native controls.
     if (!ctlApp.nodes[0].processor->setParameterValue("gain", 1.5) ||
         !ctlApp.nodes[0].processor->setParameterValue("mode", 1) ||
-        !ctlApp.nodes[0].processor->setParameterValue("enabled", true))
+        !ctlApp.nodes[0].processor->setParameterValue("enabled", false))
       return fail("ctl persistence parameter setup");
     Image ctlSavedOut;
     if (!renderChain(ctlApp, src, ctlSavedOut, 0).ok) return fail("ctl persistence parameter render");
@@ -348,7 +348,7 @@ static int selfTest() {
         fs::path(ctlSaved.nodes[0].identifier).filename() != scriptPath.filename() ||
         std::strtod(ctlSaved.nodes[0].paramsJson.at("gain").c_str(), nullptr) != 1.5 ||
         std::strtol(ctlSaved.nodes[0].paramsJson.at("mode").c_str(), nullptr, 10) != 1 ||
-        ctlSaved.nodes[0].paramsJson.at("enabled") != "true")
+        ctlSaved.nodes[0].paramsJson.at("enabled") != "false")
       return fail("ctl persistence capture");
 
     App ctlRestored;
@@ -356,6 +356,23 @@ static int selfTest() {
     if (ctlRestored.nodes.size() != 1 || !ctlRestored.nodes[0].processor ||
         ctlRestored.nodes[0].processor->backend() != ProcessorBackend::CTL)
       return fail("ctl persistence restore");
+
+    const auto restoredCtlParams = ctlRestored.nodes[0].processor->parameters();
+    bool restoredGain = false, restoredMode = false, restoredEnabled = false;
+    for (const ProcessorParameter &param : restoredCtlParams) {
+      if (param.id == "gain") {
+        const double *v = std::get_if<double>(&param.value);
+        restoredGain = v && *v == 1.5;
+      } else if (param.id == "mode") {
+        const int *v = std::get_if<int>(&param.value);
+        restoredMode = v && *v == 1;
+      } else if (param.id == "enabled") {
+        const bool *v = std::get_if<bool>(&param.value);
+        restoredEnabled = v && !*v;
+      }
+    }
+    if (!restoredGain || !restoredMode || !restoredEnabled)
+      return fail("ctl restored parameter values");
 
     Image ctlRestoredOut;
     if (!renderChain(ctlRestored, src, ctlRestoredOut, 0).ok || ctlRestoredOut.px != ctlSavedOut.px)
