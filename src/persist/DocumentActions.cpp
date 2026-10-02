@@ -64,13 +64,6 @@ void applyGui(App &app, const PersistGui &g) {
     app.outputEncoding = legacyOutputEncoding(g.outputIndex);
   }
 
-  RgbGamut rawGamut;
-  TransferFunction rawGamma;
-  if (!g.rawDefaultColorSpace.empty() && !g.rawDefaultGamma.empty() &&
-      rgbGamutFromIdOrName(g.rawDefaultColorSpace, rawGamut) &&
-      transferFunctionFromIdOrName(g.rawDefaultGamma, rawGamma))
-    app.rawWorkingEncoding = {rawGamut, rawGamma};
-
   app.exportFormat = std::clamp(g.exportFormat, 0, 1);
   app.jpegQuality = std::clamp(g.jpegQuality, 1, 100);
   app.previewRes = std::clamp(g.previewRes, 0, kPreviewResCount - 1);
@@ -84,10 +77,27 @@ void applyGui(App &app, const PersistGui &g) {
   app.themeApplyPending = true;
 }
 
+static void applyWorkspaceSessionDefaults(App &app, const PersistGui &g) {
+  RgbGamut rawGamut;
+  TransferFunction rawGamma;
+  if (!g.rawDefaultColorSpace.empty() && !g.rawDefaultGamma.empty() &&
+      rgbGamutFromIdOrName(g.rawDefaultColorSpace, rawGamut) &&
+      transferFunctionFromIdOrName(g.rawDefaultGamma, rawGamma))
+    app.rawWorkingEncoding = {rawGamut, rawGamma};
+}
+
+static PersistGui captureSidecarGui(const App &app) {
+  PersistGui g = captureGui(app);
+  // RAW session defaults belong to workspace/app state, not to one image.
+  g.rawDefaultColorSpace.clear();
+  g.rawDefaultGamma.clear();
+  return g;
+}
+
 void saveCurrentInputSidecar(App &app) {
   if (app.path.empty()) return;
   if (app.sidecarWriteBlockedPath == app.path) return;
-  saveInputSidecar(app.path, app.inputEncoding, captureGui(app), captureChain(app),
+  saveInputSidecar(app.path, app.inputEncoding, captureSidecarGui(app), captureChain(app),
                    app.inputIsRaw ? &app.inputEncoding : nullptr);
 }
 
@@ -174,7 +184,10 @@ void openWorkspace(App &app, const std::string &dir) {
   refreshFilmstrip(app);
   PersistGui wg;
   std::string activeRel;
-  if (loadWorkspaceProject(app.workspaceDir, wg, activeRel)) applyGui(app, wg);
+  if (loadWorkspaceProject(app.workspaceDir, wg, activeRel)) {
+    applyGui(app, wg);
+    applyWorkspaceSessionDefaults(app, wg);
+  }
   std::string toOpen;
   if (!activeRel.empty()) {
     fs::path p = fs::path(app.workspaceDir) / activeRel;
@@ -329,7 +342,7 @@ void doExport(App &app) {
   const bool sourceUsesRawEncoding = app.inputIsRaw;
   const ColorEncoding sourceRawEncoding = app.inputEncoding;
   const int jpegQuality = app.jpegQuality;
-  const PersistGui persistGui = captureGui(app);
+  const PersistGui persistGui = captureSidecarGui(app);
   const PersistChain persistChain = captureChain(app);
   const std::string sourcePath = app.path;
   bool bypassedMissingProcessor = false;
