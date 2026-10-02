@@ -6,6 +6,7 @@
 #include "RenderPipeline.h"
 #include "ofx/OfxHost.h"
 #include "processors/CtlProcessor.h"
+#include "processors/NativeCstProcessor.h"
 #include "processors/OfxProcessor.h"
 #include "persist/ProjectPersist.h"
 #include "UI.h"
