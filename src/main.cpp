@@ -122,8 +122,9 @@ static int selfTest() {
       return fail("sidecar v2 opaque state");
 
     std::string decodedUnicode;
+    const std::string expectedUnicode = "Caf\xC3\xA9 \xF0\x9F\x8E\x9E";
     if (!parseJsonStringValue(loadedNode.paramsJson.at("unicodeText"), decodedUnicode) ||
-        decodedUnicode != "Café 🎞")
+        decodedUnicode != expectedUnicode)
       return fail("sidecar v2 unicode string");
     const std::string controlString = std::string("line1\nline2\t") + char(1);
     std::string decodedControl;
