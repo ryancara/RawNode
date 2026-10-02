@@ -539,6 +539,87 @@ static int selfTest() {
     printf("ok  Standard CTL processor\n");
   }
 
+  // ART compatibility is an adapter on top of the standard CTL runtime. This
+  // first seam proves ART_main execution, positional RGB channels, sibling
+  // _artlib imports, zero fallback for scalar parameters without CTL defaults,
+  // and normal Sidecar V2 persistence. @ART-param presentation metadata is a
+  // separate follow-up.
+  {
+    const fs::path artDir = fs::temp_directory_path() / "rawnode-selftest-art-ctl";
+    fs::create_directories(artDir);
+    const fs::path artLibPath = artDir / "_artlib.ctl";
+    const fs::path artScriptPath = artDir / "ArtCompat.ctl";
+
+    {
+      std::ofstream lib(artLibPath.string(), std::ios::binary);
+      lib << "float artScale(float x, float gain) { return x * gain; }\n";
+      if (!lib.good()) return fail("ART CTL library test write");
+    }
+    {
+      std::ofstream script(artScriptPath.string(), std::ios::binary);
+      script <<
+          "import \"_artlib\";\n"
+          "void ART_main(\n"
+          "  varying float R, varying float G, varying float B,\n"
+          "  output varying float RR, output varying float GG, output varying float BB,\n"
+          "  float gain, int mode, bool enabled)\n"
+          "{\n"
+          "  if (!enabled) { RR = R; GG = G; BB = B; }\n"
+          "  else if (mode == 1) { RR = artScale(R, gain); GG = G; BB = B; }\n"
+          "  else { RR = artScale(R, gain); GG = artScale(G, gain); BB = artScale(B, gain); }\n"
+          "}\n";
+      if (!script.good()) return fail("ART CTL script test write");
+    }
+
+    App artApp;
+    if (!addCtlNode(artApp, artScriptPath.string()) || artApp.nodes.size() != 1 ||
+        !artApp.nodes[0].processor || artApp.nodes[0].processor->backend() != ProcessorBackend::CTL)
+      return fail("ART CTL processor creation");
+
+    const auto artParams = artApp.nodes[0].processor->parameters();
+    if (artParams.size() != 3 || artParams[0].id != "gain" || artParams[0].type != ParameterType::Double ||
+        std::get<double>(artParams[0].defaultValue) != 0.0 ||
+        artParams[1].id != "mode" || artParams[1].type != ParameterType::Integer ||
+        std::get<int>(artParams[1].defaultValue) != 0 ||
+        artParams[2].id != "enabled" || artParams[2].type != ParameterType::Boolean ||
+        std::get<bool>(artParams[2].defaultValue))
+      return fail("ART CTL scalar parameter fallback");
+
+    Image artDefault;
+    if (!renderChain(artApp, src, artDefault, 0).ok || artDefault.px != src.px)
+      return fail("ART CTL default render");
+
+    if (!artApp.nodes[0].processor->setParameterValue("gain", 2.0) ||
+        !artApp.nodes[0].processor->setParameterValue("mode", 1) ||
+        !artApp.nodes[0].processor->setParameterValue("enabled", true))
+      return fail("ART CTL parameter set");
+
+    Image artOut;
+    if (!renderChain(artApp, src, artOut, 0).ok || artOut.px.size() != src.px.size())
+      return fail("ART CTL render");
+    for (size_t i = 0; i + 3 < src.px.size(); i += 4) {
+      if (std::fabs(artOut.px[i + 0] - src.px[i + 0] * 2.0f) > 1e-6f ||
+          artOut.px[i + 1] != src.px[i + 1] || artOut.px[i + 2] != src.px[i + 2] ||
+          artOut.px[i + 3] != src.px[i + 3])
+        return fail("ART CTL RGB/alpha result");
+    }
+
+    const PersistChain artSaved = captureChain(artApp);
+    App artRestored;
+    applyChain(artRestored, artSaved);
+    if (artRestored.nodes.size() != 1 || !artRestored.nodes[0].processor ||
+        artRestored.nodes[0].processor->backend() != ProcessorBackend::CTL)
+      return fail("ART CTL persistence restore");
+    Image artRestoredOut;
+    if (!renderChain(artRestored, src, artRestoredOut, 0).ok || artRestoredOut.px != artOut.px)
+      return fail("ART CTL restored render");
+
+    fs::remove(artScriptPath);
+    fs::remove(artLibPath);
+    fs::remove(artDir);
+    printf("ok  ART CTL entry point\n");
+  }
+
   // Phase 4 mixed-backend seam: OFX -> native Exposure -> OFX must render,
   // persist, restore, and render identically through the generic interfaces.
   {
