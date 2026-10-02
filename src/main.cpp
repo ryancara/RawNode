@@ -554,7 +554,8 @@ static int selfTest() {
     for (ColorEncoding exportEncoding : {
              ColorEncoding{RgbGamut::ACES_AP1, TransferFunction::Linear},
              ColorEncoding{RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate},
-             ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB}}) {
+             ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB},
+             ColorEncoding{RgbGamut::Rec2020, TransferFunction::Rec709}}) {
       const fs::path taggedPath =
           fs::temp_directory_path() / (std::string("rawnode-selftest-tagged-") + rgbGamutId(exportEncoding.gamut) + ".png");
       if (!writeImage(tagged, taggedPath.string(), exportEncoding))
