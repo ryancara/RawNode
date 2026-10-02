@@ -36,6 +36,14 @@ struct Node {
   bool enabled = true;
   std::unique_ptr<Processor> processor;
 
+  // Persistence identity is retained even when a processor is unavailable.
+  // For live processors these mirror the processor; for missing processors
+  // they let Sidecar V2 round-trip the node without deleting it.
+  std::string storedBackend;
+  std::string storedIdentifier;
+  std::string storedLabel;
+  std::map<std::string, std::string> preservedParamsJson;
+
   // Reserved by the graph-capable data model. The current renderer still
   // evaluates a simple serial chain and leaves these at their defaults.
   std::vector<NodeInput> inputs;
