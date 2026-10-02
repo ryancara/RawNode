@@ -134,6 +134,90 @@ static int selfTest() {
   }
 
   {
+    // Native CST: explicit linear gamut conversion, out-of-range preservation,
+    // alpha preservation, and Sidecar V2 restoration.
+    App cstApp;
+    if (!addNativeCstNode(cstApp) || cstApp.nodes.size() != 1 || !cstApp.nodes[0].processor ||
+        cstApp.nodes[0].processor->backend() != ProcessorBackend::Native ||
+        cstApp.nodes[0].processor->identifier() != NativeCstProcessor::kIdentifier)
+      return fail("native CST processor creation");
+
+    const auto cstParams = cstApp.nodes[0].processor->parameters();
+    if (cstParams.size() != 2 || cstParams[0].id != "input_space" || cstParams[1].id != "output_space" ||
+        cstParams[0].choices.size() != 3 || cstParams[1].choices.size() != 3)
+      return fail("native CST parameters");
+
+    if (!cstApp.nodes[0].processor->setParameterValue("input_space", 0) ||
+        !cstApp.nodes[0].processor->setParameterValue("output_space", 1) ||
+        cstApp.nodes[0].processor->setParameterValue("output_space", 9))
+      return fail("native CST parameter validation");
+
+    Image cstIn;
+    cstIn.w = 2;
+    cstIn.h = 1;
+    cstIn.px = {
+        1.0f, 0.0f, 0.0f, 0.25f,
+        -0.2f, 0.5f, 1.4f, 0.75f,
+    };
+    Image cstOut;
+    if (!renderChain(cstApp, cstIn, cstOut, 0).ok || cstOut.px.size() != cstIn.px.size())
+      return fail("native CST render");
+
+    if (std::fabs(cstOut.px[0] - 0.627403896f) > 1e-6f ||
+        std::fabs(cstOut.px[1] - 0.069097289f) > 1e-6f ||
+        std::fabs(cstOut.px[2] - 0.016391439f) > 1e-6f ||
+        cstOut.px[3] != 0.25f)
+      return fail("native CST Rec.709 to Rec.2020");
+
+    // The second pixel deliberately contains a negative and a >1 component.
+    // The transformed blue remains >1, proving the CST does not clamp.
+    if (std::fabs(cstOut.px[4] - 0.09979903f) > 1e-6f ||
+        std::fabs(cstOut.px[5] - 0.46185798f) > 1e-6f ||
+        std::fabs(cstOut.px[6] - 1.29456172f) > 1e-6f ||
+        cstOut.px[7] != 0.75f)
+      return fail("native CST float range/alpha");
+
+    const PersistChain cstSaved = captureChain(cstApp);
+    if (cstSaved.nodes.size() != 1 || cstSaved.nodes[0].backend != "native" ||
+        cstSaved.nodes[0].identifier != NativeCstProcessor::kIdentifier ||
+        cstSaved.nodes[0].paramsJson.at("input_space") != "0" ||
+        cstSaved.nodes[0].paramsJson.at("output_space") != "1")
+      return fail("native CST persistence capture");
+
+    App cstRestored;
+    applyChain(cstRestored, cstSaved);
+    if (cstRestored.nodes.size() != 1 || !cstRestored.nodes[0].processor ||
+        cstRestored.nodes[0].processor->identifier() != NativeCstProcessor::kIdentifier)
+      return fail("native CST persistence restore");
+
+    Image cstRestoredOut;
+    if (!renderChain(cstRestored, cstIn, cstRestoredOut, 0).ok || cstRestoredOut.px != cstOut.px)
+      return fail("native CST restored render");
+
+    // AP0 round trip should recover the original RGB within float rounding.
+    if (!cstRestored.nodes[0].processor->setParameterValue("input_space", 0) ||
+        !cstRestored.nodes[0].processor->setParameterValue("output_space", 2))
+      return fail("native CST AP0 setup");
+    Image ap0;
+    if (!renderChain(cstRestored, cstIn, ap0, 0).ok) return fail("native CST AP0 render");
+
+    if (!cstRestored.nodes[0].processor->setParameterValue("input_space", 2) ||
+        !cstRestored.nodes[0].processor->setParameterValue("output_space", 0))
+      return fail("native CST AP0 inverse setup");
+    Image rec709RoundTrip;
+    if (!renderChain(cstRestored, ap0, rec709RoundTrip, 0).ok) return fail("native CST AP0 inverse render");
+    for (size_t i = 0; i < cstIn.px.size(); ++i) {
+      if (i % 4 == 3) {
+        if (rec709RoundTrip.px[i] != cstIn.px[i]) return fail("native CST AP0 round-trip alpha");
+      } else if (std::fabs(rec709RoundTrip.px[i] - cstIn.px[i]) > 2e-6f) {
+        return fail("native CST AP0 round trip");
+      }
+    }
+
+    printf("ok  Native CST processor\n");
+  }
+
+  {
     // Sidecar V2 round-trip: IDs/backend identity and opaque future parameter
     // JSON must survive even when this build cannot interpret the processor.
     const fs::path source = fs::temp_directory_path() / "rawnode-selftest-source.nef";
