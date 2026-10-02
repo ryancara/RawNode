@@ -1,5 +1,7 @@
 #pragma once
 
+#include "color/ColorEncoding.h"
+
 #include <map>
 #include <string>
 #include <vector>
@@ -48,9 +50,12 @@ struct PersistSidecar {
   std::string sourcePath;
   std::string inputColorSpace;
   std::string workingSpace;
-  // Added within Sidecar V2 as an optional, backwards-compatible RAW setting.
-  // Empty means the sidecar predates selectable RAW working spaces.
+  // RAW encoding is additive within Sidecar V2. rawWorkingSpace is retained
+  // for PR #16 sidecars and older builds; new sidecars also persist gamut and
+  // transfer function independently.
   std::string rawWorkingSpace;
+  std::string rawColorSpace;
+  std::string rawGamma;
   std::string exportedAt;
   PersistGui gui;
   PersistChain chain;
@@ -75,8 +80,10 @@ std::string jsonStringValue(const std::string &value);
 bool parseJsonStringValue(const std::string &raw, std::string &out);
 
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);
-bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui, const PersistChain &chain);
+bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui,
+                      const PersistChain &chain, const ColorEncoding *rawEncoding = nullptr);
 bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace inputSpace,
-                       const PersistGui &gui, const PersistChain &chain);
+                       const PersistGui &gui, const PersistChain &chain,
+                       const ColorEncoding *rawEncoding = nullptr);
 
 std::string relativeToWorkspace(const std::string &workspaceDir, const std::string &absPath);
