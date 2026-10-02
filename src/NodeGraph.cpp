@@ -338,6 +338,5 @@ void applyChain(App &app, const PersistChain &chain) {
     app.selectedNode = chain.selectedNode;
   if (app.selectedNode < 0 && !app.nodes.empty()) app.selectedNode = 0;
 
-  syncOutputTag(app);
   scheduleRender(app);
 }
