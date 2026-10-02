@@ -6,7 +6,6 @@
 #include <string>
 #include <vector>
 
-enum class ColorSpace;
 
 struct PersistGui {
   // outputIndex is retained only for migration from older V2/workspace JSON.
