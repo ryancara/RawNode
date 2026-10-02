@@ -201,7 +201,7 @@ void syncOutputTag(App &app) {
         }
       }
       if (choiceIndex < 0 || choiceIndex >= (int)param.choices.size()) continue;
-      for (int i = 0; i < 4; ++i) {
+      for (int i = 0; i < kOutputSpaceCount; ++i) {
         if (param.choices[(size_t)choiceIndex] == kOutputSpaces[i]) {
           app.outputIndex = i;
           return;
