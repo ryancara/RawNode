@@ -1016,7 +1016,26 @@ std::vector<ProcessorParameter> CtlProcessor::parameters() const {
   if (!impl_) return out;
 
   std::lock_guard<std::mutex> lock(impl_->parameterMutex);
-  out.reserve(impl_->artGroups.size() + impl_->exposedParameters.size());
+  out.reserve(impl_->artGroups.size() + impl_->exposedParameters.size() + (impl_->artPresets.empty() ? 0 : 1));
+
+  if (!impl_->artPresets.empty()) {
+    ProcessorParameter preset;
+    preset.id = kArtPresetParameterId;
+    preset.label = "Preset";
+    preset.hint = "ART CTL preset";
+    preset.type = ParameterType::Choice;
+    preset.value = impl_->matchingPresetLocked();
+    preset.defaultValue = 0;
+    preset.hasRange = false;
+    preset.persistValue = false;
+    preset.choices.push_back("(None)");
+    preset.choiceValues.push_back(0);
+    for (size_t i = 0; i < impl_->artPresets.size(); ++i) {
+      preset.choices.push_back(impl_->artPresets[i].label);
+      preset.choiceValues.push_back((int)i + 1);
+    }
+    out.push_back(std::move(preset));
+  }
 
   // As in ART's panel, each group appears where its first member does, so
   // grouped and ungrouped controls keep their relative order.
@@ -1063,6 +1082,16 @@ bool CtlProcessor::setParameterValue(const std::string &id, const ParameterValue
   (void)notify;
   if (!impl_) return false;
 
+  if (id == kArtPresetParameterId) {
+    const int *selection = std::get_if<int>(&value);
+    if (!selection || *selection < 0 || *selection > (int)impl_->artPresets.size()) return false;
+    if (*selection == 0) return true;  // "(None)" is presentation-only.
+    std::lock_guard<std::mutex> lock(impl_->parameterMutex);
+    for (const auto &entry : impl_->artPresets[(size_t)*selection - 1].values)
+      impl_->parameterValues[entry.first] = entry.second;
+    return true;
+  }
+
   const int index = impl_->findParameter(id);
   if (index < 0) return false;
   ParameterValue normalised;
@@ -1077,6 +1106,13 @@ bool CtlProcessor::setParameterValue(const std::string &id, const ParameterValue
 bool CtlProcessor::resetParameter(const std::string &id, bool notify) {
   (void)notify;
   if (!impl_) return false;
+
+  if (id == kArtPresetParameterId) {
+    std::lock_guard<std::mutex> lock(impl_->parameterMutex);
+    for (size_t i = 0; i < impl_->exposedParameters.size(); ++i)
+      impl_->parameterValues[i] = impl_->exposedParameters[i].defaultValue;
+    return true;
+  }
 
   const int index = impl_->findParameter(id);
   if (index < 0) return false;
