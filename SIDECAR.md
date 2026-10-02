@@ -31,7 +31,9 @@ The current V2 shape is:
   "inputColorSpace": "Linear Rec.2020",
   "workingSpace": "Linear Rec.2020",
   "raw": {
-    "workingSpace": "Linear Rec.2020"
+    "workingSpace": "Linear Rec.2020",
+    "colorSpace": "Rec.2020",
+    "gamma": "Linear"
   },
   "gui": {
     "outputIndex": 0,
@@ -64,14 +66,20 @@ The current V2 shape is:
 }
 ```
 
-### RAW working space
+### RAW working encoding
 
-For RAW inputs, new Sidecar V2 files store the selected initial working space in `raw.workingSpace`.
-Current choices are Linear Rec.709, Linear Rec.2020, and ACES2065-1.
+RAW colour space (primaries/gamut) and gamma/transfer function are persisted independently:
 
-The field is additive within V2. Older V2 and V1 sidecars do not contain it; RawNode treats those RAW edits as Linear Rec.709 so projects created before the selectable working-space feature retain the colour-boundary behaviour introduced in PR #15.
+- `raw.colorSpace`
+- `raw.gamma`
 
-The top-level `inputColorSpace` / `workingSpace` fields remain descriptive. `raw.workingSpace` is the explicit RAW-decode choice used when reconstructing the image.
+Current colour-space choices are Rec.709, Rec.2020, ACES AP0, ACES AP1, and DaVinci Wide Gamut. Current gamma choices are Linear, sRGB, Rec.709, and DaVinci Intermediate.
+
+`raw.workingSpace` is retained as a descriptive/legacy combined field so PR #16 sidecars remain readable. When a sidecar has the newer `raw.colorSpace` and `raw.gamma` fields, those are authoritative.
+
+Older V2 sidecars that contain only `raw.workingSpace` map the three historical choices to Rec.709 + Linear, Rec.2020 + Linear, or ACES AP0 + Linear. V2/V1 RAW sidecars that predate selectable RAW working space still reopen as Rec.709 + Linear, preserving their historical colour-boundary behaviour.
+
+The top-level `inputColorSpace` / `workingSpace` fields remain descriptive.
 
 ### Serial order and future graph connections
 
@@ -135,7 +143,7 @@ RawNode does not yet guarantee preservation of every unknown top-level or unknow
 
 ## RAW state
 
-The V2 schema includes a `raw` object. It is currently empty because RawNode does not yet expose adjustable RAW-development settings separately from the inherited LibRaw path.
+The V2 `raw` object currently stores the initial RAW colour encoding through `colorSpace` and `gamma`, plus the legacy/descriptive `workingSpace` field.
 
 Future RAW decoder/developer settings should be added here without changing the graph node model.
 
