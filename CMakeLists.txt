@@ -28,26 +28,13 @@ add_library(imgui_lib
 target_include_directories(imgui_lib PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui_lib PUBLIC glfw)
 
-# --- CTL reference runtime ---
-# Prefer a system OpenEXR when available; otherwise fetch a pinned copy so the
-# CTL backend remains buildable on clean macOS/Windows/Linux setups.
+# --- OpenEXR / Imath (required by the CTL reference runtime) ---
 find_package(OpenEXR 3 CONFIG QUIET)
-if(NOT TARGET OpenEXR::OpenEXR)
-  set(OPENEXR_INSTALL OFF CACHE BOOL "" FORCE)
-  set(OPENEXR_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-  set(OPENEXR_INSTALL_TOOLS OFF CACHE BOOL "" FORCE)
-  set(OPENEXR_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-  set(OPENEXR_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
-  set(OPENEXR_INSTALL_DOCS OFF CACHE BOOL "" FORCE)
-  set(OPENEXR_IMATH_TAG v3.2.2 CACHE STRING "" FORCE)
-  FetchContent_Declare(openexr
-    GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/openexr.git
-    GIT_TAG v3.5.1
-    GIT_SHALLOW TRUE
-  )
-  FetchContent_MakeAvailable(openexr)
+if(NOT OpenEXR_FOUND)
+  message(FATAL_ERROR "OpenEXR 3 not found. Install openexr (e.g. brew install openexr / apt install libopenexr-dev).")
 endif()
 
+# --- CTL reference runtime ---
 set(CTL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(CTL_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(ctl
@@ -56,31 +43,6 @@ FetchContent_Declare(ctl
   GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(ctl)
-
-# CTL 1.5.x public headers still use the OpenEXR/Imath 2.x-style unprefixed
-# includes (<half.h>, <IexBaseExc.h>). CTL's own targets receive these paths
-# privately, but a consumer including CTL headers does not. Add compatibility
-# include roots explicitly for RawNode while leaving third-party sources intact.
-find_path(CTL_IMATH_COMPAT_INCLUDE_DIR
-  NAMES half.h
-  HINTS
-    "${imath_SOURCE_DIR}/src/Imath"
-    "${Imath_SOURCE_DIR}/src/Imath"
-  PATH_SUFFIXES Imath
-)
-find_path(CTL_IEX_COMPAT_INCLUDE_DIR
-  NAMES IexBaseExc.h
-  HINTS
-    "${openexr_SOURCE_DIR}/src/lib/Iex"
-    "${OpenEXR_SOURCE_DIR}/src/lib/Iex"
-  PATH_SUFFIXES OpenEXR
-)
-if(NOT CTL_IMATH_COMPAT_INCLUDE_DIR)
-  message(FATAL_ERROR "CTL compatibility include path for Imath/half.h was not found.")
-endif()
-if(NOT CTL_IEX_COMPAT_INCLUDE_DIR)
-  message(FATAL_ERROR "CTL compatibility include path for OpenEXR/IexBaseExc.h was not found.")
-endif()
 
 # --- LibRaw ---
 find_package(PkgConfig QUIET)
@@ -192,8 +154,6 @@ if(OFX_NATIVE_ARCH)
 endif()
 
 target_include_directories(OfxRawHost PRIVATE
-  "${CTL_IMATH_COMPAT_INCLUDE_DIR}"
-  "${CTL_IEX_COMPAT_INCLUDE_DIR}"
   src
   third_party/openfx/include
   third_party/stb
@@ -234,7 +194,9 @@ else()
   target_link_libraries(OfxRawHost PRIVATE ${LCMS2_LIBRARY})
 endif()
 
-target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB IlmCtlSimd)
+# CTL 1.5.x public headers use unprefixed includes (<half.h>, <IexBaseExc.h>);
+# Imath::Imath and OpenEXR::Iex export include/Imath and include/OpenEXR.
+target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB IlmCtlSimd Imath::Imath OpenEXR::Iex)
 
 if(APPLE)
   target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal")

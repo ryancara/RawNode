@@ -97,16 +97,18 @@ Restart OFX Raw Host after installing plugins. If none are found, the status bar
 ## Build
 
 Requires CMake 3.16+, a C++17 compiler, [LibRaw](https://www.libraw.org/),
-[libtiff](https://libtiff.gitlab.io/libtiff/), and
-[Little CMS 2](https://www.littlecms.com/).
-GLFW and Dear ImGui are fetched automatically by CMake.
+[libtiff](https://libtiff.gitlab.io/libtiff/),
+[Little CMS 2](https://www.littlecms.com/), and
+[OpenEXR 3](https://openexr.com/) (with Imath) for the CTL backend.
+GLFW, Dear ImGui and the [CTL](https://github.com/aces-aswf/CTL) reference
+interpreter are fetched automatically by CMake.
 
 ```sh
 # macOS
-brew install cmake libraw libtiff little-cms2
+brew install cmake libraw libtiff little-cms2 openexr
 
 # Debian/Ubuntu
-sudo apt install cmake pkg-config libraw-dev libtiff-dev liblcms2-dev libgl1-mesa-dev xorg-dev
+sudo apt install cmake pkg-config libraw-dev libtiff-dev liblcms2-dev libopenexr-dev libgl1-mesa-dev xorg-dev
 
 git clone --recursive https://github.com/aaronmurniadi/ofxrawhost.git
 cd ofxrawhost
