@@ -1,6 +1,7 @@
 // Minimal still-image processor host: decode RAW/raster, process, preview, export.
 
 #include "imgio/ImageIO.h"
+#include "imgio/ImageIOPriv.h"
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
 #include "ofx/OfxHost.h"
@@ -88,6 +89,23 @@ static int selfTest() {
     ColorSpace cs = ColorSpace::LinearRec2020;
     if (!loadImage(p.string(), img, cs) || cs != ColorSpace::sRGB) return fail("png colorspace");
     fs::remove(p);
+  }
+
+  {
+    // RAW colour boundary: camera -> working-space matrix application happens
+    // in float and must preserve values outside 0..1 rather than clipping them.
+    const float camera[4] = {0.25f, 0.5f, 0.75f, 0.125f};
+    const float matrix[3][4] = {
+        {-1.0f, 0.0f, 0.0f, 0.5f},
+        {0.0f, 0.0f, 2.5f, 0.0f},
+        {0.0f, 1.0f, 0.0f, 1.0f},
+    };
+    float rgb[3] = {};
+    applyCameraMatrix(camera, 4, matrix, rgb);
+    if (std::fabs(rgb[0] + 0.1875f) > 1e-7f ||
+        std::fabs(rgb[1] - 1.875f) > 1e-7f ||
+        std::fabs(rgb[2] - 0.625f) > 1e-7f)
+      return fail("RAW camera matrix float boundary");
   }
 
   {
