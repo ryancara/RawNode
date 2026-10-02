@@ -3,6 +3,8 @@
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
 #include "NodeGraph.h"
+#include "color/LinearColorTransform.h"
+#include "color/TransferFunction.h"
 #include "RenderPipeline.h"
 #include "ofx/OfxHost.h"  // gPlugins: external plugin discovery is still OFX-specific.
 #include "ui/Widgets.h"
@@ -38,12 +40,38 @@ void drawLeftPanel(App &app) {
   ImGui::SameLine();
   if (ImGui::Button("Export")) doExport(app);
 
-  ImGui::Text("Input: %s", app.path.empty() ? "—" : colorSpaceName(app.inputSpace));
-  const ColorSpace shownRawSpace =
-      (!app.path.empty() && isRawImagePath(app.path)) ? app.inputSpace : app.rawWorkingSpace;
-  int rawSpaceIndex = rawWorkingSpaceIndex(shownRawSpace);
-  if (ImGui::Combo("RAW working space", &rawSpaceIndex, kRawWorkingSpaces, kRawWorkingSpaceCount))
-    setRawWorkingSpace(app, rawWorkingSpace(rawSpaceIndex));
+  if (app.path.empty()) {
+    ImGui::TextUnformatted("Input: —");
+  } else if (app.inputUsesRawEncoding) {
+    ImGui::Text("Input: %s / %s", rgbGamutName(app.inputGamut), transferFunctionName(app.inputGamma));
+  } else {
+    ImGui::Text("Input: %s", colorSpaceName(app.inputSpace));
+  }
+
+  const bool currentIsRaw = !app.path.empty() && isRawImagePath(app.path);
+  int rawGamutIndex = (int)(currentIsRaw ? app.inputGamut : app.rawWorkingGamut);
+  int rawGammaIndex = (int)(currentIsRaw ? app.inputGamma : app.rawWorkingGamma);
+
+  const char *rawGamutItems[] = {
+      rgbGamutName(RgbGamut::Rec709),
+      rgbGamutName(RgbGamut::Rec2020),
+      rgbGamutName(RgbGamut::ACES_AP0),
+      rgbGamutName(RgbGamut::ACES_AP1),
+      rgbGamutName(RgbGamut::DaVinciWideGamut),
+  };
+  if (ImGui::Combo("RAW colour space", &rawGamutIndex, rawGamutItems, 5))
+    setRawWorkingEncoding(app, (RgbGamut)rawGamutIndex,
+                          currentIsRaw ? app.inputGamma : app.rawWorkingGamma);
+
+  const char *rawGammaItems[] = {
+      transferFunctionName(TransferFunction::Linear),
+      transferFunctionName(TransferFunction::SRGB),
+      transferFunctionName(TransferFunction::Rec709),
+      transferFunctionName(TransferFunction::DaVinciIntermediate),
+  };
+  if (ImGui::Combo("RAW gamma", &rawGammaIndex, rawGammaItems, 4))
+    setRawWorkingEncoding(app, currentIsRaw ? app.inputGamut : app.rawWorkingGamut,
+                          (TransferFunction)rawGammaIndex);
   ImGui::Combo("Output tag", &app.outputIndex, kOutputSpaces, kOutputSpaceCount);
   if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) scheduleDisplayRecolor(app);
   {
