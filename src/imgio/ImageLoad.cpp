@@ -61,7 +61,59 @@ void applyCameraMatrix(const float camera[4], int channels, const float matrix[3
   }
 }
 
-static bool loadRaw(const std::string &path, Image &out) {
+bool isRawWorkingSpace(ColorSpace cs) {
+  return cs == ColorSpace::LinearRec709 || cs == ColorSpace::LinearRec2020 || cs == ColorSpace::ACES2065_1;
+}
+
+bool isRawImagePath(const std::string &path) {
+  std::string e = fs::path(path).extension().string();
+  for (char &c : e) c = (char)tolower((unsigned char)c);
+  return e == ".cr2" || e == ".cr3" || e == ".nef" || e == ".arw" || e == ".dng" ||
+         e == ".raf" || e == ".orf" || e == ".rw2" || e == ".pef" || e == ".srw" ||
+         e == ".raw";
+}
+
+bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], ColorSpace target, float out[3][4]) {
+  // Linear Rec.709/sRGB D65 -> Linear Rec.2020 D65.
+  static constexpr double kRec709ToRec2020[3][3] = {
+      {0.627403895934699, 0.329283038377883, 0.043313065687418},
+      {0.069097289358232, 0.919540395075459, 0.011362315566309},
+      {0.016391438875150, 0.088013307877226, 0.895595253247624},
+  };
+
+  // Linear Rec.709/sRGB D65 -> ACES2065-1/AP0 D60. This is the inverse
+  // of the AP0 -> Linear Rec.709 matrix used by the ACES/OCIO reference
+  // configuration and therefore includes the D65 <-> D60 adaptation.
+  static constexpr double kRec709ToAces2065[3][3] = {
+      {0.439632981919492, 0.382988698151554, 0.177378319928956},
+      {0.089776442958842, 0.813439428748978, 0.096784128292177},
+      {0.017541170383173, 0.111546553302387, 0.870912276314442},
+  };
+
+  double identity[3][3] = {
+      {1.0, 0.0, 0.0},
+      {0.0, 1.0, 0.0},
+      {0.0, 0.0, 1.0},
+  };
+  const double (*workingFromRec709)[3] = nullptr;
+  switch (target) {
+    case ColorSpace::LinearRec709: workingFromRec709 = identity; break;
+    case ColorSpace::LinearRec2020: workingFromRec709 = kRec709ToRec2020; break;
+    case ColorSpace::ACES2065_1: workingFromRec709 = kRec709ToAces2065; break;
+    default: return false;
+  }
+
+  for (int row = 0; row < 3; ++row) {
+    for (int c = 0; c < 4; ++c) {
+      double v = 0.0;
+      for (int k = 0; k < 3; ++k) v += workingFromRec709[row][k] * cameraToRec709[k][c];
+      out[row][c] = (float)v;
+    }
+  }
+  return true;
+}
+
+static bool loadRaw(const std::string &path, Image &out, ColorSpace workingSpace) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
   LibRaw raw;
   if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
@@ -82,7 +134,8 @@ static bool loadRaw(const std::string &path, Image &out) {
   // rgb_cam is the matrix LibRaw would otherwise use for camera RGB -> linear
   // sRGB/Rec.709. Copy it after dcraw_process(): almost all cameras have their
   // final matrix earlier, but a few legacy paths may update it during processing.
-  // The copy keeps the RawNode colour stage independent of the LibRaw lifetime.
+  // RawNode then composes this with the selected working-space transform and
+  // applies one camera -> working-space matrix in float.
   float cameraToRec709[3][4] = {};
   bool haveMatrix = false;
   for (int row = 0; row < 3; ++row) {
@@ -95,6 +148,9 @@ static bool loadRaw(const std::string &path, Image &out) {
   // fallback by treating the first three camera channels as RGB.
   if (!haveMatrix)
     for (int c = 0; c < 3; ++c) cameraToRec709[c][c] = 1.0f;
+
+  float cameraToWorking[3][4] = {};
+  if (!makeCameraToWorkingMatrix(cameraToRec709, workingSpace, cameraToWorking)) return false;
 
   libraw_processed_image_t *img = raw.dcraw_make_mem_image();
   if (!img || img->type != LIBRAW_IMAGE_BITMAP || img->colors < 3 || img->colors > 4) {
@@ -111,7 +167,7 @@ static bool loadRaw(const std::string &path, Image &out) {
     float camera[4] = {};
     for (int c = 0; c < img->colors; ++c) camera[c] = (float)src[c] * scale;
     float rgb[3];
-    applyCameraMatrix(camera, img->colors, cameraToRec709, rgb);
+    applyCameraMatrix(camera, img->colors, cameraToWorking, rgb);
     // Deliberately do not clamp here. The old LibRaw output-colour stage used
     // unsigned 16-bit storage and clipped matrix-created negatives/highlights.
     // Applying the matrix in RawNode float preserves those values.
@@ -351,12 +407,6 @@ static bool loadStbThumbRGBA(const std::string &path, int maxEdge, std::vector<u
   return ok;
 }
 
-static bool isRawExtension(const std::string &extLower) {
-  return extLower == ".cr2" || extLower == ".cr3" || extLower == ".nef" || extLower == ".arw" || extLower == ".dng" ||
-         extLower == ".raf" || extLower == ".orf" || extLower == ".rw2" || extLower == ".pef" || extLower == ".srw" ||
-         extLower == ".raw";
-}
-
 static bool loadRawEmbeddedThumbRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w,
                                      int &h) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
@@ -450,7 +500,7 @@ bool makePreview(const Image &src, int maxEdge, Image &out) {
   return true;
 }
 
-bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
+bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace rawWorkingSpace) {
   PerfScope _ps("loadImage");
   out = {};
   detected = ColorSpace::sRGB;
@@ -478,8 +528,8 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
     detected = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
     return true;
   }
-  if (loadRaw(path, out)) {
-    detected = ColorSpace::LinearRec709;
+  if (isRawWorkingSpace(rawWorkingSpace) && loadRaw(path, out, rawWorkingSpace)) {
+    detected = rawWorkingSpace;
     return true;
   }
   return false;
@@ -490,7 +540,7 @@ bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigne
   std::string e = fs::path(path).extension().string();
   for (char &c : e) c = (char)tolower((unsigned char)c);
 
-  if (isRawExtension(e)) return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
+  if (isRawImagePath(path)) return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
   if (e == ".png" || e == ".jpg" || e == ".jpeg") return loadStbThumbRGBA(path, maxEdge, rgba, w, h);
   return false;
 }
