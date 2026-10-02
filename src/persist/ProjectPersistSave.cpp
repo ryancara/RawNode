@@ -27,10 +27,21 @@ std::string jsonEscape(const std::string &s) {
       case '\n': o += "\\n"; break;
       case '\r': o += "\\r"; break;
       case '\t': o += "\\t"; break;
-      default: o += (char)c;
+      default:
+        if (c < 0x20) {
+          char buf[7];
+          std::snprintf(buf, sizeof buf, "\\u%04x", (unsigned)c);
+          o += buf;
+        } else {
+          o += (char)c;
+        }
     }
   }
   return o;
+}
+
+std::string jsonStringValue(const std::string &value) {
+  return std::string("\"") + jsonEscape(value) + "\"";
 }
 
 void appendGuiJson(std::ostringstream &o, const PersistGui &g) {
