@@ -11,12 +11,6 @@
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
 
-static bool anyRenderableNode(const App &app) {
-  for (const auto &node : app.nodes)
-    if (node.enabled && node.processor) return true;
-  return false;
-}
-
 static void showSourcePreview(App &app) {
   if (app.preview.px.empty()) return;
   const ColorSpace space = linearWorkingSpace(app.inputSpace);
@@ -35,7 +29,7 @@ void waitRenderIdle(App &app) {
 }
 
 void scheduleRender(App &app) {
-  if (!anyRenderableNode(app) || app.preview.px.empty()) {
+  if (app.nodes.empty() || app.preview.px.empty()) {
     showSourcePreview(app);
     return;
   }
@@ -73,7 +67,7 @@ static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h)
 
 void uploadTexture(App &app, const Image &img) {
   const ColorSpace space =
-      !anyRenderableNode(app) ? linearWorkingSpace(app.inputSpace) : outputSpace(app.outputIndex);
+      app.nodes.empty() ? linearWorkingSpace(app.inputSpace) : outputSpace(app.outputIndex);
   std::vector<unsigned char> rgba;
   toDisplayRGBA8(img, space, rgba);
   uploadTextureRGBA(app, rgba.data(), img.w, img.h);
@@ -98,7 +92,7 @@ void pumpDisplayUpload(App &app) {
 ProcessorResult renderChain(App &app, const Image &src, Image &out, int gen) {
   static thread_local Image cur, next;
 
-  if (!anyRenderableNode(app)) {
+  if (app.nodes.empty()) {
     out = src;
     return ProcessorResult::success();
   }
@@ -144,7 +138,7 @@ void renderWorker(App *app) {
         std::lock_guard<std::mutex> lock(app->displayMutex);
         if (app->display.px.empty()) continue;
         img = app->display;
-        space = !anyRenderableNode(*app) ? linearWorkingSpace(app->inputSpace) : outputSpace(app->outputIndex);
+        space = app->nodes.empty() ? linearWorkingSpace(app->inputSpace) : outputSpace(app->outputIndex);
       }
       std::vector<unsigned char> rgba;
       toDisplayRGBA8(img, space, rgba);
