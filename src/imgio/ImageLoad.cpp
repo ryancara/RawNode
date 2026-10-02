@@ -65,10 +65,14 @@ void applyCameraMatrix(const float camera[4], int channels, const float matrix[3
 
 bool isRawImagePath(const std::string &path) {
   std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
-  return e == ".cr2" || e == ".cr3" || e == ".nef" || e == ".arw" || e == ".dng" ||
-         e == ".raf" || e == ".orf" || e == ".rw2" || e == ".pef" || e == ".srw" ||
-         e == ".raw";
+  for (char &ch : e) ch = (char)tolower((unsigned char)ch);
+  static const char *kRawExtensions[] = {
+      ".3fr", ".arw", ".cr2", ".cr3", ".crw", ".dcr", ".dng", ".erf", ".iiq", ".kdc",
+      ".mef", ".mos", ".mrw", ".nef", ".nrw", ".orf", ".pef", ".raf", ".raw", ".rwl",
+      ".rw2", ".sr2", ".srf", ".srw", ".x3f"};
+  for (const char *rawExt : kRawExtensions)
+    if (e == rawExt) return true;
+  return false;
 }
 
 bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], RgbGamut target, float out[3][4]) {
@@ -558,7 +562,11 @@ bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigne
   std::string e = fs::path(path).extension().string();
   for (char &c : e) c = (char)tolower((unsigned char)c);
 
-  if (isRawImagePath(path)) return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
-  if (e == ".png" || e == ".jpg" || e == ".jpeg") return loadStbThumbRGBA(path, maxEdge, rgba, w, h);
-  return false;
+  if (e == ".png" || e == ".jpg" || e == ".jpeg") {
+    if (loadStbThumbRGBA(path, maxEdge, rgba, w, h)) return true;
+  }
+
+  // Like full image loading, let LibRaw determine whether non-raster inputs are
+  // actually RAW instead of relying on the extension list.
+  return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
 }
