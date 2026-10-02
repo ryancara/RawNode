@@ -253,3 +253,16 @@ bool saveExportSidecar(const std::string &exportPath, const std::string &sourceI
   o << '}';
   return writeFile(exportSidecarPath(exportPath), o.str());
 }
+
+
+bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui,
+                      const PersistChain &chain, const ColorEncoding *rawEncoding) {
+  return saveInputSidecar(imagePath, legacyColorSpaceEncoding(inputSpace), gui, chain, rawEncoding);
+}
+
+bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath,
+                       ColorSpace inputSpace, const PersistGui &gui,
+                       const PersistChain &chain, const ColorEncoding *rawEncoding) {
+  return saveExportSidecar(exportPath, sourceImagePath, legacyColorSpaceEncoding(inputSpace),
+                           gui, chain, rawEncoding);
+}
