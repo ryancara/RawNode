@@ -28,6 +28,35 @@ add_library(imgui_lib
 target_include_directories(imgui_lib PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui_lib PUBLIC glfw)
 
+# --- CTL reference runtime ---
+# Prefer a system OpenEXR when available; otherwise fetch a pinned copy so the
+# CTL backend remains buildable on clean macOS/Windows/Linux setups.
+find_package(OpenEXR 3 CONFIG QUIET)
+if(NOT TARGET OpenEXR::OpenEXR)
+  set(OPENEXR_INSTALL OFF CACHE BOOL "" FORCE)
+  set(OPENEXR_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+  set(OPENEXR_INSTALL_TOOLS OFF CACHE BOOL "" FORCE)
+  set(OPENEXR_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(OPENEXR_BUILD_PYTHON OFF CACHE BOOL "" FORCE)
+  set(OPENEXR_INSTALL_DOCS OFF CACHE BOOL "" FORCE)
+  set(OPENEXR_IMATH_TAG v3.2.2 CACHE STRING "" FORCE)
+  FetchContent_Declare(openexr
+    GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/openexr.git
+    GIT_TAG v3.5.1
+    GIT_SHALLOW TRUE
+  )
+  FetchContent_MakeAvailable(openexr)
+endif()
+
+set(CTL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(CTL_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(ctl
+  GIT_REPOSITORY https://github.com/aces-aswf/CTL.git
+  GIT_TAG ctl-1.5.5
+  GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(ctl)
+
 # --- LibRaw ---
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -88,6 +117,7 @@ add_executable(OfxRawHost
   src/NodeGraph.cpp
   src/processors/OfxProcessor.cpp
   src/processors/NativeExposureProcessor.cpp
+  src/processors/CtlProcessor.cpp
   src/RenderPipeline.cpp
   src/persist/DocumentActions.cpp
   src/persist/ProjectPersistSave.cpp
@@ -177,7 +207,7 @@ else()
   target_link_libraries(OfxRawHost PRIVATE ${LCMS2_LIBRARY})
 endif()
 
-target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB)
+target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB IlmCtlSimd)
 
 if(APPLE)
   target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal")
