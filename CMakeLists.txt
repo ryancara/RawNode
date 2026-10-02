@@ -105,6 +105,7 @@ add_executable(OfxRawHost
   src/NodeGraph.cpp
   src/processors/OfxProcessor.cpp
   src/processors/NativeExposureProcessor.cpp
+  src/processors/NativeCstProcessor.cpp
   src/processors/CtlProcessor.cpp
   src/RenderPipeline.cpp
   src/persist/DocumentActions.cpp
