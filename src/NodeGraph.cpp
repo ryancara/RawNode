@@ -7,6 +7,8 @@
 
 #include <cctype>
 #include <cstdlib>
+#include <limits>
+#include <locale>
 #include <sstream>
 #include <memory>
 
@@ -61,6 +63,15 @@ static int findPluginIndex(const std::string &identifier, const std::string &lab
   return -1;
 }
 
+// Doubles are written with max_digits10 so strtod restores the exact value;
+// std::to_string's fixed 6 decimals changed restored renders.
+static std::ostringstream jsonNumberStream() {
+  std::ostringstream out;
+  out.imbue(std::locale::classic());
+  out.precision(std::numeric_limits<double>::max_digits10);
+  return out;
+}
+
 static bool persistedParameterType(ParameterType type) {
   return type != ParameterType::Group && type != ParameterType::Page &&
          type != ParameterType::PushButton && type != ParameterType::Unsupported;
@@ -84,7 +95,7 @@ static std::string paramValueJson(const ProcessorParameter &param) {
     }
     case ParameterType::Vector: {
       const auto *value = std::get_if<std::vector<double>>(&param.value);
-      std::ostringstream out;
+      std::ostringstream out = jsonNumberStream();
       out << '[';
       if (value) {
         for (size_t i = 0; i < value->size(); ++i) {
@@ -97,7 +108,9 @@ static std::string paramValueJson(const ProcessorParameter &param) {
     }
     case ParameterType::Double: {
       const double *value = std::get_if<double>(&param.value);
-      return std::to_string(value ? *value : 0.0);
+      std::ostringstream out = jsonNumberStream();
+      out << (value ? *value : 0.0);
+      return out.str();
     }
     default:
       return "null";

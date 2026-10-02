@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -244,6 +245,8 @@ static int selfTest() {
     if (cropIt == gPlugins.end()) return fail("bundled Crop plugin not found (mixed)");
     const int cropIndex = (int)std::distance(gPlugins.begin(), cropIt);
 
+    // Crop changes the image size on both sides of the native node, so the
+    // native processor must handle an input that is not the source size.
     App mixed;
     if (!addNode(mixed, cropIndex) || !addNativeExposureNode(mixed) || !addNode(mixed, cropIndex))
       return fail("mixed processor node creation");
@@ -251,27 +254,44 @@ static int selfTest() {
         mixed.nodes[1].processor->backend() != ProcessorBackend::Native)
       return fail("mixed processor backend");
 
-    if (!mixed.nodes[1].processor->setParameterValue("exposure", 1.0))
-      return fail("native exposure parameter set");
+    const double exposureEv = 1.0 / 3.0;  // not representable in 6 decimals
+    if (!mixed.nodes[0].processor->setParameterValue("crop", 40.0) ||
+        !mixed.nodes[1].processor->setParameterValue("exposure", exposureEv) ||
+        !mixed.nodes[2].processor->setParameterValue("crop", 40.0))
+      return fail("mixed processor parameter set");
+
+    // Reference: the same two crops without the native node.
+    App cropOnly;
+    if (!addNode(cropOnly, cropIndex) || !addNode(cropOnly, cropIndex) ||
+        !cropOnly.nodes[0].processor->setParameterValue("crop", 40.0) ||
+        !cropOnly.nodes[1].processor->setParameterValue("crop", 40.0))
+      return fail("mixed reference chain");
+    Image cropOut;
+    if (!renderChain(cropOnly, src, cropOut, 0).ok || cropOut.w >= src.w || cropOut.h >= src.h)
+      return fail("mixed reference render");
 
     Image mixedOut;
     ProcessorResult mixedResult = renderChain(mixed, src, mixedOut, 0);
-    if (!mixedResult.ok || mixedOut.w != src.w || mixedOut.h != src.h || mixedOut.px.size() != src.px.size())
-      return fail("mixed processor render");
+    if (!mixedResult.ok || mixedOut.w != cropOut.w || mixedOut.h != cropOut.h ||
+        mixedOut.px.size() != cropOut.px.size())
+      return fail("mixed processor render size");
 
-    for (size_t i = 0; i + 3 < src.px.size(); i += 4) {
+    const float gain = (float)std::exp2(exposureEv);
+    for (size_t i = 0; i + 3 < cropOut.px.size(); i += 4) {
       for (int c = 0; c < 3; ++c) {
-        if (std::fabs(mixedOut.px[i + c] - src.px[i + c] * 2.0f) > 1e-6f)
+        const float want = cropOut.px[i + c] * gain;
+        if (std::fabs(mixedOut.px[i + c] - want) > 1e-6f * std::max(1.0f, std::fabs(want)))
           return fail("native exposure gain");
       }
-      if (mixedOut.px[i + 3] != src.px[i + 3]) return fail("native exposure alpha");
+      if (mixedOut.px[i + 3] != cropOut.px[i + 3]) return fail("native exposure alpha");
     }
 
     const PersistChain saved = captureChain(mixed);
     if (saved.nodes.size() != 3 || saved.nodes[1].backend != "native" ||
-        saved.nodes[1].identifier != "rawnode.native.exposure" ||
-        saved.nodes[1].paramsJson.at("exposure") != "1.000000")
+        saved.nodes[1].identifier != "rawnode.native.exposure")
       return fail("native exposure persistence capture");
+    if (std::strtod(saved.nodes[1].paramsJson.at("exposure").c_str(), nullptr) != exposureEv)
+      return fail("native exposure full-precision capture");
 
     App restored;
     applyChain(restored, saved);
