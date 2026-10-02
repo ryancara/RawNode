@@ -2,19 +2,107 @@
 
 #include <CtlFunctionCall.h>
 #include <CtlInterpreter.h>
+#include <CtlMessage.h>
 #include <CtlSimdInterpreter.h>
 #include <CtlStdType.h>
 #include <CtlType.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <mutex>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
 namespace fs = std::filesystem;
 
 namespace {
+
+// RawNode's own entry-point checks; their messages are already specific.
+struct ContractError : std::runtime_error {
+  using std::runtime_error::runtime_error;
+};
+
+// CTL reports compile and import errors through a process-wide message
+// function (stderr by default) and then throws a generic exception such as
+// 'Failed to load CTL module "module.1a2b3c4d"'. One router is installed once,
+// before any interpreter exists, so CTL's unsynchronised global pointer is never
+// swapped while a render thread may be calling CTL print(). The router forwards
+// everything to the previous function and also copies messages raised on a
+// thread that is currently loading a script.
+thread_local std::string *tCapturedMessages = nullptr;
+Ctl::MessageOutputFunction gPreviousMessageOutput = nullptr;
+
+void routeCtlMessage(const std::string &message) {
+  if (tCapturedMessages) *tCapturedMessages += message;
+  if (gPreviousMessageOutput) gPreviousMessageOutput(message);
+}
+
+class ScopedCtlMessageCapture {
+ public:
+  ScopedCtlMessageCapture() {
+    static std::once_flag installed;
+    std::call_once(installed, [] { gPreviousMessageOutput = Ctl::setMessageOutputFunction(routeCtlMessage); });
+    previous_ = tCapturedMessages;
+    tCapturedMessages = &text_;
+  }
+  ~ScopedCtlMessageCapture() { tCapturedMessages = previous_; }
+  ScopedCtlMessageCapture(const ScopedCtlMessageCapture &) = delete;
+  ScopedCtlMessageCapture &operator=(const ScopedCtlMessageCapture &) = delete;
+
+  const std::string &text() const { return text_; }
+
+ private:
+  std::string text_;
+  std::string *previous_ = nullptr;
+};
+
+std::string trimmed(const std::string &text) {
+  const size_t begin = text.find_first_not_of(" \t\r\n");
+  if (begin == std::string::npos) return {};
+  const size_t end = text.find_last_not_of(" \t\r\n");
+  return text.substr(begin, end - begin + 1);
+}
+
+bool isCaretLine(const std::string &line) {
+  return line.find('^') != std::string::npos && line.find_first_not_of(" \t^") == std::string::npos;
+}
+
+// Reduces captured CTL output to its diagnostics ("Script.ctl:3: Syntax Error."),
+// dropping source echoes, caret markers and "(@errorN)" codes, and showing paths
+// in the script's directory by file name.
+std::string summarizeCtlMessages(const std::string &text, const std::string &scriptDir) {
+  std::vector<std::string> lines;
+  std::istringstream in(text);
+  for (std::string line; std::getline(in, line);) lines.push_back(line);
+
+  std::vector<std::string> diagnostics;
+  for (size_t i = 0; i < lines.size(); ++i) {
+    // CTL echoes the offending source line followed by a "^" marker line.
+    if (i + 1 < lines.size() && isCaretLine(lines[i + 1])) {
+      ++i;
+      continue;
+    }
+    std::string line = lines[i];
+    const size_t code = line.rfind("(@error");
+    if (code != std::string::npos) line.erase(code);
+    line = trimmed(line);
+    if (line.empty() || isCaretLine(line)) continue;
+
+    if (!scriptDir.empty() && line.size() > scriptDir.size() && line.compare(0, scriptDir.size(), scriptDir) == 0 &&
+        (line[scriptDir.size()] == '/' || line[scriptDir.size()] == '\\'))
+      line.erase(0, scriptDir.size() + 1);
+    if (std::find(diagnostics.begin(), diagnostics.end(), line) == diagnostics.end()) diagnostics.push_back(line);
+  }
+
+  if (diagnostics.empty()) return {};
+  constexpr size_t kShown = 3;
+  std::string summary = diagnostics[0];
+  for (size_t i = 1; i < diagnostics.size() && i < kShown; ++i) summary += "; " + diagnostics[i];
+  if (diagnostics.size() > kShown) summary += " (+" + std::to_string(diagnostics.size() - kShown) + " more)";
+  return summary;
+}
 
 bool validVaryingFloat(const Ctl::FunctionArgPtr &arg) {
   return arg.refcount() != 0 && arg->isVarying() &&
@@ -55,7 +143,7 @@ struct CtlProcessor::Impl {
     function = interpreter.newFunctionCall("main");
 
     if (function->returnValue()->type().cast<Ctl::VoidType>().refcount() == 0)
-      throw std::runtime_error("CTL main() must return void");
+      throw ContractError("CTL main() must return void");
 
     rIn = function->findInputArg("rIn");
     gIn = function->findInputArg("gIn");
@@ -67,20 +155,20 @@ struct CtlProcessor::Impl {
     aOut = function->findOutputArg("aOut");
 
     if (!validVaryingFloat(rIn) || !validVaryingFloat(gIn) || !validVaryingFloat(bIn))
-      throw std::runtime_error("CTL main() must provide varying float rIn, gIn and bIn inputs");
+      throw ContractError("CTL main() must provide varying float rIn, gIn and bIn inputs");
     if (!validVaryingFloat(rOut) || !validVaryingFloat(gOut) || !validVaryingFloat(bOut))
-      throw std::runtime_error("CTL main() must provide varying float rOut, gOut and bOut outputs");
+      throw ContractError("CTL main() must provide varying float rOut, gOut and bOut outputs");
     if (aIn.refcount() != 0 && !validVaryingFloat(aIn))
-      throw std::runtime_error("CTL aIn must be a varying float when present");
+      throw ContractError("CTL aIn must be a varying float when present");
     if (aOut.refcount() != 0 && !validVaryingFloat(aOut))
-      throw std::runtime_error("CTL aOut must be a varying float when present");
+      throw ContractError("CTL aOut must be a varying float when present");
 
     for (size_t i = 0; i < function->numInputArgs(); ++i) {
       Ctl::FunctionArgPtr arg = function->inputArg(i);
       const std::string &name = arg->name();
       if (name == "rIn" || name == "gIn" || name == "bIn" || name == "aIn") continue;
       if (!arg->hasDefaultValue())
-        throw std::runtime_error("Unsupported required CTL input parameter: " + name);
+        throw ContractError("Unsupported required CTL input parameter: " + name);
       arg->setDefaultValue();
     }
 
@@ -101,6 +189,13 @@ std::unique_ptr<CtlProcessor> CtlProcessor::create(const std::string &path, std:
     return nullptr;
   }
 
+  // Prefer CTL's own diagnostics over its generic load/lookup exception text.
+  ScopedCtlMessageCapture capture;
+  const auto ctlError = [&](const char *fallback) {
+    const std::string summary = summarizeCtlMessages(capture.text(), fs::path(canonical).parent_path().string());
+    return summary.empty() ? std::string(fallback) : summary;
+  };
+
   try {
     auto impl = std::make_unique<Impl>();
     impl->load(canonical);
@@ -108,11 +203,14 @@ std::unique_ptr<CtlProcessor> CtlProcessor::create(const std::string &path, std:
     if (name.empty()) name = "CTL";
     return std::unique_ptr<CtlProcessor>(
         new CtlProcessor(canonical, std::move(name), std::move(impl)));
-  } catch (const std::exception &e) {
+  } catch (const ContractError &e) {
     if (error) *error = e.what();
     return nullptr;
+  } catch (const std::exception &e) {
+    if (error) *error = ctlError(e.what());
+    return nullptr;
   } catch (...) {
-    if (error) *error = "Unknown CTL interpreter error";
+    if (error) *error = ctlError("Unknown CTL interpreter error");
     return nullptr;
   }
 }

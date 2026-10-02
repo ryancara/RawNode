@@ -4,6 +4,7 @@
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
 #include "ofx/OfxHost.h"
+#include "processors/CtlProcessor.h"
 #include "processors/OfxProcessor.h"
 #include "persist/ProjectPersist.h"
 #include "UI.h"
@@ -337,6 +338,35 @@ static int selfTest() {
         ctlMissing.nodes[0].storedBackend != "ctl" ||
         ctlMissing.nodes[0].storedIdentifier != ctlSaved.nodes[0].identifier)
       return fail("ctl missing script placeholder");
+
+    // Syntax and import errors must surface CTL's own diagnostics rather than
+    // its generic exception text ('Failed to load CTL module "module.<id>"',
+    // 'Cannot find CTL function main.') or a stderr-only message.
+    const fs::path badSyntaxPath = ctlDir / "BadSyntax.ctl";
+    const fs::path badImportPath = ctlDir / "BadImport.ctl";
+    {
+      std::ofstream badSyntax(badSyntaxPath.string(), std::ios::binary);
+      badSyntax << "void main(input varying float rIn {\n}\n";
+      std::ofstream badImport(badImportPath.string(), std::ios::binary);
+      badImport <<
+          "import \"NoSuchModule\";\n"
+          "void main(\n"
+          "  input varying float rIn, input varying float gIn, input varying float bIn,\n"
+          "  output varying float rOut, output varying float gOut, output varying float bOut)\n"
+          "{\n"
+          "  rOut = rIn; gOut = gIn; bOut = bIn;\n"
+          "}\n";
+      if (!badSyntax.good() || !badImport.good()) return fail("ctl error script test write");
+    }
+    std::string ctlError;
+    if (CtlProcessor::create(badSyntaxPath.string(), &ctlError) || ctlError.rfind("BadSyntax.ctl:1: ", 0) != 0 ||
+        ctlError.find("module.") != std::string::npos)
+      return fail(("ctl syntax error message: " + ctlError).c_str());
+    if (CtlProcessor::create(badImportPath.string(), &ctlError) ||
+        ctlError.find("Cannot find CTL module \"NoSuchModule\"") == std::string::npos)
+      return fail(("ctl import error message: " + ctlError).c_str());
+    fs::remove(badSyntaxPath);
+    fs::remove(badImportPath);
 
     fs::remove(libPath);
     fs::remove(ctlDir);
