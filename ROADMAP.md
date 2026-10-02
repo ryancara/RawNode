@@ -2,204 +2,320 @@
 
 This roadmap is intentionally staged so major architectural assumptions are proven before more complex features are added.
 
-## Phase 0 — Fork validation
+The roadmap is a source of truth for future RawNode work. Features may move between phases as implementation experience changes, but colour management, persistence, processor behaviour, and RAW architecture should remain explicit rather than hidden or inferred.
 
-Verify the inherited OFX Raw Host behaviour on macOS, Windows, and Linux.
+## Current position — October 2026
 
-Confirm:
+The following foundational work is complete or substantially complete:
 
-- RAW and standard image opening;
-- OFX discovery/rendering;
-- reorder/bypass;
-- filmstrip/folder workflow;
-- sidecar save/restore;
-- export;
-- build reproducibility.
+- generic backend-neutral Processor model;
+- generic parameter model;
+- Sidecar V2 with stable node IDs and missing-processor preservation;
+- native Exposure reference processor;
+- standard CTL backend using the official CTL interpreter;
+- ART CTL entry-point, scalar metadata, presentation metadata, presets, and ART-style numeric shaping;
+- explicit LibRaw camera-space -> RawNode colour boundary;
+- selectable RAW initial working spaces:
+  - Linear Rec.709;
+  - Linear Rec.2020;
+  - ACES2065-1 / AP0;
+- explicit user ownership of processor colour-space settings and final Output Tag.
 
-Add CI builds for all three platforms.
+RawNode does not automatically change processor colour-space parameters or infer colour-space changes from arbitrary processors.
 
-## Phase 1 — Generic processing core
+## Immediate next sequence
 
-Refactor the current OFX-specific node representation into a generic processor/node model.
+### PR #17 — Explicit CST processor
 
-Initially, only `OFXProcessor` needs to exist.
+Add a first-class colour-space transform processor.
 
-Success criterion: the app behaves the same as before the refactor.
+Initial targets should include the spaces most useful to current workflows, such as:
 
-## Phase 2 — Generic parameters
+- Linear Rec.709;
+- Linear Rec.2020;
+- ACES2065-1 / AP0;
+- ACEScg / AP1 where useful;
+- DaVinci Wide Gamut / Intermediate;
+- sRGB / Rec.709 display-referred transforms where appropriate.
 
-Move parameter UI/state away from direct OFX assumptions.
+Requirements:
 
-Existing OFX parameters should be surfaced through the common parameter abstraction.
+- explicit source and destination spaces;
+- explicit transfer-function handling;
+- no hidden conversions around other processors;
+- generic parameter and Sidecar V2 support;
+- predictable behaviour with CTL, OFX, future DCTL, LUT, and CLF processors.
 
-## Phase 3 — Sidecar V2
+The user owns the colour pipeline. CST nodes change colour encoding deliberately; other processors receive the RGB values currently flowing through the graph.
 
-Generalise persistence to store:
+### PR #18 — Display, Output Tag, and export interpretation cleanup
 
-- RAW settings;
-- working colour space;
-- node instance IDs;
-- processor/backend type;
-- plugin/script identifier;
-- order/connections;
-- bypass state;
+Remove inherited assumptions that depend on whether the processing chain is empty.
+
+Goals:
+
+- make final pixel interpretation explicit at all times;
+- keep display conversion separate from creative processing;
+- keep Output Tag entirely user-controlled;
+- make preview and export interpretation consistent;
+- clearly separate image encoding from embedded profile/tagging;
+- address awkward cases such as 8-bit export from linear wide-gamut spaces;
+- avoid pretending RawNode knows the colour state after arbitrary OFX, CTL, DCTL, or other processors.
+
+### Documentation refresh
+
+After the CST and display/output work settles:
+
+- update ARCHITECTURE.md and DECISIONS.md to reflect the explicit-CST model;
+- document the LibRaw camera-space boundary;
+- document selectable RAW working spaces;
+- update CTL/ART completion status;
+- replace old references to automatic per-node colour tracking;
+- keep ROADMAP.md aligned with the actual implementation.
+
+## Core editing and workflow usability
+
+These are high-priority usability features and should be addressed before or alongside deeper processor-format work.
+
+### Preview zoom and pan
+
+Add practical image navigation:
+
+- mouse wheel / trackpad zoom;
+- pinch-to-zoom where available;
+- click-drag pan;
+- Fit;
+- 100%;
+- useful keyboard shortcuts.
+
+RawNode already has preview zoom/pan state, so this should build on the existing preview model rather than introduce a separate viewer architecture.
+
+### Copy and paste nodes
+
+Allow copying one processing node and pasting it elsewhere.
+
+Copy should preserve:
+
+- processor/backend identity;
+- processor parameters;
+- enabled/bypass state;
+- relevant node UI state.
+
+Paste must create a new persistent node instance ID.
+
+### Copy and paste processing graphs between photos
+
+Allow copying the current processing chain and pasting/applying it to another image.
+
+The copied graph should include:
+
+- processors;
+- node order;
+- CST nodes;
 - parameters;
-- space for future mask metadata.
+- bypass state;
+- processor-local UI state where useful.
 
-Unknown processors/parameters should be preserved where possible.
+Image-specific RAW decode state should not be copied accidentally. The target photo keeps its own RAW working-space/decode state unless the user explicitly chooses otherwise.
 
-## Phase 4 — Prove mixed processors
+This feature should reuse the same backend-neutral serialisation concepts as Sidecar V2 rather than implementing a parallel copy format.
 
-Add a minimal native scene-linear Exposure processor as the first non-OFX reference implementation.
+### Presets
 
-This proves the backend-neutral processor, parameter, persistence, UI, and render seams. It does not imply that every photographic adjustment should be reimplemented as a native processor.
+Support reusable editing presets.
 
-Test mixed processing:
+Initial useful scopes:
 
-```text
-OFX -> Native Exposure -> OFX
-```
+- **node preset** — saved settings for one processor;
+- **graph/grade preset** — a reusable processing chain that can be applied to another photo.
 
-Verify preview, reorder, persistence, and export.
+Graph presets and graph copy/paste should share as much serialisation and validation code as possible.
 
-## Phase 5 — CTL
+ART CTL's own internal script presets remain processor-specific behaviour and are separate from RawNode-level node/graph presets.
 
-Add CTL as the first external non-OFX backend using the official CTL reference interpreter.
+## DCTL compatibility
 
-Initial standard-CTL target:
-
-- load a user-selected `.ctl` file;
-- execute a conventional `void main(...)`;
-- support varying float `rIn/gIn/bIn` and `rOut/gOut/bOut`;
-- support optional `aIn/aOut`;
-- expose defaulted uniform scalar `float`, `int`, and `bool` inputs through the generic parameter API;
-- use direct numeric fields when plain CTL provides no min/max metadata rather than inventing slider ranges;
-- leave arrays/vectors, richer metadata, and host-specific parameter conventions for later;
-- resolve sibling/imported CTL modules using the script directory plus the normal CTL module path;
-- persist the script path through Sidecar V2 and preserve a missing script as a placeholder.
-
-Validate mixed stacks such as:
-
-```text
-OFX -> CTL -> OFX
-```
-
-ART compatibility is a layer on top of standard CTL, not the definition of the CTL backend.
-
-### ART CTL compatibility
-
-Build an adapter above the standard CTL backend that can:
-
-- recognise and call `ART_main`;
-- parse `@ART-param` metadata into RawNode's generic parameter model;
-- honour ART labels and colour-space tags where practical;
-- resolve helper libraries such as `_artlib.ctl`;
-- preserve standard CTL behaviour for non-ART scripts;
-- add richer ART features such as choices, groups, arrays/curves, presets, and `@ART-lut` incrementally rather than all at once.
-
-## Near-term workflow features
-
-Add folder-workflow features without introducing a catalogue/database:
-
-- export the entire current workspace/folder, using each image's own sidecar state;
-- Pick / Neutral / Reject flags;
-- a deliberate command to move rejected source files to the operating system Trash/Recycle Bin;
-- preserve the folder itself as the workspace and keep classification state lightweight and transparent.
-
-## Colour-management refactor
-
-Make colour-space state explicit rather than inferred from whether the processing chain is empty.
-
-Initial goals:
-
-- audit and correct the inherited RAW colour-space tagging;
-- support Linear Rec.2020 and ACES2065-1 / AP0 as working-space options;
-- add a first-class CST/colour-space transform processor so colour space can change deliberately between nodes;
-- track the colour space flowing through the chain;
-- keep display conversion and export tagging/transforms separate from creative processors.
-
-The current inherited RAW path sets LibRaw `output_color = 1` (sRGB primaries) with a linear transfer curve, while RawNode currently tags the result as Linear Rec.2020. This mismatch must be resolved as part of this refactor.
-
-## Phase 6 — DCTL compatibility
-
-Implement incrementally.
+Implement DCTL support incrementally.
 
 Initial target:
 
-- basic RGB transforms;
+- load user-selected .dctl files;
+- basic RGB colour transforms;
 - common scalar/vector maths;
-- `DEFINE_UI_PARAMS` parsing;
+- DEFINE_UI_PARAMS parsing;
+- generic parameter integration;
+- Sidecar V2 persistence;
 - colour-processing DCTLs.
 
 Later possibilities:
 
-- textures/spatial operations;
 - includes;
 - LUT access;
+- textures/spatial operations;
 - broader Resolve compatibility.
 
 Do not require perfect Resolve compatibility before DCTL becomes useful.
 
-## Future processor formats — LUT and CLF
+DCTL processors do not receive hidden RawNode colour conversions. Users place CST nodes around DCTLs where needed.
 
-Add first-class colour-transform processors rather than requiring LUTs to be hosted through OFX.
+## First-class LUT and CLF processors
 
-Initial LUT target:
+Add colour-transform processors that do not depend on OFX LUT loaders.
 
-- `.cube` files;
-- trilinear/tetrahedral interpolation as appropriate;
-- generic node behaviour and sidecar persistence.
+### LUT
 
-CLF should be treated as a richer transform format rather than assumed to be only a LUT, because it may contain matrices, ranges, LUTs, and other operations.
+Initial target:
 
-These can be introduced after the generic persistence and mixed-processor seams are proven.
+- .cube files;
+- 1D and 3D support as appropriate;
+- trilinear/tetrahedral interpolation where appropriate;
+- generic node behaviour;
+- Sidecar V2 persistence.
 
-## Phase 7 — Graph/List interface
+### CLF
 
-Allow switching between graph and list views of the same processing structure.
+Treat CLF as a richer transform format rather than merely another LUT container.
 
-Initially both can represent a serial chain.
+CLF may contain:
 
-Add number-key node selection.
+- matrices;
+- ranges;
+- LUTs;
+- transfer functions;
+- other colour operations.
 
-Enable graph branching only when a concrete use case justifies it.
+## Folder workflow features
 
-## Phase 8 — Assignable input system
+Expand RawNode's folder-based workflow without introducing a catalogue/database.
+
+Priorities:
+
+- Pick / Neutral / Reject flags;
+- move rejected source files deliberately to the operating-system Trash/Recycle Bin;
+- export the whole current workspace/folder using each image's own sidecar state;
+- batch export controls;
+- preserve the folder itself as the workspace;
+- keep classification metadata lightweight and transparent.
+
+Review/rating metadata should be designed so it remains portable and does not become a hidden catalogue.
+
+## Graph/List interface
+
+Allow switching between graph and list views of the same underlying processing structure.
+
+Initially both may represent the same serial chain.
+
+Goals:
+
+- number-key node selection;
+- clear selected-node behaviour;
+- graph/list parity;
+- preserve stable node IDs;
+- only enable branching/merging when a concrete workflow requires it.
+
+Graph copy/paste and presets should already operate on the same underlying graph representation.
+
+## Assignable input system
 
 Add configurable keyboard/mouse parameter bindings.
 
-Keep the input abstraction generic so future MIDI, OSC/TouchOSC, or hardware controllers can use the same path.
+Keep the input abstraction generic so future inputs can share the same path:
 
-## Phase 9 — RAW architecture refactor
+- keyboard;
+- mouse;
+- MIDI;
+- OSC / TouchOSC;
+- dedicated hardware controllers.
 
-Separate RAW decoding from RAW development behind interfaces.
+Bindings should normally target generic parameters on the currently selected node instance.
 
-Evaluate LibRaw, Rawler, and RawSpeed using real criteria:
+## RAW architecture and quality work
 
-- format/camera support;
+The LibRaw camera-space boundary is now established, but deeper RAW work remains.
+
+### Decoder abstraction
+
+Continue toward replaceable decoder/developer interfaces so LibRaw can later coexist with or be replaced by:
+
+- Rawler;
+- RawSpeed;
+- another decoder where useful.
+
+Evaluate candidates using:
+
+- camera/format support;
 - metadata access;
 - image quality;
 - performance;
 - cross-platform build complexity;
-- compressed DNG/JPEG XL support.
+- integration complexity;
+- compressed DNG / JPEG XL support.
 
-JPEG XL-compressed DNG support is an explicit RawNode requirement, not merely an optional evaluation criterion. The decoder boundary should allow a fallback or alternate decoder when LibRaw cannot open a supported DNG.
+JPEG XL-compressed DNG support is an explicit RawNode requirement.
 
-## Phase 10 — Masks and local adjustments
+### RAW quality improvements
+
+Keep these separate from the colour-architecture work:
+
+- investigate highlight / white-balance clipping;
+- investigate image-dependent white-level behaviour such as LibRaw adjust_maximum_thr;
+- improve DNG colour handling where practical;
+- dual-illuminant/profile interpolation where relevant;
+- editable RAW-stage white balance if a future decoder/developer architecture makes it worthwhile;
+- more genuinely float RAW processing if future quality goals justify it.
+
+## Masks and local adjustments
 
 After the base architecture is mature, investigate:
 
 - node masks;
-- opacity;
-- brush/gradient/key masks;
+- node opacity;
+- brush masks;
+- gradient masks;
+- key/qualifier masks;
 - shared/group masks;
 - local adjustments;
 - AI-generated masks.
 
+Mask generation should remain separate from image adjustment. AI should initially generate masks rather than become a separate image-processing architecture.
+
 ## Known technical debt
 
-- Full-resolution export currently runs on a detached thread that can race with node mutation and processor resize/lifetime changes. This predates the generic Processor refactor and should be fixed separately by snapshotting or synchronising the render graph.
+### Full-resolution export thread
 
-## Working rule
+Full-resolution export currently runs on a detached background thread while reusing live processor/node objects.
 
-Do not start multiple major architectural changes simultaneously. Prefer proving one seam at a time so regressions are attributable and changes remain reversible.
+This can race with:
+
+- node deletion;
+- node reordering;
+- parameter edits;
+- opening another image;
+- processor render-size changes between preview and full-resolution export.
+
+The preferred long-term model is to snapshot the processing graph and parameters when Export is requested, then render that immutable snapshot in the background.
+
+If independent processor cloning is not yet practical, the safer interim solution is to synchronise export and prevent graph mutation while the export render is using the live graph.
+
+This should be fixed before batch/workspace export becomes a major workflow feature.
+
+## Cross-platform and release work
+
+Continue validating macOS, Windows, and Linux as RawNode grows.
+
+Important future work includes:
+
+- reproducible builds;
+- CI for all supported platforms;
+- standalone application packaging;
+- dependency/version documentation;
+- plugin/script path portability where practical.
+
+## Working rules
+
+- Do not start multiple major architectural changes simultaneously.
+- Prefer proving one seam at a time so regressions are attributable and reversible.
+- Colour-space changes must be explicit and user-controlled.
+- Sidecars remain the authoritative per-image edit state.
+- Folder workflow remains catalogue-free.
+- Reuse generic Processor, Parameter, node, and Sidecar infrastructure rather than building backend-specific parallel systems.
