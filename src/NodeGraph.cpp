@@ -1,24 +1,17 @@
 #include "NodeGraph.h"
 
 #include "RenderPipeline.h"
+#include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
-#include "ofxParam.h"
 
 #include <cctype>
+#include <cstdlib>
 #include <sstream>
 #include <stdexcept>
 
 // Node creation currently happens on the UI thread. IDs become persistent
 // across sessions when Sidecar V2 begins storing them.
 static unsigned long long gNextNodeId = 1;
-
-static OfxProcessor *asOfx(Node &node) {
-  return dynamic_cast<OfxProcessor *>(node.processor.get());
-}
-
-static const OfxProcessor *asOfx(const Node &node) {
-  return dynamic_cast<const OfxProcessor *>(node.processor.get());
-}
 
 static std::string makeNodeId() {
   return "node-" + std::to_string(gNextNodeId++);
@@ -43,114 +36,131 @@ static int findPluginIndex(const std::string &identifier, const std::string &lab
   return -1;
 }
 
-static std::string paramValueJson(Param *p) {
-  const std::string &t = p->type;
-  if (t == kOfxParamTypeString || t == kOfxParamTypeCustom) {
-    std::string s = p->s;
-    std::string esc;
-    esc.reserve(s.size() + 4);
-    for (char c : s) {
-      if (c == '"' || c == '\\') esc += '\\';
-      esc += c;
-    }
-    return std::string("\"") + esc + '"';
+static std::string jsonString(const std::string &value) {
+  std::string escaped;
+  escaped.reserve(value.size() + 4);
+  for (char c : value) {
+    if (c == '"' || c == '\\') escaped += '\\';
+    escaped += c;
   }
-  if (t == kOfxParamTypeBoolean) return p->v[0] != 0 ? "true" : "false";
-  const int d = dims(t);
-  if (d > 1) {
-    std::ostringstream o;
-    o << '[';
-    for (int i = 0; i < d; ++i) {
-      if (i) o << ',';
-      o << p->v[i];
-    }
-    o << ']';
-    return o.str();
-  }
-  return std::to_string(p->v[0]);
+  return std::string("\"") + escaped + '"';
 }
 
-static void applyParamValueJson(Param *p, const std::string &raw) {
-  const std::string &t = p->type;
-  std::string v = raw;
-  while (!v.empty() && std::isspace((unsigned char)v.front())) v.erase(v.begin());
-  while (!v.empty() && std::isspace((unsigned char)v.back())) v.pop_back();
-  std::lock_guard<std::mutex> lock(gValueMutex);
-  if (t == kOfxParamTypeString || t == kOfxParamTypeCustom) {
-    if (v.size() >= 2 && v.front() == '"') {
-      std::string s;
-      for (size_t i = 1; i < v.size(); ++i) {
-        if (v[i] == '\\' && i + 1 < v.size()) {
-          s += v[++i];
-          continue;
+static bool persistedParameterType(ParameterType type) {
+  return type != ParameterType::Group && type != ParameterType::Page &&
+         type != ParameterType::PushButton && type != ParameterType::Unsupported;
+}
+
+static std::string paramValueJson(const ProcessorParameter &param) {
+  switch (param.type) {
+    case ParameterType::String:
+    case ParameterType::Custom: {
+      const auto *value = std::get_if<std::string>(&param.value);
+      return value ? jsonString(*value) : "\"\"";
+    }
+    case ParameterType::Boolean: {
+      const bool *value = std::get_if<bool>(&param.value);
+      return value && *value ? "true" : "false";
+    }
+    case ParameterType::Integer:
+    case ParameterType::Choice: {
+      const int *value = std::get_if<int>(&param.value);
+      return std::to_string(value ? *value : 0);
+    }
+    case ParameterType::Vector: {
+      const auto *value = std::get_if<std::vector<double>>(&param.value);
+      std::ostringstream out;
+      out << '[';
+      if (value) {
+        for (size_t i = 0; i < value->size(); ++i) {
+          if (i) out << ',';
+          out << (*value)[i];
         }
-        if (v[i] == '"') break;
-        s += v[i];
       }
-      p->s = s;
+      out << ']';
+      return out.str();
     }
-    return;
-  }
-  if (t == kOfxParamTypeBoolean) {
-    p->v[0] = (v == "true" || v == "1") ? 1.0 : 0.0;
-    return;
-  }
-  const int d = dims(t);
-  if (d > 1 && !v.empty() && v.front() == '[') {
-    size_t i = 1;
-    for (int dim = 0; dim < d && i < v.size(); ++dim) {
-      while (i < v.size() && (std::isspace((unsigned char)v[i]) || v[i] == ',')) ++i;
-      char *end = nullptr;
-      p->v[dim] = std::strtod(v.c_str() + i, &end);
-      if (end) i = (size_t)(end - v.c_str());
+    case ParameterType::Double: {
+      const double *value = std::get_if<double>(&param.value);
+      return std::to_string(value ? *value : 0.0);
     }
-    return;
+    default:
+      return "null";
   }
-  p->v[0] = std::strtod(v.c_str(), nullptr);
 }
 
-const std::vector<Val> &choiceOptions(Param *p) {
-  static const std::vector<Val> none;
-  auto it = p->props.m.find(kOfxParamPropChoiceOption);
-  return it != p->props.m.end() ? it->second : none;
+static std::string trim(std::string value) {
+  while (!value.empty() && std::isspace((unsigned char)value.front())) value.erase(value.begin());
+  while (!value.empty() && std::isspace((unsigned char)value.back())) value.pop_back();
+  return value;
 }
 
-void notifyChanged(App &app, Node &node, Param *p) {
-  (void)app;
-  PropSet in;
-  OfxPropertySetHandle a = H(&in);
-  const double scale[2] = {1, 1};
-  propSetString(a, kOfxPropType, 0, kOfxTypeParameter);
-  propSetString(a, kOfxPropName, 0, p->name.c_str());
-  propSetString(a, kOfxPropChangeReason, 0, kOfxChangeUserEdited);
-  propSetDouble(a, kOfxPropTime, 0, 0);
-  propSetN<double, propSetDouble>(a, kOfxImageEffectPropRenderScale, 2, scale);
-  OfxProcessor *ofx = asOfx(node);
-  if (!ofx || !ofx->effect()) return;
-  OfxPlugin *plugin = gPlugins[ofx->pluginIndex()].plugin;
-  callAction(plugin, kOfxActionBeginInstanceChanged, ofx->effect(), &in);
-  callAction(plugin, kOfxActionInstanceChanged, ofx->effect(), &in);
-  callAction(plugin, kOfxActionEndInstanceChanged, ofx->effect(), &in);
+static std::string parseJsonString(const std::string &raw) {
+  const std::string value = trim(raw);
+  if (value.size() < 2 || value.front() != '"') return {};
+  std::string out;
+  for (size_t i = 1; i < value.size(); ++i) {
+    if (value[i] == '\\' && i + 1 < value.size()) {
+      out += value[++i];
+      continue;
+    }
+    if (value[i] == '"') break;
+    out += value[i];
+  }
+  return out;
+}
+
+static void applyParamValueJson(Processor &processor, const ProcessorParameter &param, const std::string &raw) {
+  const std::string value = trim(raw);
+  switch (param.type) {
+    case ParameterType::String:
+    case ParameterType::Custom:
+      processor.setParameterValue(param.id, parseJsonString(value), false);
+      return;
+    case ParameterType::Boolean:
+      processor.setParameterValue(param.id, value == "true" || value == "1", false);
+      return;
+    case ParameterType::Integer:
+    case ParameterType::Choice:
+      processor.setParameterValue(param.id, (int)std::strtol(value.c_str(), nullptr, 10), false);
+      return;
+    case ParameterType::Double:
+      processor.setParameterValue(param.id, std::strtod(value.c_str(), nullptr), false);
+      return;
+    case ParameterType::Vector: {
+      const auto *current = std::get_if<std::vector<double>>(&param.value);
+      if (!current || value.empty() || value.front() != '[') return;
+      std::vector<double> parsed = *current;
+      size_t i = 1;
+      for (size_t dim = 0; dim < parsed.size() && i < value.size(); ++dim) {
+        while (i < value.size() && (std::isspace((unsigned char)value[i]) || value[i] == ',')) ++i;
+        char *end = nullptr;
+        parsed[dim] = std::strtod(value.c_str() + i, &end);
+        if (!end || end == value.c_str() + i) return;
+        i = (size_t)(end - value.c_str());
+      }
+      processor.setParameterValue(param.id, parsed, false);
+      return;
+    }
+    default:
+      return;
+  }
 }
 
 void applyColorDefaults(App &app, Node &node) {
-  OfxProcessor *ofx = asOfx(node);
-  if (!ofx || !ofx->effect()) return;
-  for (auto &up : ofx->effect()->params) {
-    Param *p = up.get();
-    if (p->type != kOfxParamTypeChoice) continue;
-    const std::string label = sprop(p->props, kOfxPropLabel);
-    const char *want =
-        label == "Input Color Space" ? colorSpaceName(app.inputSpace) : label == "Output Color Space" ? "sRGB" : nullptr;
-    if (!want) continue;
-    const auto &options = choiceOptions(p);
-    for (size_t i = 0; i < options.size(); ++i) {
-      if (options[i].s != want) continue;
-      {
-        std::lock_guard<std::mutex> lock(gValueMutex);
-        p->v[0] = (double)i;
-      }
-      notifyChanged(app, node, p);
+  if (!node.processor) return;
+  const auto params = node.processor->parameters();
+  for (const ProcessorParameter &param : params) {
+    if (param.type != ParameterType::Choice) continue;
+    const char *wanted =
+        param.label == "Input Color Space" ? colorSpaceName(app.inputSpace)
+        : param.label == "Output Color Space" ? "sRGB"
+                                                : nullptr;
+    if (!wanted) continue;
+
+    for (size_t i = 0; i < param.choices.size(); ++i) {
+      if (param.choices[i] != wanted) continue;
+      node.processor->setParameterValue(param.id, (int)i);
       break;
     }
   }
@@ -158,21 +168,16 @@ void applyColorDefaults(App &app, Node &node) {
 
 void syncOutputTag(App &app) {
   for (int n = (int)app.nodes.size() - 1; n >= 0; --n) {
-    OfxProcessor *ofx = asOfx(app.nodes[n]);
-    if (!ofx || !ofx->effect()) continue;
-    for (auto &up : ofx->effect()->params) {
-      Param *p = up.get();
-      if (p->type != kOfxParamTypeChoice || sprop(p->props, kOfxPropLabel) != "Output Color Space" ||
-          dprop(p->props, kOfxParamPropSecret, 0, 0) != 0)
-        continue;
-      const auto &options = choiceOptions(p);
-      const size_t index = (size_t)p->v[0];
-      if (index < options.size()) {
-        for (int i = 0; i < 4; ++i)
-          if (options[index].s == kOutputSpaces[i]) {
-            app.outputIndex = i;
-            return;
-          }
+    if (!app.nodes[n].processor) continue;
+    for (const ProcessorParameter &param : app.nodes[n].processor->parameters()) {
+      if (param.secret || param.type != ParameterType::Choice || param.label != "Output Color Space") continue;
+      const int *index = std::get_if<int>(&param.value);
+      if (!index || *index < 0 || *index >= (int)param.choices.size()) continue;
+      for (int i = 0; i < 4; ++i) {
+        if (param.choices[*index] == kOutputSpaces[i]) {
+          app.outputIndex = i;
+          return;
+        }
       }
     }
   }
@@ -202,6 +207,7 @@ void clearNodes(App &app) {
 bool addNode(App &app, int pluginIndex) {
   if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return false;
   waitRenderIdle(app);
+
   Node node;
   node.id = makeNodeId();
   node.processor = OfxProcessor::create(pluginIndex);
@@ -209,11 +215,12 @@ bool addNode(App &app, int pluginIndex) {
     app.setStatus("Plugin failed to create an instance");
     return false;
   }
+
   if (app.preview.w) node.processor->setRenderSize(app.preview.w, app.preview.h);
   applyColorDefaults(app, node);
-  OfxProcessor *ofx = asOfx(node);
-  for (auto &p : ofx->effect()->params)
-    if (p->type == kOfxParamTypeGroup) node.groupOpen[p->name] = dprop(p->props, kOfxParamPropGroupOpen, 0, 1) != 0;
+  for (const ProcessorParameter &param : node.processor->parameters())
+    if (param.type == ParameterType::Group) node.groupOpen[param.id] = param.groupInitiallyOpen;
+
   app.nodes.push_back(std::move(node));
   app.selectedNode = (int)app.nodes.size() - 1;
   app.paramFilter[0] = '\0';
@@ -225,9 +232,9 @@ bool addNode(App &app, int pluginIndex) {
 void moveNode(App &app, int from, int to) {
   if (from < 0 || to < 0 || from >= (int)app.nodes.size() || to >= (int)app.nodes.size() || from == to) return;
   waitRenderIdle(app);
-  Node n = std::move(app.nodes[from]);
+  Node node = std::move(app.nodes[from]);
   app.nodes.erase(app.nodes.begin() + from);
-  app.nodes.insert(app.nodes.begin() + to, std::move(n));
+  app.nodes.insert(app.nodes.begin() + to, std::move(node));
   app.selectedNode = to;
   syncOutputTag(app);
   scheduleRender(app);
@@ -236,49 +243,51 @@ void moveNode(App &app, int from, int to) {
 PersistChain captureChain(const App &app) {
   PersistChain chain;
   chain.selectedNode = app.selectedNode;
-  for (const Node &n : app.nodes) {
-    PersistNode pn;
-    const OfxProcessor *ofx = asOfx(n);
-    if (!ofx)
+
+  for (const Node &node : app.nodes) {
+    if (!node.processor) continue;
+    if (node.processor->backend() != ProcessorBackend::OFX)
       throw std::logic_error("Sidecar V1 only supports OFX processors; add generic persistence before another backend");
-    pn.pluginIdentifier = n.processor->identifier();
-    pn.pluginLabel = n.processor->displayName();
-    pn.enabled = n.enabled;
-    pn.groupOpen = n.groupOpen;
-    if (ofx->effect()) {
-      for (const auto &up : ofx->effect()->params) {
-        Param *p = up.get();
-        if (dprop(p->props, kOfxParamPropSecret, 0, 0) != 0) continue;
-        if (p->type == kOfxParamTypeGroup || p->type == kOfxParamTypePage || p->type == kOfxParamTypePushButton) continue;
-        pn.paramsJson[p->name] = paramValueJson(p);
-      }
+
+    PersistNode persisted;
+    persisted.pluginIdentifier = node.processor->identifier();
+    persisted.pluginLabel = node.processor->displayName();
+    persisted.enabled = node.enabled;
+    persisted.groupOpen = node.groupOpen;
+
+    for (const ProcessorParameter &param : node.processor->parameters()) {
+      if (param.secret || !persistedParameterType(param.type)) continue;
+      persisted.paramsJson[param.id] = paramValueJson(param);
     }
-    chain.nodes.push_back(std::move(pn));
+    chain.nodes.push_back(std::move(persisted));
   }
   return chain;
 }
 
 void applyChain(App &app, const PersistChain &chain) {
   clearNodes(app);
-  for (const PersistNode &pn : chain.nodes) {
-    const int pi = findPluginIndex(pn.pluginIdentifier, pn.pluginLabel);
-    if (pi < 0 || !addNode(app, pi)) continue;
+
+  for (const PersistNode &persisted : chain.nodes) {
+    const int pluginIndex = findPluginIndex(persisted.pluginIdentifier, persisted.pluginLabel);
+    if (pluginIndex < 0 || !addNode(app, pluginIndex)) continue;
+
     Node &node = app.nodes.back();
-    node.enabled = pn.enabled;
-    node.groupOpen = pn.groupOpen;
-    OfxProcessor *ofx = asOfx(node);
-    if (ofx && ofx->effect()) {
-      for (auto &up : ofx->effect()->params) {
-        Param *p = up.get();
-        auto it = pn.paramsJson.find(p->name);
-        if (it != pn.paramsJson.end()) applyParamValueJson(p, it->second);
-      }
+    node.enabled = persisted.enabled;
+    node.groupOpen = persisted.groupOpen;
+
+    if (!node.processor) continue;
+    const auto params = node.processor->parameters();
+    for (const ProcessorParameter &param : params) {
+      auto it = persisted.paramsJson.find(param.id);
+      if (it != persisted.paramsJson.end()) applyParamValueJson(*node.processor, param, it->second);
     }
   }
+
   if (chain.selectedNode >= 0 && chain.selectedNode < (int)app.nodes.size())
     app.selectedNode = chain.selectedNode;
   else if (!app.nodes.empty())
     app.selectedNode = 0;
+
   syncOutputTag(app);
   scheduleRender(app);
 }
