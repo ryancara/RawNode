@@ -87,6 +87,9 @@ static void loadSidecarForPath(App &app, const std::string &imagePath) {
       return;
     }
   } else {
+    // A new image with no sidecar starts with a clean processing chain.
+    // Never inherit the previously opened image's nodes into this document.
+    clearNodes(app);
     return;
   }
 
