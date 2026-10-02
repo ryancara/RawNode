@@ -2,13 +2,37 @@
 
 #include "color/TransferFunction.h"
 
+#include <string>
+
+// Numeric values 0..4 are retained from the first PR #17 CST implementation so
+// numeric sidecars written by that build keep their original meaning.
+// Display P3 is appended rather than inserted for backwards compatibility.
 enum class RgbGamut {
   Rec709 = 0,
-  Rec2020,
-  ACES_AP0,
-  ACES_AP1,
-  DaVinciWideGamut,
+  Rec2020 = 1,
+  ACES_AP0 = 2,
+  ACES_AP1 = 3,
+  DaVinciWideGamut = 4,
+  DisplayP3 = 5,
 };
+
+struct RgbGamutDefinition {
+  RgbGamut value;
+  const char *id;
+  const char *name;
+  double redX, redY;
+  double greenX, greenY;
+  double blueX, blueY;
+  double whiteX, whiteY;
+};
+
+int rgbGamutCount();
+const RgbGamutDefinition &rgbGamutDefinition(int index);
+const RgbGamutDefinition &rgbGamutDefinition(RgbGamut gamut);
+int rgbGamutIndex(RgbGamut gamut);
+const char *rgbGamutId(RgbGamut gamut);
+const char *rgbGamutName(RgbGamut gamut);
+bool rgbGamutFromIdOrName(const std::string &name, RgbGamut &gamut);
 
 struct ColorEncoding {
   RgbGamut gamut = RgbGamut::Rec2020;
@@ -22,3 +46,21 @@ inline bool operator==(const ColorEncoding &a, const ColorEncoding &b) {
 inline bool operator!=(const ColorEncoding &a, const ColorEncoding &b) {
   return !(a == b);
 }
+
+std::string colorEncodingName(const ColorEncoding &encoding);
+
+// Legacy five-value colour tags are retained only as compatibility presets for
+// old sidecars and APIs. Active colour state uses ColorEncoding everywhere.
+enum class ColorSpace {
+  sRGB = 0,
+  DisplayP3,
+  LinearRec709,
+  LinearRec2020,
+  ACES2065_1,
+};
+
+const char *colorSpaceName(ColorSpace cs);
+bool colorSpaceFromName(const std::string &name, ColorSpace &cs);
+ColorEncoding legacyColorSpaceEncoding(ColorSpace cs);
+bool legacyColorSpaceFromEncoding(const ColorEncoding &encoding, ColorSpace &cs);
+bool isRawWorkingSpace(ColorSpace cs);
