@@ -381,10 +381,11 @@ bool artMetadataDefault(const ArtParamDefinition &def, ParameterType type, const
       if (items.size() < 4 || items[2].kind != JsonValue::Kind::Number || items[3].kind != JsonValue::Kind::Number)
         throw bad();
       if (items.size() < 5) return false;
-      if (items[4].kind != JsonValue::Kind::Number || !std::isfinite(items[4].number) ||
-          std::fabs(items[4].number) > std::numeric_limits<float>::max())
+      if (items[4].kind != JsonValue::Kind::Number || !std::isfinite(items[4].number))
         throw bad();
-      out = (double)(float)items[4].number;  // CTL float storage
+      // ART passes the metadata value through its Adjuster widget, which
+      // applies range clamping and display-precision rounding below.
+      out = items[4].number;
       return true;
     case ParameterType::Integer: {
       const bool choice = items.size() >= 3 && items[2].kind == JsonValue::Kind::Array;
@@ -669,17 +670,65 @@ struct CtlProcessor::Impl {
     }
   }
 
-  static bool normaliseValue(ParameterType type, const ParameterValue &value, ParameterValue &out) {
-    switch (type) {
+  static int artStepDigits(double step) {
+    // ART's Adjuster derives decimal precision from the step, then rounds to
+    // that many decimal places (not to the nearest step multiple).
+    int digits = 0;
+    double scaled = step;
+    while (digits < 12 && std::fabs(scaled - std::floor(scaled)) > 1e-12) {
+      scaled *= 10.0;
+      ++digits;
+    }
+    return digits;
+  }
+
+  static double artShapeValue(double value, double step) {
+    const int digits = artStepDigits(step);
+    const double scale = std::pow(10.0, digits);
+    const double shaped = std::round(value * scale) / scale;
+    return shaped == -0.0 ? 0.0 : shaped;
+  }
+
+  static bool normaliseValue(const ParameterBinding &binding, const ParameterValue &value, ParameterValue &out) {
+    switch (binding.type) {
       case ParameterType::Double: {
-        // CTL float inputs are 32-bit. Reject NaN/inf and values that would
-        // overflow (converting an out-of-range double to float is undefined).
-        const double *v = std::get_if<double>(&value);
-        if (!v || !std::isfinite(*v) || std::fabs(*v) > std::numeric_limits<float>::max()) return false;
-        out = (double)(float)*v;
+        const double *input = std::get_if<double>(&value);
+        if (!input || !std::isfinite(*input)) return false;
+        double v = *input;
+
+        // ART's scalar controls are Adjusters. setValue() first rounds to the
+        // decimal precision implied by gui_step, while the GTK adjustment
+        // clamps the result to the declared slider range.
+        if (binding.hasRange) {
+          if (!std::isfinite(binding.min) || !std::isfinite(binding.max) || binding.min > binding.max)
+            return false;
+          v = artShapeValue(v, binding.step);
+          v = std::clamp(v, binding.min, binding.max);
+        }
+
+        // CTL float inputs are 32-bit. For ranged ART controls, clamp before
+        // this check just as ART's widget does.
+        if (std::fabs(v) > std::numeric_limits<float>::max()) return false;
+
+        // Ranged ART controls conceptually hold the UI's rounded double value;
+        // unbounded/plain CTL retains the existing exact float round-trip.
+        out = binding.hasRange ? v : (double)(float)v;
         return true;
       }
-      case ParameterType::Integer:
+      case ParameterType::Integer: {
+        const int *input = std::get_if<int>(&value);
+        if (!input) return false;
+        int v = *input;
+        if (binding.hasRange) {
+          if (binding.min > binding.max ||
+              binding.min < (double)std::numeric_limits<int>::min() ||
+              binding.max > (double)std::numeric_limits<int>::max())
+            return false;
+          v = std::clamp(v, (int)binding.min, (int)binding.max);
+        }
+        out = v;
+        return true;
+      }
       case ParameterType::Choice: {
         const int *v = std::get_if<int>(&value);
         if (!v) return false;
@@ -728,10 +777,9 @@ struct CtlProcessor::Impl {
           throw ContractError(where + "invalid value for ART preset parameter " + name);
         return value.boolean;
       case ParameterType::Double:
-        if (value.kind != JsonValue::Kind::Number || !std::isfinite(value.number) ||
-            std::fabs(value.number) > std::numeric_limits<float>::max())
+        if (value.kind != JsonValue::Kind::Number || !std::isfinite(value.number))
           throw ContractError(where + "invalid value for ART preset parameter " + name);
-        return (double)(float)value.number;
+        return value.number;
       case ParameterType::Integer:
       case ParameterType::Choice: {
         int v = 0;
@@ -873,6 +921,11 @@ struct CtlProcessor::Impl {
         }
         if (def != metadata.end()) metadata.erase(def);
 
+        ParameterValue normalisedDefault;
+        if (!normaliseValue(binding, binding.defaultValue, normalisedDefault))
+          throw ContractError("ART CTL parameter " + name + " has an invalid default value");
+        binding.defaultValue = std::move(normalisedDefault);
+
         parameterValues.push_back(binding.defaultValue);
         exposedParameters.push_back(std::move(binding));
       }
@@ -913,8 +966,11 @@ struct CtlProcessor::Impl {
           const int index = findParameter(member.first);
           if (index < 0)
             throw ContractError(where + "@ART-preset refers to unknown ART_main parameter " + member.first);
-          const ParameterValue value =
+          const ParameterValue raw =
               artPresetValue(member.second, exposedParameters[(size_t)index].type, where, member.first);
+          ParameterValue value;
+          if (!normaliseValue(exposedParameters[(size_t)index], raw, value))
+            throw ContractError(where + "invalid value for ART preset parameter " + member.first);
           auto existing = std::find_if(preset.values.begin(), preset.values.end(),
                                        [&](const auto &entry) { return entry.first == (size_t)index; });
           if (existing != preset.values.end())
@@ -1101,7 +1157,7 @@ bool CtlProcessor::setParameterValue(const std::string &id, const ParameterValue
   const int index = impl_->findParameter(id);
   if (index < 0) return false;
   ParameterValue normalised;
-  if (!Impl::normaliseValue(impl_->exposedParameters[index].type, value, normalised)) return false;
+  if (!Impl::normaliseValue(impl_->exposedParameters[index], value, normalised)) return false;
 
   // Takes effect from the next render; never waits for one in progress.
   std::lock_guard<std::mutex> lock(impl_->parameterMutex);
