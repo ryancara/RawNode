@@ -249,7 +249,7 @@ static int selfTest() {
 
     {
       std::ofstream lib(libPath.string(), std::ios::binary);
-      lib << "float timesTwo(float x) { return x * 2.0; }\n";
+      lib << "float applyGain(float x, float gain) { return x * gain; }\n";
       if (!lib.good()) return fail("ctl library test write");
     }
     {
@@ -259,9 +259,14 @@ static int selfTest() {
           "void main(\n"
           "  input varying float rIn, input varying float gIn, input varying float bIn,\n"
           "  output varying float rOut, output varying float gOut, output varying float bOut,\n"
-          "  output varying float aOut, input varying float aIn = 1.0)\n"
+          "  output varying float aOut, input varying float aIn = 1.0,\n"
+          "  input uniform float gain = 2.0, input uniform int mode = 0,\n"
+          "  input uniform bool enabled = true)\n"
           "{\n"
-          "  rOut = timesTwo(rIn); gOut = timesTwo(gIn); bOut = timesTwo(bIn); aOut = aIn;\n"
+          "  if (!enabled) { rOut = rIn; gOut = gIn; bOut = bIn; }\n"
+          "  else if (mode == 1) { rOut = rIn; gOut = applyGain(gIn, gain); bOut = bIn; }\n"
+          "  else { rOut = applyGain(rIn, gain); gOut = applyGain(gIn, gain); bOut = applyGain(bIn, gain); }\n"
+          "  aOut = aIn;\n"
           "}\n";
       if (!script.good()) return fail("ctl script test write");
     }
@@ -283,9 +288,67 @@ static int selfTest() {
       if (ctlOut.px[i + 3] != src.px[i + 3]) return fail("ctl alpha result");
     }
 
+    const auto ctlParams = ctlApp.nodes[0].processor->parameters();
+    const auto findCtlParam = [&](const char *id) -> const ProcessorParameter * {
+      for (const ProcessorParameter &param : ctlParams)
+        if (param.id == id) return &param;
+      return nullptr;
+    };
+    const ProcessorParameter *gainParam = findCtlParam("gain");
+    const ProcessorParameter *modeParam = findCtlParam("mode");
+    const ProcessorParameter *enabledParam = findCtlParam("enabled");
+    if (!gainParam || gainParam->type != ParameterType::Double || gainParam->hasRange ||
+        !std::get_if<double>(&gainParam->defaultValue) || *std::get_if<double>(&gainParam->defaultValue) != 2.0 ||
+        !modeParam || modeParam->type != ParameterType::Integer || modeParam->hasRange ||
+        !std::get_if<int>(&modeParam->defaultValue) || *std::get_if<int>(&modeParam->defaultValue) != 0 ||
+        !enabledParam || enabledParam->type != ParameterType::Boolean ||
+        !std::get_if<bool>(&enabledParam->defaultValue) || !*std::get_if<bool>(&enabledParam->defaultValue))
+      return fail("ctl parameter discovery/defaults");
+
+    if (!ctlApp.nodes[0].processor->setParameterValue("gain", 3.0) ||
+        !ctlApp.nodes[0].processor->setParameterValue("mode", 1) ||
+        !ctlApp.nodes[0].processor->setParameterValue("enabled", true))
+      return fail("ctl parameter set");
+
+    Image ctlParamOut;
+    if (!renderChain(ctlApp, src, ctlParamOut, 0).ok) return fail("ctl parameter render");
+    for (size_t i = 0; i + 3 < src.px.size(); i += 4) {
+      if (std::fabs(ctlParamOut.px[i + 0] - src.px[i + 0]) > 1e-6f ||
+          std::fabs(ctlParamOut.px[i + 1] - src.px[i + 1] * 3.0f) > 1e-6f ||
+          std::fabs(ctlParamOut.px[i + 2] - src.px[i + 2]) > 1e-6f ||
+          ctlParamOut.px[i + 3] != src.px[i + 3])
+        return fail("ctl parameter values");
+    }
+
+    if (!ctlApp.nodes[0].processor->setParameterValue("enabled", false))
+      return fail("ctl bool parameter set");
+    Image ctlDisabledOut;
+    if (!renderChain(ctlApp, src, ctlDisabledOut, 0).ok || ctlDisabledOut.px != src.px)
+      return fail("ctl bool parameter render");
+
+    if (!ctlApp.nodes[0].processor->resetParameter("gain") ||
+        !ctlApp.nodes[0].processor->resetParameter("mode") ||
+        !ctlApp.nodes[0].processor->resetParameter("enabled"))
+      return fail("ctl parameter reset");
+    Image ctlResetOut;
+    if (!renderChain(ctlApp, src, ctlResetOut, 0).ok || ctlResetOut.px != ctlOut.px)
+      return fail("ctl parameter reset render");
+
+    // Persist non-default values so Sidecar V2 proves CTL parameter state is
+    // restored through the same backend-neutral path as OFX/native controls.
+    if (!ctlApp.nodes[0].processor->setParameterValue("gain", 1.5) ||
+        !ctlApp.nodes[0].processor->setParameterValue("mode", 1) ||
+        !ctlApp.nodes[0].processor->setParameterValue("enabled", true))
+      return fail("ctl persistence parameter setup");
+    Image ctlSavedOut;
+    if (!renderChain(ctlApp, src, ctlSavedOut, 0).ok) return fail("ctl persistence parameter render");
+
     const PersistChain ctlSaved = captureChain(ctlApp);
     if (ctlSaved.nodes.size() != 1 || ctlSaved.nodes[0].backend != "ctl" ||
-        fs::path(ctlSaved.nodes[0].identifier).filename() != scriptPath.filename())
+        fs::path(ctlSaved.nodes[0].identifier).filename() != scriptPath.filename() ||
+        std::strtod(ctlSaved.nodes[0].paramsJson.at("gain").c_str(), nullptr) != 1.5 ||
+        std::strtol(ctlSaved.nodes[0].paramsJson.at("mode").c_str(), nullptr, 10) != 1 ||
+        ctlSaved.nodes[0].paramsJson.at("enabled") != "true")
       return fail("ctl persistence capture");
 
     App ctlRestored;
@@ -295,8 +358,8 @@ static int selfTest() {
       return fail("ctl persistence restore");
 
     Image ctlRestoredOut;
-    if (!renderChain(ctlRestored, src, ctlRestoredOut, 0).ok || ctlRestoredOut.px != ctlOut.px)
-      return fail("ctl restored render");
+    if (!renderChain(ctlRestored, src, ctlRestoredOut, 0).ok || ctlRestoredOut.px != ctlSavedOut.px)
+      return fail("ctl restored parameter render");
 
     auto cropIt = std::find_if(gPlugins.begin(), gPlugins.end(),
                                [](const PluginEntry &pe) { return pe.label == "Crop"; });
