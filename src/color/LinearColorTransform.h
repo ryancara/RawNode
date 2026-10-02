@@ -3,7 +3,10 @@
 #include "imgio/ImageIO.h"
 #include "color/ColorEncoding.h"
 
+#include <string>
+
 const char *rgbGamutName(RgbGamut gamut);
+bool rgbGamutFromName(const std::string &name, RgbGamut &gamut);
 
 // Matrix-only transforms between supported RGB primary sets. Transfer
 // functions are deliberately handled separately by the CST processor.
