@@ -584,6 +584,8 @@ std::vector<ArtPresetDefinition> readArtPresetDefinitions(const std::string &pat
   return presets;
 }
 
+constexpr const char *kArtPresetParameterId = "__rawnode_art_preset";
+
 }  // namespace
 
 struct CtlProcessor::Impl {
@@ -605,6 +607,12 @@ struct CtlProcessor::Impl {
     int metadataLine = 0;  // @ART-param line; 0 when the parameter has none
   };
 
+  struct ArtPreset {
+    std::string key;
+    std::string label;
+    std::vector<std::pair<size_t, ParameterValue>> values;
+  };
+
   Ctl::SimdInterpreter interpreter;
   Ctl::FunctionCallPtr function;
   Ctl::FunctionArgPtr rIn;
@@ -617,6 +625,7 @@ struct CtlProcessor::Impl {
   Ctl::FunctionArgPtr aOut;
   std::vector<ParameterBinding> exposedParameters;
   std::vector<std::pair<std::string, std::string>> artGroups;
+  std::vector<ArtPreset> artPresets;
   bool artDialect = false;
   std::string artLabel;
 
@@ -701,6 +710,44 @@ struct CtlProcessor::Impl {
     for (size_t i = 0; i < exposedParameters.size(); ++i)
       if (exposedParameters[i].id == id) return (int)i;
     return -1;
+  }
+
+  static ParameterValue artPresetValue(const JsonValue &value, ParameterType type,
+                                       const std::string &where, const std::string &name) {
+    switch (type) {
+      case ParameterType::Boolean:
+        if (value.kind != JsonValue::Kind::Bool)
+          throw ContractError(where + "invalid value for ART preset parameter " + name);
+        return value.boolean;
+      case ParameterType::Double:
+        if (value.kind != JsonValue::Kind::Number || !std::isfinite(value.number) ||
+            std::fabs(value.number) > std::numeric_limits<float>::max())
+          throw ContractError(where + "invalid value for ART preset parameter " + name);
+        return (double)(float)value.number;
+      case ParameterType::Integer:
+      case ParameterType::Choice: {
+        int v = 0;
+        if (!jsonInteger(value, v))
+          throw ContractError(where + "invalid value for ART preset parameter " + name);
+        return v;
+      }
+      default:
+        throw ContractError(where + "unsupported ART preset parameter " + name);
+    }
+  }
+
+  int matchingPresetLocked() const {
+    for (size_t p = 0; p < artPresets.size(); ++p) {
+      bool matches = true;
+      for (const auto &entry : artPresets[p].values) {
+        if (entry.first >= parameterValues.size() || parameterValues[entry.first] != entry.second) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) return (int)p + 1;  // 0 is "(None)"
+    }
+    return 0;
   }
 
   void load(const std::string &path) {
@@ -848,6 +895,30 @@ struct CtlProcessor::Impl {
       }
       exposedParameters = std::move(sortedBindings);
       parameterValues = std::move(sortedValues);
+
+      // ART presets are partial parameter maps. Selecting one changes only the
+      // parameters it names; the selector itself is presentation state, not
+      // edit state, so Sidecar V2 persists the resulting parameter values.
+      for (const ArtPresetDefinition &definition : readArtPresetDefinitions(path)) {
+        ArtPreset preset;
+        preset.key = definition.key;
+        preset.label = definition.label.empty() ? definition.key : definition.label;
+        const std::string where = file + ":" + std::to_string(definition.line) + ": ";
+        for (const auto &member : definition.values) {
+          const int index = findParameter(member.first);
+          if (index < 0)
+            throw ContractError(where + "@ART-preset refers to unknown ART_main parameter " + member.first);
+          const ParameterValue value =
+              artPresetValue(member.second, exposedParameters[(size_t)index].type, where, member.first);
+          auto existing = std::find_if(preset.values.begin(), preset.values.end(),
+                                       [&](const auto &entry) { return entry.first == (size_t)index; });
+          if (existing != preset.values.end())
+            existing->second = value;
+          else
+            preset.values.emplace_back((size_t)index, value);
+        }
+        artPresets.push_back(std::move(preset));
+      }
     } else {
       rIn = function->findInputArg("rIn");
       gIn = function->findInputArg("gIn");
