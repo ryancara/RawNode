@@ -751,10 +751,10 @@ static int selfTest() {
 
     // Partial map: parameters the preset does not name keep their values,
     // including a non-default edit.
-    if (!artPresets.setParameterValue("bias", 0.25) || !artPresets.setParameterValue("__rawnode_art_preset", 1))
+    if (!artPresets.setParameterValue("bias", 1.0) || !artPresets.setParameterValue("__rawnode_art_preset", 1))
       return fail("ART preset apply");
     if (presetValue("gain") != ParameterValue(2.0) || presetValue("mode") != ParameterValue(0) ||
-        presetValue("steps") != ParameterValue(8) || presetValue("bias") != ParameterValue(0.25) ||
+        presetValue("steps") != ParameterValue(8) || presetValue("bias") != ParameterValue(1.0) ||
         presetValue("enabled") != ParameterValue(true) || shownPreset(artPresets) != 1)
       return fail("ART partial preset map");
     // Editing a parameter the preset does not control keeps it shown.
@@ -825,6 +825,64 @@ static int selfTest() {
     if (artMetaRestored.nodes.size() != 1 || !artMetaRestored.nodes[0].processor ||
         !renderChain(artMetaRestored, src, artMetaRestoredOut, 0).ok || artMetaRestoredOut.px != artMetaOut.px)
       return fail("ART metadata restored render");
+
+    // ART's Adjuster widgets round scalar floats to the number of decimal
+    // places implied by the GUI step, then clamp to the declared range. This
+    // affects defaults, presets, direct edits and restored Sidecar V2 values.
+    const fs::path artAdjusterPath = artDir / "ArtAdjuster.ctl";
+    {
+      std::ofstream script(artAdjusterPath.string(), std::ios::binary);
+      script <<
+          "// @ART-param: [\"gain\", \"Gain\", 0.0, 4.0, 0.697437, 0.01]\n"
+          "// @ART-param: [\"mix\", \"Mix\", -1.0, 1.0, 0.0, 0.1]\n"
+          "// @ART-param: [\"count\", \"Count\", 0, 10, 4]\n"
+          "// @ART-preset: [\"outside\", \"Outside\", {\"gain\": 9.0, \"mix\": 0.26, \"count\": 99}]\n"
+          "void ART_main(varying float r, varying float g, varying float b,\n"
+          "  output varying float ro, output varying float go, output varying float bo,\n"
+          "  float gain, float mix, int count)\n"
+          "{ ro = r * gain + mix; go = g; bo = b * count / 4.0; }\n";
+      if (!script.good()) return fail("ART adjuster normalisation script write");
+    }
+    App artAdjuster;
+    if (!addCtlNode(artAdjuster, artAdjusterPath.string()))
+      return fail("ART adjuster normalisation script load");
+    Processor &adjuster = *artAdjuster.nodes[0].processor;
+    const auto adjusterValue = [&](const char *id, bool defaults) -> ParameterValue {
+      for (const ProcessorParameter &param : adjuster.parameters())
+        if (param.id == id) return defaults ? param.defaultValue : param.value;
+      return {};
+    };
+    if (adjusterValue("gain", true) != ParameterValue(0.7) ||
+        adjusterValue("gain", false) != ParameterValue(0.7))
+      return fail("ART adjuster default precision");
+    if (!adjuster.setParameterValue("__rawnode_art_preset", 1) ||
+        adjusterValue("gain", false) != ParameterValue(4.0) ||
+        adjusterValue("mix", false) != ParameterValue(0.3) ||
+        adjusterValue("count", false) != ParameterValue(10))
+      return fail("ART preset rounding and clamping");
+    if (!adjuster.setParameterValue("gain", 0.697437) ||
+        !adjuster.setParameterValue("mix", -1.26) ||
+        !adjuster.setParameterValue("count", -2) ||
+        adjusterValue("gain", false) != ParameterValue(0.7) ||
+        adjusterValue("mix", false) != ParameterValue(-1.0) ||
+        adjusterValue("count", false) != ParameterValue(0))
+      return fail("ART direct scalar rounding and clamping");
+
+    const PersistChain adjusterSaved = captureChain(artAdjuster);
+    App adjusterRestored;
+    applyChain(adjusterRestored, adjusterSaved);
+    if (adjusterRestored.nodes.size() != 1 || !adjusterRestored.nodes[0].processor)
+      return fail("ART adjuster Sidecar V2 restore");
+    bool restoredGain = false, restoredMix = false, restoredCount = false;
+    for (const ProcessorParameter &param : adjusterRestored.nodes[0].processor->parameters()) {
+      if (param.id == "gain") restoredGain = param.value == ParameterValue(0.7);
+      else if (param.id == "mix") restoredMix = param.value == ParameterValue(-1.0);
+      else if (param.id == "count") restoredCount = param.value == ParameterValue(0);
+    }
+    if (!restoredGain || !restoredMix || !restoredCount)
+      return fail("ART adjuster Sidecar V2 normalisation");
+
+    fs::remove(artAdjusterPath);
     fs::remove(artMetaPath);
 
     // Entry-point selection and ART contract errors.
