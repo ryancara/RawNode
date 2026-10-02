@@ -1,7 +1,7 @@
 #pragma once
 
 #include "imgio/ImageIO.h"
-#include "ofx/OfxHost.h"
+#include "processors/Processor.h"
 
 #include <GLFW/glfw3.h>
 
@@ -17,10 +17,33 @@
 #include <unordered_set>
 #include <vector>
 
+enum class NodeInputRole {
+  Image,
+  Mask,
+};
+
+struct NodeInput {
+  NodeInputRole role = NodeInputRole::Image;
+  std::string sourceNodeId;
+};
+
+enum class CompositeMode {
+  Normal,
+};
+
 struct Node {
-  int pluginIndex = -1;
+  std::string id;
   bool enabled = true;
-  std::unique_ptr<Effect> instance;
+  std::unique_ptr<Processor> processor;
+
+  // Reserved by the graph-capable data model. The current renderer still
+  // evaluates a simple serial chain and leaves these at their defaults.
+  std::vector<NodeInput> inputs;
+  float opacity = 1.0f;
+  CompositeMode compositeMode = CompositeMode::Normal;
+
+  // UI state is currently OFX-specific and will move behind generic
+  // parameters in the next refactor.
   std::map<std::string, bool> groupOpen;
 };
 
