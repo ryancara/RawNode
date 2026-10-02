@@ -522,8 +522,7 @@ bool makePreview(const Image &src, int maxEdge, Image &out) {
   return true;
 }
 
-static ColorEncoding linearizeRasterBuffer(Image &img, ColorSpace tag) {
-  ColorEncoding sourceEncoding = legacyColorSpaceEncoding(tag);
+static ColorEncoding linearizeRasterBuffer(Image &img, ColorEncoding sourceEncoding) {
   if (sourceEncoding.gamma != TransferFunction::Linear) {
     for (size_t i = 0; i + 3 < img.px.size(); i += 4) {
       img.px[i + 0] = (float)decodeTransfer(img.px[i + 0], sourceEncoding.gamma);
@@ -558,11 +557,15 @@ static bool loadImageImpl(const std::string &path, Image &out, ColorEncoding &de
     std::vector<uint8_t> icc;
     bool isFloat = false;
     if (loadTiff(path, out, icc, isFloat)) {
-      const ColorSpace tag =
-          !icc.empty() ? classifyIcc(icc)
-                       : (isFloat ? ColorSpace::LinearRec2020 : ColorSpace::sRGB);
-      detectedEncoding = linearizeRasterBuffer(out, tag);
-      if (legacyDetectedTag) *legacyDetectedTag = tag;
+      const ColorEncoding sourceEncoding =
+          !icc.empty() ? classifyIccEncoding(icc)
+                       : (isFloat ? ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear}
+                                  : ColorEncoding{RgbGamut::Rec709, TransferFunction::SRGB});
+      detectedEncoding = linearizeRasterBuffer(out, sourceEncoding);
+      if (legacyDetectedTag) {
+        if (!legacyColorSpaceFromEncoding(sourceEncoding, *legacyDetectedTag))
+          *legacyDetectedTag = ColorSpace::LinearRec2020;
+      }
       return true;
     }
     // Some camera RAW formats are TIFF-based. If libtiff cannot decode the
@@ -573,9 +576,14 @@ static bool loadImageImpl(const std::string &path, Image &out, ColorEncoding &de
     else if (e == ".jpg" || e == ".jpeg") extractJpgIcc(path, icc);
 
     if (loadStbEncoded(path, out)) {
-      const ColorSpace tag = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
-      detectedEncoding = linearizeRasterBuffer(out, tag);
-      if (legacyDetectedTag) *legacyDetectedTag = tag;
+      const ColorEncoding sourceEncoding =
+          !icc.empty() ? classifyIccEncoding(icc)
+                       : ColorEncoding{RgbGamut::Rec709, TransferFunction::SRGB};
+      detectedEncoding = linearizeRasterBuffer(out, sourceEncoding);
+      if (legacyDetectedTag) {
+        if (!legacyColorSpaceFromEncoding(sourceEncoding, *legacyDetectedTag))
+          *legacyDetectedTag = ColorSpace::LinearRec2020;
+      }
       return true;
     }
   }
