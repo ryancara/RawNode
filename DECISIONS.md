@@ -117,3 +117,14 @@ Unavailable processors remain in the runtime node list as bypassed placeholders 
 
 **Reason:** Edit state must survive moving sidecars between systems/builds that do not have the same processors installed, and the persistence layer must not assume OFX.
 
+
+## D016 — Native Exposure is a reference processor, not a native-tool mandate
+
+**Status:** Accepted
+
+RawNode includes a minimal native scene-linear Exposure processor to prove that OFX is no longer the only executable processor backend.
+
+Native Exposure uses a simple RGB gain of `2^EV` and participates in the same generic parameter, node, Sidecar V2, reorder/bypass, preview and export paths as other processors.
+
+This does not imply that contrast, curves, saturation, white balance, or other photographic tools must also be implemented natively. OFX, CTL, DCTL, LUT/CLF, and future backends remain valid ways to provide processing.
+
