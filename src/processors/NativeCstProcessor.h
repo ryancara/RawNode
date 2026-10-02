@@ -21,8 +21,10 @@ class NativeCstProcessor final : public Processor {
   ProcessorResult render(const Image &input, Image &output, int generation) override;
 
  private:
-  // Choice indices map to the scene-linear spaces exposed by the first CST
-  // implementation: Rec.709, Rec.2020, ACES2065-1/AP0.
+  // Gamut choice indices: Rec.709/sRGB, Rec.2020, AP0, AP1, DWG.
+  // Gamma choice indices: Linear, sRGB, Rec.709, DaVinci Intermediate.
   std::atomic<int> inputSpace_{1};
+  std::atomic<int> inputGamma_{0};
   std::atomic<int> outputSpace_{1};
+  std::atomic<int> outputGamma_{0};
 };
