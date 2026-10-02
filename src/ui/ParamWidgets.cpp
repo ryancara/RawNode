@@ -81,26 +81,46 @@ static bool paramStepButton(bool plus) {
 }
 
 static bool paramEditButton(double &value, bool asInt, double lo, double hi) {
+  static std::unordered_map<ImGuiID, double> pendingEdits;
+
   const float h = ImGui::GetFrameHeight();
   if (ImGui::Button("##edit", ImVec2(h, h))) ImGui::OpenPopup("##type");
   drawPencilIcon(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Type value");
 
-  if (!ImGui::BeginPopup("##type")) return false;
-  ImGui::SetKeyboardFocusHere();
-  bool commit = false;
+  const ImGuiID editId = ImGui::GetID("##type-pending");
+  if (!ImGui::BeginPopup("##type")) {
+    pendingEdits.erase(editId);
+    return false;
+  }
+
+  if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+
+  const auto pending = pendingEdits.find(editId);
+  double edit = pending != pendingEdits.end() ? pending->second : value;
+  bool edited = false;
   if (asInt) {
-    int iv = (int)std::lround(value);
-    if (ImGui::InputInt("##v", &iv, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
-      value = std::clamp((double)iv, lo, hi);
+    int iv = (int)std::lround(edit);
+    edited = ImGui::InputInt("##v", &iv, 0, 0, ImGuiInputTextFlags_AutoSelectAll);
+    edit = iv;
+  } else {
+    edited = ImGui::InputDouble("##v", &edit, 0, 0, "%.6g", ImGuiInputTextFlags_AutoSelectAll);
+  }
+
+  if (edited) pendingEdits[editId] = edit;
+
+  bool commit = false;
+  if (ImGui::IsItemDeactivatedAfterEdit()) {
+    if (edit != value) {
+      value = std::clamp(edit, lo, hi);
       commit = true;
     }
-  } else if (ImGui::InputDouble("##v", &value, 0, 0, "%.6g",
-                                ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
-    value = std::clamp(value, lo, hi);
-    commit = true;
+    pendingEdits.erase(editId);
+    ImGui::CloseCurrentPopup();
+  } else if (!ImGui::IsItemActive()) {
+    pendingEdits.erase(editId);
   }
-  if (commit) ImGui::CloseCurrentPopup();
+
   ImGui::EndPopup();
   return commit;
 }
