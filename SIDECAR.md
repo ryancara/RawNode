@@ -39,8 +39,6 @@ The current V2 shape is:
     "outputIndex": 0,
     "outputColorSpace": "rec709",
     "outputGamma": "srgb",
-    "rawDefaultColorSpace": "rec2020",
-    "rawDefaultGamma": "linear",
     "exportFormat": 1,
     "jpegQuality": 92,
     "previewRes": 1,
@@ -98,7 +96,7 @@ The Output tag is represented by an independent colour-space + gamma pair:
 
 These fields use the same stable IDs and shared colour registry as RAW and the native CST. The legacy numeric `gui.outputIndex` is still written/read as a migration fallback for older Sidecar V2 files, but it is no longer the active colour model.
 
-`gui.rawDefaultColorSpace` and `gui.rawDefaultGamma` store the session/workspace default used for RAW files that do not yet have a per-image RAW encoding.
+RAW session defaults are **not** per-image edit state. They are stored only in the optional workspace file as `gui.rawDefaultColorSpace` and `gui.rawDefaultGamma`. Per-image sidecars neither write nor apply those fields. Development sidecars that already contain recognised values are ignored; unknown future values are protected from destructive rewrite.
 
 ### Serial order and future graph connections
 
@@ -196,13 +194,15 @@ export-name.rawnode.json
 
 The export sidecar also records the source path and export timestamp.
 
+RawNode ICC profiles include stable colour-encoding IDs so supported wide-gamut exports can be identified on re-import. DaVinci Intermediate is scene-referred and can map encoded values to linear values above 1.0, which a conventional matrix/TRC ICC profile cannot fully represent. RawNode therefore warns on DI export that external ICC-managed applications may clip highlights.
+
 ## Invalid and newer sidecars
 
 If a V2 sidecar exists but cannot be parsed safely, RawNode clears the inherited on-screen chain for that image and blocks automatic sidecar writes to the file. This prevents edits from the previously viewed image from overwriting a damaged sidecar.
 
 A `rawnode-sidecar` with a version newer than this build understands is handled the same way. RawNode does not reinterpret or downgrade future schema versions.
 
-Recognised V2 sidecars containing an unknown future RAW or Output colour-space/gamma ID are also protected from overwrite.
+Recognised V2 sidecars containing an unknown future RAW or Output colour-space/gamma ID are also protected from overwrite. Unknown stable processor choice IDs (for example a future CST gamma) also block sidecar writes until the user deliberately replaces the unsupported choice.
 
 The write protection clears when the sidecar is fixed/removed and the image is reopened.
 
