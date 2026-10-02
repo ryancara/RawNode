@@ -77,9 +77,12 @@ static bool loadRaw(const std::string &path, Image &out) {
   raw.imgdata.params.use_camera_wb = 1;
   raw.imgdata.params.output_color = 0;
 
+  if (raw.dcraw_process() != LIBRAW_SUCCESS) return false;
+
   // rgb_cam is the matrix LibRaw would otherwise use for camera RGB -> linear
-  // sRGB/Rec.709. Copy it before processing so the colour boundary is explicit
-  // and independent of the lifetime of the LibRaw object.
+  // sRGB/Rec.709. Copy it after dcraw_process(): almost all cameras have their
+  // final matrix earlier, but a few legacy paths may update it during processing.
+  // The copy keeps the RawNode colour stage independent of the LibRaw lifetime.
   float cameraToRec709[3][4] = {};
   bool haveMatrix = false;
   for (int row = 0; row < 3; ++row) {
@@ -93,7 +96,6 @@ static bool loadRaw(const std::string &path, Image &out) {
   if (!haveMatrix)
     for (int c = 0; c < 3; ++c) cameraToRec709[c][c] = 1.0f;
 
-  if (raw.dcraw_process() != LIBRAW_SUCCESS) return false;
   libraw_processed_image_t *img = raw.dcraw_make_mem_image();
   if (!img || img->type != LIBRAW_IMAGE_BITMAP || img->colors < 3 || img->colors > 4) {
     if (img) LibRaw::dcraw_clear_mem(img);
