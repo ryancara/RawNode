@@ -317,12 +317,22 @@ static bool loadTiffRgba(TIFF *tif, uint32_t w, uint32_t h, Image &out) {
 static bool tiffLooksRaw(const std::string &path) {
   TIFF *tif = TIFFOpen(path.c_str(), "r");
   if (!tif) return false;
-  uint16_t photometric = PHOTOMETRIC_MINISBLACK;
-  TIFFGetFieldDefaulted(tif, TIFFTAG_PHOTOMETRIC, &photometric);
+
+  // Camera RAW containers often put a small rendered preview in the first IFD
+  // and the CFA/mosaic data in a later one. Scan every directory before deciding
+  // this is an ordinary TIFF raster.
+  bool raw = false;
+  do {
+    uint16_t photometric = PHOTOMETRIC_MINISBLACK;
+    TIFFGetFieldDefaulted(tif, TIFFTAG_PHOTOMETRIC, &photometric);
+    if (photometric == 32803) {  // TIFF/EP PHOTOMETRIC_CFA
+      raw = true;
+      break;
+    }
+  } while (TIFFReadDirectory(tif));
+
   TIFFClose(tif);
-  // CFA/mosaic TIFFs should be handed to LibRaw rather than interpreted as an
-  // ordinary one-channel raster by the generic TIFF scanline loader.
-  return photometric == 32803;  // TIFF/EP PHOTOMETRIC_CFA
+  return raw;
 }
 
 static bool loadTiff(const std::string &path, Image &out, std::vector<uint8_t> &icc, bool &isFloat) {
