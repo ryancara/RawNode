@@ -2,6 +2,8 @@
 #include "persist/ProjectPersistPriv.h"
 
 #include "imgio/ImageIO.h"
+#include "color/LinearColorTransform.h"
+#include "color/TransferFunction.h"
 
 #include <algorithm>
 #include <cctype>
@@ -209,25 +211,48 @@ static ColorSpace persistedWorkingSpace(ColorSpace inputSpace) {
   return ColorSpace::LinearRec709;
 }
 
+static std::string rawEncodingName(const ColorEncoding &encoding) {
+  if (encoding.gamma == TransferFunction::Linear) {
+    switch (encoding.gamut) {
+      case RgbGamut::Rec709: return "Linear Rec.709";
+      case RgbGamut::Rec2020: return "Linear Rec.2020";
+      case RgbGamut::ACES_AP0: return "ACES2065-1";
+      case RgbGamut::ACES_AP1: return "ACEScg";
+      case RgbGamut::DaVinciWideGamut: return "Linear DaVinci Wide Gamut";
+    }
+  }
+  return std::string(rgbGamutName(encoding.gamut)) + " / " + transferFunctionName(encoding.gamma);
+}
+
 static void appendSidecarHeader(std::ostringstream &o, const std::string &kind, const std::string &sourcePath,
-                                ColorSpace inputSpace) {
+                                ColorSpace inputSpace, const ColorEncoding *rawEncoding) {
+  const bool raw = isRawImagePath(sourcePath) && rawEncoding;
+  const std::string inputName = raw ? rawEncodingName(*rawEncoding) : colorSpaceName(inputSpace);
+  const std::string workingName =
+      raw ? inputName : colorSpaceName(persistedWorkingSpace(inputSpace));
+
   o << '{'
     << "\"format\":\"rawnode-sidecar\","
     << "\"version\":2,"
     << "\"kind\":\"" << jsonEscape(kind) << "\","
     << "\"source\":\"" << jsonEscape(sourcePath) << "\","
-    << "\"inputColorSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\","
-    << "\"workingSpace\":\"" << jsonEscape(colorSpaceName(persistedWorkingSpace(inputSpace))) << "\",";
-  if (isRawImagePath(sourcePath))
-    o << "\"raw\":{\"workingSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\"},";
-  else
+    << "\"inputColorSpace\":\"" << jsonEscape(inputName) << "\","
+    << "\"workingSpace\":\"" << jsonEscape(workingName) << "\",";
+
+  if (raw) {
+    o << "\"raw\":{"
+      << "\"workingSpace\":\"" << jsonEscape(inputName) << "\","
+      << "\"colorSpace\":\"" << jsonEscape(rgbGamutName(rawEncoding->gamut)) << "\","
+      << "\"gamma\":\"" << jsonEscape(transferFunctionName(rawEncoding->gamma)) << "\"},";
+  } else {
     o << "\"raw\":{},";
+  }
 }
 
 bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui,
-                      const PersistChain &chain) {
+                      const PersistChain &chain, const ColorEncoding *rawEncoding) {
   std::ostringstream o;
-  appendSidecarHeader(o, "input", fs::path(imagePath).filename().string(), inputSpace);
+  appendSidecarHeader(o, "input", fs::path(imagePath).filename().string(), inputSpace, rawEncoding);
   appendGuiJson(o, gui);
   o << ',';
   appendChainJson(o, chain);
@@ -236,9 +261,9 @@ bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const
 }
 
 bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace inputSpace,
-                       const PersistGui &gui, const PersistChain &chain) {
+                       const PersistGui &gui, const PersistChain &chain, const ColorEncoding *rawEncoding) {
   std::ostringstream o;
-  appendSidecarHeader(o, "export", sourceImagePath, inputSpace);
+  appendSidecarHeader(o, "export", sourceImagePath, inputSpace, rawEncoding);
   o << "\"exportedAt\":\"" << iso8601Now() << "\",";
   appendGuiJson(o, gui);
   o << ',';
