@@ -7,6 +7,7 @@
 #include "processors/NativeCstProcessor.h"
 #include "processors/CtlProcessor.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <limits>
@@ -300,6 +301,20 @@ PersistChain captureChain(const App &app) {
 
       for (const ProcessorParameter &param : node.processor->parameters()) {
         if (param.secret || !param.persistValue || !persistedParameterType(param.type)) continue;
+
+        // If a newer build wrote a stable choice ID that this build does not
+        // recognise, keep the opaque original value instead of replacing it
+        // with this build's fallback/default selection on save.
+        if (param.type == ParameterType::Choice && !param.choiceIds.empty()) {
+          auto preserved = node.preservedParamsJson.find(param.id);
+          if (preserved != node.preservedParamsJson.end()) {
+            std::string preservedId;
+            if (parseJsonStringValue(preserved->second, preservedId) &&
+                std::find(param.choiceIds.begin(), param.choiceIds.end(), preservedId) == param.choiceIds.end())
+              continue;
+          }
+        }
+
         persisted.paramsJson[param.id] = paramValueJson(param);
       }
     } else {
