@@ -1,5 +1,6 @@
 #include "imgio/ImageIO.h"
 #include "color/LinearColorTransform.h"
+#include "color/TransferFunction.h"
 #include "imgio/ImageIOPriv.h"
 #include "perf.h"
 
@@ -74,9 +75,9 @@ bool isRawImagePath(const std::string &path) {
          e == ".raw";
 }
 
-bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], ColorSpace target, float out[3][4]) {
+bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], RgbGamut target, float out[3][4]) {
   double workingFromRec709[3][3] = {};
-  if (!linearColorTransformMatrix(ColorSpace::LinearRec709, target, workingFromRec709)) return false;
+  if (!linearColorTransformMatrix(RgbGamut::Rec709, target, workingFromRec709)) return false;
 
   for (int row = 0; row < 3; ++row) {
     for (int c = 0; c < 4; ++c) {
@@ -88,7 +89,18 @@ bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], ColorSpace targ
   return true;
 }
 
-static bool loadRaw(const std::string &path, Image &out, ColorSpace workingSpace) {
+bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], ColorSpace target, float out[3][4]) {
+  RgbGamut gamut;
+  switch (target) {
+    case ColorSpace::LinearRec709: gamut = RgbGamut::Rec709; break;
+    case ColorSpace::LinearRec2020: gamut = RgbGamut::Rec2020; break;
+    case ColorSpace::ACES2065_1: gamut = RgbGamut::ACES_AP0; break;
+    default: return false;
+  }
+  return makeCameraToWorkingMatrix(cameraToRec709, gamut, out);
+}
+
+static bool loadRaw(const std::string &path, Image &out, RgbGamut workingGamut, TransferFunction workingGamma) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
   LibRaw raw;
   if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
@@ -125,7 +137,7 @@ static bool loadRaw(const std::string &path, Image &out, ColorSpace workingSpace
     for (int c = 0; c < 3; ++c) cameraToRec709[c][c] = 1.0f;
 
   float cameraToWorking[3][4] = {};
-  if (!makeCameraToWorkingMatrix(cameraToRec709, workingSpace, cameraToWorking)) return false;
+  if (!makeCameraToWorkingMatrix(cameraToRec709, workingGamut, cameraToWorking)) return false;
 
   libraw_processed_image_t *img = raw.dcraw_make_mem_image();
   if (!img || img->type != LIBRAW_IMAGE_BITMAP || img->colors < 3 || img->colors > 4) {
@@ -146,9 +158,9 @@ static bool loadRaw(const std::string &path, Image &out, ColorSpace workingSpace
     // Deliberately do not clamp here. The old LibRaw output-colour stage used
     // unsigned 16-bit storage and clipped matrix-created negatives/highlights.
     // Applying the matrix in RawNode float preserves those values.
-    dst[0] = rgb[0];
-    dst[1] = rgb[1];
-    dst[2] = rgb[2];
+    dst[0] = (float)encodeTransfer(rgb[0], workingGamma);
+    dst[1] = (float)encodeTransfer(rgb[1], workingGamma);
+    dst[2] = (float)encodeTransfer(rgb[2], workingGamma);
     dst[3] = 1.0f;
   };
 
@@ -475,7 +487,8 @@ bool makePreview(const Image &src, int maxEdge, Image &out) {
   return true;
 }
 
-bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace rawWorkingSpace) {
+bool loadImage(const std::string &path, Image &out, ColorSpace &detected,
+               RgbGamut rawGamut, TransferFunction rawGamma) {
   PerfScope _ps("loadImage");
   out = {};
   detected = ColorSpace::sRGB;
@@ -503,11 +516,39 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorS
     detected = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
     return true;
   }
-  if (isRawWorkingSpace(rawWorkingSpace) && loadRaw(path, out, rawWorkingSpace)) {
-    detected = rawWorkingSpace;
+  if (loadRaw(path, out, rawGamut, rawGamma)) {
+    // ColorSpace cannot represent every gamut/gamma combination yet. Keep the
+    // legacy field meaningful for the three historical linear choices; callers
+    // use the explicit RAW encoding for all new combinations.
+    if (rawGamma == TransferFunction::Linear) {
+      switch (rawGamut) {
+        case RgbGamut::Rec709: detected = ColorSpace::LinearRec709; break;
+        case RgbGamut::Rec2020: detected = ColorSpace::LinearRec2020; break;
+        case RgbGamut::ACES_AP0: detected = ColorSpace::ACES2065_1; break;
+        case RgbGamut::ACES_AP1:
+        case RgbGamut::DaVinciWideGamut:
+          detected = ColorSpace::LinearRec2020;
+          break;
+      }
+    } else {
+      detected = ColorSpace::LinearRec2020;
+    }
     return true;
   }
   return false;
+}
+
+bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace rawWorkingSpace) {
+  switch (rawWorkingSpace) {
+    case ColorSpace::LinearRec709:
+      return loadImage(path, out, detected, RgbGamut::Rec709, TransferFunction::Linear);
+    case ColorSpace::LinearRec2020:
+      return loadImage(path, out, detected, RgbGamut::Rec2020, TransferFunction::Linear);
+    case ColorSpace::ACES2065_1:
+      return loadImage(path, out, detected, RgbGamut::ACES_AP0, TransferFunction::Linear);
+    default:
+      return false;
+  }
 }
 
 bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w, int &h) {
