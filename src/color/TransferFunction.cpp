@@ -12,6 +12,26 @@ const char *transferFunctionName(TransferFunction tf) {
   return "Linear";
 }
 
+bool transferFunctionFromName(const std::string &name, TransferFunction &tf) {
+  if (name == "Linear") {
+    tf = TransferFunction::Linear;
+    return true;
+  }
+  if (name == "sRGB") {
+    tf = TransferFunction::SRGB;
+    return true;
+  }
+  if (name == "Rec.709") {
+    tf = TransferFunction::Rec709;
+    return true;
+  }
+  if (name == "DaVinci Intermediate" || name == "Intermediate") {
+    tf = TransferFunction::DaVinciIntermediate;
+    return true;
+  }
+  return false;
+}
+
 double decodeTransfer(double value, TransferFunction tf) {
   switch (tf) {
     case TransferFunction::Linear:
