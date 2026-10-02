@@ -2,13 +2,12 @@
 #include "persist/ProjectPersistPriv.h"
 
 #include <cctype>
-#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <map>
 #include <string>
-#include <vector>
 #include <utility>
+#include <vector>
 
 struct JsonCursor {
   const char *p = nullptr;
@@ -26,32 +25,104 @@ static bool match(JsonCursor &c, char ch) {
   return true;
 }
 
+static int hexValue(char ch) {
+  if (ch >= '0' && ch <= '9') return ch - '0';
+  if (ch >= 'a' && ch <= 'f') return 10 + ch - 'a';
+  if (ch >= 'A' && ch <= 'F') return 10 + ch - 'A';
+  return -1;
+}
+
+static bool parseHex4(JsonCursor &c, unsigned &value) {
+  value = 0;
+  for (int i = 0; i < 4; ++i) {
+    if (c.p >= c.end) return false;
+    const int h = hexValue(*c.p++);
+    if (h < 0) return false;
+    value = (value << 4) | (unsigned)h;
+  }
+  return true;
+}
+
+static bool appendUtf8(std::string &out, unsigned cp) {
+  if (cp <= 0x7F) {
+    out += (char)cp;
+  } else if (cp <= 0x7FF) {
+    out += (char)(0xC0 | (cp >> 6));
+    out += (char)(0x80 | (cp & 0x3F));
+  } else if (cp <= 0xFFFF) {
+    if (cp >= 0xD800 && cp <= 0xDFFF) return false;
+    out += (char)(0xE0 | (cp >> 12));
+    out += (char)(0x80 | ((cp >> 6) & 0x3F));
+    out += (char)(0x80 | (cp & 0x3F));
+  } else if (cp <= 0x10FFFF) {
+    out += (char)(0xF0 | (cp >> 18));
+    out += (char)(0x80 | ((cp >> 12) & 0x3F));
+    out += (char)(0x80 | ((cp >> 6) & 0x3F));
+    out += (char)(0x80 | (cp & 0x3F));
+  } else {
+    return false;
+  }
+  return true;
+}
+
 static bool parseString(JsonCursor &c, std::string &out) {
   skipWs(c);
   if (c.p >= c.end || *c.p != '"') return false;
   ++c.p;
   out.clear();
+
   while (c.p < c.end) {
-    char ch = *c.p++;
+    const unsigned char ch = (unsigned char)*c.p++;
     if (ch == '"') return true;
-    if (ch == '\\' && c.p < c.end) {
-      char e = *c.p++;
-      switch (e) {
-        case '"': out += '"'; break;
-        case '\\': out += '\\'; break;
-        case '/': out += '/'; break;
-        case 'b': out += '\b'; break;
-        case 'f': out += '\f'; break;
-        case 'n': out += '\n'; break;
-        case 'r': out += '\r'; break;
-        case 't': out += '\t'; break;
-        default: out += e; break;
+    if (ch < 0x20) return false;
+
+    if (ch != '\\') {
+      out += (char)ch;
+      continue;
+    }
+
+    if (c.p >= c.end) return false;
+    const char e = *c.p++;
+    switch (e) {
+      case '"': out += '"'; break;
+      case '\\': out += '\\'; break;
+      case '/': out += '/'; break;
+      case 'b': out += '\b'; break;
+      case 'f': out += '\f'; break;
+      case 'n': out += '\n'; break;
+      case 'r': out += '\r'; break;
+      case 't': out += '\t'; break;
+      case 'u': {
+        unsigned first = 0;
+        if (!parseHex4(c, first)) return false;
+
+        unsigned cp = first;
+        if (first >= 0xD800 && first <= 0xDBFF) {
+          if (c.end - c.p < 2 || c.p[0] != '\\' || c.p[1] != 'u') return false;
+          c.p += 2;
+          unsigned second = 0;
+          if (!parseHex4(c, second) || second < 0xDC00 || second > 0xDFFF) return false;
+          cp = 0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00);
+        } else if (first >= 0xDC00 && first <= 0xDFFF) {
+          return false;
+        }
+
+        if (!appendUtf8(out, cp)) return false;
+        break;
       }
-    } else {
-      out += ch;
+      default:
+        return false;
     }
   }
+
   return false;
+}
+
+bool parseJsonStringValue(const std::string &raw, std::string &out) {
+  JsonCursor c{raw.c_str(), raw.c_str() + raw.size()};
+  if (!parseString(c, out)) return false;
+  skipWs(c);
+  return c.p == c.end;
 }
 
 static std::string trimRaw(const char *begin, const char *end) {
@@ -60,9 +131,8 @@ static std::string trimRaw(const char *begin, const char *end) {
   return std::string(begin, end);
 }
 
-// Captures one JSON value without interpreting it. This is deliberately used
-// for parameter values so unknown future parameter shapes can survive a
-// load-save cycle unchanged.
+// Captures one JSON value without interpreting it. Parameter values use this
+// so unknown future shapes can survive a load-save cycle unchanged.
 static bool captureJsonValue(JsonCursor &c, std::string &raw) {
   skipWs(c);
   if (c.p >= c.end) return false;
@@ -103,10 +173,12 @@ static bool captureJsonValue(JsonCursor &c, std::string &raw) {
         closes.push_back(']');
       } else if (!closes.empty() && ch == closes.back()) {
         closes.pop_back();
+      } else if (ch == '}' || ch == ']') {
+        return false;
       }
     }
 
-    if (!closes.empty()) return false;
+    if (!closes.empty() || inString) return false;
     raw = trimRaw(start, c.p);
     return true;
   }
@@ -116,12 +188,34 @@ static bool captureJsonValue(JsonCursor &c, std::string &raw) {
   return !raw.empty();
 }
 
-static bool extractValueField(const std::string &json, const char *key, std::string &raw) {
-  const std::string needle = std::string("\"") + key + "\":";
-  size_t pos = json.find(needle);
-  if (pos == std::string::npos) return false;
-  JsonCursor c{json.c_str() + pos + needle.size(), json.c_str() + json.size()};
-  return captureJsonValue(c, raw);
+// Find a direct member of a JSON object. This deliberately walks the object
+// instead of text-searching so nested keys cannot shadow top-level fields.
+static bool extractValueField(const std::string &json, const char *wantedKey, std::string &raw) {
+  JsonCursor c{json.c_str(), json.c_str() + json.size()};
+  if (!match(c, '{')) return false;
+
+  for (;;) {
+    skipWs(c);
+    if (c.p >= c.end || *c.p == '}') return false;
+
+    std::string key;
+    if (!parseString(c, key) || !match(c, ':')) return false;
+
+    std::string value;
+    if (!captureJsonValue(c, value)) return false;
+    if (key == wantedKey) {
+      raw = std::move(value);
+      return true;
+    }
+
+    skipWs(c);
+    if (c.p < c.end && *c.p == ',') {
+      ++c.p;
+      continue;
+    }
+    if (c.p < c.end && *c.p == '}') return false;
+    return false;
+  }
 }
 
 bool extractObject(const std::string &json, const char *key, std::string &objOut) {
@@ -139,11 +233,8 @@ bool extractArray(const std::string &json, const char *key, std::string &arrOut)
 }
 
 bool extractStringField(const std::string &json, const char *key, std::string &out) {
-  const std::string needle = std::string("\"") + key + "\":";
-  size_t pos = json.find(needle);
-  if (pos == std::string::npos) return false;
-  JsonCursor c{json.c_str() + pos + needle.size(), json.c_str() + json.size()};
-  return parseString(c, out);
+  std::string raw;
+  return extractValueField(json, key, raw) && parseJsonStringValue(raw, out);
 }
 
 bool extractIntField(const std::string &json, const char *key, int &out) {
@@ -152,6 +243,8 @@ bool extractIntField(const std::string &json, const char *key, int &out) {
   char *end = nullptr;
   long value = std::strtol(raw.c_str(), &end, 10);
   if (end == raw.c_str()) return false;
+  while (*end && std::isspace((unsigned char)*end)) ++end;
+  if (*end) return false;
   out = (int)value;
   return true;
 }
@@ -162,6 +255,8 @@ bool extractFloatField(const std::string &json, const char *key, float &out) {
   char *end = nullptr;
   double value = std::strtod(raw.c_str(), &end);
   if (end == raw.c_str()) return false;
+  while (*end && std::isspace((unsigned char)*end)) ++end;
+  if (*end) return false;
   out = (float)value;
   return true;
 }
@@ -203,8 +298,7 @@ static void parseParamsObject(const std::string &paramsObj, std::map<std::string
     if (c.p < c.end && *c.p == '}') return;
 
     std::string key;
-    if (!parseString(c, key)) return;
-    if (!match(c, ':')) return;
+    if (!parseString(c, key) || !match(c, ':')) return;
 
     std::string raw;
     if (!captureJsonValue(c, raw)) return;
@@ -229,8 +323,7 @@ static void parseGroupOpen(const std::string &obj, std::map<std::string, bool> &
     if (c.p < c.end && *c.p == '}') return;
 
     std::string key;
-    if (!parseString(c, key)) return;
-    if (!match(c, ':')) return;
+    if (!parseString(c, key) || !match(c, ':')) return;
 
     std::string raw;
     if (!captureJsonValue(c, raw)) return;
@@ -296,7 +389,6 @@ static bool parseNodeArray(const std::string &nodesArr, PersistChain &chain, boo
 }
 
 bool loadChainFromJson(const std::string &chainObj, PersistChain &chain) {
-  // V1 migration path.
   extractIntField(chainObj, "selectedNode", chain.selectedNode);
   std::string nodesArr;
   if (!extractArray(chainObj, "nodes", nodesArr)) return false;
@@ -337,11 +429,14 @@ bool loadSidecarFile(const std::string &path, PersistSidecar &out) {
   extractStringField(json, "inputColorSpace", out.inputColorSpace);
   extractStringField(json, "exportedAt", out.exportedAt);
 
+  // Never rewrite a future RawNode schema as V2. The caller can use the
+  // parsed version to explain why loading was refused.
+  if (out.format == "rawnode-sidecar" && out.version != 2) return false;
+
   std::string guiObj;
   if (extractObject(json, "gui", guiObj)) loadGuiFromJson(guiObj, out.gui);
 
-  const bool v2 = out.format == "rawnode-sidecar" || out.version >= 2;
-  if (v2) {
+  if (out.format == "rawnode-sidecar") {
     extractStringField(json, "source", out.sourcePath);
     extractStringField(json, "workingSpace", out.workingSpace);
     std::string graphObj;
