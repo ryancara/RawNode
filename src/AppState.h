@@ -73,7 +73,31 @@ struct FilmstripEntry {
   int thumbLru = 0;
 };
 
-inline constexpr const char *kOutputSpaces[] = {"sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020"};
+inline constexpr const char *kOutputSpaces[] = {
+    "sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020", "ACES2065-1"};
+inline constexpr int kOutputSpaceCount = 5;
+
+inline constexpr const char *kRawWorkingSpaces[] = {
+    "Linear Rec.709", "Linear Rec.2020", "ACES2065-1 (AP0)"};
+inline constexpr int kRawWorkingSpaceCount = 3;
+
+inline ColorSpace rawWorkingSpace(int index) {
+  switch (std::clamp(index, 0, kRawWorkingSpaceCount - 1)) {
+    case 0: return ColorSpace::LinearRec709;
+    case 1: return ColorSpace::LinearRec2020;
+    case 2: return ColorSpace::ACES2065_1;
+  }
+  return ColorSpace::LinearRec2020;
+}
+
+inline int rawWorkingSpaceIndex(ColorSpace cs) {
+  switch (cs) {
+    case ColorSpace::LinearRec709: return 0;
+    case ColorSpace::ACES2065_1: return 2;
+    case ColorSpace::LinearRec2020:
+    default: return 1;
+  }
+}
 
 // Long-edge caps for 16:9 frames; 0 = no downscale.
 inline constexpr struct {
@@ -88,7 +112,7 @@ inline constexpr struct {
 inline constexpr int kPreviewResCount = 4;
 
 inline ColorSpace outputSpace(int index) {
-  index = std::clamp(index, 0, 3);
+  index = std::clamp(index, 0, kOutputSpaceCount - 1);
   return static_cast<ColorSpace>(index);
 }
 
@@ -103,6 +127,7 @@ inline ColorSpace linearWorkingSpace(ColorSpace fileOrTag) {
       return ColorSpace::LinearRec2020;
     case ColorSpace::LinearRec709:
     case ColorSpace::LinearRec2020:
+    case ColorSpace::ACES2065_1:
       return fileOrTag;
   }
   return ColorSpace::LinearRec709;
@@ -120,6 +145,10 @@ struct App {
   // clears this protection.
   std::string sidecarWriteBlockedPath;
   ColorSpace inputSpace = ColorSpace::LinearRec2020;
+  // Current/session preference for RAW decode. A new V2 sidecar may override
+  // this per image; legacy sidecars without an explicit RAW setting reopen in
+  // Linear Rec.709 to preserve PR #15 behaviour.
+  ColorSpace rawWorkingSpace = ColorSpace::LinearRec2020;
   int outputIndex = 0;
   int exportFormat = 1;  // JPEG
   int jpegQuality = 92;
