@@ -314,6 +314,17 @@ static bool loadTiffRgba(TIFF *tif, uint32_t w, uint32_t h, Image &out) {
   return true;
 }
 
+static bool tiffLooksRaw(const std::string &path) {
+  TIFF *tif = TIFFOpen(path.c_str(), "r");
+  if (!tif) return false;
+  uint16_t photometric = PHOTOMETRIC_MINISBLACK;
+  TIFFGetFieldDefaulted(tif, TIFFTAG_PHOTOMETRIC, &photometric);
+  TIFFClose(tif);
+  // CFA/mosaic TIFFs should be handed to LibRaw rather than interpreted as an
+  // ordinary one-channel raster by the generic TIFF scanline loader.
+  return photometric == 32803;  // TIFF/EP PHOTOMETRIC_CFA
+}
+
 static bool loadTiff(const std::string &path, Image &out, std::vector<uint8_t> &icc, bool &isFloat) {
   icc.clear();
   isFloat = false;
@@ -546,6 +557,17 @@ static bool loadImageImpl(const std::string &path, Image &out, ColorEncoding &de
   std::string e = fs::path(path).extension().string();
   for (char &ch : e) ch = (char)tolower((unsigned char)ch);
 
+  const auto tryRaw = [&]() {
+    if (!loadRaw(path, out, rawWorkingEncoding.gamut, rawWorkingEncoding.gamma)) return false;
+    decodedRaw = true;
+    detectedEncoding = rawWorkingEncoding;
+    if (legacyDetectedTag) {
+      if (!legacyColorSpaceFromEncoding(rawWorkingEncoding, *legacyDetectedTag))
+        *legacyDetectedTag = ColorSpace::LinearRec2020;
+    }
+    return true;
+  };
+
   if (e == ".exr") {
     if (!loadExr(path, out)) return false;
     detectedEncoding = {RgbGamut::Rec2020, TransferFunction::Linear};
@@ -554,6 +576,8 @@ static bool loadImageImpl(const std::string &path, Image &out, ColorEncoding &de
   }
 
   if (e == ".tif" || e == ".tiff") {
+    if (tiffLooksRaw(path) && tryRaw()) return true;
+
     std::vector<uint8_t> icc;
     bool isFloat = false;
     if (loadTiff(path, out, icc, isFloat)) {
@@ -590,17 +614,7 @@ static bool loadImageImpl(const std::string &path, Image &out, ColorEncoding &de
 
   // LibRaw is the final decoder fallback regardless of filename extension.
   // The successful decoder, not an extension allow-list, determines RAW state.
-  if (loadRaw(path, out, rawWorkingEncoding.gamut, rawWorkingEncoding.gamma)) {
-    decodedRaw = true;
-    detectedEncoding = rawWorkingEncoding;
-    if (legacyDetectedTag) {
-      if (!legacyColorSpaceFromEncoding(rawWorkingEncoding, *legacyDetectedTag))
-        *legacyDetectedTag = ColorSpace::LinearRec2020;
-    }
-    return true;
-  }
-
-  return false;
+  return tryRaw();
 }
 
 bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncoding,
@@ -626,11 +640,16 @@ bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigne
   std::string e = fs::path(path).extension().string();
   for (char &c : e) c = (char)tolower((unsigned char)c);
 
-  if (e == ".png" || e == ".jpg" || e == ".jpeg") {
-    if (loadStbThumbRGBA(path, maxEdge, rgba, w, h)) return true;
-  }
+  if (e == ".png" || e == ".jpg" || e == ".jpeg")
+    return loadStbThumbRGBA(path, maxEdge, rgba, w, h);
 
-  // Like full image loading, let LibRaw determine whether non-raster inputs are
-  // actually RAW instead of relying on the extension list.
+  if (e == ".tif" || e == ".tiff") {
+    if (!tiffLooksRaw(path)) return false;
+    return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
+  }
+  if (e == ".exr") return false;
+
+  // Unknown extensions still get a LibRaw probe so valid RAW files renamed to
+  // .bin (or with no extension) remain supported.
   return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
 }
