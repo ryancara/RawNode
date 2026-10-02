@@ -102,7 +102,7 @@ void saveCurrentInputSidecar(App &app) {
 }
 
 void persistWorkspace(App &app) {
-  if (app.workspaceDir.empty()) return;
+  if (app.workspaceDir.empty() || app.workspaceWriteBlocked) return;
   const std::string active =
       app.path.empty() ? std::string() : relativeToWorkspace(app.workspaceDir, app.path);
   saveWorkspaceProject(app.workspaceDir, captureGui(app), active);
@@ -124,6 +124,18 @@ static bool sidecarHasUnknownColourEncoding(const PersistSidecar &sc) {
     if (sc.gui.outputColorSpace.empty() || sc.gui.outputGamma.empty() ||
         !rgbGamutFromIdOrName(sc.gui.outputColorSpace, gamut) ||
         !transferFunctionFromIdOrName(sc.gui.outputGamma, gamma))
+      return true;
+  }
+
+  // Older development builds accidentally wrote the RAW session default into
+  // per-image sidecars. Ignore recognised values, but do not destroy an
+  // unknown future value if one is present.
+  if (!sc.gui.rawDefaultColorSpace.empty() || !sc.gui.rawDefaultGamma.empty()) {
+    RgbGamut gamut;
+    TransferFunction gamma;
+    if (sc.gui.rawDefaultColorSpace.empty() || sc.gui.rawDefaultGamma.empty() ||
+        !rgbGamutFromIdOrName(sc.gui.rawDefaultColorSpace, gamut) ||
+        !transferFunctionFromIdOrName(sc.gui.rawDefaultGamma, gamma))
       return true;
   }
   return false;
@@ -182,6 +194,27 @@ static void loadSidecarForPath(App &app, const std::string &imagePath) {
   }
 }
 
+static bool workspaceHasUnknownColourEncoding(const PersistGui &g) {
+  RgbGamut gamut;
+  TransferFunction gamma;
+
+  if (!g.outputColorSpace.empty() || !g.outputGamma.empty()) {
+    if (g.outputColorSpace.empty() || g.outputGamma.empty() ||
+        !rgbGamutFromIdOrName(g.outputColorSpace, gamut) ||
+        !transferFunctionFromIdOrName(g.outputGamma, gamma))
+      return true;
+  }
+
+  if (!g.rawDefaultColorSpace.empty() || !g.rawDefaultGamma.empty()) {
+    if (g.rawDefaultColorSpace.empty() || g.rawDefaultGamma.empty() ||
+        !rgbGamutFromIdOrName(g.rawDefaultColorSpace, gamut) ||
+        !transferFunctionFromIdOrName(g.rawDefaultGamma, gamma))
+      return true;
+  }
+
+  return false;
+}
+
 void openWorkspace(App &app, const std::string &dir) {
   std::error_code ec;
   if (!fs::is_directory(dir, ec)) {
@@ -191,11 +224,16 @@ void openWorkspace(App &app, const std::string &dir) {
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
   app.workspaceDir = fs::weakly_canonical(fs::path(dir), ec).string();
+  app.workspaceWriteBlocked = false;
   if (!ImGuiBackend_SetWorkspaceIni(app.workspaceDir)) app.layoutApplyPending = true;
   refreshFilmstrip(app);
   PersistGui wg;
   std::string activeRel;
   if (loadWorkspaceProject(app.workspaceDir, wg, activeRel)) {
+    if (workspaceHasUnknownColourEncoding(wg)) {
+      app.workspaceWriteBlocked = true;
+      app.setStatus("This workspace contains colour settings this version of RawNode does not recognise; the workspace file is protected from overwrite.");
+    }
     applyGui(app, wg);
     applyWorkspaceSessionDefaults(app, wg);
   }
