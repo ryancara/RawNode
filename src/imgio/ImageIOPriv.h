@@ -13,3 +13,7 @@ bool profileBytes(ColorSpace cs, std::vector<uint8_t> &out);
 bool extractPngIcc(const std::string &path, std::vector<uint8_t> &icc);
 bool extractJpgIcc(const std::string &path, std::vector<uint8_t> &icc);
 ColorSpace classifyIcc(const std::vector<uint8_t> &icc);
+
+// Camera-space float RGB -> target RGB using a 3x4 matrix. Kept internal so
+// decoder tests can verify that matrix-created negative/highlight values survive.
+void applyCameraMatrix(const float camera[4], int channels, const float matrix[3][4], float rgb[3]);
