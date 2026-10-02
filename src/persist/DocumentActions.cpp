@@ -31,7 +31,7 @@ PersistGui captureGui(const App &app) {
 }
 
 void applyGui(App &app, const PersistGui &g) {
-  app.outputIndex = std::clamp(g.outputIndex, 0, 3);
+  app.outputIndex = std::clamp(g.outputIndex, 0, kOutputSpaceCount - 1);
   app.exportFormat = std::clamp(g.exportFormat, 0, 1);
   app.jpegQuality = std::clamp(g.jpegQuality, 1, 100);
   app.previewRes = std::clamp(g.previewRes, 0, kPreviewResCount - 1);
@@ -124,21 +124,48 @@ void openWorkspace(App &app, const std::string &dir) {
   persistWorkspace(app);
 }
 
+static ColorSpace rawWorkingSpaceForOpen(const App &app, const std::string &path, bool applySidecar) {
+  if (!isRawImagePath(path)) return app.rawWorkingSpace;
+
+  // New images use the current/session preference. Existing sidecars created
+  // before this feature have no raw.workingSpace field; those intentionally
+  // reopen as Linear Rec.709 so previously saved edits retain PR #15 semantics.
+  ColorSpace requested = app.rawWorkingSpace;
+  if (!applySidecar) return requested;
+
+  std::error_code ec;
+  const std::string v2Path = inputSidecarPath(path);
+  const std::string v1Path = legacyInputSidecarPath(path);
+  PersistSidecar sc;
+  if (fs::is_regular_file(v2Path, ec)) {
+    if (!loadSidecarFile(v2Path, sc)) return ColorSpace::LinearRec709;
+    ColorSpace stored;
+    if (!sc.rawWorkingSpace.empty() && colorSpaceFromName(sc.rawWorkingSpace, stored) && isRawWorkingSpace(stored))
+      return stored;
+    return ColorSpace::LinearRec709;
+  }
+  if (fs::is_regular_file(v1Path, ec)) return ColorSpace::LinearRec709;
+  return requested;
+}
+
 void openPath(App &app, const std::string &path, bool applySidecar) {
   if (isHostMetadataPath(path)) {
     app.setStatus("Sidecar files are not images — open the image file instead.");
     return;
   }
   if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
+
+  const ColorSpace requestedRawSpace = rawWorkingSpaceForOpen(app, path, applySidecar);
   Image img;
   ColorSpace detected = ColorSpace::LinearRec2020;
-  if (!loadImage(path, img, detected)) {
+  if (!loadImage(path, img, detected, requestedRawSpace)) {
     app.setStatus("Could not decode " + fs::path(path).filename().string());
     return;
   }
   app.path = path;
   app.full = std::move(img);
   app.inputSpace = detected;
+  if (isRawImagePath(path)) app.rawWorkingSpace = detected;
   app.previewZoom = 1.0f;
   app.previewPanX = 0.0f;
   app.previewPanY = 0.0f;
@@ -159,6 +186,29 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
   }
   rebuildPreview(app);
   persistWorkspace(app);
+}
+
+void setRawWorkingSpace(App &app, ColorSpace space) {
+  if (!isRawWorkingSpace(space) || app.rawWorkingSpace == space) return;
+  app.rawWorkingSpace = space;
+
+  // For raster images this is simply the preference for the next RAW.
+  if (app.path.empty() || !isRawImagePath(app.path)) return;
+
+  waitRenderIdle(app);
+  Image img;
+  ColorSpace detected = space;
+  if (!loadImage(app.path, img, detected, space)) {
+    app.setStatus("Could not reload RAW in " + std::string(colorSpaceName(space)));
+    return;
+  }
+
+  app.full = std::move(img);
+  app.inputSpace = detected;
+  rebuildPreview(app);
+  saveCurrentInputSidecar(app);
+  persistWorkspace(app);
+  app.setStatus("RAW working space: " + std::string(colorSpaceName(detected)));
 }
 
 void doExport(App &app) {
