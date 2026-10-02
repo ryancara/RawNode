@@ -171,6 +171,14 @@ RenderPipeline
 
 Backend-specific GPU support should remain encapsulated. Do not make the whole application dependent on a single platform API such as Metal.
 
+### CTL backend
+
+CTL is treated as a standalone processor backend, not as an ART-specific format. The core CTL processor executes standard CTL through the reference interpreter and uses the conventional varying float RGB(A) `main` interface.
+
+Host-specific conventions belong in adapters above that backend. ART compatibility may later add support for `ART_main`, ART metadata comments, and ART helper libraries without changing the standard CTL execution model.
+
+The initial Sidecar V2 identifier for a CTL processor is the canonical script path. If the script is unavailable on another system, the normal missing-processor placeholder preserves the node.
+
 ## UI
 
 Retain Dear ImGui + GLFW unless a concrete blocker appears.
