@@ -176,7 +176,8 @@ void applyColorDefaults(App &app, Node &node) {
 
     for (size_t i = 0; i < param.choices.size(); ++i) {
       if (param.choices[i] != wanted) continue;
-      node.processor->setParameterValue(param.id, (int)i);
+      const int value = param.choiceValues.size() == param.choices.size() ? param.choiceValues[i] : (int)i;
+      node.processor->setParameterValue(param.id, value);
       break;
     }
   }
@@ -187,10 +188,21 @@ void syncOutputTag(App &app) {
     if (!app.nodes[n].processor) continue;
     for (const ProcessorParameter &param : app.nodes[n].processor->parameters()) {
       if (param.secret || param.type != ParameterType::Choice || param.label != "Output Color Space") continue;
-      const int *index = std::get_if<int>(&param.value);
-      if (!index || *index < 0 || *index >= (int)param.choices.size()) continue;
+      const int *value = std::get_if<int>(&param.value);
+      if (!value) continue;
+      int choiceIndex = *value;
+      if (param.choiceValues.size() == param.choices.size()) {
+        choiceIndex = -1;
+        for (size_t i = 0; i < param.choiceValues.size(); ++i) {
+          if (param.choiceValues[i] == *value) {
+            choiceIndex = (int)i;
+            break;
+          }
+        }
+      }
+      if (choiceIndex < 0 || choiceIndex >= (int)param.choices.size()) continue;
       for (int i = 0; i < 4; ++i) {
-        if (param.choices[*index] == kOutputSpaces[i]) {
+        if (param.choices[(size_t)choiceIndex] == kOutputSpaces[i]) {
           app.outputIndex = i;
           return;
         }

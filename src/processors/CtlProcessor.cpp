@@ -125,9 +125,9 @@ std::string canonicalScriptPath(const std::string &path) {
 // --- ART metadata ---------------------------------------------------------
 // ART scripts describe each ART_main parameter in a comment line such as
 //   // @ART-param: ["gain", "Gain", 0.0, 4.0, 1.0, 0.01]
-// whose value is a JSON array. Only what RawNode uses so far is interpreted:
-// the parameter name and its default. Labels, ranges, groups and choices are
-// parsed past but left for the presentation step.
+// whose value is a JSON array. RawNode interprets the scalar presentation
+// metadata used by ART: defaults, labels, numeric ranges/precision, groups,
+// tooltips and integer choice menus. Curve metadata is handled separately.
 
 struct JsonValue {
   enum class Kind { Null, Bool, Number, String, Array, Object } kind = Kind::Null;
@@ -395,15 +395,166 @@ bool artMetadataDefault(const ArtParamDefinition &def, ParameterType type, const
   }
 }
 
+std::string artDisplayText(const std::string &text) {
+  if (text.empty() || text[0] != char(36)) return text;
+  const size_t semi = text.find(';');
+  if (semi != std::string::npos) return text.substr(semi + 1);
+  return text.substr(1);
+}
+
+struct ArtPresentation {
+  ParameterType type = ParameterType::Unsupported;
+  std::string label;
+  std::string groupId;
+  std::string groupLabel;
+  std::string hint;
+  bool hasRange = false;
+  double min = 0.0;
+  double max = 1.0;
+  double step = 0.0;
+  std::vector<std::string> choices;
+  std::vector<int> choiceValues;
+};
+
+ArtPresentation artPresentation(const ArtParamDefinition &def, ParameterType baseType, const std::string &file) {
+  const auto &items = def.spec.items;
+  const auto bad = [&]() {
+    return ContractError(file + ":" + std::to_string(def.line) + ": invalid @ART-param definition for " +
+                         items[0].string);
+  };
+  if (items.size() < 2 || items[1].kind != JsonValue::Kind::String) throw bad();
+
+  ArtPresentation out;
+  out.type = baseType;
+  out.label = artDisplayText(items[1].string);
+
+  auto setGroupTooltip = [&](size_t at) {
+    if (items.size() <= at) return;
+    if (items[at].kind != JsonValue::Kind::String) throw bad();
+    if (!items[at].string.empty()) {
+      out.groupId = "__art_group__:" + items[at].string;
+      out.groupLabel = artDisplayText(items[at].string);
+    }
+    if (items.size() > at + 1) {
+      if (items[at + 1].kind != JsonValue::Kind::String) throw bad();
+      out.hint = artDisplayText(items[at + 1].string);
+    }
+  };
+
+  switch (baseType) {
+    case ParameterType::Boolean:
+      if (items.size() < 2 || items.size() > 5) throw bad();
+      if (items.size() >= 4) setGroupTooltip(3);
+      break;
+
+    case ParameterType::Double:
+      if (items.size() < 4 || items.size() > 8 ||
+          items[2].kind != JsonValue::Kind::Number || items[3].kind != JsonValue::Kind::Number ||
+          !std::isfinite(items[2].number) || !std::isfinite(items[3].number))
+        throw bad();
+      out.hasRange = true;
+      out.min = items[2].number;
+      out.max = items[3].number;
+      out.step = 1.0;
+      if (items.size() >= 5 && items[4].kind != JsonValue::Kind::Number) throw bad();
+      if (items.size() >= 6) {
+        if (items[5].kind != JsonValue::Kind::Number || !std::isfinite(items[5].number)) throw bad();
+        out.step = items[5].number;
+      } else if (items.size() >= 5) {
+        out.step = (out.max - out.min) / 100.0;
+      }
+      if (items.size() >= 7) setGroupTooltip(6);
+      break;
+
+    case ParameterType::Integer:
+      if (items.size() < 3 || items.size() > 7) throw bad();
+      if (items[2].kind == JsonValue::Kind::Array) {
+        out.type = ParameterType::Choice;
+        bool strings = true;
+        for (const JsonValue &choice : items[2].items) {
+          if (choice.kind != JsonValue::Kind::String) { strings = false; break; }
+        }
+        if (strings) {
+          for (size_t i = 0; i < items[2].items.size(); ++i) {
+            out.choices.push_back(artDisplayText(items[2].items[i].string));
+            out.choiceValues.push_back((int)i);
+          }
+        } else {
+          for (const JsonValue &choice : items[2].items) {
+            if (choice.kind != JsonValue::Kind::Array || choice.items.size() != 2 ||
+                choice.items[0].kind != JsonValue::Kind::String)
+              throw bad();
+            int value = 0;
+            if (!jsonInteger(choice.items[1], value) || value < 0) throw bad();
+            out.choices.push_back(artDisplayText(choice.items[0].string));
+            out.choiceValues.push_back(value);
+          }
+        }
+        if (items.size() >= 4) {
+          int ignored = 0;
+          if (!jsonInteger(items[3], ignored)) throw bad();
+        }
+        if (items.size() >= 5) setGroupTooltip(4);
+      } else {
+        if (items.size() < 4) throw bad();
+        int lo = 0, hi = 0;
+        if (!jsonInteger(items[2], lo) || !jsonInteger(items[3], hi)) throw bad();
+        out.hasRange = true;
+        out.min = lo;
+        out.max = hi;
+        out.step = 1.0;
+        if (items.size() >= 5) {
+          int ignored = 0;
+          if (!jsonInteger(items[4], ignored)) throw bad();
+        }
+        if (items.size() >= 6) setGroupTooltip(5);
+      }
+      break;
+
+    default:
+      throw bad();
+  }
+  return out;
+}
+
+std::string readArtLabel(const std::string &path) {
+  std::ifstream in(path, std::ios::binary);
+  std::string line;
+  while (std::getline(in, line)) {
+    size_t pos = 0;
+    while (pos < line.size() && std::isspace((unsigned char)line[pos])) ++pos;
+    if (line.compare(pos, 2, "//") != 0) continue;
+    pos += 2;
+    while (pos < line.size() && std::isspace((unsigned char)line[pos])) ++pos;
+    static const std::string kTag = "@ART-label:";
+    if (line.compare(pos, kTag.size(), kTag) != 0) continue;
+    JsonValue value;
+    if (JsonReader(line.substr(pos + kTag.size())).parseDocument(value) &&
+        value.kind == JsonValue::Kind::String)
+      return artDisplayText(value.string);
+  }
+  return {};
+}
+
 }  // namespace
 
 struct CtlProcessor::Impl {
   // Fixed after load(): which CTL inputs are exposed and how.
   struct ParameterBinding {
     std::string id;
+    std::string label;
+    std::string parent;
+    std::string hint;
     Ctl::FunctionArgPtr arg;
     ParameterType type = ParameterType::Unsupported;
     ParameterValue defaultValue;
+    bool hasRange = false;
+    double min = 0.0;
+    double max = 1.0;
+    double step = 0.0;
+    std::vector<std::string> choices;
+    std::vector<int> choiceValues;
+    int metadataLine = 0;  // @ART-param line; 0 when the parameter has none
   };
 
   Ctl::SimdInterpreter interpreter;
@@ -417,7 +568,9 @@ struct CtlProcessor::Impl {
   Ctl::FunctionArgPtr bOut;
   Ctl::FunctionArgPtr aOut;
   std::vector<ParameterBinding> exposedParameters;
+  std::vector<std::pair<std::string, std::string>> artGroups;
   bool artDialect = false;
+  std::string artLabel;
 
   // Two locks, never held together:
   // - parameterMutex guards parameterValues, the UI-facing state (parallel to
@@ -442,6 +595,7 @@ struct CtlProcessor::Impl {
       case ParameterType::Double:
         return (double)*reinterpret_cast<const float *>(arg->data());
       case ParameterType::Integer:
+      case ParameterType::Choice:
         return *reinterpret_cast<const int *>(arg->data());
       case ParameterType::Boolean:
         return *reinterpret_cast<const bool *>(arg->data());
@@ -460,7 +614,8 @@ struct CtlProcessor::Impl {
         out = (double)(float)*v;
         return true;
       }
-      case ParameterType::Integer: {
+      case ParameterType::Integer:
+      case ParameterType::Choice: {
         const int *v = std::get_if<int>(&value);
         if (!v) return false;
         out = *v;
@@ -483,6 +638,7 @@ struct CtlProcessor::Impl {
         *reinterpret_cast<float *>(binding.arg->data()) = (float)std::get<double>(value);
         break;
       case ParameterType::Integer:
+      case ParameterType::Choice:
         *reinterpret_cast<int *>(binding.arg->data()) = std::get<int>(value);
         break;
       case ParameterType::Boolean:
@@ -551,11 +707,11 @@ struct CtlProcessor::Impl {
         throw ContractError("ART_main() RGB inputs and outputs must be varying float");
 
       // Defaults follow ART's documented precedence: the @ART-param default,
-      // then the CTL default in ART_main, then zero/false. The resolved value
-      // is the parameter's default and initial value, so Sidecar V2 records
-      // ART's starting values for untouched parameters. Labels, ranges, groups
-      // and choices from the same metadata are left for the presentation step.
+      // then the CTL default in ART_main, then zero/false. The same metadata
+      // also supplies presentation: labels, slider ranges/precision, groups
+      // and choice menus.
       const std::string file = fs::path(path).filename().string();
+      artLabel = readArtLabel(path);
       std::map<std::string, ArtParamDefinition> metadata = readArtParamDefinitions(path);
       for (size_t i = 3; i < function->numInputArgs(); ++i) {
         Ctl::FunctionArgPtr arg = function->inputArg(i);
@@ -576,17 +732,38 @@ struct CtlProcessor::Impl {
 
         ParameterBinding binding;
         binding.id = name;
+        binding.label = name;
         binding.arg = arg;
         binding.type = type;
 
         ParameterValue metadataDefault;
         const auto def = metadata.find(name);
-        if (def != metadata.end() && artMetadataDefault(def->second, type, file, metadataDefault)) {
-          binding.defaultValue = metadataDefault;
-        } else if (arg->hasDefaultValue()) {
+        if (def != metadata.end()) {
+          const ArtPresentation presentation = artPresentation(def->second, type, file);
+          binding.type = presentation.type;
+          binding.label = presentation.label.empty() ? name : presentation.label;
+          binding.parent = presentation.groupId;
+          binding.metadataLine = def->second.line;
+          binding.hint = presentation.hint;
+          binding.hasRange = presentation.hasRange;
+          binding.min = presentation.min;
+          binding.max = presentation.max;
+          binding.step = presentation.step;
+          binding.choices = presentation.choices;
+          binding.choiceValues = presentation.choiceValues;
+          if (!presentation.groupId.empty() &&
+              std::find_if(artGroups.begin(), artGroups.end(), [&](const auto &group) {
+                return group.first == presentation.groupId;
+              }) == artGroups.end())
+            artGroups.emplace_back(presentation.groupId, presentation.groupLabel);
+
+          if (artMetadataDefault(def->second, type, file, metadataDefault))
+            binding.defaultValue = metadataDefault;
+        }
+        if (std::holds_alternative<std::monostate>(binding.defaultValue) && arg->hasDefaultValue()) {
           arg->setDefaultValue();
           binding.defaultValue = readValue(arg, type);
-        } else {
+        } else if (std::holds_alternative<std::monostate>(binding.defaultValue)) {
           switch (type) {
             case ParameterType::Double: binding.defaultValue = 0.0; break;
             case ParameterType::Integer: binding.defaultValue = 0; break;
@@ -604,6 +781,25 @@ struct CtlProcessor::Impl {
       if (!metadata.empty())
         throw ContractError(file + ":" + std::to_string(metadata.begin()->second.line) +
                             ": @ART-param refers to unknown ART_main parameter " + metadata.begin()->first);
+
+      // ART presents controls in @ART-param line order, not ART_main argument
+      // order. Metadata-free parameters (a RawNode extension) follow in
+      // argument order.
+      std::vector<size_t> order(exposedParameters.size());
+      for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+      const auto displayKey = [&](size_t i) {
+        const int line = exposedParameters[i].metadataLine;
+        return line > 0 ? line : std::numeric_limits<int>::max();
+      };
+      std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return displayKey(a) < displayKey(b); });
+      std::vector<ParameterBinding> sortedBindings;
+      std::vector<ParameterValue> sortedValues;
+      for (size_t i : order) {
+        sortedBindings.push_back(std::move(exposedParameters[i]));
+        sortedValues.push_back(std::move(parameterValues[i]));
+      }
+      exposedParameters = std::move(sortedBindings);
+      parameterValues = std::move(sortedValues);
     } else {
       rIn = function->findInputArg("rIn");
       gIn = function->findInputArg("gIn");
@@ -639,6 +835,7 @@ struct CtlProcessor::Impl {
 
         ParameterBinding binding;
         binding.id = name;
+        binding.label = name;
         binding.arg = arg;
         binding.type = type;
         binding.defaultValue = readValue(arg, type);
@@ -675,6 +872,7 @@ std::unique_ptr<CtlProcessor> CtlProcessor::create(const std::string &path, std:
     auto impl = std::make_unique<Impl>();
     impl->load(canonical);
     std::string name = fs::path(canonical).stem().string();
+    if (impl->artDialect && !impl->artLabel.empty()) name = impl->artLabel;
     if (name.empty()) name = "CTL";
     return std::unique_ptr<CtlProcessor>(
         new CtlProcessor(canonical, std::move(name), std::move(impl)));
@@ -699,18 +897,44 @@ std::vector<ProcessorParameter> CtlProcessor::parameters() const {
   if (!impl_) return out;
 
   std::lock_guard<std::mutex> lock(impl_->parameterMutex);
-  out.reserve(impl_->exposedParameters.size());
+  out.reserve(impl_->artGroups.size() + impl_->exposedParameters.size());
+
+  // As in ART's panel, each group appears where its first member does, so
+  // grouped and ungrouped controls keep their relative order.
+  std::vector<std::string> emittedGroups;
   for (size_t i = 0; i < impl_->exposedParameters.size(); ++i) {
     const auto &binding = impl_->exposedParameters[i];
+    if (!binding.parent.empty() &&
+        std::find(emittedGroups.begin(), emittedGroups.end(), binding.parent) == emittedGroups.end()) {
+      emittedGroups.push_back(binding.parent);
+      ProcessorParameter group;
+      group.id = binding.parent;
+      group.label = binding.parent;
+      for (const auto &known : impl_->artGroups)
+        if (known.first == binding.parent && !known.second.empty()) group.label = known.second;
+      group.type = ParameterType::Group;
+      group.groupInitiallyOpen = true;
+      out.push_back(std::move(group));
+    }
+
     ProcessorParameter param;
     param.id = binding.id;
-    param.label = binding.id;
-    param.hint = impl_->artDialect ? "ART CTL input parameter (ART labels and ranges not yet applied)"
-                                   : "Standard CTL input parameter";
+    param.label = binding.label.empty() ? binding.id : binding.label;
+    param.parent = binding.parent;
+    param.hint = binding.hint.empty()
+                     ? (impl_->artDialect ? "ART CTL input parameter" : "Standard CTL input parameter")
+                     : binding.hint;
     param.type = binding.type;
     param.value = impl_->parameterValues[i];
     param.defaultValue = binding.defaultValue;
-    param.hasRange = false;
+    param.hasRange = binding.hasRange;
+    param.min = binding.min;
+    param.max = binding.max;
+    param.displayMin = binding.min;
+    param.displayMax = binding.max;
+    param.step = binding.step;
+    param.choices = binding.choices;
+    param.choiceValues = binding.choiceValues;
     out.push_back(std::move(param));
   }
   return out;
