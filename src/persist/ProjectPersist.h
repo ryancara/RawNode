@@ -21,23 +21,33 @@ struct PersistGui {
 };
 
 struct PersistNode {
-  std::string pluginIdentifier;
-  std::string pluginLabel;
+  std::string id;
+  std::string backend = "ofx";
+  std::string identifier;
+  std::string label;
   bool enabled = true;
   std::map<std::string, bool> groupOpen;
-  // Raw JSON fragment per param value (number, bool, string, or array).
+
+  // Raw JSON fragment per parameter value (number, bool, string, array, object).
+  // Keeping the raw representation lets unavailable/unknown parameters survive
+  // load-save cycles even when this build cannot interpret them.
   std::map<std::string, std::string> paramsJson;
 };
 
 struct PersistChain {
+  // V2 uses the stable node ID. selectedNode is retained only for V1 migration.
+  std::string selectedNodeId;
   int selectedNode = -1;
   std::vector<PersistNode> nodes;
 };
 
 struct PersistSidecar {
+  std::string format;
+  int version = 0;
   std::string kind;
   std::string sourcePath;
   std::string inputColorSpace;
+  std::string workingSpace;
   std::string exportedAt;
   PersistGui gui;
   PersistChain chain;
@@ -45,6 +55,7 @@ struct PersistSidecar {
 
 std::string workspaceProjectPath(const std::string &workspaceDir);
 std::string inputSidecarPath(const std::string &imagePath);
+std::string legacyInputSidecarPath(const std::string &imagePath);
 std::string exportSidecarPath(const std::string &exportPath);
 
 bool isSupportedImagePath(const std::string &path);
