@@ -16,9 +16,28 @@
 
 namespace fs = std::filesystem;
 
+static ColorEncoding legacyOutputEncoding(int index) {
+  switch (std::clamp(index, 0, 4)) {
+    case 0: return {RgbGamut::Rec709, TransferFunction::SRGB};
+    case 1: return {RgbGamut::DisplayP3, TransferFunction::SRGB};
+    case 2: return {RgbGamut::Rec709, TransferFunction::Linear};
+    case 3: return {RgbGamut::Rec2020, TransferFunction::Linear};
+    case 4: return {RgbGamut::ACES_AP0, TransferFunction::Linear};
+  }
+  return {RgbGamut::Rec709, TransferFunction::SRGB};
+}
+
+static int legacyOutputIndex(const ColorEncoding &encoding) {
+  for (int i = 0; i < 5; ++i)
+    if (legacyOutputEncoding(i) == encoding) return i;
+  return 0;
+}
+
 PersistGui captureGui(const App &app) {
   PersistGui g;
-  g.outputIndex = app.outputIndex;
+  g.outputIndex = legacyOutputIndex(app.outputEncoding);
+  g.outputColorSpace = rgbGamutId(app.outputEncoding.gamut);
+  g.outputGamma = transferFunctionId(app.outputEncoding.gamma);
   g.exportFormat = app.exportFormat;
   g.jpegQuality = app.jpegQuality;
   g.previewRes = app.previewRes;
@@ -33,7 +52,16 @@ PersistGui captureGui(const App &app) {
 }
 
 void applyGui(App &app, const PersistGui &g) {
-  app.outputIndex = std::clamp(g.outputIndex, 0, kOutputSpaceCount - 1);
+  RgbGamut gamut;
+  TransferFunction gamma;
+  if (!g.outputColorSpace.empty() && !g.outputGamma.empty() &&
+      rgbGamutFromIdOrName(g.outputColorSpace, gamut) &&
+      transferFunctionFromIdOrName(g.outputGamma, gamma)) {
+    app.outputEncoding = {gamut, gamma};
+  } else {
+    app.outputEncoding = legacyOutputEncoding(g.outputIndex);
+  }
+
   app.exportFormat = std::clamp(g.exportFormat, 0, 1);
   app.jpegQuality = std::clamp(g.jpegQuality, 1, 100);
   app.previewRes = std::clamp(g.previewRes, 0, kPreviewResCount - 1);
@@ -50,9 +78,8 @@ void applyGui(App &app, const PersistGui &g) {
 void saveCurrentInputSidecar(App &app) {
   if (app.path.empty()) return;
   if (app.sidecarWriteBlockedPath == app.path) return;
-  const ColorEncoding rawEncoding{app.inputGamut, app.inputGamma};
-  saveInputSidecar(app.path, app.inputSpace, captureGui(app), captureChain(app),
-                   app.inputUsesRawEncoding ? &rawEncoding : nullptr);
+  saveInputSidecar(app.path, app.inputEncoding, captureGui(app), captureChain(app),
+                   app.inputIsRaw ? &app.inputEncoding : nullptr);
 }
 
 void persistWorkspace(App &app) {
@@ -62,14 +89,33 @@ void persistWorkspace(App &app) {
   saveWorkspaceProject(app.workspaceDir, captureGui(app), active);
 }
 
+static bool sidecarHasUnknownColourEncoding(const PersistSidecar &sc) {
+  if (!sc.rawColorSpace.empty() || !sc.rawGamma.empty()) {
+    RgbGamut gamut;
+    TransferFunction gamma;
+    if (sc.rawColorSpace.empty() || sc.rawGamma.empty() ||
+        !rgbGamutFromIdOrName(sc.rawColorSpace, gamut) ||
+        !transferFunctionFromIdOrName(sc.rawGamma, gamma))
+      return true;
+  }
+
+  if (!sc.gui.outputColorSpace.empty() || !sc.gui.outputGamma.empty()) {
+    RgbGamut gamut;
+    TransferFunction gamma;
+    if (sc.gui.outputColorSpace.empty() || sc.gui.outputGamma.empty() ||
+        !rgbGamutFromIdOrName(sc.gui.outputColorSpace, gamut) ||
+        !transferFunctionFromIdOrName(sc.gui.outputGamma, gamma))
+      return true;
+  }
+  return false;
+}
+
 static void loadSidecarForPath(App &app, const std::string &imagePath) {
   PersistSidecar sc;
   const std::string v2Path = inputSidecarPath(imagePath);
   const std::string v1Path = legacyInputSidecarPath(imagePath);
   std::error_code ec;
 
-  // A successful retry, a removed sidecar, or moving to another image clears
-  // any previous write protection for this document.
   app.sidecarWriteBlockedPath.clear();
 
   if (fs::is_regular_file(v2Path, ec)) {
@@ -91,14 +137,19 @@ static void loadSidecarForPath(App &app, const std::string &imagePath) {
       return;
     }
   } else {
-    // A new image with no sidecar starts with a clean processing chain.
-    // Never inherit the previously opened image's nodes into this document.
     clearNodes(app);
     return;
   }
 
   applyGui(app, sc.gui);
   applyChain(app, sc.chain);
+
+  // Unknown future colour identifiers must never be silently replaced by this
+  // build's fallback values on the next automatic save.
+  if (sidecarHasUnknownColourEncoding(sc)) {
+    app.sidecarWriteBlockedPath = imagePath;
+    app.setStatus("This sidecar contains colour settings this version of RawNode does not recognise; edits are not being overwritten.");
+  }
 }
 
 void openWorkspace(App &app, const std::string &dir) {
@@ -128,50 +179,46 @@ void openWorkspace(App &app, const std::string &dir) {
   persistWorkspace(app);
 }
 
-static ColorEncoding legacyRawEncoding(ColorSpace space) {
-  switch (space) {
-    case ColorSpace::LinearRec709:
-      return {RgbGamut::Rec709, TransferFunction::Linear};
-    case ColorSpace::ACES2065_1:
-      return {RgbGamut::ACES_AP0, TransferFunction::Linear};
-    case ColorSpace::LinearRec2020:
-    default:
-      return {RgbGamut::Rec2020, TransferFunction::Linear};
-  }
-}
+static ColorEncoding rawWorkingEncodingForOpen(const App &app, const std::string &path,
+                                               bool applySidecar) {
+  const ColorEncoding session = app.rawWorkingEncoding;
+  if (!applySidecar) return session;
 
-static ColorEncoding rawWorkingEncodingForOpen(const App &app, const std::string &path, bool applySidecar) {
-  const ColorEncoding session{app.rawWorkingGamut, app.rawWorkingGamma};
-  if (!isRawImagePath(path) || !applySidecar) return session;
-
-  // New sidecars persist gamut and transfer function independently. PR #16
-  // sidecars only have raw.workingSpace; V1 / older V2 sidecars deliberately
-  // reopen as Linear Rec.709 to preserve their historical interpretation.
   std::error_code ec;
   const std::string v2Path = inputSidecarPath(path);
   const std::string v1Path = legacyInputSidecarPath(path);
   PersistSidecar sc;
+
   if (fs::is_regular_file(v2Path, ec)) {
     if (!loadSidecarFile(v2Path, sc))
       return {RgbGamut::Rec709, TransferFunction::Linear};
 
-    RgbGamut gamut;
-    TransferFunction gamma;
-    if (!sc.rawColorSpace.empty() && !sc.rawGamma.empty() &&
-        rgbGamutFromName(sc.rawColorSpace, gamut) &&
-        transferFunctionFromName(sc.rawGamma, gamma))
-      return {gamut, gamma};
+    if (!sc.rawColorSpace.empty() || !sc.rawGamma.empty()) {
+      RgbGamut gamut;
+      TransferFunction gamma;
+      if (!sc.rawColorSpace.empty() && !sc.rawGamma.empty() &&
+          rgbGamutFromIdOrName(sc.rawColorSpace, gamut) &&
+          transferFunctionFromIdOrName(sc.rawGamma, gamma))
+        return {gamut, gamma};
+
+      // Unknown future explicit encoding. Decode with the historical safe
+      // fallback; loadSidecarForPath will write-protect the sidecar.
+      return {RgbGamut::Rec709, TransferFunction::Linear};
+    }
 
     ColorSpace stored;
     if (!sc.rawWorkingSpace.empty() &&
         colorSpaceFromName(sc.rawWorkingSpace, stored) &&
         isRawWorkingSpace(stored))
-      return legacyRawEncoding(stored);
+      return legacyColorSpaceEncoding(stored);
 
+    // V2 sidecar predating selectable RAW working space.
     return {RgbGamut::Rec709, TransferFunction::Linear};
   }
+
   if (fs::is_regular_file(v1Path, ec))
     return {RgbGamut::Rec709, TransferFunction::Linear};
+
   return session;
 }
 
@@ -182,32 +229,25 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
   }
   if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
 
-  const bool openingRaw = isRawImagePath(path);
   const ColorEncoding requestedRaw = rawWorkingEncodingForOpen(app, path, applySidecar);
   Image img;
-  ColorSpace detected = ColorSpace::LinearRec2020;
-  if (!loadImage(path, img, detected, requestedRaw.gamut, requestedRaw.gamma)) {
+  ColorEncoding detectedEncoding;
+  bool decodedRaw = false;
+  if (!loadImage(path, img, detectedEncoding, decodedRaw, requestedRaw)) {
     app.setStatus("Could not decode " + fs::path(path).filename().string());
     return;
   }
+
   app.path = path;
   app.full = std::move(img);
-  app.inputSpace = detected;
-  app.inputUsesRawEncoding = openingRaw;
-  if (openingRaw) {
-    app.inputGamut = requestedRaw.gamut;
-    app.inputGamma = requestedRaw.gamma;
-  }
+  app.inputEncoding = detectedEncoding;
+  app.inputIsRaw = decodedRaw;
   app.previewZoom = 1.0f;
   app.previewPanX = 0.0f;
   app.previewPanY = 0.0f;
-  if (openingRaw) {
-    app.setStatus("Loaded " + fs::path(path).filename().string() + " (" +
-                  std::string(rgbGamutName(app.inputGamut)) + " / " +
-                  transferFunctionName(app.inputGamma) + ")");
-  } else {
-    app.setStatus("Loaded " + fs::path(path).filename().string() + " (" + colorSpaceName(detected) + ")");
-  }
+  app.setStatus("Loaded " + fs::path(path).filename().string() + " (" +
+                colorEncodingName(app.inputEncoding) + ")");
+
   app.filmstripIndex = -1;
   for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
     std::error_code ec;
@@ -216,54 +256,48 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
       break;
     }
   }
-  if (applySidecar) {
+
+  if (applySidecar)
     loadSidecarForPath(app, path);
-  } else {
+  else
     app.sidecarWriteBlockedPath.clear();
-  }
+
   rebuildPreview(app);
   persistWorkspace(app);
 }
 
 void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
-  const bool currentIsRaw = !app.path.empty() && isRawImagePath(app.path);
-  const ColorEncoding current =
-      currentIsRaw ? ColorEncoding{app.inputGamut, app.inputGamma}
-                   : ColorEncoding{app.rawWorkingGamut, app.rawWorkingGamma};
   const ColorEncoding requested{gamut, gamma};
+  const ColorEncoding current = app.inputIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
 
   // An explicit UI choice also becomes the session default for new RAWs.
-  app.rawWorkingGamut = gamut;
-  app.rawWorkingGamma = gamma;
+  app.rawWorkingEncoding = requested;
   if (current == requested) return;
 
   // For raster images this is simply the preference for the next RAW.
-  if (!currentIsRaw) return;
+  if (!app.inputIsRaw) return;
 
   waitRenderIdle(app);
   Image img;
-  ColorSpace detected = ColorSpace::LinearRec2020;
-  if (!loadImage(app.path, img, detected, gamut, gamma)) {
-    app.setStatus("Could not reload RAW in " + std::string(rgbGamutName(gamut)) +
-                  " / " + transferFunctionName(gamma));
+  ColorEncoding detectedEncoding;
+  bool decodedRaw = false;
+  if (!loadImage(app.path, img, detectedEncoding, decodedRaw, requested) || !decodedRaw) {
+    app.setStatus("Could not reload RAW in " + colorEncodingName(requested));
     return;
   }
 
   app.full = std::move(img);
-  app.inputSpace = detected;
-  app.inputUsesRawEncoding = true;
-  app.inputGamut = gamut;
-  app.inputGamma = gamma;
+  app.inputEncoding = detectedEncoding;
+  app.inputIsRaw = true;
   rebuildPreview(app);
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
-  app.setStatus("RAW working space: " + std::string(rgbGamutName(gamut)) +
-                " / " + transferFunctionName(gamma));
+  app.setStatus("RAW working encoding: " + colorEncodingName(requested));
 }
 
 void setRawWorkingSpace(App &app, ColorSpace space) {
   if (!isRawWorkingSpace(space)) return;
-  const ColorEncoding encoding = legacyRawEncoding(space);
+  const ColorEncoding encoding = legacyColorSpaceEncoding(space);
   setRawWorkingEncoding(app, encoding.gamut, encoding.gamma);
 }
 
@@ -281,10 +315,10 @@ void doExport(App &app) {
   waitRenderIdle(app);
   const int pw = app.preview.w, ph = app.preview.h;
   Image src = app.full;
-  const ColorSpace space = outputSpace(app.outputIndex);
-  const ColorSpace inSpace = app.inputSpace;
-  const bool sourceUsesRawEncoding = app.inputUsesRawEncoding;
-  const ColorEncoding sourceRawEncoding{app.inputGamut, app.inputGamma};
+  const ColorEncoding space = app.outputEncoding;
+  const ColorEncoding inSpace = app.inputEncoding;
+  const bool sourceUsesRawEncoding = app.inputIsRaw;
+  const ColorEncoding sourceRawEncoding = app.inputEncoding;
   const int jpegQuality = app.jpegQuality;
   const PersistGui persistGui = captureGui(app);
   const PersistChain persistChain = captureChain(app);
