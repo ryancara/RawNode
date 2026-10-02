@@ -120,6 +120,30 @@ const char *rgbGamutName(RgbGamut gamut) {
   return "Rec.709";
 }
 
+bool rgbGamutFromName(const std::string &name, RgbGamut &gamut) {
+  if (name == "Rec.709" || name == "Rec.709 / sRGB") {
+    gamut = RgbGamut::Rec709;
+    return true;
+  }
+  if (name == "Rec.2020") {
+    gamut = RgbGamut::Rec2020;
+    return true;
+  }
+  if (name == "ACES AP0" || name == "ACES2065-1" || name == "ACES2065-1 (AP0)" || name == "AP0") {
+    gamut = RgbGamut::ACES_AP0;
+    return true;
+  }
+  if (name == "ACES AP1" || name == "ACEScg" || name == "AP1") {
+    gamut = RgbGamut::ACES_AP1;
+    return true;
+  }
+  if (name == "DaVinci Wide Gamut" || name == "DWG") {
+    gamut = RgbGamut::DaVinciWideGamut;
+    return true;
+  }
+  return false;
+}
+
 bool linearColorTransformMatrix(RgbGamut source, RgbGamut target, double out[3][3]) {
   const double (*rec709ToSource)[3] = rec709To(source);
   const double (*rec709ToTarget)[3] = rec709To(target);
