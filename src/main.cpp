@@ -166,6 +166,37 @@ static int selfTest() {
         migrated.chain.nodes[0].identifier != "example.ofx" ||
         migrated.chain.nodes[0].paramsJson.at("gain") != "1.25")
       return fail("sidecar v1 normalisation");
+
+    // Pre-V2 writers escaped only '"' and '\\' in string parameters, so legacy
+    // multi-line values contain raw control characters. They must load intact,
+    // including every parameter that follows them.
+    {
+      std::ofstream legacyFile(legacy.string(), std::ios::binary);
+      legacyFile << "{\"format\":\"ofxrawhost-sidecar\",\"version\":1,\"kind\":\"input\","
+                    "\"chain\":{\"selectedNode\":0,\"nodes\":[{\"pluginIdentifier\":\"example.ofx\","
+                    "\"pluginLabel\":\"Example\",\"enabled\":true,\"groupOpen\":{},"
+                    "\"params\":{\"a\":1,\"notes\":\"line1\nline2\tend\",\"z\":0.5}}]}}";
+      if (!legacyFile.good()) return fail("sidecar v1 multiline test write");
+    }
+    PersistSidecar multiline;
+    std::string notes;
+    if (!loadSidecarFile(legacy.string(), multiline) || multiline.chain.nodes.size() != 1 ||
+        multiline.chain.nodes[0].paramsJson.size() != 3 ||
+        multiline.chain.nodes[0].paramsJson.at("z") != "0.5" ||
+        !parseJsonStringValue(multiline.chain.nodes[0].paramsJson.at("notes"), notes) ||
+        notes != "line1\nline2\tend")
+      return fail("sidecar v1 legacy multiline string");
+
+    // A malformed params object rejects the sidecar rather than restoring a partial node.
+    {
+      std::ofstream legacyFile(legacy.string(), std::ios::binary);
+      legacyFile << "{\"format\":\"ofxrawhost-sidecar\",\"version\":1,\"kind\":\"input\","
+                    "\"chain\":{\"selectedNode\":0,\"nodes\":[{\"pluginIdentifier\":\"example.ofx\","
+                    "\"params\":{\"a\":1 \"b\":2}}]}}";
+      if (!legacyFile.good()) return fail("sidecar v1 malformed test write");
+    }
+    PersistSidecar malformed;
+    if (loadSidecarFile(legacy.string(), malformed)) return fail("sidecar malformed params rejection");
     fs::remove(legacy);
 
     const fs::path future = fs::temp_directory_path() / "rawnode-selftest-v3.rawnode.json";

@@ -74,7 +74,9 @@ static bool parseString(JsonCursor &c, std::string &out) {
   while (c.p < c.end) {
     const unsigned char ch = (unsigned char)*c.p++;
     if (ch == '"') return true;
-    if (ch < 0x20) return false;
+    // Raw control characters are accepted on read: string parameters were
+    // written with only '"' and '\\' escaped before Sidecar V2, so legacy
+    // multi-line values contain literal newlines/tabs. Writes escape them.
 
     if (ch != '\\') {
       out += (char)ch;
@@ -183,7 +185,9 @@ static bool captureJsonValue(JsonCursor &c, std::string &raw) {
     return true;
   }
 
-  while (c.p < c.end && *c.p != ',' && *c.p != '}' && *c.p != ']') ++c.p;
+  // Scalars (numbers, true/false/null) end at whitespace too, so a missing
+  // comma is reported by the caller instead of being absorbed into the value.
+  while (c.p < c.end && *c.p != ',' && *c.p != '}' && *c.p != ']' && !std::isspace((unsigned char)*c.p)) ++c.p;
   raw = trimRaw(start, c.p);
   return !raw.empty();
 }
@@ -289,19 +293,21 @@ void loadGuiFromJson(const std::string &guiObj, PersistGui &g) {
   extractFloatField(guiObj, "filmstripH", g.filmstripH);
 }
 
-static void parseParamsObject(const std::string &paramsObj, std::map<std::string, std::string> &params) {
+// Returns false on malformed input so the caller rejects the whole sidecar
+// (and write-protects it) instead of silently restoring a partial node.
+static bool parseParamsObject(const std::string &paramsObj, std::map<std::string, std::string> &params) {
   JsonCursor c{paramsObj.c_str(), paramsObj.c_str() + paramsObj.size()};
-  if (!match(c, '{')) return;
+  if (!match(c, '{')) return false;
 
   for (;;) {
     skipWs(c);
-    if (c.p < c.end && *c.p == '}') return;
+    if (c.p < c.end && *c.p == '}') return true;
 
     std::string key;
-    if (!parseString(c, key) || !match(c, ':')) return;
+    if (!parseString(c, key) || !match(c, ':')) return false;
 
     std::string raw;
-    if (!captureJsonValue(c, raw)) return;
+    if (!captureJsonValue(c, raw)) return false;
     params[key] = std::move(raw);
 
     skipWs(c);
@@ -309,8 +315,7 @@ static void parseParamsObject(const std::string &paramsObj, std::map<std::string
       ++c.p;
       continue;
     }
-    if (c.p < c.end && *c.p == '}') return;
-    return;
+    return c.p < c.end && *c.p == '}';
   }
 }
 
@@ -375,7 +380,8 @@ static bool parseNodeArray(const std::string &nodesArr, PersistChain &chain, boo
     }
 
     std::string paramsObj;
-    if (extractObject(nodeObj, "params", paramsObj)) parseParamsObject(paramsObj, node.paramsJson);
+    if (extractValueField(nodeObj, "params", paramsObj) && !parseParamsObject(paramsObj, node.paramsJson))
+      return false;
     chain.nodes.push_back(std::move(node));
 
     skipWs(c);
