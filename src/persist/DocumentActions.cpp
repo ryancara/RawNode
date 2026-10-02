@@ -2,6 +2,8 @@
 
 #include "ui/Filmstrip.h"
 #include "imgio/ImageIO.h"
+#include "color/LinearColorTransform.h"
+#include "color/TransferFunction.h"
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
 #include "ui/Themes.h"
@@ -48,7 +50,9 @@ void applyGui(App &app, const PersistGui &g) {
 void saveCurrentInputSidecar(App &app) {
   if (app.path.empty()) return;
   if (app.sidecarWriteBlockedPath == app.path) return;
-  saveInputSidecar(app.path, app.inputSpace, captureGui(app), captureChain(app));
+  const ColorEncoding rawEncoding{app.inputGamut, app.inputGamma};
+  saveInputSidecar(app.path, app.inputSpace, captureGui(app), captureChain(app),
+                   app.inputUsesRawEncoding ? &rawEncoding : nullptr);
 }
 
 void persistWorkspace(App &app) {
@@ -124,28 +128,51 @@ void openWorkspace(App &app, const std::string &dir) {
   persistWorkspace(app);
 }
 
-static ColorSpace rawWorkingSpaceForOpen(const App &app, const std::string &path, bool applySidecar) {
-  if (!isRawImagePath(path)) return app.rawWorkingSpace;
+static ColorEncoding legacyRawEncoding(ColorSpace space) {
+  switch (space) {
+    case ColorSpace::LinearRec709:
+      return {RgbGamut::Rec709, TransferFunction::Linear};
+    case ColorSpace::ACES2065_1:
+      return {RgbGamut::ACES_AP0, TransferFunction::Linear};
+    case ColorSpace::LinearRec2020:
+    default:
+      return {RgbGamut::Rec2020, TransferFunction::Linear};
+  }
+}
 
-  // New images use the current/session preference. Existing sidecars created
-  // before this feature have no raw.workingSpace field; those intentionally
-  // reopen as Linear Rec.709 so previously saved edits retain PR #15 semantics.
-  ColorSpace requested = app.rawWorkingSpace;
-  if (!applySidecar) return requested;
+static ColorEncoding rawWorkingEncodingForOpen(const App &app, const std::string &path, bool applySidecar) {
+  const ColorEncoding session{app.rawWorkingGamut, app.rawWorkingGamma};
+  if (!isRawImagePath(path) || !applySidecar) return session;
 
+  // New sidecars persist gamut and transfer function independently. PR #16
+  // sidecars only have raw.workingSpace; V1 / older V2 sidecars deliberately
+  // reopen as Linear Rec.709 to preserve their historical interpretation.
   std::error_code ec;
   const std::string v2Path = inputSidecarPath(path);
   const std::string v1Path = legacyInputSidecarPath(path);
   PersistSidecar sc;
   if (fs::is_regular_file(v2Path, ec)) {
-    if (!loadSidecarFile(v2Path, sc)) return ColorSpace::LinearRec709;
+    if (!loadSidecarFile(v2Path, sc))
+      return {RgbGamut::Rec709, TransferFunction::Linear};
+
+    RgbGamut gamut;
+    TransferFunction gamma;
+    if (!sc.rawColorSpace.empty() && !sc.rawGamma.empty() &&
+        rgbGamutFromName(sc.rawColorSpace, gamut) &&
+        transferFunctionFromName(sc.rawGamma, gamma))
+      return {gamut, gamma};
+
     ColorSpace stored;
-    if (!sc.rawWorkingSpace.empty() && colorSpaceFromName(sc.rawWorkingSpace, stored) && isRawWorkingSpace(stored))
-      return stored;
-    return ColorSpace::LinearRec709;
+    if (!sc.rawWorkingSpace.empty() &&
+        colorSpaceFromName(sc.rawWorkingSpace, stored) &&
+        isRawWorkingSpace(stored))
+      return legacyRawEncoding(stored);
+
+    return {RgbGamut::Rec709, TransferFunction::Linear};
   }
-  if (fs::is_regular_file(v1Path, ec)) return ColorSpace::LinearRec709;
-  return requested;
+  if (fs::is_regular_file(v1Path, ec))
+    return {RgbGamut::Rec709, TransferFunction::Linear};
+  return session;
 }
 
 void openPath(App &app, const std::string &path, bool applySidecar) {
@@ -155,20 +182,32 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
   }
   if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
 
-  const ColorSpace requestedRawSpace = rawWorkingSpaceForOpen(app, path, applySidecar);
+  const bool openingRaw = isRawImagePath(path);
+  const ColorEncoding requestedRaw = rawWorkingEncodingForOpen(app, path, applySidecar);
   Image img;
   ColorSpace detected = ColorSpace::LinearRec2020;
-  if (!loadImage(path, img, detected, requestedRawSpace)) {
+  if (!loadImage(path, img, detected, requestedRaw.gamut, requestedRaw.gamma)) {
     app.setStatus("Could not decode " + fs::path(path).filename().string());
     return;
   }
   app.path = path;
   app.full = std::move(img);
   app.inputSpace = detected;
+  app.inputUsesRawEncoding = openingRaw;
+  if (openingRaw) {
+    app.inputGamut = requestedRaw.gamut;
+    app.inputGamma = requestedRaw.gamma;
+  }
   app.previewZoom = 1.0f;
   app.previewPanX = 0.0f;
   app.previewPanY = 0.0f;
-  app.setStatus("Loaded " + fs::path(path).filename().string() + " (" + colorSpaceName(detected) + ")");
+  if (openingRaw) {
+    app.setStatus("Loaded " + fs::path(path).filename().string() + " (" +
+                  std::string(rgbGamutName(app.inputGamut)) + " / " +
+                  transferFunctionName(app.inputGamma) + ")");
+  } else {
+    app.setStatus("Loaded " + fs::path(path).filename().string() + " (" + colorSpaceName(detected) + ")");
+  }
   app.filmstripIndex = -1;
   for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
     std::error_code ec;
@@ -186,35 +225,46 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
   persistWorkspace(app);
 }
 
-void setRawWorkingSpace(App &app, ColorSpace space) {
-  if (!isRawWorkingSpace(space)) return;
+void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
   const bool currentIsRaw = !app.path.empty() && isRawImagePath(app.path);
-  const ColorSpace currentSpace = currentIsRaw ? app.inputSpace : app.rawWorkingSpace;
-  if (currentSpace == space) {
-    app.rawWorkingSpace = space;
-    return;
-  }
+  const ColorEncoding current =
+      currentIsRaw ? ColorEncoding{app.inputGamut, app.inputGamma}
+                   : ColorEncoding{app.rawWorkingGamut, app.rawWorkingGamma};
+  const ColorEncoding requested{gamut, gamma};
 
   // An explicit UI choice also becomes the session default for new RAWs.
-  app.rawWorkingSpace = space;
+  app.rawWorkingGamut = gamut;
+  app.rawWorkingGamma = gamma;
+  if (current == requested) return;
 
   // For raster images this is simply the preference for the next RAW.
   if (!currentIsRaw) return;
 
   waitRenderIdle(app);
   Image img;
-  ColorSpace detected = space;
-  if (!loadImage(app.path, img, detected, space)) {
-    app.setStatus("Could not reload RAW in " + std::string(colorSpaceName(space)));
+  ColorSpace detected = ColorSpace::LinearRec2020;
+  if (!loadImage(app.path, img, detected, gamut, gamma)) {
+    app.setStatus("Could not reload RAW in " + std::string(rgbGamutName(gamut)) +
+                  " / " + transferFunctionName(gamma));
     return;
   }
 
   app.full = std::move(img);
   app.inputSpace = detected;
+  app.inputUsesRawEncoding = true;
+  app.inputGamut = gamut;
+  app.inputGamma = gamma;
   rebuildPreview(app);
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
-  app.setStatus("RAW working space: " + std::string(colorSpaceName(detected)));
+  app.setStatus("RAW working space: " + std::string(rgbGamutName(gamut)) +
+                " / " + transferFunctionName(gamma));
+}
+
+void setRawWorkingSpace(App &app, ColorSpace space) {
+  if (!isRawWorkingSpace(space)) return;
+  const ColorEncoding encoding = legacyRawEncoding(space);
+  setRawWorkingEncoding(app, encoding.gamut, encoding.gamma);
 }
 
 void doExport(App &app) {
@@ -233,6 +283,8 @@ void doExport(App &app) {
   Image src = app.full;
   const ColorSpace space = outputSpace(app.outputIndex);
   const ColorSpace inSpace = app.inputSpace;
+  const bool sourceUsesRawEncoding = app.inputUsesRawEncoding;
+  const ColorEncoding sourceRawEncoding{app.inputGamut, app.inputGamma};
   const int jpegQuality = app.jpegQuality;
   const PersistGui persistGui = captureGui(app);
   const PersistChain persistChain = captureChain(app);
@@ -245,7 +297,7 @@ void doExport(App &app) {
     }
   }
   std::thread([&, src, outPath, pw, ph, space, jpegQuality, persistGui, persistChain, sourcePath, inSpace,
-               bypassedMissingProcessor]() mutable {
+               sourceUsesRawEncoding, sourceRawEncoding, bypassedMissingProcessor]() mutable {
     for (auto &n : app.nodes)
       if (n.processor) n.processor->setRenderSize(src.w, src.h);
     Image out;
@@ -253,7 +305,8 @@ void doExport(App &app) {
     for (auto &n : app.nodes)
       if (n.processor) n.processor->setRenderSize(pw, ph);
     bool ok = result.ok && writeImage(out, outPath, space, jpegQuality);
-    if (ok) saveExportSidecar(outPath, sourcePath, inSpace, persistGui, persistChain);
+    if (ok) saveExportSidecar(outPath, sourcePath, inSpace, persistGui, persistChain,
+                              sourceUsesRawEncoding ? &sourceRawEncoding : nullptr);
     app.setStatus(ok ? "Exported " + fs::path(outPath).filename().string() + " (" + std::to_string(src.w) + "×" +
                             std::to_string(src.h) + ")" +
                             (bypassedMissingProcessor ? " — missing processors were bypassed" : "")
