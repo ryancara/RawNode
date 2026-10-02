@@ -8,6 +8,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <utility>
 
 struct JsonCursor {
   const char *p = nullptr;
@@ -116,7 +117,7 @@ static bool captureJsonValue(JsonCursor &c, std::string &raw) {
 }
 
 static bool extractValueField(const std::string &json, const char *key, std::string &raw) {
-  const std::string needle = std::string(""") + key + "":";
+  const std::string needle = std::string("\\\"") + key + "\\":";
   size_t pos = json.find(needle);
   if (pos == std::string::npos) return false;
   JsonCursor c{json.c_str() + pos + needle.size(), json.c_str() + json.size()};
@@ -138,7 +139,7 @@ bool extractArray(const std::string &json, const char *key, std::string &arrOut)
 }
 
 bool extractStringField(const std::string &json, const char *key, std::string &out) {
-  const std::string needle = std::string(""") + key + "":";
+  const std::string needle = std::string("\\\"") + key + "\\":";
   size_t pos = json.find(needle);
   if (pos == std::string::npos) return false;
   JsonCursor c{json.c_str() + pos + needle.size(), json.c_str() + json.size()};
