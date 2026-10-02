@@ -53,41 +53,56 @@ void drawLeftPanel(App &app) {
   ImGui::Separator();
 
   ImGui::TextUnformatted("Processing Nodes");
-  if (ImGui::Button("Add OFX plugin…", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
+  if (ImGui::Button("Add processor…", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextWithHint("##pluginFilter", "Search…", app.pluginFilter, sizeof app.pluginFilter);
     ImGui::Separator();
-    if (gPlugins.empty()) {
-      ImGui::TextDisabled("No plugins found");
-    } else {
-      const std::string q = app.pluginFilter;
-      std::string curAuthor;
-      int shown = 0;
-      for (int i = 0; i < (int)gPlugins.size(); ++i) {
-        const auto &pe = gPlugins[i];
-        if (!q.empty() && !icontains(pe.label, q) && !icontains(pe.author, q) &&
-            !(pe.plugin && pe.plugin->pluginIdentifier && icontains(pe.plugin->pluginIdentifier, q)))
-          continue;
-        if (pe.author != curAuthor) {
-          curAuthor = pe.author;
-          ImGui::SeparatorText(curAuthor.c_str());
-        }
-        if (ImGui::Selectable(pe.label.c_str())) {
-          addNode(app, i);
-          app.pluginFilter[0] = '\0';
-          ImGui::CloseCurrentPopup();
-        }
-        ++shown;
+
+    const std::string q = app.pluginFilter;
+    int shown = 0;
+
+    if (q.empty() || icontains("Exposure", q) || icontains("Native", q)) {
+      ImGui::SeparatorText("Native");
+      if (ImGui::Selectable("Exposure")) {
+        addNativeExposureNode(app);
+        app.pluginFilter[0] = '\0';
+        ImGui::CloseCurrentPopup();
       }
-      if (shown == 0) ImGui::TextDisabled("No matches");
+      ++shown;
     }
+
+    std::string curAuthor;
+    bool showedOfxHeader = false;
+    for (int i = 0; i < (int)gPlugins.size(); ++i) {
+      const auto &pe = gPlugins[i];
+      if (!q.empty() && !icontains(pe.label, q) && !icontains(pe.author, q) &&
+          !(pe.plugin && pe.plugin->pluginIdentifier && icontains(pe.plugin->pluginIdentifier, q)))
+        continue;
+
+      if (!showedOfxHeader) {
+        ImGui::SeparatorText("OFX");
+        showedOfxHeader = true;
+      }
+      if (pe.author != curAuthor) {
+        curAuthor = pe.author;
+        ImGui::TextDisabled("%s", curAuthor.c_str());
+      }
+      if (ImGui::Selectable(pe.label.c_str())) {
+        addNode(app, i);
+        app.pluginFilter[0] = '\0';
+        ImGui::CloseCurrentPopup();
+      }
+      ++shown;
+    }
+
+    if (shown == 0) ImGui::TextDisabled("No matches");
     ImGui::EndPopup();
   }
 
   ImGui::BeginChild("nodeList", ImVec2(0, 0), ImGuiChildFlags_Borders);
-  if (app.nodes.empty()) ImGui::TextDisabled("No nodes yet.\nAdd a plugin to build a chain.");
+  if (app.nodes.empty()) ImGui::TextDisabled("No nodes yet.\nAdd a processor to build a chain.");
   const float btnH = ImGui::GetFrameHeight();
   const float btnGap = ImGui::GetStyle().ItemSpacing.x;
   const float btnsW = 4.0f * btnH + 3.0f * btnGap;
