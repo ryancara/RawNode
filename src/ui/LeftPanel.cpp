@@ -69,10 +69,29 @@ void drawLeftPanel(App &app) {
     const std::string q = app.pluginFilter;
     int shown = 0;
 
+    bool showedNativeHeader = false;
+    const auto nativeHeader = [&]() {
+      if (!showedNativeHeader) {
+        ImGui::SeparatorText("Native");
+        showedNativeHeader = true;
+      }
+    };
+
     if (q.empty() || icontains("Exposure", q) || icontains("Native", q)) {
-      ImGui::SeparatorText("Native");
+      nativeHeader();
       if (ImGui::Selectable("Exposure")) {
         addNativeExposureNode(app);
+        app.pluginFilter[0] = '\0';
+        ImGui::CloseCurrentPopup();
+      }
+      ++shown;
+    }
+
+    if (q.empty() || icontains("CST", q) || icontains("Colour Space Transform", q) ||
+        icontains("Color Space Transform", q) || icontains("Native", q)) {
+      nativeHeader();
+      if (ImGui::Selectable("CST")) {
+        addNativeCstNode(app);
         app.pluginFilter[0] = '\0';
         ImGui::CloseCurrentPopup();
       }
