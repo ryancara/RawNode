@@ -59,16 +59,6 @@ static int findPluginIndex(const std::string &identifier, const std::string &lab
   return -1;
 }
 
-static std::string jsonString(const std::string &value) {
-  std::string escaped;
-  escaped.reserve(value.size() + 4);
-  for (char c : value) {
-    if (c == '"' || c == '\\') escaped += '\\';
-    escaped += c;
-  }
-  return std::string("\"") + escaped + '"';
-}
-
 static bool persistedParameterType(ParameterType type) {
   return type != ParameterType::Group && type != ParameterType::Page &&
          type != ParameterType::PushButton && type != ParameterType::Unsupported;
@@ -79,7 +69,7 @@ static std::string paramValueJson(const ProcessorParameter &param) {
     case ParameterType::String:
     case ParameterType::Custom: {
       const auto *value = std::get_if<std::string>(&param.value);
-      return value ? jsonString(*value) : "\"\"";
+      return value ? jsonStringValue(*value) : "\"\"";
     }
     case ParameterType::Boolean: {
       const bool *value = std::get_if<bool>(&param.value);
@@ -112,35 +102,19 @@ static std::string paramValueJson(const ProcessorParameter &param) {
   }
 }
 
-static std::string trim(std::string value) {
+static std::string trimParamJson(std::string value) {
   while (!value.empty() && std::isspace((unsigned char)value.front())) value.erase(value.begin());
   while (!value.empty() && std::isspace((unsigned char)value.back())) value.pop_back();
   return value;
 }
 
-// Returns false for non-string JSON so callers keep the current value, matching Sidecar V1 restore.
-static bool parseJsonString(const std::string &raw, std::string &out) {
-  const std::string value = trim(raw);
-  if (value.size() < 2 || value.front() != '"') return false;
-  out.clear();
-  for (size_t i = 1; i < value.size(); ++i) {
-    if (value[i] == '\\' && i + 1 < value.size()) {
-      out += value[++i];
-      continue;
-    }
-    if (value[i] == '"') break;
-    out += value[i];
-  }
-  return true;
-}
-
 static void applyParamValueJson(Processor &processor, const ProcessorParameter &param, const std::string &raw) {
-  const std::string value = trim(raw);
+  const std::string value = trimParamJson(raw);
   switch (param.type) {
     case ParameterType::String:
     case ParameterType::Custom: {
       std::string parsed;
-      if (parseJsonString(value, parsed)) processor.setParameterValue(param.id, parsed, false);
+      if (parseJsonStringValue(value, parsed)) processor.setParameterValue(param.id, parsed, false);
       return;
     }
     case ParameterType::Boolean:
@@ -315,7 +289,7 @@ void applyChain(App &app, const PersistChain &chain) {
         created = true;
         Node &node = app.nodes.back();
         const int index = (int)app.nodes.size() - 1;
-        node.id = restoredNodeId(app, persisted.id, index);
+        if (!persisted.id.empty()) node.id = restoredNodeId(app, persisted.id, index);
         node.enabled = persisted.enabled;
         node.groupOpen = persisted.groupOpen;
         node.storedBackend = backend;
