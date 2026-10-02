@@ -99,6 +99,10 @@ struct App {
   // True only when the write block is caused by unknown processor choice IDs.
   // A deliberate replacement of all such choices can safely clear this block.
   bool sidecarBlockedByUnknownProcessorChoice = false;
+  // Colour state is read by the render worker and written by the UI/document
+  // thread. Guard snapshots/updates so gamut+gamma pairs remain coherent.
+  mutable std::mutex colorMutex;
+
   // Canonical colour state. inputEncoding describes the pixels actually in
   // memory, independent of the file's original tag. inputIsRaw is determined
   // by the decoder that successfully opened the current source.
