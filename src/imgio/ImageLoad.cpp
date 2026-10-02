@@ -63,10 +63,6 @@ void applyCameraMatrix(const float camera[4], int channels, const float matrix[3
   }
 }
 
-bool isRawWorkingSpace(ColorSpace cs) {
-  return cs == ColorSpace::LinearRec709 || cs == ColorSpace::LinearRec2020 || cs == ColorSpace::ACES2065_1;
-}
-
 bool isRawImagePath(const std::string &path) {
   std::string e = fs::path(path).extension().string();
   for (char &c : e) c = (char)tolower((unsigned char)c);
@@ -90,14 +86,9 @@ bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], RgbGamut target
 }
 
 bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], ColorSpace target, float out[3][4]) {
-  RgbGamut gamut;
-  switch (target) {
-    case ColorSpace::LinearRec709: gamut = RgbGamut::Rec709; break;
-    case ColorSpace::LinearRec2020: gamut = RgbGamut::Rec2020; break;
-    case ColorSpace::ACES2065_1: gamut = RgbGamut::ACES_AP0; break;
-    default: return false;
-  }
-  return makeCameraToWorkingMatrix(cameraToRec709, gamut, out);
+  const ColorEncoding encoding = legacyColorSpaceEncoding(target);
+  if (encoding.gamma != TransferFunction::Linear) return false;
+  return makeCameraToWorkingMatrix(cameraToRec709, encoding.gamut, out);
 }
 
 static bool loadRaw(const std::string &path, Image &out, RgbGamut workingGamut, TransferFunction workingGamma) {
@@ -487,24 +478,38 @@ bool makePreview(const Image &src, int maxEdge, Image &out) {
   return true;
 }
 
-bool loadImage(const std::string &path, Image &out, ColorSpace &detected,
-               RgbGamut rawGamut, TransferFunction rawGamma) {
+static ColorEncoding rasterBufferEncoding(ColorSpace tag) {
+  ColorEncoding encoding = legacyColorSpaceEncoding(tag);
+  // Raster loaders feed processing buffers as linear float. Preserve the
+  // detected primaries while describing the actual pixels in memory.
+  encoding.gamma = TransferFunction::Linear;
+  return encoding;
+}
+
+bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncoding,
+               bool &decodedRaw, ColorEncoding rawWorkingEncoding) {
   PerfScope _ps("loadImage");
   out = {};
-  detected = ColorSpace::sRGB;
+  decodedRaw = false;
+  detectedEncoding = {RgbGamut::Rec709, TransferFunction::Linear};
+
   std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
+  for (char &ch : e) ch = (char)tolower((unsigned char)ch);
 
   if (e == ".exr") {
     if (!loadExr(path, out)) return false;
-    detected = ColorSpace::LinearRec2020;
+    detectedEncoding = {RgbGamut::Rec2020, TransferFunction::Linear};
     return true;
   }
+
   if (e == ".tif" || e == ".tiff") {
     std::vector<uint8_t> icc;
     bool isFloat = false;
     if (!loadTiff(path, out, icc, isFloat)) return false;
-    detected = !icc.empty() ? classifyIcc(icc) : (isFloat ? ColorSpace::LinearRec2020 : ColorSpace::sRGB);
+    const ColorSpace tag =
+        !icc.empty() ? classifyIcc(icc)
+                     : (isFloat ? ColorSpace::LinearRec2020 : ColorSpace::sRGB);
+    detectedEncoding = rasterBufferEncoding(tag);
     return true;
   }
 
@@ -513,42 +518,39 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected,
   else if (e == ".jpg" || e == ".jpeg") extractJpgIcc(path, icc);
 
   if (loadStb(path, out)) {
-    detected = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
+    const ColorSpace tag = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
+    detectedEncoding = rasterBufferEncoding(tag);
     return true;
   }
-  if (isRawImagePath(path) && loadRaw(path, out, rawGamut, rawGamma)) {
-    // ColorSpace cannot represent every gamut/gamma combination yet. Keep the
-    // legacy field meaningful for the three historical linear choices; callers
-    // use the explicit RAW encoding for all new combinations.
-    if (rawGamma == TransferFunction::Linear) {
-      switch (rawGamut) {
-        case RgbGamut::Rec709: detected = ColorSpace::LinearRec709; break;
-        case RgbGamut::Rec2020: detected = ColorSpace::LinearRec2020; break;
-        case RgbGamut::ACES_AP0: detected = ColorSpace::ACES2065_1; break;
-        case RgbGamut::ACES_AP1:
-        case RgbGamut::DaVinciWideGamut:
-          detected = ColorSpace::LinearRec2020;
-          break;
-      }
-    } else {
-      detected = ColorSpace::LinearRec2020;
-    }
+
+  // LibRaw is the final decoder fallback regardless of filename extension.
+  // The successful decoder, not an extension allow-list, determines RAW state.
+  if (loadRaw(path, out, rawWorkingEncoding.gamut, rawWorkingEncoding.gamma)) {
+    decodedRaw = true;
+    detectedEncoding = rawWorkingEncoding;
     return true;
   }
+
   return false;
 }
 
+bool loadImage(const std::string &path, Image &out, ColorSpace &detected,
+               RgbGamut rawGamut, TransferFunction rawGamma) {
+  ColorEncoding encoding;
+  bool decodedRaw = false;
+  if (!loadImage(path, out, encoding, decodedRaw, {rawGamut, rawGamma})) return false;
+
+  // Legacy callers cannot describe every encoding. Return an exact legacy tag
+  // where possible; otherwise retain the historical Linear Rec.2020 stand-in.
+  if (!legacyColorSpaceFromEncoding(encoding, detected))
+    detected = ColorSpace::LinearRec2020;
+  return true;
+}
+
 bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace rawWorkingSpace) {
-  switch (rawWorkingSpace) {
-    case ColorSpace::LinearRec709:
-      return loadImage(path, out, detected, RgbGamut::Rec709, TransferFunction::Linear);
-    case ColorSpace::LinearRec2020:
-      return loadImage(path, out, detected, RgbGamut::Rec2020, TransferFunction::Linear);
-    case ColorSpace::ACES2065_1:
-      return loadImage(path, out, detected, RgbGamut::ACES_AP0, TransferFunction::Linear);
-    default:
-      return false;
-  }
+  const ColorEncoding rawEncoding = legacyColorSpaceEncoding(rawWorkingSpace);
+  if (rawEncoding.gamma != TransferFunction::Linear) return false;
+  return loadImage(path, out, detected, rawEncoding.gamut, rawEncoding.gamma);
 }
 
 bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w, int &h) {
