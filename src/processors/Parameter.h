@@ -39,8 +39,15 @@ struct ProcessorParameter {
   // declared min/max metadata. In that case the UI must not invent a slider
   // range and should use a direct numeric editor instead.
   bool hasRange = true;
+  // Optional preferred increment for buttons/drags. A non-positive value lets
+  // the UI derive a sensible step from the declared range.
+  double step = 0.0;
 
   std::vector<std::string> choices;
+  // Usually choices map to 0..N-1. Backends such as ART CTL may declare
+  // explicit integer values for each choice; an empty vector keeps the normal
+  // index mapping.
+  std::vector<int> choiceValues;
 
   bool enabled = true;
   bool secret = false;
