@@ -84,7 +84,41 @@ Validate mixed stacks such as:
 OFX -> CTL -> OFX
 ```
 
-ART compatibility is a layer on top of standard CTL, not the definition of the CTL backend. Later work can interpret ART conventions such as `ART_main`, `@ART-param`, and `_artlib.ctl`.
+ART compatibility is a layer on top of standard CTL, not the definition of the CTL backend.
+
+### ART CTL compatibility
+
+Build an adapter above the standard CTL backend that can:
+
+- recognise and call `ART_main`;
+- parse `@ART-param` metadata into RawNode's generic parameter model;
+- honour ART labels and colour-space tags where practical;
+- resolve helper libraries such as `_artlib.ctl`;
+- preserve standard CTL behaviour for non-ART scripts;
+- add richer ART features such as choices, groups, arrays/curves, presets, and `@ART-lut` incrementally rather than all at once.
+
+## Near-term workflow features
+
+Add folder-workflow features without introducing a catalogue/database:
+
+- export the entire current workspace/folder, using each image's own sidecar state;
+- Pick / Neutral / Reject flags;
+- a deliberate command to move rejected source files to the operating system Trash/Recycle Bin;
+- preserve the folder itself as the workspace and keep classification state lightweight and transparent.
+
+## Colour-management refactor
+
+Make colour-space state explicit rather than inferred from whether the processing chain is empty.
+
+Initial goals:
+
+- audit and correct the inherited RAW colour-space tagging;
+- support Linear Rec.2020 and ACES2065-1 / AP0 as working-space options;
+- add a first-class CST/colour-space transform processor so colour space can change deliberately between nodes;
+- track the colour space flowing through the chain;
+- keep display conversion and export tagging/transforms separate from creative processors.
+
+The current inherited RAW path sets LibRaw `output_color = 1` (sRGB primaries) with a linear transfer curve, while RawNode currently tags the result as Linear Rec.2020. This mismatch must be resolved as part of this refactor.
 
 ## Phase 6 — DCTL compatibility
 
@@ -147,7 +181,9 @@ Evaluate LibRaw, Rawler, and RawSpeed using real criteria:
 - image quality;
 - performance;
 - cross-platform build complexity;
-- compressed DNG/JPEG XL support where relevant.
+- compressed DNG/JPEG XL support.
+
+JPEG XL-compressed DNG support is an explicit RawNode requirement, not merely an optional evaluation criterion. The decoder boundary should allow a fallback or alternate decoder when LibRaw cannot open a supported DNG.
 
 ## Phase 10 — Masks and local adjustments
 
