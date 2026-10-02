@@ -36,6 +36,14 @@ struct Node {
   bool enabled = true;
   std::unique_ptr<Processor> processor;
 
+  // Persistence identity is retained even when a processor is unavailable.
+  // For live processors these mirror the processor; for missing processors
+  // they let Sidecar V2 round-trip the node without deleting it.
+  std::string storedBackend;
+  std::string storedIdentifier;
+  std::string storedLabel;
+  std::map<std::string, std::string> preservedParamsJson;
+
   // Reserved by the graph-capable data model. The current renderer still
   // evaluates a simple serial chain and leaves these at their defaults.
   std::vector<NodeInput> inputs;
@@ -107,6 +115,10 @@ struct App {
 
   Image full, preview;
   std::string path, status = "Open an image. Source is fed to the plugin as scene-linear.";
+  // If a sidecar exists but cannot be safely read, never overwrite it on
+  // automatic image switching. Reopening after the file is fixed/removed
+  // clears this protection.
+  std::string sidecarWriteBlockedPath;
   ColorSpace inputSpace = ColorSpace::LinearRec2020;
   int outputIndex = 0;
   int exportFormat = 1;  // JPEG

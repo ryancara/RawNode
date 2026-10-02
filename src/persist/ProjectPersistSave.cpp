@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -26,14 +27,26 @@ std::string jsonEscape(const std::string &s) {
       case '\n': o += "\\n"; break;
       case '\r': o += "\\r"; break;
       case '\t': o += "\\t"; break;
-      default: o += (char)c;
+      default:
+        if (c < 0x20) {
+          char buf[7];
+          std::snprintf(buf, sizeof buf, "\\u%04x", (unsigned)c);
+          o += buf;
+        } else {
+          o += (char)c;
+        }
     }
   }
   return o;
 }
 
+std::string jsonStringValue(const std::string &value) {
+  return std::string("\"") + jsonEscape(value) + "\"";
+}
+
 void appendGuiJson(std::ostringstream &o, const PersistGui &g) {
-  // Panel sizes (leftW/rightW/filmstripH) are legacy; layout lives in ImGui .ini.
+  // Kept in V2 for behaviour compatibility. Essential edit reconstruction
+  // lives in graph/document fields; layout state may move fully to workspace state later.
   o << "\"gui\":{"
     << "\"outputIndex\":" << g.outputIndex << ","
     << "\"exportFormat\":" << g.exportFormat << ","
@@ -46,23 +59,28 @@ void appendGuiJson(std::ostringstream &o, const PersistGui &g) {
 }
 
 void appendChainJson(std::ostringstream &o, const PersistChain &chain) {
-  o << "\"chain\":{"
-    << "\"selectedNode\":" << chain.selectedNode << ","
+  o << "\"graph\":{"
+    << "\"selectedNodeId\":\"" << jsonEscape(chain.selectedNodeId) << "\","
     << "\"nodes\":[";
+
   for (size_t i = 0; i < chain.nodes.size(); ++i) {
     const PersistNode &n = chain.nodes[i];
     if (i) o << ',';
     o << '{'
-      << "\"pluginIdentifier\":\"" << jsonEscape(n.pluginIdentifier) << "\","
-      << "\"pluginLabel\":\"" << jsonEscape(n.pluginLabel) << "\","
+      << "\"id\":\"" << jsonEscape(n.id) << "\","
+      << "\"backend\":\"" << jsonEscape(n.backend) << "\","
+      << "\"identifier\":\"" << jsonEscape(n.identifier) << "\","
+      << "\"label\":\"" << jsonEscape(n.label) << "\","
       << "\"enabled\":" << (n.enabled ? "true" : "false") << ","
-      << "\"groupOpen\":{";
+      << "\"ui\":{\"groupOpen\":{";
+
     size_t gi = 0;
     for (const auto &kv : n.groupOpen) {
       if (gi++) o << ',';
       o << '"' << jsonEscape(kv.first) << "\":" << (kv.second ? "true" : "false");
     }
-    o << "},\"params\":{";
+
+    o << "}},\"params\":{";
     size_t pi = 0;
     for (const auto &kv : n.paramsJson) {
       if (pi++) o << ',';
@@ -70,6 +88,9 @@ void appendChainJson(std::ostringstream &o, const PersistChain &chain) {
     }
     o << "}}";
   }
+
+  // Node-array order is the authoritative serial order in V2. Explicit graph
+  // connections are intentionally deferred until the renderer can execute them.
   o << "]}";
 }
 
@@ -86,11 +107,13 @@ std::string workspaceProjectPath(const std::string &workspaceDir) {
   return (fs::path(workspaceDir) / "workspace.ofxrawhost.json").string();
 }
 
-std::string inputSidecarPath(const std::string &imagePath) { return imagePath + ".ofxrawhost.json"; }
+std::string inputSidecarPath(const std::string &imagePath) { return imagePath + ".rawnode.json"; }
+
+std::string legacyInputSidecarPath(const std::string &imagePath) { return imagePath + ".ofxrawhost.json"; }
 
 std::string exportSidecarPath(const std::string &exportPath) {
   fs::path p(exportPath);
-  return (p.parent_path() / (p.stem().string() + ".json")).string();
+  return (p.parent_path() / (p.stem().string() + ".rawnode.json")).string();
 }
 
 bool isSupportedImagePath(const std::string &path) {
@@ -105,8 +128,11 @@ bool isSupportedImagePath(const std::string &path) {
 }
 
 bool isHostMetadataPath(const std::string &path) {
-  static constexpr const char *kSuffix = ".ofxrawhost.json";
-  return path.size() >= 18 && path.compare(path.size() - 18, 18, kSuffix) == 0;
+  const auto hasSuffix = [&](const char *suffix) {
+    const size_t n = std::strlen(suffix);
+    return path.size() >= n && path.compare(path.size() - n, n, suffix) == 0;
+  };
+  return hasSuffix(".rawnode.json") || hasSuffix(".ofxrawhost.json");
 }
 
 std::vector<std::string> openImageDialogFilters() {
@@ -171,15 +197,33 @@ static std::string iso8601Now() {
   return buf;
 }
 
+static ColorSpace persistedWorkingSpace(ColorSpace inputSpace) {
+  switch (inputSpace) {
+    case ColorSpace::sRGB: return ColorSpace::LinearRec709;
+    case ColorSpace::DisplayP3: return ColorSpace::LinearRec2020;
+    case ColorSpace::LinearRec709:
+    case ColorSpace::LinearRec2020:
+      return inputSpace;
+  }
+  return ColorSpace::LinearRec709;
+}
+
+static void appendSidecarHeader(std::ostringstream &o, const std::string &kind, const std::string &sourcePath,
+                                ColorSpace inputSpace) {
+  o << '{'
+    << "\"format\":\"rawnode-sidecar\","
+    << "\"version\":2,"
+    << "\"kind\":\"" << jsonEscape(kind) << "\","
+    << "\"source\":\"" << jsonEscape(sourcePath) << "\","
+    << "\"inputColorSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\","
+    << "\"workingSpace\":\"" << jsonEscape(colorSpaceName(persistedWorkingSpace(inputSpace))) << "\","
+    << "\"raw\":{},";
+}
+
 bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui,
                       const PersistChain &chain) {
   std::ostringstream o;
-  o << '{'
-    << "\"format\":\"ofxrawhost-sidecar\","
-    << "\"version\":1,"
-    << "\"kind\":\"input\","
-    << "\"sourcePath\":\"" << jsonEscape(fs::path(imagePath).filename().string()) << "\","
-    << "\"inputColorSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\",";
+  appendSidecarHeader(o, "input", fs::path(imagePath).filename().string(), inputSpace);
   appendGuiJson(o, gui);
   o << ',';
   appendChainJson(o, chain);
@@ -190,17 +234,11 @@ bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const
 bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace inputSpace,
                        const PersistGui &gui, const PersistChain &chain) {
   std::ostringstream o;
-  o << '{'
-    << "\"format\":\"ofxrawhost-sidecar\","
-    << "\"version\":1,"
-    << "\"kind\":\"export\","
-    << "\"sourcePath\":\"" << jsonEscape(sourceImagePath) << "\","
-    << "\"inputColorSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\","
-    << "\"exportedAt\":\"" << iso8601Now() << "\",";
+  appendSidecarHeader(o, "export", sourceImagePath, inputSpace);
+  o << "\"exportedAt\":\"" << iso8601Now() << "\",";
   appendGuiJson(o, gui);
   o << ',';
   appendChainJson(o, chain);
   o << '}';
   return writeFile(exportSidecarPath(exportPath), o.str());
 }
-

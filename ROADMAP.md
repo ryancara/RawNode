@@ -90,6 +90,20 @@ Later possibilities:
 
 Do not require perfect Resolve compatibility before DCTL becomes useful.
 
+## Future processor formats — LUT and CLF
+
+Add first-class colour-transform processors rather than requiring LUTs to be hosted through OFX.
+
+Initial LUT target:
+
+- `.cube` files;
+- trilinear/tetrahedral interpolation as appropriate;
+- generic node behaviour and sidecar persistence.
+
+CLF should be treated as a richer transform format rather than assumed to be only a LUT, because it may contain matrices, ranges, LUTs, and other operations.
+
+These can be introduced after the generic persistence and mixed-processor seams are proven.
+
 ## Phase 7 — Graph/List interface
 
 Allow switching between graph and list views of the same processing structure.

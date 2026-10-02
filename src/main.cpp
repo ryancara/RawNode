@@ -1,8 +1,10 @@
 // Minimal still-image OpenFX host: decode RAW/raster, run one OFX filter, preview, export.
 
 #include "imgio/ImageIO.h"
+#include "NodeGraph.h"
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
+#include "persist/ProjectPersist.h"
 #include "UI.h"
 
 #include <tiffio.h>
@@ -12,6 +14,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -81,6 +84,133 @@ static int selfTest() {
     ColorSpace cs = ColorSpace::LinearRec2020;
     if (!loadImage(p.string(), img, cs) || cs != ColorSpace::sRGB) return fail("png colorspace");
     fs::remove(p);
+  }
+
+  {
+    // Sidecar V2 round-trip: IDs/backend identity and opaque future parameter
+    // JSON must survive even when this build cannot interpret the processor.
+    const fs::path source = fs::temp_directory_path() / "rawnode-selftest-source.nef";
+    PersistGui gui;
+    PersistChain chain;
+    chain.selectedNodeId = "node-future";
+
+    PersistNode node;
+    node.id = "node-future";
+    node.backend = "dctl";
+    node.identifier = "FutureTransform.dctl";
+    node.label = "Future Transform";
+    node.enabled = true;
+    node.groupOpen["params"] = true;  // Must not shadow the sibling params object.
+    node.paramsJson["amount"] = "0.75";
+    node.paramsJson["futureData"] = "{\"curve\":[0,0.5,1],\"mode\":\"test\"}";
+    node.paramsJson["unicodeText"] = "\"Caf\\u00e9 \\ud83c\\udf9e\"";
+    chain.nodes.push_back(node);
+
+    if (!saveInputSidecar(source.string(), ColorSpace::LinearRec2020, gui, chain))
+      return fail("sidecar v2 save");
+
+    PersistSidecar loaded;
+    const std::string sidecar = inputSidecarPath(source.string());
+    if (!loadSidecarFile(sidecar, loaded)) return fail("sidecar v2 load");
+    if (loaded.format != "rawnode-sidecar" || loaded.version != 2) return fail("sidecar v2 version");
+    if (loaded.chain.selectedNodeId != "node-future" || loaded.chain.nodes.size() != 1)
+      return fail("sidecar v2 node identity");
+    const PersistNode &loadedNode = loaded.chain.nodes[0];
+    if (loadedNode.backend != "dctl" || loadedNode.identifier != "FutureTransform.dctl" ||
+        loadedNode.paramsJson.at("futureData") != "{\"curve\":[0,0.5,1],\"mode\":\"test\"}" ||
+        loadedNode.paramsJson.at("amount") != "0.75" || !loadedNode.groupOpen.at("params"))
+      return fail("sidecar v2 opaque state");
+
+    std::string decodedUnicode;
+    const std::string expectedUnicode = "Caf\xC3\xA9 \xF0\x9F\x8E\x9E";
+    if (!parseJsonStringValue(loadedNode.paramsJson.at("unicodeText"), decodedUnicode) ||
+        decodedUnicode != expectedUnicode)
+      return fail("sidecar v2 unicode string");
+    const std::string controlString = std::string("line1\nline2\t") + char(1);
+    std::string decodedControl;
+    if (!parseJsonStringValue(jsonStringValue(controlString), decodedControl) || decodedControl != controlString)
+      return fail("sidecar v2 control string");
+
+    App placeholderApp;
+    applyChain(placeholderApp, loaded.chain);
+    if (placeholderApp.nodes.size() != 1 || placeholderApp.nodes[0].processor ||
+        placeholderApp.nodes[0].id != "node-future" ||
+        placeholderApp.nodes[0].storedBackend != "dctl")
+      return fail("sidecar v2 missing processor placeholder");
+    const PersistChain recaptured = captureChain(placeholderApp);
+    if (recaptured.nodes.size() != 1 || recaptured.nodes[0].id != "node-future" ||
+        recaptured.nodes[0].paramsJson.at("futureData") != "{\"curve\":[0,0.5,1],\"mode\":\"test\"}")
+      return fail("sidecar v2 missing processor preservation");
+
+    fs::remove(sidecar);
+
+    // V1 remains readable and is normalised into the generic persistence model.
+    const fs::path legacy = fs::temp_directory_path() / "rawnode-selftest-v1.ofxrawhost.json";
+    static const char kV1[] =
+        "{\"format\":\"ofxrawhost-sidecar\",\"version\":1,\"kind\":\"input\","
+        "\"sourcePath\":\"old.nef\",\"inputColorSpace\":\"Linear Rec.2020\","
+        "\"chain\":{\"selectedNode\":0,\"nodes\":[{\"pluginIdentifier\":\"example.ofx\","
+        "\"pluginLabel\":\"Example\",\"enabled\":true,\"groupOpen\":{},"
+        "\"params\":{\"gain\":1.25}}]}}";
+    {
+      std::ofstream legacyFile(legacy.string(), std::ios::binary);
+      if (!legacyFile) return fail("sidecar v1 test write");
+      legacyFile.write(kV1, sizeof(kV1) - 1);
+      if (!legacyFile.good()) return fail("sidecar v1 test write");
+    }
+
+    PersistSidecar migrated;
+    if (!loadSidecarFile(legacy.string(), migrated) || migrated.chain.nodes.size() != 1)
+      return fail("sidecar v1 migration");
+    if (migrated.chain.nodes[0].backend != "ofx" ||
+        migrated.chain.nodes[0].identifier != "example.ofx" ||
+        migrated.chain.nodes[0].paramsJson.at("gain") != "1.25")
+      return fail("sidecar v1 normalisation");
+
+    // Pre-V2 writers escaped only '"' and '\\' in string parameters, so legacy
+    // multi-line values contain raw control characters. They must load intact,
+    // including every parameter that follows them.
+    {
+      std::ofstream legacyFile(legacy.string(), std::ios::binary);
+      legacyFile << "{\"format\":\"ofxrawhost-sidecar\",\"version\":1,\"kind\":\"input\","
+                    "\"chain\":{\"selectedNode\":0,\"nodes\":[{\"pluginIdentifier\":\"example.ofx\","
+                    "\"pluginLabel\":\"Example\",\"enabled\":true,\"groupOpen\":{},"
+                    "\"params\":{\"a\":1,\"notes\":\"line1\nline2\tend\",\"z\":0.5}}]}}";
+      if (!legacyFile.good()) return fail("sidecar v1 multiline test write");
+    }
+    PersistSidecar multiline;
+    std::string notes;
+    if (!loadSidecarFile(legacy.string(), multiline) || multiline.chain.nodes.size() != 1 ||
+        multiline.chain.nodes[0].paramsJson.size() != 3 ||
+        multiline.chain.nodes[0].paramsJson.at("z") != "0.5" ||
+        !parseJsonStringValue(multiline.chain.nodes[0].paramsJson.at("notes"), notes) ||
+        notes != "line1\nline2\tend")
+      return fail("sidecar v1 legacy multiline string");
+
+    // A malformed params object rejects the sidecar rather than restoring a partial node.
+    {
+      std::ofstream legacyFile(legacy.string(), std::ios::binary);
+      legacyFile << "{\"format\":\"ofxrawhost-sidecar\",\"version\":1,\"kind\":\"input\","
+                    "\"chain\":{\"selectedNode\":0,\"nodes\":[{\"pluginIdentifier\":\"example.ofx\","
+                    "\"params\":{\"a\":1 \"b\":2}}]}}";
+      if (!legacyFile.good()) return fail("sidecar v1 malformed test write");
+    }
+    PersistSidecar malformed;
+    if (loadSidecarFile(legacy.string(), malformed)) return fail("sidecar malformed params rejection");
+    fs::remove(legacy);
+
+    const fs::path future = fs::temp_directory_path() / "rawnode-selftest-v3.rawnode.json";
+    {
+      std::ofstream futureFile(future.string(), std::ios::binary);
+      futureFile << "{\"format\":\"rawnode-sidecar\",\"version\":3,\"graph\":{\"nodes\":[]}}";
+      if (!futureFile.good()) return fail("sidecar v3 test write");
+    }
+    PersistSidecar futureSidecar;
+    if (loadSidecarFile(future.string(), futureSidecar) || futureSidecar.version != 3)
+      return fail("sidecar future version rejection");
+    fs::remove(future);
+
+    printf("ok  Sidecar V2\n");
   }
 
   Image src;

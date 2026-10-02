@@ -47,6 +47,7 @@ void applyGui(App &app, const PersistGui &g) {
 
 void saveCurrentInputSidecar(App &app) {
   if (app.path.empty()) return;
+  if (app.sidecarWriteBlockedPath == app.path) return;
   saveInputSidecar(app.path, app.inputSpace, captureGui(app), captureChain(app));
 }
 
@@ -59,7 +60,36 @@ void persistWorkspace(App &app) {
 
 static void loadSidecarForPath(App &app, const std::string &imagePath) {
   PersistSidecar sc;
-  if (!loadSidecarFile(inputSidecarPath(imagePath), sc)) return;
+  const std::string v2Path = inputSidecarPath(imagePath);
+  const std::string v1Path = legacyInputSidecarPath(imagePath);
+  std::error_code ec;
+
+  // A successful retry, a removed sidecar, or moving to another image clears
+  // any previous write protection for this document.
+  app.sidecarWriteBlockedPath.clear();
+
+  if (fs::is_regular_file(v2Path, ec)) {
+    if (!loadSidecarFile(v2Path, sc)) {
+      clearNodes(app);
+      app.sidecarWriteBlockedPath = imagePath;
+      if (sc.format == "rawnode-sidecar" && sc.version > 2) {
+        app.setStatus("This image uses a newer RawNode sidecar version; edits are not being overwritten.");
+      } else {
+        app.setStatus("Could not read RawNode sidecar; the existing file is protected from overwrite.");
+      }
+      return;
+    }
+  } else if (fs::is_regular_file(v1Path, ec)) {
+    if (!loadSidecarFile(v1Path, sc)) {
+      clearNodes(app);
+      app.sidecarWriteBlockedPath = imagePath;
+      app.setStatus("Could not read legacy sidecar; the existing file is protected from overwrite.");
+      return;
+    }
+  } else {
+    return;
+  }
+
   applyGui(app, sc.gui);
   applyChain(app, sc.chain);
 }
@@ -93,7 +123,7 @@ void openWorkspace(App &app, const std::string &dir) {
 
 void openPath(App &app, const std::string &path, bool applySidecar) {
   if (isHostMetadataPath(path)) {
-    app.setStatus("Sidecar files (.ofxrawhost.json) are not images — open the image file instead.");
+    app.setStatus("Sidecar files are not images — open the image file instead.");
     return;
   }
   if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
@@ -118,9 +148,10 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
       break;
     }
   }
-  if (applySidecar)
+  if (applySidecar) {
     loadSidecarForPath(app, path);
-  else {
+  } else {
+    app.sidecarWriteBlockedPath.clear();
     for (auto &node : app.nodes) applyColorDefaults(app, node);
   }
   rebuildPreview(app);
@@ -147,7 +178,15 @@ void doExport(App &app) {
   const PersistGui persistGui = captureGui(app);
   const PersistChain persistChain = captureChain(app);
   const std::string sourcePath = app.path;
-  std::thread([&, src, outPath, pw, ph, space, jpegQuality, persistGui, persistChain, sourcePath, inSpace]() mutable {
+  bool bypassedMissingProcessor = false;
+  for (const auto &node : app.nodes) {
+    if (node.enabled && !node.processor) {
+      bypassedMissingProcessor = true;
+      break;
+    }
+  }
+  std::thread([&, src, outPath, pw, ph, space, jpegQuality, persistGui, persistChain, sourcePath, inSpace,
+               bypassedMissingProcessor]() mutable {
     for (auto &n : app.nodes)
       if (n.processor) n.processor->setRenderSize(src.w, src.h);
     Image out;
@@ -157,7 +196,8 @@ void doExport(App &app) {
     bool ok = result.ok && writeImage(out, outPath, space, jpegQuality);
     if (ok) saveExportSidecar(outPath, sourcePath, inSpace, persistGui, persistChain);
     app.setStatus(ok ? "Exported " + fs::path(outPath).filename().string() + " (" + std::to_string(src.w) + "×" +
-                            std::to_string(src.h) + ")"
+                            std::to_string(src.h) + ")" +
+                            (bypassedMissingProcessor ? " — missing processors were bypassed" : "")
                       : "Export failed" + (result.message.empty() ? std::string() : ": " + result.message));
   }).detach();
 }

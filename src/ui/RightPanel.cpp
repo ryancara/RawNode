@@ -14,8 +14,13 @@ void drawRightPanel(App &app) {
     return;
   }
   ImGui::AlignTextToFramePadding();
-  ImGui::TextUnformatted(node->processor ? node->processor->displayName().c_str() : "Missing processor");
+  const std::string label = nodeDisplayName(*node);
+  ImGui::TextUnformatted(label.c_str());
   ImGui::Separator();
+  if (!node->processor) {
+    ImGui::TextDisabled("Processor unavailable. Its Sidecar V2 state is preserved and the node is bypassed.");
+    return;
+  }
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F))
     ImGui::SetKeyboardFocusHere();
   const bool hasFilter = app.paramFilter[0] != '\0';

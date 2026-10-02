@@ -106,3 +106,14 @@ The node data model may reserve neutral extension points for future multiple ima
 
 Detailed qualifier, mask, and compositing implementations should not be designed prematurely. A qualifier should ultimately be one possible mask/matte generator rather than a special case embedded in every processor.
 
+
+## D015 — Sidecar V2 is backend-neutral and preserves missing processors
+
+**Status:** Accepted
+
+Sidecar V2 stores stable node IDs plus string-based backend, identifier, label, enabled state, and raw parameter JSON.
+
+Unavailable processors remain in the runtime node list as bypassed placeholders instead of being deleted. Unknown loaded parameter values are carried forward and overwritten only when a live processor exposes the same parameter ID.
+
+**Reason:** Edit state must survive moving sidecars between systems/builds that do not have the same processors installed, and the persistence layer must not assume OFX.
+

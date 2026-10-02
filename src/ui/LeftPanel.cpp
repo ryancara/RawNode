@@ -52,8 +52,8 @@ void drawLeftPanel(App &app) {
   ImGui::TextWrapped("%s", status.c_str());
   ImGui::Separator();
 
-  ImGui::TextUnformatted("OFX Plugin Nodes");
-  if (ImGui::Button("Add plugin…", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
+  ImGui::TextUnformatted("Processing Nodes");
+  if (ImGui::Button("Add OFX plugin…", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
@@ -96,7 +96,7 @@ void drawLeftPanel(App &app) {
     ImGui::PushID(i);
     Node &node = app.nodes[i];
     const bool selected = app.selectedNode == i;
-    const std::string label = node.processor ? node.processor->displayName() : "Missing processor";
+    const std::string label = nodeDisplayName(node);
     if (!node.enabled) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
     if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(ImGui::GetContentRegionAvail().x - btnsW - btnGap, btnH))) {
       app.selectedNode = i;

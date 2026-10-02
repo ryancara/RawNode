@@ -7,19 +7,42 @@
 #include <cctype>
 #include <cstdlib>
 #include <sstream>
-#include <stdexcept>
 
-// Node creation currently happens on the UI thread. IDs become persistent
-// across sessions when Sidecar V2 begins storing them.
+// Node creation currently happens on the UI thread. Sidecar V2 persists IDs
+// across sessions; the counter only supplies fresh IDs for newly added nodes.
 static unsigned long long gNextNodeId = 1;
 
-static std::string makeNodeId() {
-  return "node-" + std::to_string(gNextNodeId++);
+static bool nodeIdExists(const App &app, const std::string &id, int skipIndex = -1) {
+  if (id.empty()) return false;
+  for (int i = 0; i < (int)app.nodes.size(); ++i) {
+    if (i == skipIndex) continue;
+    if (app.nodes[i].id == id) return true;
+  }
+  return false;
+}
+
+static std::string makeNodeId(const App &app) {
+  for (;;) {
+    const std::string id = "node-" + std::to_string(gNextNodeId++);
+    if (!nodeIdExists(app, id)) return id;
+  }
+}
+
+static std::string restoredNodeId(const App &app, const std::string &requested, int skipIndex = -1) {
+  if (!requested.empty() && !nodeIdExists(app, requested, skipIndex)) return requested;
+  return makeNodeId(app);
 }
 
 Node *selectedNode(App &app) {
   if (app.selectedNode < 0 || app.selectedNode >= (int)app.nodes.size()) return nullptr;
   return &app.nodes[app.selectedNode];
+}
+
+std::string nodeDisplayName(const Node &node) {
+  if (node.processor) return node.processor->displayName();
+  if (!node.storedLabel.empty()) return node.storedLabel + " (Missing)";
+  if (!node.storedIdentifier.empty()) return node.storedIdentifier + " (Missing)";
+  return "Missing processor";
 }
 
 static int findPluginIndex(const std::string &identifier, const std::string &labelFallback) {
@@ -36,16 +59,6 @@ static int findPluginIndex(const std::string &identifier, const std::string &lab
   return -1;
 }
 
-static std::string jsonString(const std::string &value) {
-  std::string escaped;
-  escaped.reserve(value.size() + 4);
-  for (char c : value) {
-    if (c == '"' || c == '\\') escaped += '\\';
-    escaped += c;
-  }
-  return std::string("\"") + escaped + '"';
-}
-
 static bool persistedParameterType(ParameterType type) {
   return type != ParameterType::Group && type != ParameterType::Page &&
          type != ParameterType::PushButton && type != ParameterType::Unsupported;
@@ -56,7 +69,7 @@ static std::string paramValueJson(const ProcessorParameter &param) {
     case ParameterType::String:
     case ParameterType::Custom: {
       const auto *value = std::get_if<std::string>(&param.value);
-      return value ? jsonString(*value) : "\"\"";
+      return value ? jsonStringValue(*value) : "\"\"";
     }
     case ParameterType::Boolean: {
       const bool *value = std::get_if<bool>(&param.value);
@@ -89,35 +102,19 @@ static std::string paramValueJson(const ProcessorParameter &param) {
   }
 }
 
-static std::string trim(std::string value) {
+static std::string trimParamJson(std::string value) {
   while (!value.empty() && std::isspace((unsigned char)value.front())) value.erase(value.begin());
   while (!value.empty() && std::isspace((unsigned char)value.back())) value.pop_back();
   return value;
 }
 
-// Returns false for non-string JSON so callers keep the current value, matching Sidecar V1 restore.
-static bool parseJsonString(const std::string &raw, std::string &out) {
-  const std::string value = trim(raw);
-  if (value.size() < 2 || value.front() != '"') return false;
-  out.clear();
-  for (size_t i = 1; i < value.size(); ++i) {
-    if (value[i] == '\\' && i + 1 < value.size()) {
-      out += value[++i];
-      continue;
-    }
-    if (value[i] == '"') break;
-    out += value[i];
-  }
-  return true;
-}
-
 static void applyParamValueJson(Processor &processor, const ProcessorParameter &param, const std::string &raw) {
-  const std::string value = trim(raw);
+  const std::string value = trimParamJson(raw);
   switch (param.type) {
     case ParameterType::String:
     case ParameterType::Custom: {
       std::string parsed;
-      if (parseJsonString(value, parsed)) processor.setParameterValue(param.id, parsed, false);
+      if (parseJsonStringValue(value, parsed)) processor.setParameterValue(param.id, parsed, false);
       return;
     }
     case ParameterType::Boolean:
@@ -212,12 +209,16 @@ bool addNode(App &app, int pluginIndex) {
   waitRenderIdle(app);
 
   Node node;
-  node.id = makeNodeId();
+  node.id = makeNodeId(app);
   node.processor = OfxProcessor::create(pluginIndex);
   if (!node.processor) {
     app.setStatus("Plugin failed to create an instance");
     return false;
   }
+
+  node.storedBackend = processorBackendName(node.processor->backend());
+  node.storedIdentifier = node.processor->identifier();
+  node.storedLabel = node.processor->displayName();
 
   if (app.preview.w) node.processor->setRenderSize(app.preview.w, app.preview.h);
   applyColorDefaults(app, node);
@@ -245,23 +246,31 @@ void moveNode(App &app, int from, int to) {
 
 PersistChain captureChain(const App &app) {
   PersistChain chain;
-  chain.selectedNode = app.selectedNode;
+  if (app.selectedNode >= 0 && app.selectedNode < (int)app.nodes.size())
+    chain.selectedNodeId = app.nodes[app.selectedNode].id;
 
   for (const Node &node : app.nodes) {
-    if (!node.processor) continue;
-    if (node.processor->backend() != ProcessorBackend::OFX)
-      throw std::logic_error("Sidecar V1 only supports OFX processors; add generic persistence before another backend");
-
     PersistNode persisted;
-    persisted.pluginIdentifier = node.processor->identifier();
-    persisted.pluginLabel = node.processor->displayName();
+    persisted.id = node.id;
     persisted.enabled = node.enabled;
     persisted.groupOpen = node.groupOpen;
+    persisted.paramsJson = node.preservedParamsJson;
 
-    for (const ProcessorParameter &param : node.processor->parameters()) {
-      if (param.secret || !persistedParameterType(param.type)) continue;
-      persisted.paramsJson[param.id] = paramValueJson(param);
+    if (node.processor) {
+      persisted.backend = processorBackendName(node.processor->backend());
+      persisted.identifier = node.processor->identifier();
+      persisted.label = node.processor->displayName();
+
+      for (const ProcessorParameter &param : node.processor->parameters()) {
+        if (param.secret || !persistedParameterType(param.type)) continue;
+        persisted.paramsJson[param.id] = paramValueJson(param);
+      }
+    } else {
+      persisted.backend = node.storedBackend.empty() ? "unknown" : node.storedBackend;
+      persisted.identifier = node.storedIdentifier;
+      persisted.label = node.storedLabel;
     }
+
     chain.nodes.push_back(std::move(persisted));
   }
   return chain;
@@ -271,25 +280,60 @@ void applyChain(App &app, const PersistChain &chain) {
   clearNodes(app);
 
   for (const PersistNode &persisted : chain.nodes) {
-    const int pluginIndex = findPluginIndex(persisted.pluginIdentifier, persisted.pluginLabel);
-    if (pluginIndex < 0 || !addNode(app, pluginIndex)) continue;
+    const std::string backend = persisted.backend.empty() ? "ofx" : persisted.backend;
+    bool created = false;
 
-    Node &node = app.nodes.back();
-    node.enabled = persisted.enabled;
-    node.groupOpen = persisted.groupOpen;
+    if (backend == "ofx") {
+      const int pluginIndex = findPluginIndex(persisted.identifier, persisted.label);
+      if (pluginIndex >= 0 && addNode(app, pluginIndex)) {
+        created = true;
+        Node &node = app.nodes.back();
+        const int index = (int)app.nodes.size() - 1;
+        if (!persisted.id.empty()) node.id = restoredNodeId(app, persisted.id, index);
+        node.enabled = persisted.enabled;
+        node.groupOpen = persisted.groupOpen;
+        node.storedBackend = backend;
+        node.storedIdentifier = persisted.identifier;
+        node.storedLabel = persisted.label;
+        node.preservedParamsJson = persisted.paramsJson;
 
-    if (!node.processor) continue;
-    const auto params = node.processor->parameters();
-    for (const ProcessorParameter &param : params) {
-      auto it = persisted.paramsJson.find(param.id);
-      if (it != persisted.paramsJson.end()) applyParamValueJson(*node.processor, param, it->second);
+        if (node.processor) {
+          const auto params = node.processor->parameters();
+          for (const ProcessorParameter &param : params) {
+            auto it = persisted.paramsJson.find(param.id);
+            if (it != persisted.paramsJson.end()) applyParamValueJson(*node.processor, param, it->second);
+          }
+        }
+      }
+    }
+
+    if (!created) {
+      Node node;
+      node.id = restoredNodeId(app, persisted.id);
+      node.enabled = persisted.enabled;
+      node.storedBackend = backend;
+      node.storedIdentifier = persisted.identifier;
+      node.storedLabel = persisted.label;
+      node.preservedParamsJson = persisted.paramsJson;
+      node.groupOpen = persisted.groupOpen;
+      app.nodes.push_back(std::move(node));
     }
   }
 
-  if (chain.selectedNode >= 0 && chain.selectedNode < (int)app.nodes.size())
+  app.selectedNode = -1;
+  if (!chain.selectedNodeId.empty()) {
+    for (int i = 0; i < (int)app.nodes.size(); ++i) {
+      if (app.nodes[i].id == chain.selectedNodeId) {
+        app.selectedNode = i;
+        break;
+      }
+    }
+  }
+
+  // V1 migration fallback.
+  if (app.selectedNode < 0 && chain.selectedNode >= 0 && chain.selectedNode < (int)app.nodes.size())
     app.selectedNode = chain.selectedNode;
-  else if (!app.nodes.empty())
-    app.selectedNode = 0;
+  if (app.selectedNode < 0 && !app.nodes.empty()) app.selectedNode = 0;
 
   syncOutputTag(app);
   scheduleRender(app);

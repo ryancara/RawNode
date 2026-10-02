@@ -89,17 +89,10 @@ void pumpDisplayUpload(App &app) {
   }
 }
 
-
-static bool anyEnabledNode(const App &app) {
-  for (const auto &n : app.nodes)
-    if (n.enabled) return true;
-  return false;
-}
-
 ProcessorResult renderChain(App &app, const Image &src, Image &out, int gen) {
   static thread_local Image cur, next;
 
-  if (!anyEnabledNode(app)) {
+  if (app.nodes.empty()) {
     out = src;
     return ProcessorResult::success();
   }
@@ -109,8 +102,7 @@ ProcessorResult renderChain(App &app, const Image &src, Image &out, int gen) {
   cur.px = src.px;
   for (size_t i = 0; i < app.nodes.size(); ++i) {
     Node &n = app.nodes[i];
-    if (!n.enabled) continue;
-    if (!n.processor) return ProcessorResult::failure(-1, "Missing processor");
+    if (!n.enabled || !n.processor) continue;
 
     const auto t0 = std::chrono::steady_clock::now();
     ProcessorResult result = n.processor->render(cur, next, gen);
