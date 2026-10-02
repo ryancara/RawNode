@@ -572,10 +572,24 @@ static int selfTest() {
     const fs::path defaultImage = fs::temp_directory_path() / "rawnode-selftest-default-owner.tif";
     if (!writeTinyTiff(defaultImage, false)) return fail("RAW default owner image write");
     PersistGui oldPerImageGui;
-    oldPerImageGui.rawDefaultColorSpace = "rec709";
-    oldPerImageGui.rawDefaultGamma = "linear";
     if (!saveInputSidecar(defaultImage.string(), ColorSpace::sRGB, oldPerImageGui, PersistChain{}, nullptr))
       return fail("RAW default owner sidecar write");
+    const std::string defaultSidecar = inputSidecarPath(defaultImage.string());
+    std::string defaultJson;
+    {
+      std::ifstream in(defaultSidecar, std::ios::binary);
+      defaultJson.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    const std::string outputGammaField = "\"outputGamma\":\"srgb\",";
+    const size_t outputGammaPos = defaultJson.find(outputGammaField);
+    if (outputGammaPos == std::string::npos) return fail("RAW default owner JSON locate");
+    defaultJson.insert(outputGammaPos + outputGammaField.size(),
+                       "\"rawDefaultColorSpace\":\"rec709\",\"rawDefaultGamma\":\"linear\",");
+    {
+      std::ofstream out(defaultSidecar, std::ios::binary | std::ios::trunc);
+      out << defaultJson;
+      if (!out.good()) return fail("RAW default owner JSON rewrite");
+    }
     App defaultOwner;
     defaultOwner.rawWorkingEncoding =
         {RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate};
