@@ -541,9 +541,8 @@ static int selfTest() {
 
   // ART compatibility is an adapter on top of the standard CTL runtime. This
   // first seam proves ART_main execution, positional RGB channels, sibling
-  // _artlib imports, zero fallback for scalar parameters without CTL defaults,
-  // and normal Sidecar V2 persistence. @ART-param presentation metadata is a
-  // separate follow-up.
+  // _artlib imports, ART scalar metadata/presentation, and normal Sidecar V2
+  // persistence.
   {
     const fs::path artDir = fs::temp_directory_path() / "rawnode-selftest-art-ctl";
     fs::create_directories(artDir);
@@ -621,8 +620,9 @@ static int selfTest() {
     {
       std::ofstream script(artMetaPath.string(), std::ios::binary);
       script <<
-          "// @ART-param: [\"gain\", \"Gain\", 0.0, 4.0, 1.5, 0.01]\n"
-          "// @ART-param: [\"mode\", \"Mode\", [\"All\", \"Red only\"], 1]\n"
+          "// @ART-label: \"$CTL_META_TEST;ART metadata demo\"\n"
+          "// @ART-param: [\"gain\", \"$CTL_GAIN;Gain\", 0.0, 4.0, 1.5, 0.01, \"$CTL_TONE;Tone\", \"$CTL_GAIN_HELP;Gain amount\"]\n"
+          "// @ART-param: [\"mode\", \"$CTL_MODE;Mode\", [[\"$CTL_ALL;All\", 0], [\"$CTL_RED_ONLY;Red only\", 3]], 3, \"$CTL_TONE;Tone\"]\n"
           "// @ART-param: [\"enabled\", \"Enabled\", true]\n"
           "// @ART-param: [\"bias\", \"Bias\", -1.0, 1.0]\n"
           "// @ART-param: [\"steps\", \"Steps\", 0, 10]\n"
@@ -634,7 +634,7 @@ static int selfTest() {
           "  if (!enabled) { ro = r; go = g; bo = b; }\n"
           "  else {\n"
           "    ro = r * gain + bias; go = g * gain; bo = b * steps / 4.0;\n"
-          "    if (mode == 1) go = g;\n"
+          "    if (mode == 3) go = g;\n"
           "  }\n"
           "}\n";
       if (!script.good()) return fail("ART metadata script test write");
@@ -642,18 +642,38 @@ static int selfTest() {
     App artMeta;
     if (!addCtlNode(artMeta, artMetaPath.string())) return fail("ART metadata script load");
     {
-      bool ok = true;
+      bool ok = artMeta.nodes[0].processor->displayName() == "ART metadata demo";
       int seen = 0;
+      int groups = 0;
+      const std::string toneGroup = "__art_group__:$CTL_TONE;Tone";
       for (const ProcessorParameter &param : artMeta.nodes[0].processor->parameters()) {
+        if (param.type == ParameterType::Group) {
+          ++groups;
+          ok = ok && param.id == toneGroup && param.label == "Tone";
+          continue;
+        }
         ++seen;
-        if (param.id == "gain") ok = ok && std::get<double>(param.defaultValue) == 1.5 && std::get<double>(param.value) == 1.5;
-        else if (param.id == "mode") ok = ok && std::get<int>(param.defaultValue) == 1;
-        else if (param.id == "enabled") ok = ok && std::get<bool>(param.defaultValue);
-        else if (param.id == "bias") ok = ok && std::get<double>(param.defaultValue) == 0.0;
-        else if (param.id == "steps") ok = ok && std::get<int>(param.defaultValue) == 4;
-        else ok = false;
+        if (param.id == "gain") {
+          ok = ok && param.label == "Gain" && param.parent == toneGroup && param.hint == "Gain amount" &&
+               param.hasRange && param.min == 0.0 && param.max == 4.0 && std::fabs(param.step - 0.01) < 1e-12 &&
+               std::get<double>(param.defaultValue) == 1.5 && std::get<double>(param.value) == 1.5;
+        } else if (param.id == "mode") {
+          ok = ok && param.label == "Mode" && param.parent == toneGroup && param.type == ParameterType::Choice &&
+               param.choices == std::vector<std::string>({"All", "Red only"}) &&
+               param.choiceValues == std::vector<int>({0, 3}) && std::get<int>(param.defaultValue) == 3;
+        } else if (param.id == "enabled") {
+          ok = ok && param.label == "Enabled" && std::get<bool>(param.defaultValue);
+        } else if (param.id == "bias") {
+          ok = ok && param.hasRange && param.min == -1.0 && param.max == 1.0 &&
+               std::get<double>(param.defaultValue) == 0.0;
+        } else if (param.id == "steps") {
+          ok = ok && param.hasRange && param.min == 0.0 && param.max == 10.0 && param.step == 1.0 &&
+               std::get<int>(param.defaultValue) == 4;
+        } else {
+          ok = false;
+        }
       }
-      if (!ok || seen != 5) return fail("ART @ART-param default precedence");
+      if (!ok || seen != 5 || groups != 1) return fail("ART @ART-param presentation metadata");
     }
     Image artMetaOut;
     if (!renderChain(artMeta, src, artMetaOut, 0).ok) return fail("ART metadata render");
@@ -663,10 +683,22 @@ static int selfTest() {
         return fail("ART metadata default render");
     }
 
+    // Choice metadata can map menu indices to explicit CTL integer values.
+    if (!artMeta.nodes[0].processor->setParameterValue("mode", 0))
+      return fail("ART explicit choice value set");
+    Image artChoiceOut;
+    if (!renderChain(artMeta, src, artChoiceOut, 0).ok)
+      return fail("ART explicit choice value render");
+    for (size_t i = 0; i + 3 < src.px.size(); i += 4)
+      if (std::fabs(artChoiceOut.px[i + 1] - src.px[i + 1] * 1.5f) > 1e-6f)
+        return fail("ART explicit choice value result");
+    if (!artMeta.nodes[0].processor->setParameterValue("mode", 3))
+      return fail("ART explicit choice value restore");
+
     // Untouched parameters reach Sidecar V2 with ART's defaults, not zeros.
     const PersistChain artMetaSaved = captureChain(artMeta);
     const auto &metaJson = artMetaSaved.nodes[0].paramsJson;
-    if (metaJson.at("gain") != "1.5" || metaJson.at("mode") != "1" || metaJson.at("enabled") != "true" ||
+    if (metaJson.at("gain") != "1.5" || metaJson.at("mode") != "3" || metaJson.at("enabled") != "true" ||
         metaJson.at("bias") != "0" || metaJson.at("steps") != "4")
       return fail("ART metadata defaults in Sidecar V2");
     App artMetaRestored;
