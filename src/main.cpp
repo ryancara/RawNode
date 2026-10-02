@@ -621,9 +621,9 @@ static int selfTest() {
       std::ofstream script(artMetaPath.string(), std::ios::binary);
       script <<
           "// @ART-label: \"$CTL_META_TEST;ART metadata demo\"\n"
+          "// @ART-param: [\"enabled\", \"Enabled\", true]\n"
           "// @ART-param: [\"gain\", \"$CTL_GAIN;Gain\", 0.0, 4.0, 1.5, 0.01, \"$CTL_TONE;Tone\", \"$CTL_GAIN_HELP;Gain amount\"]\n"
           "// @ART-param: [\"mode\", \"$CTL_MODE;Mode\", [[\"$CTL_ALL;All\", 0], [\"$CTL_RED_ONLY;Red only\", 3]], 3, \"$CTL_TONE;Tone\"]\n"
-          "// @ART-param: [\"enabled\", \"Enabled\", true]\n"
           "// @ART-param: [\"bias\", \"Bias\", -1.0, 1.0]\n"
           "// @ART-param: [\"steps\", \"Steps\", 0, 10]\n"
           "void ART_main(\n"
@@ -674,6 +674,13 @@ static int selfTest() {
         }
       }
       if (!ok || seen != 5 || groups != 1) return fail("ART @ART-param presentation metadata");
+
+      // Controls follow @ART-param line order (not ART_main argument order),
+      // and a group appears where its first member does, as in ART's panel.
+      std::vector<std::string> order;
+      for (const ProcessorParameter &param : artMeta.nodes[0].processor->parameters()) order.push_back(param.id);
+      if (order != std::vector<std::string>({"enabled", toneGroup, "gain", "mode", "bias", "steps"}))
+        return fail("ART @ART-param control order");
     }
     Image artMetaOut;
     if (!renderChain(artMeta, src, artMetaOut, 0).ok) return fail("ART metadata render");
@@ -692,6 +699,26 @@ static int selfTest() {
     for (size_t i = 0; i + 3 < src.px.size(); i += 4)
       if (std::fabs(artChoiceOut.px[i + 1] - src.px[i + 1] * 1.5f) > 1e-6f)
         return fail("ART explicit choice value result");
+
+    // A non-default explicit choice value round-trips through Sidecar V2 as the
+    // declared value (0), not a menu index, and restores the same render.
+    {
+      const PersistChain choiceSaved = captureChain(artMeta);
+      if (choiceSaved.nodes[0].paramsJson.at("mode") != "0")
+        return fail("ART explicit choice value Sidecar V2 capture");
+      App choiceRestored;
+      applyChain(choiceRestored, choiceSaved);
+      bool restoredMode = false;
+      if (choiceRestored.nodes.size() == 1 && choiceRestored.nodes[0].processor) {
+        for (const ProcessorParameter &param : choiceRestored.nodes[0].processor->parameters())
+          if (param.id == "mode") restoredMode = std::get<int>(param.value) == 0;
+      }
+      Image choiceRestoredOut;
+      if (!restoredMode || !renderChain(choiceRestored, src, choiceRestoredOut, 0).ok ||
+          choiceRestoredOut.px != artChoiceOut.px)
+        return fail("ART explicit choice value Sidecar V2 restore");
+    }
+
     if (!artMeta.nodes[0].processor->setParameterValue("mode", 3))
       return fail("ART explicit choice value restore");
 

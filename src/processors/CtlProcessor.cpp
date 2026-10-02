@@ -554,6 +554,7 @@ struct CtlProcessor::Impl {
     double step = 0.0;
     std::vector<std::string> choices;
     std::vector<int> choiceValues;
+    int metadataLine = 0;  // @ART-param line; 0 when the parameter has none
   };
 
   Ctl::SimdInterpreter interpreter;
@@ -742,6 +743,7 @@ struct CtlProcessor::Impl {
           binding.type = presentation.type;
           binding.label = presentation.label.empty() ? name : presentation.label;
           binding.parent = presentation.groupId;
+          binding.metadataLine = def->second.line;
           binding.hint = presentation.hint;
           binding.hasRange = presentation.hasRange;
           binding.min = presentation.min;
@@ -779,6 +781,25 @@ struct CtlProcessor::Impl {
       if (!metadata.empty())
         throw ContractError(file + ":" + std::to_string(metadata.begin()->second.line) +
                             ": @ART-param refers to unknown ART_main parameter " + metadata.begin()->first);
+
+      // ART presents controls in @ART-param line order, not ART_main argument
+      // order. Metadata-free parameters (a RawNode extension) follow in
+      // argument order.
+      std::vector<size_t> order(exposedParameters.size());
+      for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+      const auto displayKey = [&](size_t i) {
+        const int line = exposedParameters[i].metadataLine;
+        return line > 0 ? line : std::numeric_limits<int>::max();
+      };
+      std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return displayKey(a) < displayKey(b); });
+      std::vector<ParameterBinding> sortedBindings;
+      std::vector<ParameterValue> sortedValues;
+      for (size_t i : order) {
+        sortedBindings.push_back(std::move(exposedParameters[i]));
+        sortedValues.push_back(std::move(parameterValues[i]));
+      }
+      exposedParameters = std::move(sortedBindings);
+      parameterValues = std::move(sortedValues);
     } else {
       rIn = function->findInputArg("rIn");
       gIn = function->findInputArg("gIn");
@@ -878,17 +899,24 @@ std::vector<ProcessorParameter> CtlProcessor::parameters() const {
   std::lock_guard<std::mutex> lock(impl_->parameterMutex);
   out.reserve(impl_->artGroups.size() + impl_->exposedParameters.size());
 
-  for (const auto &group : impl_->artGroups) {
-    ProcessorParameter param;
-    param.id = group.first;
-    param.label = group.second.empty() ? group.first : group.second;
-    param.type = ParameterType::Group;
-    param.groupInitiallyOpen = true;
-    out.push_back(std::move(param));
-  }
-
+  // As in ART's panel, each group appears where its first member does, so
+  // grouped and ungrouped controls keep their relative order.
+  std::vector<std::string> emittedGroups;
   for (size_t i = 0; i < impl_->exposedParameters.size(); ++i) {
     const auto &binding = impl_->exposedParameters[i];
+    if (!binding.parent.empty() &&
+        std::find(emittedGroups.begin(), emittedGroups.end(), binding.parent) == emittedGroups.end()) {
+      emittedGroups.push_back(binding.parent);
+      ProcessorParameter group;
+      group.id = binding.parent;
+      group.label = binding.parent;
+      for (const auto &known : impl_->artGroups)
+        if (known.first == binding.parent && !known.second.empty()) group.label = known.second;
+      group.type = ParameterType::Group;
+      group.groupInitiallyOpen = true;
+      out.push_back(std::move(group));
+    }
+
     ProcessorParameter param;
     param.id = binding.id;
     param.label = binding.label.empty() ? binding.id : binding.label;
