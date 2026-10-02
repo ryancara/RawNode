@@ -113,7 +113,7 @@ static int selfTest() {
       return fail("sidecar v2 node identity");
     const PersistNode &loadedNode = loaded.chain.nodes[0];
     if (loadedNode.backend != "dctl" || loadedNode.identifier != "FutureTransform.dctl" ||
-        loadedNode.paramsJson["futureData"] != "{\"curve\":[0,0.5,1],\"mode\":\"test\"}")
+        loadedNode.paramsJson.at("futureData") != "{\"curve\":[0,0.5,1],\"mode\":\"test\"}")
       return fail("sidecar v2 opaque state");
     fs::remove(sidecar);
 
@@ -137,7 +137,7 @@ static int selfTest() {
       return fail("sidecar v1 migration");
     if (migrated.chain.nodes[0].backend != "ofx" ||
         migrated.chain.nodes[0].identifier != "example.ofx" ||
-        migrated.chain.nodes[0].paramsJson["gain"] != "1.25")
+        migrated.chain.nodes[0].paramsJson.at("gain") != "1.25")
       return fail("sidecar v1 normalisation");
     fs::remove(legacy);
 
