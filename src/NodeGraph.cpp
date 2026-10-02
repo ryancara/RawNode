@@ -6,9 +6,11 @@
 
 #include <cctype>
 #include <sstream>
-#include <atomic>
+#include <stdexcept>
 
-static std::atomic<unsigned long long> gNextNodeId{1};
+// Node creation currently happens on the UI thread. IDs become persistent
+// across sessions when Sidecar V2 begins storing them.
+static unsigned long long gNextNodeId = 1;
 
 static OfxProcessor *asOfx(Node &node) {
   return dynamic_cast<OfxProcessor *>(node.processor.get());
@@ -19,7 +21,7 @@ static const OfxProcessor *asOfx(const Node &node) {
 }
 
 static std::string makeNodeId() {
-  return "node-" + std::to_string(gNextNodeId.fetch_add(1));
+  return "node-" + std::to_string(gNextNodeId++);
 }
 
 Node *selectedNode(App &app) {
@@ -237,7 +239,8 @@ PersistChain captureChain(const App &app) {
   for (const Node &n : app.nodes) {
     PersistNode pn;
     const OfxProcessor *ofx = asOfx(n);
-    if (!ofx) continue;
+    if (!ofx)
+      throw std::logic_error("Sidecar V1 only supports OFX processors; add generic persistence before another backend");
     pn.pluginIdentifier = n.processor->identifier();
     pn.pluginLabel = n.processor->displayName();
     pn.enabled = n.enabled;
