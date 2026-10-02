@@ -9,7 +9,7 @@ std::vector<ProcessorParameter> NativeExposureProcessor::parameters() const {
   exposure.label = "Exposure";
   exposure.hint = "Scene-linear exposure in stops (EV)";
   exposure.type = ParameterType::Double;
-  exposure.value = exposureEv_;
+  exposure.value = exposureEv_.load(std::memory_order_relaxed);
   exposure.defaultValue = 0.0;
   exposure.min = -10.0;
   exposure.max = 10.0;
@@ -23,14 +23,14 @@ bool NativeExposureProcessor::setParameterValue(const std::string &id, const Par
   if (id != "exposure") return false;
   const double *ev = std::get_if<double>(&value);
   if (!ev || !std::isfinite(*ev)) return false;
-  exposureEv_ = std::clamp(*ev, -10.0, 10.0);
+  exposureEv_.store(std::clamp(*ev, -10.0, 10.0), std::memory_order_relaxed);
   return true;
 }
 
 bool NativeExposureProcessor::resetParameter(const std::string &id, bool notify) {
   (void)notify;
   if (id != "exposure") return false;
-  exposureEv_ = 0.0;
+  exposureEv_.store(0.0, std::memory_order_relaxed);
   return true;
 }
 
@@ -48,7 +48,7 @@ ProcessorResult NativeExposureProcessor::render(const Image &input, Image &outpu
   (void)generation;
 
   output = input;
-  const float gain = (float)std::exp2(exposureEv_);
+  const float gain = (float)std::exp2(exposureEv_.load(std::memory_order_relaxed));
   for (size_t i = 0; i + 3 < output.px.size(); i += 4) {
     output.px[i + 0] *= gain;
     output.px[i + 1] *= gain;
