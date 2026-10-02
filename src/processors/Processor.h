@@ -13,6 +13,16 @@ enum class ProcessorBackend {
   Native,
 };
 
+inline const char *processorBackendName(ProcessorBackend backend) {
+  switch (backend) {
+    case ProcessorBackend::OFX: return "ofx";
+    case ProcessorBackend::CTL: return "ctl";
+    case ProcessorBackend::DCTL: return "dctl";
+    case ProcessorBackend::Native: return "native";
+  }
+  return "unknown";
+}
+
 struct ProcessorResult {
   bool ok = true;
   int backendCode = 0;
