@@ -17,20 +17,12 @@
 namespace fs = std::filesystem;
 
 static ColorEncoding legacyOutputEncoding(int index) {
-  switch (std::clamp(index, 0, 4)) {
-    case 0: return {RgbGamut::Rec709, TransferFunction::SRGB};
-    case 1: return {RgbGamut::DisplayP3, TransferFunction::SRGB};
-    case 2: return {RgbGamut::Rec709, TransferFunction::Linear};
-    case 3: return {RgbGamut::Rec2020, TransferFunction::Linear};
-    case 4: return {RgbGamut::ACES_AP0, TransferFunction::Linear};
-  }
-  return {RgbGamut::Rec709, TransferFunction::SRGB};
+  return legacyColorSpaceEncoding((ColorSpace)std::clamp(index, 0, 4));
 }
 
 static int legacyOutputIndex(const ColorEncoding &encoding) {
-  for (int i = 0; i < 5; ++i)
-    if (legacyOutputEncoding(i) == encoding) return i;
-  return 0;
+  ColorSpace legacy;
+  return legacyColorSpaceFromEncoding(encoding, legacy) ? (int)legacy : 0;
 }
 
 PersistGui captureGui(const App &app) {
@@ -247,6 +239,9 @@ void openWorkspace(App &app, const std::string &dir) {
     openPath(app, toOpen, true);
   else
     app.setStatus("Workspace: " + fs::path(app.workspaceDir).filename().string() + " (no images)");
+
+  if (app.workspaceWriteBlocked)
+    app.setStatus("This workspace contains colour settings this version of RawNode does not recognise; the workspace file is protected from overwrite.");
   persistWorkspace(app);
 }
 
