@@ -234,6 +234,9 @@ static int selfTest() {
   }
   if (order.px[0] > 0.1f || order.px[(size_t)7 * 8 * 4] < 0.5f) return fail("source rows are not bottom-up");
 
+  loadPlugins();
+  if (gPlugins.empty()) return fail("no OFX filter plugins found");
+
   // Standard CTL backend: load a real .ctl with a sibling import, render it
   // through Processor, persist/restore it through Sidecar V2, then verify a
   // missing script degrades to the normal preserved placeholder.
@@ -294,6 +297,39 @@ static int selfTest() {
     if (!renderChain(ctlRestored, src, ctlRestoredOut, 0).ok || ctlRestoredOut.px != ctlOut.px)
       return fail("ctl restored render");
 
+    auto cropIt = std::find_if(gPlugins.begin(), gPlugins.end(),
+                               [](const PluginEntry &pe) { return pe.label == "Crop"; });
+    if (cropIt == gPlugins.end()) return fail("bundled Crop plugin not found (ctl mixed)");
+    const int cropIndex = (int)std::distance(gPlugins.begin(), cropIt);
+
+    App ctlMixed;
+    if (!addNode(ctlMixed, cropIndex) || !addCtlNode(ctlMixed, scriptPath.string()) ||
+        !addNode(ctlMixed, cropIndex))
+      return fail("OFX/CTL mixed node creation");
+    if (!ctlMixed.nodes[0].processor->setParameterValue("crop", 40.0) ||
+        !ctlMixed.nodes[2].processor->setParameterValue("crop", 40.0))
+      return fail("OFX/CTL mixed crop setup");
+
+    App ctlReference;
+    if (!addNode(ctlReference, cropIndex) || !addNode(ctlReference, cropIndex) ||
+        !ctlReference.nodes[0].processor->setParameterValue("crop", 40.0) ||
+        !ctlReference.nodes[1].processor->setParameterValue("crop", 40.0))
+      return fail("OFX/CTL mixed reference setup");
+
+    Image ctlMixedOut, ctlReferenceOut;
+    if (!renderChain(ctlMixed, src, ctlMixedOut, 0).ok ||
+        !renderChain(ctlReference, src, ctlReferenceOut, 0).ok ||
+        ctlMixedOut.w != ctlReferenceOut.w || ctlMixedOut.h != ctlReferenceOut.h)
+      return fail("OFX/CTL mixed render");
+
+    for (size_t i = 0; i + 3 < ctlReferenceOut.px.size(); i += 4) {
+      for (int c = 0; c < 3; ++c)
+        if (std::fabs(ctlMixedOut.px[i + c] - ctlReferenceOut.px[i + c] * 2.0f) > 1e-6f)
+          return fail("OFX/CTL mixed RGB");
+      if (ctlMixedOut.px[i + 3] != ctlReferenceOut.px[i + 3])
+        return fail("OFX/CTL mixed alpha");
+    }
+
     fs::remove(scriptPath);
     App ctlMissing;
     applyChain(ctlMissing, ctlSaved);
@@ -306,9 +342,6 @@ static int selfTest() {
     fs::remove(ctlDir);
     printf("ok  Standard CTL processor\n");
   }
-
-  loadPlugins();
-  if (gPlugins.empty()) return fail("no OFX filter plugins found");
 
   // Phase 4 mixed-backend seam: OFX -> native Exposure -> OFX must render,
   // persist, restore, and render identically through the generic interfaces.
