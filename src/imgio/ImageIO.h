@@ -22,15 +22,20 @@ enum class ColorSpace {
   DisplayP3,
   LinearRec709,
   LinearRec2020,
+  ACES2065_1,
 };
 
 const char *colorSpaceName(ColorSpace cs);
+bool colorSpaceFromName(const std::string &name, ColorSpace &cs);
+bool isRawWorkingSpace(ColorSpace cs);
+bool isRawImagePath(const std::string &path);
 
-// Loads RAW via LibRaw (camera WB/demosaic, then RawNode camera matrix -> Linear Rec.709),
-// TIFF via libtiff, or PNG/JPEG/EXR via stb/tinyexr.
-// detected: inferred Input Color Space (RAW → Linear Rec.709; untagged float → Linear Rec.2020;
-// untagged LDR → sRGB; embedded ICC → nearest of the four tags). Raster inputs are not converted.
-bool loadImage(const std::string &path, Image &out, ColorSpace &detected);
+// Loads RAW via LibRaw (camera WB/demosaic, then a RawNode-owned camera -> working-space
+// matrix), TIFF via libtiff, or PNG/JPEG/EXR via stb/tinyexr.
+// rawWorkingSpace currently supports Linear Rec.709, Linear Rec.2020 and ACES2065-1.
+// Raster inputs ignore rawWorkingSpace and are not converted.
+bool loadImage(const std::string &path, Image &out, ColorSpace &detected,
+               ColorSpace rawWorkingSpace = ColorSpace::LinearRec2020);
 // maxEdge 0 = full size; otherwise downsamples so longest edge <= maxEdge.
 bool makePreview(const Image &src, int maxEdge, Image &out);
 // Format from path extension; PNG/JPEG embed ICC.
