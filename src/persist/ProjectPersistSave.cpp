@@ -203,6 +203,7 @@ static ColorSpace persistedWorkingSpace(ColorSpace inputSpace) {
     case ColorSpace::DisplayP3: return ColorSpace::LinearRec2020;
     case ColorSpace::LinearRec709:
     case ColorSpace::LinearRec2020:
+    case ColorSpace::ACES2065_1:
       return inputSpace;
   }
   return ColorSpace::LinearRec709;
@@ -216,8 +217,11 @@ static void appendSidecarHeader(std::ostringstream &o, const std::string &kind, 
     << "\"kind\":\"" << jsonEscape(kind) << "\","
     << "\"source\":\"" << jsonEscape(sourcePath) << "\","
     << "\"inputColorSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\","
-    << "\"workingSpace\":\"" << jsonEscape(colorSpaceName(persistedWorkingSpace(inputSpace))) << "\","
-    << "\"raw\":{},";
+    << "\"workingSpace\":\"" << jsonEscape(colorSpaceName(persistedWorkingSpace(inputSpace))) << "\",";
+  if (isRawImagePath(sourcePath))
+    o << "\"raw\":{\"workingSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\"},";
+  else
+    o << "\"raw\":{},";
 }
 
 bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui,
