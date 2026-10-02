@@ -516,7 +516,7 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected,
     detected = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
     return true;
   }
-  if (loadRaw(path, out, rawGamut, rawGamma)) {
+  if (isRawImagePath(path) && loadRaw(path, out, rawGamut, rawGamma)) {
     // ColorSpace cannot represent every gamut/gamma combination yet. Keep the
     // legacy field meaningful for the three historical linear choices; callers
     // use the explicit RAW encoding for all new combinations.
