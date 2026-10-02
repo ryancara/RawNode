@@ -127,7 +127,6 @@ static bool paramEditButton(double &value, bool asInt, double lo, double hi) {
 
 static void finishParameterChange(App &app, bool changed) {
   if (!changed) return;
-  syncOutputTag(app);
   scheduleRender(app);
 }
 
