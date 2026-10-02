@@ -12,8 +12,14 @@ bool addCtlNode(App &app, const std::string &path);
 void destroyNode(App &app, int index);
 void moveNode(App &app, int from, int to);
 
+struct InputColorSyncResult {
+  int updated = 0;
+  int unsupported = 0;
+};
+
 void syncOutputTag(App &app);
 void applyColorDefaults(App &app, Node &node);
+InputColorSyncResult syncOfxInputColorSpace(App &app, ColorSpace space);
 
 PersistChain captureChain(const App &app);
 void applyChain(App &app, const PersistChain &chain);
