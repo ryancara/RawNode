@@ -109,9 +109,11 @@ bool bradfordAdaptation(const RgbGamutDefinition &source, const RgbGamutDefiniti
   if (!invert3x3(kBradford, invBradford)) return false;
 
   double scaledBradford[3][3] = {};
-  for (int col = 0; col < 3; ++col) {
-    const double scale = dstCone[col] / srcCone[col];
-    for (int row = 0; row < 3; ++row)
+  // Bradford adaptation is B^-1 * diag(dstCone/srcCone) * B, so the
+  // diagonal matrix scales rows of B, not columns.
+  for (int row = 0; row < 3; ++row) {
+    const double scale = dstCone[row] / srcCone[row];
+    for (int col = 0; col < 3; ++col)
       scaledBradford[row][col] = kBradford[row][col] * scale;
   }
   multiply3x3(invBradford, scaledBradford, out);
