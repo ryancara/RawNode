@@ -26,9 +26,10 @@ enum class ColorSpace {
 
 const char *colorSpaceName(ColorSpace cs);
 
-// Loads RAW via LibRaw (linear, camera WB), TIFF via libtiff, or PNG/JPEG/EXR via stb/tinyexr.
-// detected: inferred Input Color Space (RAW / untagged float → Linear Rec.2020; untagged LDR → sRGB;
-// embedded ICC → nearest of the four tags). Does not convert pixels.
+// Loads RAW via LibRaw (camera WB/demosaic, then RawNode camera matrix -> Linear Rec.709),
+// TIFF via libtiff, or PNG/JPEG/EXR via stb/tinyexr.
+// detected: inferred Input Color Space (RAW → Linear Rec.709; untagged float → Linear Rec.2020;
+// untagged LDR → sRGB; embedded ICC → nearest of the four tags). Raster inputs are not converted.
 bool loadImage(const std::string &path, Image &out, ColorSpace &detected);
 // maxEdge 0 = full size; otherwise downsamples so longest edge <= maxEdge.
 bool makePreview(const Image &src, int maxEdge, Image &out);
