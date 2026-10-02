@@ -130,6 +130,10 @@ After the base architecture is mature, investigate:
 - local adjustments;
 - AI-generated masks.
 
+## Known technical debt
+
+- Full-resolution export currently runs on a detached thread that can race with node mutation and processor resize/lifetime changes. This predates the generic Processor refactor and should be fixed separately by snapshotting or synchronising the render graph.
+
 ## Working rule
 
 Do not start multiple major architectural changes simultaneously. Prefer proving one seam at a time so regressions are attributable and changes remain reversible.
