@@ -351,6 +351,15 @@ static int selfTest() {
         numericOut.px != cstOut.px)
       return fail("numeric PR17 CST sidecar compatibility");
 
+    PersistChain futureChoice = cstSaved;
+    futureChoice.nodes[0].paramsJson["output_gamma"] = "\"future-transfer\"";
+    App futureChoiceApp;
+    applyChain(futureChoiceApp, futureChoice);
+    const PersistChain futureChoiceSaved = captureChain(futureChoiceApp);
+    if (futureChoiceSaved.nodes.empty() ||
+        futureChoiceSaved.nodes[0].paramsJson.at("output_gamma") != "\"future-transfer\"")
+      return fail("future CST choice preservation");
+
     printf("ok  Native CST processor\n");
   }
 
