@@ -1,31 +1,60 @@
 #include "color/TransferFunction.h"
 
+#include <array>
 #include <cmath>
 
-const char *transferFunctionName(TransferFunction tf) {
-  switch (tf) {
-    case TransferFunction::Linear: return "Linear";
-    case TransferFunction::SRGB: return "sRGB";
-    case TransferFunction::Rec709: return "Rec.709";
-    case TransferFunction::DaVinciIntermediate: return "DaVinci Intermediate";
-  }
-  return "Linear";
+namespace {
+
+constexpr std::array<TransferFunctionDefinition, 4> kTransferFunctions = {{
+    {TransferFunction::Linear, "linear", "Linear"},
+    {TransferFunction::SRGB, "srgb", "sRGB"},
+    {TransferFunction::Rec709, "rec709-camera", "Rec.709 (camera)"},
+    {TransferFunction::DaVinciIntermediate, "davinci-intermediate", "DaVinci Intermediate"},
+}};
+
+}  // namespace
+
+int transferFunctionCount() { return (int)kTransferFunctions.size(); }
+
+const TransferFunctionDefinition &transferFunctionDefinition(int index) {
+  if (index < 0 || index >= transferFunctionCount()) return kTransferFunctions[0];
+  return kTransferFunctions[(size_t)index];
 }
 
-bool transferFunctionFromName(const std::string &name, TransferFunction &tf) {
-  if (name == "Linear") {
-    tf = TransferFunction::Linear;
-    return true;
+const TransferFunctionDefinition &transferFunctionDefinition(TransferFunction tf) {
+  for (const auto &def : kTransferFunctions)
+    if (def.value == tf) return def;
+  return kTransferFunctions[0];
+}
+
+int transferFunctionIndex(TransferFunction tf) {
+  for (int i = 0; i < transferFunctionCount(); ++i)
+    if (kTransferFunctions[(size_t)i].value == tf) return i;
+  return -1;
+}
+
+const char *transferFunctionId(TransferFunction tf) {
+  return transferFunctionDefinition(tf).id;
+}
+
+const char *transferFunctionName(TransferFunction tf) {
+  return transferFunctionDefinition(tf).name;
+}
+
+bool transferFunctionFromIdOrName(const std::string &name, TransferFunction &tf) {
+  for (const auto &def : kTransferFunctions) {
+    if (name == def.id || name == def.name) {
+      tf = def.value;
+      return true;
+    }
   }
-  if (name == "sRGB") {
-    tf = TransferFunction::SRGB;
-    return true;
-  }
-  if (name == "Rec.709") {
+
+  // PR #17 and historical aliases.
+  if (name == "Rec.709" || name == "Rec.709 Scene" || name == "Rec709") {
     tf = TransferFunction::Rec709;
     return true;
   }
-  if (name == "DaVinci Intermediate" || name == "Intermediate") {
+  if (name == "Intermediate") {
     tf = TransferFunction::DaVinciIntermediate;
     return true;
   }
@@ -41,9 +70,15 @@ double decodeTransfer(double value, TransferFunction tf) {
       if (value <= 0.04045) return value / 12.92;
       return std::pow((value + 0.055) / 1.055, 2.4);
 
-    case TransferFunction::Rec709:
-      if (value < 0.081) return value / 4.5;
-      return std::pow((value + 0.099) / 1.099, 1.0 / 0.45);
+    case TransferFunction::Rec709: {
+      // Exact BT.709 OETF constants. The rounded 1.099/0.018 form introduces
+      // a small discontinuity and a locally non-monotonic inverse.
+      constexpr double kAlpha = 1.09929682680944;
+      constexpr double kBeta = 0.018053968510807;
+      constexpr double kEncodedCut = 4.5 * kBeta;
+      if (value < kEncodedCut) return value / 4.5;
+      return std::pow((value + (kAlpha - 1.0)) / kAlpha, 1.0 / 0.45);
+    }
 
     case TransferFunction::DaVinciIntermediate: {
       constexpr double kA = 0.0075;
@@ -67,9 +102,12 @@ double encodeTransfer(double linear, TransferFunction tf) {
       if (linear <= 0.0031308) return 12.92 * linear;
       return 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
 
-    case TransferFunction::Rec709:
-      if (linear < 0.018) return 4.5 * linear;
-      return 1.099 * std::pow(linear, 0.45) - 0.099;
+    case TransferFunction::Rec709: {
+      constexpr double kAlpha = 1.09929682680944;
+      constexpr double kBeta = 0.018053968510807;
+      if (linear < kBeta) return 4.5 * linear;
+      return kAlpha * std::pow(linear, 0.45) - (kAlpha - 1.0);
+    }
 
     case TransferFunction::DaVinciIntermediate: {
       constexpr double kA = 0.0075;
