@@ -59,7 +59,9 @@ void persistWorkspace(App &app) {
 
 static void loadSidecarForPath(App &app, const std::string &imagePath) {
   PersistSidecar sc;
-  if (!loadSidecarFile(inputSidecarPath(imagePath), sc)) return;
+  if (!loadSidecarFile(inputSidecarPath(imagePath), sc) &&
+      !loadSidecarFile(legacyInputSidecarPath(imagePath), sc))
+    return;
   applyGui(app, sc.gui);
   applyChain(app, sc.chain);
 }
@@ -93,7 +95,7 @@ void openWorkspace(App &app, const std::string &dir) {
 
 void openPath(App &app, const std::string &path, bool applySidecar) {
   if (isHostMetadataPath(path)) {
-    app.setStatus("Sidecar files (.ofxrawhost.json) are not images — open the image file instead.");
+    app.setStatus("Sidecar files are not images — open the image file instead.");
     return;
   }
   if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
