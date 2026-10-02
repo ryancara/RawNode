@@ -40,40 +40,47 @@ void drawLeftPanel(App &app) {
   ImGui::SameLine();
   if (ImGui::Button("Export")) doExport(app);
 
-  if (app.path.empty()) {
+  if (app.path.empty())
     ImGui::TextUnformatted("Input: —");
-  } else if (app.inputUsesRawEncoding) {
-    ImGui::Text("Input: %s / %s", rgbGamutName(app.inputGamut), transferFunctionName(app.inputGamma));
-  } else {
-    ImGui::Text("Input: %s", colorSpaceName(app.inputSpace));
+  else
+    ImGui::Text("Input: %s", colorEncodingName(app.inputEncoding).c_str());
+
+  const bool currentIsRaw = !app.path.empty() && app.inputIsRaw;
+  const ColorEncoding rawShown = currentIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
+
+  std::vector<const char *> gamutItems;
+  gamutItems.reserve((size_t)rgbGamutCount());
+  for (int i = 0; i < rgbGamutCount(); ++i)
+    gamutItems.push_back(rgbGamutDefinition(i).name);
+
+  std::vector<const char *> gammaItems;
+  gammaItems.reserve((size_t)transferFunctionCount());
+  for (int i = 0; i < transferFunctionCount(); ++i)
+    gammaItems.push_back(transferFunctionDefinition(i).name);
+
+  int rawGamutIndex = std::max(0, rgbGamutIndex(rawShown.gamut));
+  if (ImGui::Combo("RAW colour space", &rawGamutIndex, gamutItems.data(), (int)gamutItems.size())) {
+    setRawWorkingEncoding(app, rgbGamutDefinition(rawGamutIndex).value, rawShown.gamma);
   }
 
-  const bool currentIsRaw = !app.path.empty() && isRawImagePath(app.path);
-  int rawGamutIndex = (int)(currentIsRaw ? app.inputGamut : app.rawWorkingGamut);
-  int rawGammaIndex = (int)(currentIsRaw ? app.inputGamma : app.rawWorkingGamma);
+  int rawGammaIndex = std::max(0, transferFunctionIndex(rawShown.gamma));
+  if (ImGui::Combo("RAW gamma", &rawGammaIndex, gammaItems.data(), (int)gammaItems.size())) {
+    const ColorEncoding currentRaw = currentIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
+    setRawWorkingEncoding(app, currentRaw.gamut, transferFunctionDefinition(rawGammaIndex).value);
+  }
 
-  const char *rawGamutItems[] = {
-      rgbGamutName(RgbGamut::Rec709),
-      rgbGamutName(RgbGamut::Rec2020),
-      rgbGamutName(RgbGamut::ACES_AP0),
-      rgbGamutName(RgbGamut::ACES_AP1),
-      rgbGamutName(RgbGamut::DaVinciWideGamut),
-  };
-  if (ImGui::Combo("RAW colour space", &rawGamutIndex, rawGamutItems, 5))
-    setRawWorkingEncoding(app, (RgbGamut)rawGamutIndex,
-                          currentIsRaw ? app.inputGamma : app.rawWorkingGamma);
+  int outputGamutIndex = std::max(0, rgbGamutIndex(app.outputEncoding.gamut));
+  if (ImGui::Combo("Output colour space", &outputGamutIndex, gamutItems.data(), (int)gamutItems.size())) {
+    app.outputEncoding.gamut = rgbGamutDefinition(outputGamutIndex).value;
+    scheduleDisplayRecolor(app);
+  }
 
-  const char *rawGammaItems[] = {
-      transferFunctionName(TransferFunction::Linear),
-      transferFunctionName(TransferFunction::SRGB),
-      transferFunctionName(TransferFunction::Rec709),
-      transferFunctionName(TransferFunction::DaVinciIntermediate),
-  };
-  if (ImGui::Combo("RAW gamma", &rawGammaIndex, rawGammaItems, 4))
-    setRawWorkingEncoding(app, currentIsRaw ? app.inputGamut : app.rawWorkingGamut,
-                          (TransferFunction)rawGammaIndex);
-  ImGui::Combo("Output tag", &app.outputIndex, kOutputSpaces, kOutputSpaceCount);
-  if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) scheduleDisplayRecolor(app);
+  int outputGammaIndex = std::max(0, transferFunctionIndex(app.outputEncoding.gamma));
+  if (ImGui::Combo("Output gamma", &outputGammaIndex, gammaItems.data(), (int)gammaItems.size())) {
+    app.outputEncoding.gamma = transferFunctionDefinition(outputGammaIndex).value;
+    scheduleDisplayRecolor(app);
+  }
+
   {
     const char *items[kPreviewResCount];
     for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
