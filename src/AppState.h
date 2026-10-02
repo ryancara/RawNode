@@ -131,6 +131,9 @@ struct App {
   int selectedNode = -1;
 
   std::string workspaceDir;
+  // Protect a workspace file containing future colour IDs this build cannot
+  // interpret, just as we protect forward-versioned per-image sidecars.
+  bool workspaceWriteBlocked = false;
   std::vector<FilmstripEntry> filmstrip;
   int filmstripIndex = -1;
   bool showFilmstrip = true;
