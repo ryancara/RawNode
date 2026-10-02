@@ -13,6 +13,8 @@ struct PersistGui {
   int outputIndex = 0;
   std::string outputColorSpace;
   std::string outputGamma;
+  std::string rawDefaultColorSpace;
+  std::string rawDefaultGamma;
   int exportFormat = 1;
   int jpegQuality = 92;
   int previewRes = 1;
