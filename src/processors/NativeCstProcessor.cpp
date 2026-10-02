@@ -30,7 +30,7 @@ ProcessorParameter makeSpaceParameter(const char *id, const char *label, int val
   param.type = ParameterType::Choice;
   param.value = value;
   param.defaultValue = 1;  // Linear Rec.2020; input/output defaults form an identity transform.
-  param.choices.assign(std::begin(kSpaceNames), std::end(kSpaceNames));
+  param.choices = {kSpaceNames[0], kSpaceNames[1], kSpaceNames[2]};
   return param;
 }
 
