@@ -59,9 +59,18 @@ void persistWorkspace(App &app) {
 
 static void loadSidecarForPath(App &app, const std::string &imagePath) {
   PersistSidecar sc;
-  if (!loadSidecarFile(inputSidecarPath(imagePath), sc) &&
-      !loadSidecarFile(legacyInputSidecarPath(imagePath), sc))
+  const std::string v2Path = inputSidecarPath(imagePath);
+  std::error_code ec;
+
+  if (fs::is_regular_file(v2Path, ec)) {
+    if (!loadSidecarFile(v2Path, sc)) {
+      app.setStatus("Could not read RawNode sidecar: " + fs::path(v2Path).filename().string());
+      return;
+    }
+  } else if (!loadSidecarFile(legacyInputSidecarPath(imagePath), sc)) {
     return;
+  }
+
   applyGui(app, sc.gui);
   applyChain(app, sc.chain);
 }
