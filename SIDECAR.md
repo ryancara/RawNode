@@ -1,80 +1,169 @@
 # RawNode Sidecar Design
 
-This document defines the direction for non-destructive per-image edit state.
+This document defines the non-destructive per-image edit state used by RawNode.
 
 ## Principles
 
 - Sidecars are the source of truth for edits.
 - Original image files are never modified.
 - No catalogue or project file is required to reconstruct an edit.
-- Sidecars should be human-readable and versioned.
-- Unknown fields and unavailable processors should be preserved where possible.
-- Node instance identity must survive reordering.
+- Sidecars are human-readable and versioned.
+- Node instance identity survives reordering and application restarts.
+- Unavailable processors and unknown parameter values should survive load-save cycles rather than being silently deleted.
 
-## Proposed structure
+## Sidecar V2
 
-The exact schema is not final, but the target shape is approximately:
+Input sidecars are written beside the source image as:
+
+```text
+DSC_0001.NEF.rawnode.json
+```
+
+The current V2 shape is:
 
 ```json
 {
   "format": "rawnode-sidecar",
   "version": 2,
+  "kind": "input",
   "source": "DSC_0001.NEF",
-  "workingSpace": "ACEScg",
-  "raw": {
-    "decoder": "libraw",
-    "whiteBalance": "camera",
-    "highlightRecovery": "default"
+  "inputColorSpace": "Linear Rec.2020",
+  "workingSpace": "Linear Rec.2020",
+  "raw": {},
+  "gui": {
+    "outputIndex": 0,
+    "exportFormat": 1,
+    "jpegQuality": 92,
+    "previewRes": 1,
+    "themeIndex": 2,
+    "showLeft": true,
+    "showRight": true,
+    "showFilmstrip": true
   },
   "graph": {
+    "selectedNodeId": "node-1",
     "nodes": [
       {
-        "id": "node-001",
-        "type": "dctl",
-        "identifier": "Exposure.dctl",
-        "enabled": true,
-        "params": {
-          "exposure": 0.45
-        }
-      },
-      {
-        "id": "node-002",
-        "type": "ofx",
+        "id": "node-1",
+        "backend": "ofx",
         "identifier": "com.example.plugin",
+        "label": "Example Plugin",
         "enabled": true,
-        "params": {}
+        "ui": {
+          "groupOpen": {}
+        },
+        "params": {
+          "amount": 0.45
+        }
       }
-    ],
-    "connections": [
-      ["raw", "node-001"],
-      ["node-001", "node-002"],
-      ["node-002", "output"]
     ]
   }
 }
 ```
 
-For early serial-only versions, connections may be derived from order, but the schema should not prevent explicit connections later.
+### Serial order and future graph connections
+
+In Sidecar V2, the order of `graph.nodes` is the authoritative processing order because the current renderer is serial.
+
+Explicit graph connections are deliberately not written yet. They should be added as an additive schema field when RawNode can actually execute graph routing. Stable node IDs provide the identity needed for that later step.
 
 ## Node identity
 
-A node instance ID is distinct from its processor identifier.
+`id` identifies one node instance and is separate from the processor identifier.
 
-This allows multiple instances of the same plugin/script without ambiguity.
+For example, two instances of the same plugin may have different IDs:
+
+```text
+node-1 -> com.example.exposure
+node-2 -> com.example.exposure
+```
+
+The ID is restored from Sidecar V2 and remains attached to the node through reordering.
+
+## Processor identity
+
+Each node stores:
+
+- `backend`, such as `ofx`, `ctl`, `dctl`, or `native`;
+- `identifier`, the backend-specific processor/plugin/script identity;
+- `label`, a human-readable fallback;
+- `enabled`;
+- parameter values.
+
+The schema uses strings for backend identity so future backend names can still be read and preserved by older builds.
 
 ## Missing processors
 
-If a processor is unavailable on another system, keep the node and all parameter values in the sidecar. The UI should show it as missing/unavailable rather than deleting or flattening it.
+If a processor is unavailable, RawNode keeps the node as a missing placeholder rather than deleting it.
+
+The placeholder preserves:
+
+- node ID;
+- backend;
+- identifier;
+- label;
+- enabled state;
+- group UI state;
+- raw parameter JSON.
+
+Missing processors are bypassed during rendering. If the processor becomes available again in a future session/build, the saved state remains available for restoration.
+
+## Unknown parameters
+
+Loaded parameter JSON is retained on the node even when the installed processor version does not expose that parameter.
+
+When saving again:
+
+1. preserved unknown parameter values are copied forward;
+2. parameters known to the live processor overwrite their corresponding saved values.
+
+This lets removed, future, or currently unsupported parameter values survive a round trip where possible.
+
+RawNode does not yet guarantee preservation of every unknown top-level or unknown node-level metadata field. That can be expanded additively if future schema versions require it.
+
+## RAW state
+
+The V2 schema includes a `raw` object. It is currently empty because RawNode does not yet expose adjustable RAW-development settings separately from the inherited LibRaw path.
+
+Future RAW decoder/developer settings should be added here without changing the graph node model.
+
+## GUI state
+
+V2 currently retains the inherited `gui` block for behaviour compatibility.
+
+Essential edit reconstruction should not depend on layout/theme state. Folder-level UI state may move fully into the optional workspace state as RawNode evolves.
+
+## V1 migration
+
+RawNode still reads inherited sidecars named:
+
+```text
+DSC_0001.NEF.ofxrawhost.json
+```
+
+V1 nodes are normalised as `backend: "ofx"`. They receive stable node IDs when loaded and are written in Sidecar V2 format the next time the image is saved.
+
+When both files exist, RawNode prefers the V2 `.rawnode.json` sidecar.
+
+## Export sidecars
+
+Export metadata uses the same V2 graph representation and is written as:
+
+```text
+export-name.rawnode.json
+```
+
+The export sidecar also records the source path and export timestamp.
 
 ## Versioning
 
-Schema changes must be versioned. Prefer additive changes where possible.
+Schema changes must increment or deliberately extend the versioned format.
 
-Readers should ignore unknown keys and preserve them when feasible.
+Prefer additive fields where possible. Older versions should never silently discard unavailable processors or parameter state merely because they cannot execute it.
 
 ## Folder-level state
 
-A separate optional hidden file may store non-essential UI/workspace state, such as:
+A separate optional workspace file may store non-essential UI/session state such as:
 
 - active image;
 - filmstrip position;
