@@ -1,4 +1,4 @@
-// Minimal still-image OpenFX host: decode RAW/raster, run one OFX filter, preview, export.
+// Minimal still-image processor host: decode RAW/raster, process, preview, export.
 
 #include "imgio/ImageIO.h"
 #include "NodeGraph.h"
