@@ -17,84 +17,52 @@
 #include <string>
 #include <vector>
 
-const char *colorSpaceName(ColorSpace cs) {
-  switch (cs) {
-    case ColorSpace::sRGB: return "sRGB";
-    case ColorSpace::DisplayP3: return "Display P3";
-    case ColorSpace::LinearRec709: return "Linear Rec.709";
-    case ColorSpace::LinearRec2020: return "Linear Rec.2020";
-    case ColorSpace::ACES2065_1: return "ACES2065-1";
-  }
-  return "sRGB";
-}
-
-bool colorSpaceFromName(const std::string &name, ColorSpace &cs) {
-  for (ColorSpace candidate : {ColorSpace::sRGB, ColorSpace::DisplayP3, ColorSpace::LinearRec709,
-                               ColorSpace::LinearRec2020, ColorSpace::ACES2065_1}) {
-    if (name == colorSpaceName(candidate)) {
-      cs = candidate;
-      return true;
-    }
-  }
-  if (name == "ACES2065-1 (AP0)" || name == "AP0") {
-    cs = ColorSpace::ACES2065_1;
-    return true;
-  }
-  return false;
-}
-
 static cmsToneCurve *srgbCurve() {
   // Same parametric curve cmsCreate_sRGBProfile uses.
   cmsFloat64Number params[5] = {2.4, 1.0 / 1.055, 0.055 / 1.055, 1.0 / 12.92, 0.04045};
   return cmsBuildParametricToneCurve(nullptr, 4, params);
 }
 
-static cmsHPROFILE makeProfile(ColorSpace cs) {
-  const cmsCIExyY d65 = {0.3127, 0.3290, 1.0};
-  const cmsCIExyY d60 = {0.32168, 0.33767, 1.0};
-  switch (cs) {
-    case ColorSpace::sRGB:
-      return cmsCreate_sRGBProfile();
-    case ColorSpace::DisplayP3: {
-      cmsCIExyYTRIPLE p3 = {{0.680, 0.320, 1.0}, {0.265, 0.690, 1.0}, {0.150, 0.060, 1.0}};
-      cmsToneCurve *trc = srgbCurve();
-      cmsToneCurve *curves[3] = {trc, trc, trc};
-      cmsHPROFILE p = cmsCreateRGBProfile(&d65, &p3, curves);
-      cmsFreeToneCurve(trc);
-      return p;
-    }
-    case ColorSpace::LinearRec709: {
-      cmsCIExyYTRIPLE r709 = {{0.640, 0.330, 1.0}, {0.300, 0.600, 1.0}, {0.150, 0.060, 1.0}};
-      cmsToneCurve *lin = cmsBuildGamma(nullptr, 1.0);
-      cmsToneCurve *curves[3] = {lin, lin, lin};
-      cmsHPROFILE p = cmsCreateRGBProfile(&d65, &r709, curves);
-      cmsFreeToneCurve(lin);
-      return p;
-    }
-    case ColorSpace::LinearRec2020: {
-      cmsCIExyYTRIPLE r2020 = {{0.708, 0.292, 1.0}, {0.170, 0.797, 1.0}, {0.131, 0.046, 1.0}};
-      cmsToneCurve *lin = cmsBuildGamma(nullptr, 1.0);
-      cmsToneCurve *curves[3] = {lin, lin, lin};
-      cmsHPROFILE p = cmsCreateRGBProfile(&d65, &r2020, curves);
-      cmsFreeToneCurve(lin);
-      return p;
-    }
-    case ColorSpace::ACES2065_1: {
-      // ACES2065-1 / AP0 primaries and D60 white from SMPTE ST 2065-1.
-      cmsCIExyYTRIPLE ap0 = {{0.73470, 0.26530, 1.0}, {0.00000, 1.00000, 1.0}, {0.00010, -0.07700, 1.0}};
-      cmsToneCurve *lin = cmsBuildGamma(nullptr, 1.0);
-      cmsToneCurve *curves[3] = {lin, lin, lin};
-      cmsHPROFILE p = cmsCreateRGBProfile(&d60, &ap0, curves);
-      cmsFreeToneCurve(lin);
-      return p;
-    }
+static cmsToneCurve *toneCurve(TransferFunction tf) {
+  if (tf == TransferFunction::Linear) return cmsBuildGamma(nullptr, 1.0);
+  if (tf == TransferFunction::SRGB) return srgbCurve();
+
+  // lcms has no native DaVinci Intermediate or exact BT.709-camera curve type.
+  // Build their decode TRCs from the same TransferFunction implementation used
+  // by the CST, so ICC metadata and RawNode maths share one definition.
+  constexpr int kSamples = 4096;
+  std::array<cmsFloat32Number, kSamples> samples{};
+  for (int i = 0; i < kSamples; ++i) {
+    const double encoded = (double)i / (kSamples - 1);
+    double linear = decodeTransfer(encoded, tf);
+    if (!std::isfinite(linear)) linear = 0.0;
+    samples[(size_t)i] = (cmsFloat32Number)linear;
   }
-  return cmsCreate_sRGBProfile();
+  return cmsBuildTabulatedToneCurveFloat(nullptr, kSamples, samples.data());
 }
 
-// Cache for deterministic ICC profiles, serialized bytes, and CMS transforms.
-// Profiles are recreated from scratch on every call without this cache, which is
-// expensive (lcms2 profile building + CMS transform linking) and called per-frame.
+static cmsHPROFILE makeProfile(ColorEncoding encoding) {
+  const auto &def = rgbGamutDefinition(encoding.gamut);
+  const cmsCIExyY white = {def.whiteX, def.whiteY, 1.0};
+  const cmsCIExyYTRIPLE primaries = {
+      {def.redX, def.redY, 1.0},
+      {def.greenX, def.greenY, 1.0},
+      {def.blueX, def.blueY, 1.0},
+  };
+
+  cmsToneCurve *trc = toneCurve(encoding.gamma);
+  if (!trc) return nullptr;
+  cmsToneCurve *curves[3] = {trc, trc, trc};
+  cmsHPROFILE profile = cmsCreateRGBProfile(&white, &primaries, curves);
+  cmsFreeToneCurve(trc);
+  return profile;
+}
+
+static cmsHPROFILE makeProfile(ColorSpace cs) {
+  return makeProfile(legacyColorSpaceEncoding(cs));
+}
+
+// Cache legacy profiles/transforms used by ICC classification/display fallback.
 static cmsHPROFILE cachedProfile(ColorSpace cs) {
   static std::array<cmsHPROFILE, 5> profiles{};
   const int idx = (int)cs;
@@ -145,6 +113,23 @@ bool profileBytes(ColorSpace cs, std::vector<uint8_t> &out) {
   if (icc.empty()) return false;
   out = icc;
   return true;
+}
+
+bool profileBytes(ColorEncoding encoding, std::vector<uint8_t> &out) {
+  out.clear();
+  cmsHPROFILE p = makeProfile(encoding);
+  if (!p) return false;
+
+  cmsUInt32Number n = 0;
+  bool ok = cmsSaveProfileToMem(p, nullptr, &n) && n > 0;
+  if (ok) {
+    out.resize(n);
+    ok = cmsSaveProfileToMem(p, out.data(), &n) != 0;
+    if (ok) out.resize(n);
+  }
+  cmsCloseProfile(p);
+  if (!ok) out.clear();
+  return ok;
 }
 
 static std::string lowerCopy(const char *s) {
@@ -342,37 +327,31 @@ ColorSpace classifyIcc(const std::vector<uint8_t> &icc) {
     return ColorSpace::sRGB;
   }
   const bool linear = profileLooksLinear(p);
-  const cmsCIExyYTRIPLE known[4] = {
-      {{0.640, 0.330, 1.0}, {0.300, 0.600, 1.0}, {0.150, 0.060, 1.0}},  // sRGB / 709
-      {{0.680, 0.320, 1.0}, {0.265, 0.690, 1.0}, {0.150, 0.060, 1.0}},  // P3
-      {{0.640, 0.330, 1.0}, {0.300, 0.600, 1.0}, {0.150, 0.060, 1.0}},  // Linear Rec.709
-      {{0.708, 0.292, 1.0}, {0.170, 0.797, 1.0}, {0.131, 0.046, 1.0}},  // Linear Rec.2020
+  struct Candidate {
+    RgbGamut gamut;
+    ColorSpace encoded;
+    ColorSpace linear;
   };
-  const ColorSpace spaces[4] = {ColorSpace::sRGB, ColorSpace::DisplayP3, ColorSpace::LinearRec709,
-                                ColorSpace::LinearRec2020};
+  const Candidate candidates[] = {
+      {RgbGamut::Rec709, ColorSpace::sRGB, ColorSpace::LinearRec709},
+      {RgbGamut::DisplayP3, ColorSpace::DisplayP3, ColorSpace::DisplayP3},
+      {RgbGamut::Rec2020, ColorSpace::LinearRec2020, ColorSpace::LinearRec2020},
+  };
+
   double best = 1e9;
   ColorSpace pick = ColorSpace::sRGB;
-  for (int i = 0; i < 4; ++i) {
-    // Skip gamma spaces when TRC is linear, and linear spaces when TRC is not.
-    if (linear && (spaces[i] == ColorSpace::sRGB || spaces[i] == ColorSpace::DisplayP3)) continue;
-    if (!linear && (spaces[i] == ColorSpace::LinearRec709 || spaces[i] == ColorSpace::LinearRec2020)) continue;
-    const double dist = primDist2(prim, known[i]);
+  for (const Candidate &candidate : candidates) {
+    const auto &d = rgbGamutDefinition(candidate.gamut);
+    const cmsCIExyYTRIPLE known = {
+        {d.redX, d.redY, 1.0},
+        {d.greenX, d.greenY, 1.0},
+        {d.blueX, d.blueY, 1.0},
+    };
+    const double dist = primDist2(prim, known);
     if (dist < best) {
       best = dist;
-      pick = spaces[i];
+      pick = linear ? candidate.linear : candidate.encoded;
     }
-  }
-  // If filters removed every candidate, fall back to unconstrained nearest.
-  if (best >= 1e9) {
-    for (int i = 0; i < 4; ++i) {
-      const double dist = primDist2(prim, known[i]);
-      if (dist < best) {
-        best = dist;
-        pick = spaces[i];
-      }
-    }
-    if (linear && pick == ColorSpace::sRGB) pick = ColorSpace::LinearRec709;
-    if (linear && pick == ColorSpace::DisplayP3) pick = ColorSpace::LinearRec2020;
   }
   cmsCloseProfile(p);
   return pick;
@@ -399,6 +378,11 @@ void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned cha
         dst[i] = (unsigned char)std::lround(std::clamp(src[i], 0.0f, 1.0f) * 255.0f);
     }
   }
+}
+
+void toDisplayRGBA8(const Image &img, ColorEncoding encoding,
+                    std::vector<unsigned char> &out) {
+  toDisplayRGBA8(img, encoding.gamut, encoding.gamma, out);
 }
 
 void toDisplayRGBA8(const Image &img, RgbGamut gamut, TransferFunction gamma,
