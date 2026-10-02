@@ -1,6 +1,6 @@
 #pragma once
 
-﻿#include "imgio/ImageIO.h"
+#include "imgio/ImageIO.h"
 #include "color/ColorEncoding.h"
 
 const char *rgbGamutName(RgbGamut gamut);
