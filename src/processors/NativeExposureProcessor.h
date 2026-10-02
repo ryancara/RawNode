@@ -2,6 +2,8 @@
 
 #include "processors/Processor.h"
 
+#include <atomic>
+
 class NativeExposureProcessor final : public Processor {
  public:
   static constexpr const char *kIdentifier = "rawnode.native.exposure";
@@ -19,5 +21,5 @@ class NativeExposureProcessor final : public Processor {
   ProcessorResult render(const Image &input, Image &output, int generation) override;
 
  private:
-  double exposureEv_ = 0.0;
+  std::atomic<double> exposureEv_{0.0};
 };
