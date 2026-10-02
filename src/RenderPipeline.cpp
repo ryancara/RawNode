@@ -1,6 +1,7 @@
 #include "RenderPipeline.h"
 #include "perf.h"
 #include "ofx/OfxHost.h"  // gLatestGen cancellation token; move to generic render state later.
+#include "color/TransferFunction.h"
 
 #include <GLFW/glfw3.h>
 
@@ -49,7 +50,27 @@ void scheduleRender(App &app) {
 void rebuildPreview(App &app) {
   if (app.full.px.empty()) return;
   const int maxEdge = kPreviewRes[std::clamp(app.previewRes, 0, kPreviewResCount - 1)].maxEdge;
-  makePreview(app.full, maxEdge, app.preview);
+
+  if (app.inputUsesRawEncoding && app.inputGamma != TransferFunction::Linear && maxEdge > 0) {
+    // Resample RAW previews in linear light, then restore the selected working
+    // encoding. This keeps a non-linear RAW working gamma from changing the
+    // interpolation maths relative to the full-resolution source.
+    Image linear = app.full;
+    for (size_t i = 0; i + 3 < linear.px.size(); i += 4) {
+      linear.px[i + 0] = (float)decodeTransfer(linear.px[i + 0], app.inputGamma);
+      linear.px[i + 1] = (float)decodeTransfer(linear.px[i + 1], app.inputGamma);
+      linear.px[i + 2] = (float)decodeTransfer(linear.px[i + 2], app.inputGamma);
+    }
+    makePreview(linear, maxEdge, app.preview);
+    for (size_t i = 0; i + 3 < app.preview.px.size(); i += 4) {
+      app.preview.px[i + 0] = (float)encodeTransfer(app.preview.px[i + 0], app.inputGamma);
+      app.preview.px[i + 1] = (float)encodeTransfer(app.preview.px[i + 1], app.inputGamma);
+      app.preview.px[i + 2] = (float)encodeTransfer(app.preview.px[i + 2], app.inputGamma);
+    }
+  } else {
+    makePreview(app.full, maxEdge, app.preview);
+  }
+
   scheduleRender(app);
 }
 
