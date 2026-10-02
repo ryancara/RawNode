@@ -76,7 +76,9 @@ This shared representation should drive:
 
 ## Node identity
 
-Every node instance must have a persistent unique instance ID separate from the processor/plugin identifier.
+Every node instance should ultimately have a persistent unique instance ID separate from the processor/plugin identifier.
+
+The current Phase 1 implementation only assigns a session-local ID. Sidecar V2 is responsible for persisting that ID across sessions.
 
 Example:
 
