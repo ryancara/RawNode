@@ -630,6 +630,10 @@ struct CtlProcessor::Impl {
   std::vector<ParameterBinding> exposedParameters;
   std::vector<std::pair<std::string, std::string>> artGroups;
   std::vector<ArtPreset> artPresets;
+  // Last preset explicitly chosen on this live node (1-based; 0 = "(None)").
+  // Guarded by parameterMutex. Never inferred, so a restored node shows
+  // "(None)": its restored parameter values are authoritative.
+  int selectedPreset = 0;
   bool artDialect = false;
   std::string artLabel;
 
@@ -740,18 +744,15 @@ struct CtlProcessor::Impl {
     }
   }
 
-  int matchingPresetLocked() const {
-    for (size_t p = 0; p < artPresets.size(); ++p) {
-      bool matches = true;
-      for (const auto &entry : artPresets[p].values) {
-        if (entry.first >= parameterValues.size() || parameterValues[entry.first] != entry.second) {
-          matches = false;
-          break;
-        }
-      }
-      if (matches) return (int)p + 1;  // 0 is "(None)"
-    }
-    return 0;
+  // The chosen preset stays shown while every value it maps still matches;
+  // editing one of them shows "(None)". An empty preset never matches.
+  int shownPresetLocked() const {
+    if (selectedPreset <= 0 || selectedPreset > (int)artPresets.size()) return 0;
+    const auto &values = artPresets[(size_t)selectedPreset - 1].values;
+    if (values.empty()) return 0;
+    for (const auto &entry : values)
+      if (entry.first >= parameterValues.size() || parameterValues[entry.first] != entry.second) return 0;
+    return selectedPreset;
   }
 
   void load(const std::string &path) {
@@ -1028,7 +1029,7 @@ std::vector<ProcessorParameter> CtlProcessor::parameters() const {
     preset.label = "Preset";
     preset.hint = "ART CTL preset";
     preset.type = ParameterType::Choice;
-    preset.value = impl_->matchingPresetLocked();
+    preset.value = impl_->shownPresetLocked();
     preset.defaultValue = 0;
     preset.hasRange = false;
     preset.persistValue = false;
@@ -1089,8 +1090,9 @@ bool CtlProcessor::setParameterValue(const std::string &id, const ParameterValue
   if (id == kArtPresetParameterId) {
     const int *selection = std::get_if<int>(&value);
     if (!selection || *selection < 0 || *selection > (int)impl_->artPresets.size()) return false;
-    if (*selection == 0) return true;  // "(None)" is presentation-only.
     std::lock_guard<std::mutex> lock(impl_->parameterMutex);
+    impl_->selectedPreset = *selection;
+    if (*selection == 0) return true;  // "(None)" changes no parameters.
     for (const auto &entry : impl_->artPresets[(size_t)*selection - 1].values)
       impl_->parameterValues[entry.first] = entry.second;
     return true;
@@ -1111,12 +1113,9 @@ bool CtlProcessor::resetParameter(const std::string &id, bool notify) {
   (void)notify;
   if (!impl_) return false;
 
-  if (id == kArtPresetParameterId) {
-    std::lock_guard<std::mutex> lock(impl_->parameterMutex);
-    for (size_t i = 0; i < impl_->exposedParameters.size(); ++i)
-      impl_->parameterValues[i] = impl_->exposedParameters[i].defaultValue;
-    return true;
-  }
+  // The preset selector is transient presentation state; resetting it must
+  // not touch the node's parameters (ART's preset menu has no reset).
+  if (id == kArtPresetParameterId) return false;
 
   const int index = impl_->findParameter(id);
   if (index < 0) return false;
