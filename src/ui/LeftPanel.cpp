@@ -4,6 +4,7 @@
 #include "persist/ProjectPersist.h"
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
+#include "ofx/OfxHost.h"  // gPlugins: plugin discovery and node creation remain OFX-only for now.
 #include "ui/Widgets.h"
 
 #include "IconsFontAwesome6.h"

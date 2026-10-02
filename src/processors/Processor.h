@@ -1,6 +1,7 @@
 #pragma once
 
 #include "imgio/ImageIO.h"
+#include "processors/Parameter.h"
 
 #include <string>
 #include <utility>
@@ -34,6 +35,14 @@ class Processor {
   virtual ProcessorBackend backend() const = 0;
   virtual std::string identifier() const = 0;
   virtual std::string displayName() const = 0;
+
+  // Parameter metadata and values are exposed through a backend-neutral
+  // snapshot. Writes use stable parameter IDs and the backend is responsible
+  // for any change notification its runtime requires.
+  virtual std::vector<ProcessorParameter> parameters() const = 0;
+  virtual bool setParameterValue(const std::string &id, const ParameterValue &value, bool notify = true) = 0;
+  virtual bool resetParameter(const std::string &id, bool notify = true) = 0;
+  virtual bool activateParameter(const std::string &id) = 0;
 
   // Allows backends to update any size-dependent state before rendering.
   // The current app calls this from the UI thread before preview/export renders.
