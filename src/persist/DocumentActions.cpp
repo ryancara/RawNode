@@ -121,8 +121,7 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
   if (applySidecar)
     loadSidecarForPath(app, path);
   else {
-    for (auto &node : app.nodes)
-      if (node.instance) applyColorDefaults(app, node);
+    for (auto &node : app.nodes) applyColorDefaults(app, node);
   }
   rebuildPreview(app);
   persistWorkspace(app);
@@ -150,21 +149,15 @@ void doExport(App &app) {
   const std::string sourcePath = app.path;
   std::thread([&, src, outPath, pw, ph, space, jpegQuality, persistGui, persistChain, sourcePath, inSpace]() mutable {
     for (auto &n : app.nodes)
-      if (n.instance) {
-        n.instance->w = src.w;
-        n.instance->h = src.h;
-      }
+      if (n.processor) n.processor->setRenderSize(src.w, src.h);
     Image out;
-    OfxStatus st = renderChain(app, src, out, 0);
+    ProcessorResult result = renderChain(app, src, out, 0);
     for (auto &n : app.nodes)
-      if (n.instance) {
-        n.instance->w = pw;
-        n.instance->h = ph;
-      }
-    bool ok = st == kOfxStatOK && writeImage(out, outPath, space, jpegQuality);
+      if (n.processor) n.processor->setRenderSize(pw, ph);
+    bool ok = result.ok && writeImage(out, outPath, space, jpegQuality);
     if (ok) saveExportSidecar(outPath, sourcePath, inSpace, persistGui, persistChain);
     app.setStatus(ok ? "Exported " + fs::path(outPath).filename().string() + " (" + std::to_string(src.w) + "×" +
                             std::to_string(src.h) + ")"
-                      : "Export failed (OFX status " + std::to_string(st) + ")");
+                      : "Export failed" + (result.message.empty() ? std::string() : ": " + result.message));
   }).detach();
 }
