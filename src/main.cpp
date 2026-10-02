@@ -2,10 +2,12 @@
 
 #include "imgio/ImageIO.h"
 #include "ofx/OfxHost.h"
+#include "processors/OfxProcessor.h"
 #include "UI.h"
 
 #include <tiffio.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -102,6 +104,37 @@ static int selfTest() {
 
   loadPlugins();
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
+
+  // Generic processor/parameter seam: exercise the same Crop plugin through
+  // Processor rather than touching OFX Param/Effect objects directly.
+  {
+    auto it = std::find_if(gPlugins.begin(), gPlugins.end(),
+                           [](const PluginEntry &pe) { return pe.label == "Crop"; });
+    if (it == gPlugins.end()) return fail("bundled Crop plugin not found (generic)");
+    const int pluginIndex = (int)std::distance(gPlugins.begin(), it);
+    auto processor = OfxProcessor::create(pluginIndex);
+    if (!processor) return fail("OfxProcessor::create: Crop");
+
+    bool foundCrop = false;
+    for (const ProcessorParameter &param : processor->parameters()) {
+      if (param.id != "crop") continue;
+      foundCrop = param.type == ParameterType::Double;
+      break;
+    }
+    if (!foundCrop) return fail("generic crop parameter missing");
+
+    if (!processor->setParameterValue("crop", 80.0)) return fail("generic crop parameter set");
+    Image out;
+    ProcessorResult result = processor->render(src, out, 0);
+    if (!result.ok || out.w >= src.w || out.h >= src.h) return fail("generic Crop render");
+
+    if (!processor->resetParameter("crop")) return fail("generic crop parameter reset");
+    result = processor->render(src, out, 0);
+    if (!result.ok || out.w != src.w || out.h != src.h || out.px != src.px)
+      return fail("generic Crop reset/render");
+
+    printf("ok  Generic processor parameters\n");
+  }
 
   // Bundled Crop plugin: defaults must be an identity pass-through with a
   // full-size RoD; the crop slider must shrink the RoD and change the rendered
