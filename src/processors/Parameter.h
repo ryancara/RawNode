@@ -51,6 +51,10 @@ struct ProcessorParameter {
 
   bool enabled = true;
   bool secret = false;
+  // UI-only controls such as ART preset selectors change other parameters but
+  // are not edit state themselves. Persistence skips their own value while
+  // still saving the parameters they modify.
+  bool persistValue = true;
   bool readOnly = false;
   bool vectorIsInteger = false;
   bool groupInitiallyOpen = true;
