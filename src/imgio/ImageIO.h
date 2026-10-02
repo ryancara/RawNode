@@ -1,4 +1,4 @@
-// Decode RAW (LibRaw) / raster (stb), convert to/from OFX float buffers, export.
+// Decode RAW (LibRaw) / raster (stb), convert to/from float buffers, export.
 #pragma once
 
 #include "color/ColorEncoding.h"
@@ -17,37 +17,42 @@ struct Image {
   }
 };
 
-// Matches the UI "Output tag" combo. Plugin pixels are assumed already in this space;
-// we only embed the matching ICC (and convert for on-screen preview).
-enum class ColorSpace {
-  sRGB = 0,
-  DisplayP3,
-  LinearRec709,
-  LinearRec2020,
-  ACES2065_1,
-};
-
-const char *colorSpaceName(ColorSpace cs);
-bool colorSpaceFromName(const std::string &name, ColorSpace &cs);
-bool isRawWorkingSpace(ColorSpace cs);
 bool isRawImagePath(const std::string &path);
 
 // Loads RAW via LibRaw (camera WB/demosaic, then RawNode-owned gamut and
 // transfer-function conversion), TIFF via libtiff, or PNG/JPEG/EXR via
-// stb/tinyexr. Raster inputs ignore the RAW encoding arguments.
+// stb/tinyexr. decodedRaw reports what actually decoded the file, independent
+// of its filename extension. detectedEncoding describes the pixels in memory.
+bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncoding,
+               bool &decodedRaw,
+               ColorEncoding rawWorkingEncoding = {RgbGamut::Rec2020, TransferFunction::Linear});
+
+// Compatibility overloads for old tests/call sites. New code should use the
+// ColorEncoding + decodedRaw overload above.
 bool loadImage(const std::string &path, Image &out, ColorSpace &detected,
                RgbGamut rawGamut = RgbGamut::Rec2020,
                TransferFunction rawGamma = TransferFunction::Linear);
-// Compatibility overload for the three legacy scene-linear RAW choices.
 bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace rawWorkingSpace);
+
 // maxEdge 0 = full size; otherwise downsamples so longest edge <= maxEdge.
 bool makePreview(const Image &src, int maxEdge, Image &out);
-// Format from path extension; PNG/JPEG embed ICC.
-bool writeImage(const Image &img, const std::string &path, ColorSpace space = ColorSpace::sRGB, int jpegQuality = 92);
+
+// Format from path extension; PNG/JPEG embed an ICC profile describing pixels
+// exactly as tagged by the explicit output encoding.
+bool writeImage(const Image &img, const std::string &path,
+                ColorEncoding encoding = {RgbGamut::Rec709, TransferFunction::SRGB},
+                int jpegQuality = 92);
+bool writeImage(const Image &img, const std::string &path, ColorSpace space, int jpegQuality = 92);
+
 // Top-down 8-bit RGBA for display.
+void toDisplayRGBA8(const Image &img, ColorEncoding encoding, std::vector<unsigned char> &out);
 void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out);
-// Explicit source gamut + transfer function, used by RAW source preview.
 void toDisplayRGBA8(const Image &img, RgbGamut gamut, TransferFunction gamma,
                     std::vector<unsigned char> &out);
+
+// ICC helpers.
+bool profileBytes(ColorEncoding encoding, std::vector<uint8_t> &out);
+bool profileBytes(ColorSpace cs, std::vector<uint8_t> &out);
+
 // Small filmstrip preview (downscaled source, sRGB 8-bit RGBA).
 bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w, int &h);
