@@ -27,11 +27,14 @@ static int legacyOutputIndex(const ColorEncoding &encoding) {
 
 PersistGui captureGui(const App &app) {
   PersistGui g;
-  g.outputIndex = legacyOutputIndex(app.outputEncoding);
-  g.outputColorSpace = rgbGamutId(app.outputEncoding.gamut);
-  g.outputGamma = transferFunctionId(app.outputEncoding.gamma);
-  g.rawDefaultColorSpace = rgbGamutId(app.rawWorkingEncoding.gamut);
-  g.rawDefaultGamma = transferFunctionId(app.rawWorkingEncoding.gamma);
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    g.outputIndex = legacyOutputIndex(app.outputEncoding);
+    g.outputColorSpace = rgbGamutId(app.outputEncoding.gamut);
+    g.outputGamma = transferFunctionId(app.outputEncoding.gamma);
+    g.rawDefaultColorSpace = rgbGamutId(app.rawWorkingEncoding.gamut);
+    g.rawDefaultGamma = transferFunctionId(app.rawWorkingEncoding.gamma);
+  }
   g.exportFormat = app.exportFormat;
   g.jpegQuality = app.jpegQuality;
   g.previewRes = app.previewRes;
@@ -48,12 +51,14 @@ PersistGui captureGui(const App &app) {
 void applyGui(App &app, const PersistGui &g) {
   RgbGamut gamut;
   TransferFunction gamma;
+  ColorEncoding output = legacyOutputEncoding(g.outputIndex);
   if (!g.outputColorSpace.empty() && !g.outputGamma.empty() &&
       rgbGamutFromIdOrName(g.outputColorSpace, gamut) &&
-      transferFunctionFromIdOrName(g.outputGamma, gamma)) {
-    app.outputEncoding = {gamut, gamma};
-  } else {
-    app.outputEncoding = legacyOutputEncoding(g.outputIndex);
+      transferFunctionFromIdOrName(g.outputGamma, gamma))
+    output = {gamut, gamma};
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.outputEncoding = output;
   }
 
   app.exportFormat = std::clamp(g.exportFormat, 0, 1);
@@ -74,8 +79,10 @@ static void applyWorkspaceSessionDefaults(App &app, const PersistGui &g) {
   TransferFunction rawGamma;
   if (!g.rawDefaultColorSpace.empty() && !g.rawDefaultGamma.empty() &&
       rgbGamutFromIdOrName(g.rawDefaultColorSpace, rawGamut) &&
-      transferFunctionFromIdOrName(g.rawDefaultGamma, rawGamma))
+      transferFunctionFromIdOrName(g.rawDefaultGamma, rawGamma)) {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
     app.rawWorkingEncoding = {rawGamut, rawGamma};
+  }
 }
 
 static PersistGui captureSidecarGui(const App &app) {
@@ -89,8 +96,15 @@ static PersistGui captureSidecarGui(const App &app) {
 void saveCurrentInputSidecar(App &app) {
   if (app.path.empty()) return;
   if (app.sidecarWriteBlockedPath == app.path) return;
-  saveInputSidecar(app.path, app.inputEncoding, captureSidecarGui(app), captureChain(app),
-                   app.inputIsRaw ? &app.inputEncoding : nullptr);
+  ColorEncoding inputEncoding;
+  bool inputIsRaw = false;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    inputEncoding = app.inputEncoding;
+    inputIsRaw = app.inputIsRaw;
+  }
+  saveInputSidecar(app.path, inputEncoding, captureSidecarGui(app), captureChain(app),
+                   inputIsRaw ? &inputEncoding : nullptr);
 }
 
 void persistWorkspace(App &app) {
@@ -247,7 +261,11 @@ void openWorkspace(App &app, const std::string &dir) {
 
 static ColorEncoding rawWorkingEncodingForOpen(const App &app, const std::string &path,
                                                bool applySidecar) {
-  const ColorEncoding session = app.rawWorkingEncoding;
+  ColorEncoding session;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    session = app.rawWorkingEncoding;
+  }
   if (!applySidecar) return session;
 
   std::error_code ec;
@@ -306,13 +324,16 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
 
   app.path = path;
   app.full = std::move(img);
-  app.inputEncoding = detectedEncoding;
-  app.inputIsRaw = decodedRaw;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.inputEncoding = detectedEncoding;
+    app.inputIsRaw = decodedRaw;
+  }
   app.previewZoom = 1.0f;
   app.previewPanX = 0.0f;
   app.previewPanY = 0.0f;
   app.setStatus("Loaded " + fs::path(path).filename().string() + " (" +
-                colorEncodingName(app.inputEncoding) + ")");
+                colorEncodingName(detectedEncoding) + ")");
 
   app.filmstripIndex = -1;
   for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
@@ -323,10 +344,12 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
     }
   }
 
-  if (applySidecar)
+  if (applySidecar) {
     loadSidecarForPath(app, path);
-  else
+  } else {
     app.sidecarWriteBlockedPath.clear();
+    app.sidecarBlockedByUnknownProcessorChoice = false;
+  }
 
   rebuildPreview(app);
   persistWorkspace(app);
@@ -334,14 +357,19 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
 
 void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
   const ColorEncoding requested{gamut, gamma};
-  const ColorEncoding current = app.inputIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
-
-  // An explicit UI choice also becomes the session default for new RAWs.
-  app.rawWorkingEncoding = requested;
+  ColorEncoding current;
+  bool currentIsRaw = false;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    currentIsRaw = app.inputIsRaw;
+    current = currentIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
+    // An explicit UI choice also becomes the session default for new RAWs.
+    app.rawWorkingEncoding = requested;
+  }
   if (current == requested) return;
 
   // For raster images this is simply the preference for the next RAW.
-  if (!app.inputIsRaw) return;
+  if (!currentIsRaw) return;
 
   waitRenderIdle(app);
   Image img;
@@ -353,8 +381,11 @@ void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
   }
 
   app.full = std::move(img);
-  app.inputEncoding = detectedEncoding;
-  app.inputIsRaw = true;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.inputEncoding = detectedEncoding;
+    app.inputIsRaw = true;
+  }
   rebuildPreview(app);
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
@@ -381,10 +412,17 @@ void doExport(App &app) {
   waitRenderIdle(app);
   const int pw = app.preview.w, ph = app.preview.h;
   Image src = app.full;
-  const ColorEncoding space = app.outputEncoding;
-  const ColorEncoding inSpace = app.inputEncoding;
-  const bool sourceUsesRawEncoding = app.inputIsRaw;
-  const ColorEncoding sourceRawEncoding = app.inputEncoding;
+  ColorEncoding space;
+  ColorEncoding inSpace;
+  bool sourceUsesRawEncoding = false;
+  ColorEncoding sourceRawEncoding;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    space = app.outputEncoding;
+    inSpace = app.inputEncoding;
+    sourceUsesRawEncoding = app.inputIsRaw;
+    sourceRawEncoding = app.inputEncoding;
+  }
   const int jpegQuality = app.jpegQuality;
   const PersistGui persistGui = captureSidecarGui(app);
   const PersistChain persistChain = captureChain(app);
@@ -407,9 +445,15 @@ void doExport(App &app) {
     bool ok = result.ok && writeImage(out, outPath, space, jpegQuality);
     if (ok) saveExportSidecar(outPath, sourcePath, inSpace, persistGui, persistChain,
                               sourceUsesRawEncoding ? &sourceRawEncoding : nullptr);
-    app.setStatus(ok ? "Exported " + fs::path(outPath).filename().string() + " (" + std::to_string(src.w) + "×" +
-                            std::to_string(src.h) + ")" +
-                            (bypassedMissingProcessor ? " — missing processors were bypassed" : "")
-                      : "Export failed" + (result.message.empty() ? std::string() : ": " + result.message));
+    if (ok) {
+      std::string status = "Exported " + fs::path(outPath).filename().string() + " (" +
+                           std::to_string(src.w) + "×" + std::to_string(src.h) + ")";
+      if (bypassedMissingProcessor) status += " — missing processors were bypassed";
+      if (space.gamma == TransferFunction::DaVinciIntermediate)
+        status += " — warning: ICC cannot fully represent DaVinci Intermediate scene values above 1.0; external apps may clip highlights";
+      app.setStatus(status);
+    } else {
+      app.setStatus("Export failed" + (result.message.empty() ? std::string() : ": " + result.message));
+    }
   }).detach();
 }
