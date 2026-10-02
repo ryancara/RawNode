@@ -329,82 +329,71 @@ ColorEncoding classifyIccEncoding(const std::vector<uint8_t> &icc) {
   char desc[256] = {};
   cmsGetProfileInfoASCII(p, cmsInfoDescription, "en", "US", desc, sizeof desc);
   const std::string description = desc;
-  const std::string d = lowerCopy(description);
+  const std::string d = lowerCopy(description.c_str());
 
-  // RawNode exports write stable IDs into the profile description so every
-  // supported gamut/transfer pair, including AP1 and DWG, can round-trip.
+  // RawNode exports write an exact, machine-readable pair:
+  // "RawNode <gamut-id> / <transfer-id>". Parse both tokens exactly so a
+  // transfer ID such as "rec709-camera" can never be mistaken for the Rec.709
+  // gamut.
   if (d.rfind("rawnode ", 0) == 0) {
-    for (int gi = 0; gi < rgbGamutCount(); ++gi) {
-      const auto &g = rgbGamutDefinition(gi);
-      if (d.find(g.id) == std::string::npos) continue;
-      for (int ti = 0; ti < transferFunctionCount(); ++ti) {
-        const auto &t = transferFunctionDefinition(ti);
-        if (d.find(t.id) != std::string::npos) {
-          cmsCloseProfile(p);
-          return {g.value, t.value};
-        }
+    const std::string payload = d.substr(8);
+    const size_t sep = payload.find(" / ");
+    if (sep != std::string::npos && payload.find(" / ", sep + 3) == std::string::npos) {
+      const std::string gamutId = payload.substr(0, sep);
+      const std::string transferId = payload.substr(sep + 3);
+      RgbGamut gamut;
+      TransferFunction tf;
+      if (rgbGamutFromIdOrName(gamutId, gamut) &&
+          transferFunctionFromIdOrName(transferId, tf)) {
+        cmsCloseProfile(p);
+        return {gamut, tf};
       }
     }
   }
 
-  RgbGamut describedGamut = RgbGamut::Rec709;
-  bool haveDescribedGamut = false;
-  if (d.find("acescg") != std::string::npos || d.find("ap1") != std::string::npos) {
-    describedGamut = RgbGamut::ACES_AP1;
-    haveDescribedGamut = true;
-  } else if (d.find("aces2065") != std::string::npos || d.find("ap0") != std::string::npos) {
-    describedGamut = RgbGamut::ACES_AP0;
-    haveDescribedGamut = true;
-  } else if (d.find("davinci wide gamut") != std::string::npos || d.find("dwg") != std::string::npos) {
-    describedGamut = RgbGamut::DaVinciWideGamut;
-    haveDescribedGamut = true;
-  } else if (d.find("display p3") != std::string::npos || d.find("display-p3") != std::string::npos ||
-             (d.find("p3") != std::string::npos && d.find("dci") == std::string::npos)) {
-    describedGamut = RgbGamut::DisplayP3;
-    haveDescribedGamut = true;
-  } else if (d.find("rec2020") != std::string::npos || d.find("rec-2020") != std::string::npos ||
-             d.find("rec.2020") != std::string::npos || d.find("bt.2020") != std::string::npos ||
-             d.find("bt2020") != std::string::npos || d.find("prophoto") != std::string::npos) {
-    describedGamut = RgbGamut::Rec2020;
-    haveDescribedGamut = true;
-  } else if (d.find("rec709") != std::string::npos || d.find("rec-709") != std::string::npos ||
-             d.find("rec.709") != std::string::npos || d.find("bt.709") != std::string::npos ||
-             d.find("bt709") != std::string::npos || d.find("srgb") != std::string::npos) {
-    describedGamut = RgbGamut::Rec709;
-    haveDescribedGamut = true;
-  }
-
   const TransferFunction inferredTf = inferTransferFunction(p);
-  if (haveDescribedGamut) {
-    cmsCloseProfile(p);
-    return {describedGamut, inferredTf};
-  }
 
+  // For third-party ICC profiles prefer measured colourants over free-form
+  // profile descriptions. Descriptions are human text and are not a reliable
+  // machine-readable colour-space identifier (e.g. ProPhoto is not Rec.2020).
   cmsCIExyYTRIPLE prim{};
   cmsCIExyY wp{};
-  if (!profilePrimaries(p, prim, wp)) {
+  if (profilePrimaries(p, prim, wp)) {
+    double best = 1e30;
+    RgbGamut gamut = RgbGamut::Rec709;
+    for (int i = 0; i < rgbGamutCount(); ++i) {
+      const auto &g = rgbGamutDefinition(i);
+      const cmsCIExyYTRIPLE known = {
+          {g.redX, g.redY, 1.0},
+          {g.greenX, g.greenY, 1.0},
+          {g.blueX, g.blueY, 1.0},
+      };
+      const double dist = primDist2(prim, known);
+      if (dist < best) {
+        best = dist;
+        gamut = g.value;
+      }
+    }
     cmsCloseProfile(p);
-    return {RgbGamut::Rec709, inferredTf};
+    return {gamut, inferredTf};
   }
 
-  double best = 1e30;
-  RgbGamut gamut = RgbGamut::Rec709;
-  for (int i = 0; i < rgbGamutCount(); ++i) {
-    const auto &g = rgbGamutDefinition(i);
-    const cmsCIExyYTRIPLE known = {
-        {g.redX, g.redY, 1.0},
-        {g.greenX, g.greenY, 1.0},
-        {g.blueX, g.blueY, 1.0},
-    };
-    const double dist = primDist2(prim, known);
-    if (dist < best) {
-      best = dist;
-      gamut = g.value;
-    }
-  }
+  // Exact-name fallback only when colourants are unavailable.
+  RgbGamut fallback = RgbGamut::Rec709;
+  if (d == "acescg" || d == "aces ap1" || d == "ap1")
+    fallback = RgbGamut::ACES_AP1;
+  else if (d == "aces2065-1" || d == "aces ap0" || d == "ap0")
+    fallback = RgbGamut::ACES_AP0;
+  else if (d == "davinci wide gamut" || d == "dwg")
+    fallback = RgbGamut::DaVinciWideGamut;
+  else if (d == "display p3" || d == "display-p3")
+    fallback = RgbGamut::DisplayP3;
+  else if (d == "rec.2020" || d == "rec2020" || d == "rec-2020" ||
+           d == "bt.2020" || d == "bt2020")
+    fallback = RgbGamut::Rec2020;
 
   cmsCloseProfile(p);
-  return {gamut, inferredTf};
+  return {fallback, inferredTf};
 }
 
 ColorSpace classifyIcc(const std::vector<uint8_t> &icc) {
