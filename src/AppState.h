@@ -96,6 +96,9 @@ struct App {
   // automatic image switching. Reopening after the file is fixed/removed
   // clears this protection.
   std::string sidecarWriteBlockedPath;
+  // True only when the write block is caused by unknown processor choice IDs.
+  // A deliberate replacement of all such choices can safely clear this block.
+  bool sidecarBlockedByUnknownProcessorChoice = false;
   // Canonical colour state. inputEncoding describes the pixels actually in
   // memory, independent of the file's original tag. inputIsRaw is determined
   // by the decoder that successfully opened the current source.
