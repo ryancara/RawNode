@@ -892,14 +892,22 @@ static int selfTest() {
     if (!adjuster.setParameterValue("fine", 0.0) ||
         adjusterValue("fine", false) != ParameterValue(0.01))
       return fail("ART scalar shaping after clamp");
-    // The derived step (0.7 - 0) / 100 is 0.006999999999999999 in double.
-    // ART's digit loop gives 7 places for it, not the 3 an accumulated
-    // step * 10 * 10 * ... product would suggest.
+    // ART derives decimal precision with std::pow(). The exact digit count
+    // for a binary floating-point step can differ between libm implementations
+    // (for example macOS vs Linux), so compute the expected value with ART's
+    // own loop rather than hard-coding one platform's result.
+    const double expectedStep = (0.7 - 0.0) / 100.0;
+    int expectedDigits = 0;
+    while (std::fabs(expectedStep * std::pow(10.0, expectedDigits) -
+                     std::floor(expectedStep * std::pow(10.0, expectedDigits))) > 1e-12)
+      ++expectedDigits;
+    const double expectedScale = std::pow(10.0, expectedDigits);
+    const double expectedDerived = std::round(0.123456789 * expectedScale) / expectedScale;
     bool derivedStep = false;
     for (const ProcessorParameter &param : adjuster.parameters())
-      if (param.id == "derived") derivedStep = param.step == (0.7 - 0.0) / 100.0;
+      if (param.id == "derived") derivedStep = param.step == expectedStep;
     if (!derivedStep || !adjuster.setParameterValue("derived", 0.123456789) ||
-        adjusterValue("derived", false) != ParameterValue(0.1234568))
+        adjusterValue("derived", false) != ParameterValue(expectedDerived))
       return fail("ART scalar decimal places from derived step");
 
     const PersistChain adjusterSaved = captureChain(artAdjuster);
