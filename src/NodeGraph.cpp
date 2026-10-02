@@ -183,6 +183,63 @@ void applyColorDefaults(App &app, Node &node) {
   }
 }
 
+InputColorSyncResult syncOfxInputColorSpace(App &app, ColorSpace space) {
+  InputColorSyncResult result;
+  const std::string wanted = colorSpaceName(space);
+
+  const auto isManagedWorkingSpace = [](const std::string &name) {
+    return name == colorSpaceName(ColorSpace::LinearRec709) ||
+           name == colorSpaceName(ColorSpace::LinearRec2020) ||
+           name == colorSpaceName(ColorSpace::ACES2065_1);
+  };
+
+  for (Node &node : app.nodes) {
+    if (!node.processor || node.processor->backend() != ProcessorBackend::OFX) continue;
+
+    for (const ProcessorParameter &param : node.processor->parameters()) {
+      if (param.type != ParameterType::Choice || param.label != "Input Color Space") continue;
+
+      const int *currentValue = std::get_if<int>(&param.value);
+      if (!currentValue) continue;
+
+      int currentIndex = *currentValue;
+      if (param.choiceValues.size() == param.choices.size()) {
+        currentIndex = -1;
+        for (size_t i = 0; i < param.choiceValues.size(); ++i) {
+          if (param.choiceValues[i] == *currentValue) {
+            currentIndex = (int)i;
+            break;
+          }
+        }
+      }
+      if (currentIndex < 0 || currentIndex >= (int)param.choices.size()) continue;
+
+      // Only follow values that are already one of RawNode's scene-linear
+      // working spaces. A deliberately different user choice is left alone.
+      if (!isManagedWorkingSpace(param.choices[(size_t)currentIndex])) continue;
+
+      int targetIndex = -1;
+      for (size_t i = 0; i < param.choices.size(); ++i) {
+        if (param.choices[i] == wanted) {
+          targetIndex = (int)i;
+          break;
+        }
+      }
+      if (targetIndex < 0) {
+        ++result.unsupported;
+        continue;
+      }
+
+      const int targetValue =
+          param.choiceValues.size() == param.choices.size() ? param.choiceValues[(size_t)targetIndex] : targetIndex;
+      if (targetValue != *currentValue && node.processor->setParameterValue(param.id, targetValue))
+        ++result.updated;
+    }
+  }
+
+  return result;
+}
+
 void syncOutputTag(App &app) {
   for (int n = (int)app.nodes.size() - 1; n >= 0; --n) {
     if (!app.nodes[n].processor) continue;
