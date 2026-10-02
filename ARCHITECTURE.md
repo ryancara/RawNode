@@ -23,6 +23,30 @@ Processing Graph
 Display / Export
 ```
 
+## Colour management
+
+Colour-space state should be explicit throughout the processing chain.
+
+The initial target working spaces are:
+
+- Linear Rec.2020;
+- ACES2065-1 / AP0.
+
+A colour-space transform should be a first-class processor/node rather than an implicit side effect of another tool. This allows deliberate chains such as:
+
+```text
+AP0
+ -> processor
+ -> CST: AP0 to Linear Rec.2020
+ -> processor
+ -> CST: Linear Rec.2020 to AP0
+ -> display/export transform
+```
+
+The renderer and display path must not infer that a non-empty node chain has already reached the selected output space. Each stage should know the space of the pixels it receives and produces.
+
+The inherited RAW path currently uses LibRaw `output_color = 1` with a linear transfer curve, which yields linear data in sRGB primaries, while RawNode labels that data as Linear Rec.2020. This inherited mismatch should be corrected before relying on the working-space tag for AP0/CST workflows.
+
 ## Generic processor model
 
 A processing node must not inherently be an OFX plugin.
@@ -138,7 +162,7 @@ IRawDeveloper
     -> scene-linear working RGB
 ```
 
-The initial decoder can remain LibRaw. Future candidates such as Rawler or RawSpeed should be able to sit behind the same boundary.
+The initial decoder can remain LibRaw. Future candidates such as Rawler or RawSpeed should be able to sit behind the same boundary. JPEG XL-compressed DNG support is a required capability of the eventual decoder stack, whether provided by the primary decoder or a transparent fallback.
 
 The RAW development stage should stay minimal and should primarily handle tasks that belong close to sensor data, such as:
 
@@ -206,6 +230,10 @@ The input system must not know whether the target parameter belongs to OFX, CTL,
 Per-image edit state belongs in sidecars. Folder-level UI state may be stored separately but must not be required to reproduce an edit.
 
 Unknown node types/parameters should be preserved where possible rather than silently discarded.
+
+Per-image workflow classifications such as Pick / Neutral / Reject may also be persisted without introducing a catalogue. They are workflow metadata rather than processing state and should remain lightweight and transparent. Moving rejected source files to the operating system Trash/Recycle Bin must remain an explicit user action.
+
+Batch export should operate over the current folder/workspace and reconstruct each image from its own sidecar state rather than requiring a project database.
 
 ## Modularity rule
 
