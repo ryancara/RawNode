@@ -32,6 +32,7 @@ Conceptually:
 ```text
 Processor
 ├── OFXProcessor
+├── Native processors
 ├── CTLProcessor
 ├── DCTLProcessor
 └── future processor types
@@ -163,6 +164,7 @@ RenderPipeline
     +--> Node/Processor interface
              |
              +--> OFX
+             +--> Native
              +--> CTL
              +--> DCTL
 ```
