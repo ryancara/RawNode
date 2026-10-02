@@ -2,6 +2,7 @@
 
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
+#include "color/LinearColorTransform.h"
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
 #include "ofx/OfxHost.h"
@@ -572,6 +573,9 @@ static int selfTest() {
     const fs::path defaultImage = fs::temp_directory_path() / "rawnode-selftest-default-owner.tif";
     if (!writeTinyTiff(defaultImage, false)) return fail("RAW default owner image write");
     PersistGui oldPerImageGui;
+    oldPerImageGui.outputIndex = 0;
+    oldPerImageGui.outputColorSpace = "rec709";
+    oldPerImageGui.outputGamma = "srgb";
     if (!saveInputSidecar(defaultImage.string(), ColorSpace::sRGB, oldPerImageGui, PersistChain{}, nullptr))
       return fail("RAW default owner sidecar write");
     const std::string defaultSidecar = inputSidecarPath(defaultImage.string());
