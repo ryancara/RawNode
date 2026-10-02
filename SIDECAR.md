@@ -155,6 +155,14 @@ export-name.rawnode.json
 
 The export sidecar also records the source path and export timestamp.
 
+## Invalid and newer sidecars
+
+If a V2 sidecar exists but cannot be parsed safely, RawNode clears the inherited on-screen chain for that image and blocks automatic sidecar writes to the file. This prevents edits from the previously viewed image from overwriting a damaged sidecar.
+
+A `rawnode-sidecar` with a version newer than this build understands is handled the same way. RawNode does not reinterpret or downgrade future schema versions.
+
+The write protection clears when the sidecar is fixed/removed and the image is reopened.
+
 ## Versioning
 
 Schema changes must increment or deliberately extend the versioned format.
