@@ -281,6 +281,8 @@ bool extractBoolField(const std::string &json, const char *key, bool &out) {
 
 void loadGuiFromJson(const std::string &guiObj, PersistGui &g) {
   extractIntField(guiObj, "outputIndex", g.outputIndex);
+  extractStringField(guiObj, "outputColorSpace", g.outputColorSpace);
+  extractStringField(guiObj, "outputGamma", g.outputGamma);
   extractIntField(guiObj, "exportFormat", g.exportFormat);
   extractIntField(guiObj, "jpegQuality", g.jpegQuality);
   extractIntField(guiObj, "previewRes", g.previewRes);
