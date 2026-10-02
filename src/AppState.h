@@ -115,6 +115,10 @@ struct App {
 
   Image full, preview;
   std::string path, status = "Open an image. Source is fed to the plugin as scene-linear.";
+  // If a sidecar exists but cannot be safely read, never overwrite it on
+  // automatic image switching. Reopening after the file is fixed/removed
+  // clears this protection.
+  std::string sidecarWriteBlockedPath;
   ColorSpace inputSpace = ColorSpace::LinearRec2020;
   int outputIndex = 0;
   int exportFormat = 1;  // JPEG
