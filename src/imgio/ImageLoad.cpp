@@ -52,58 +52,99 @@ bool fromRGBAFloatTopDown(float *src, int w, int h, Image &out) {
   return true;
 }
 
+void applyCameraMatrix(const float camera[4], int channels, const float matrix[3][4], float rgb[3]) {
+  const int n = std::clamp(channels, 0, 4);
+  for (int row = 0; row < 3; ++row) {
+    float v = 0.0f;
+    for (int c = 0; c < n; ++c) v += matrix[row][c] * camera[c];
+    rgb[row] = v;
+  }
+}
+
 static bool loadRaw(const std::string &path, Image &out) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
   LibRaw raw;
   if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
   if (raw.unpack() != LIBRAW_SUCCESS) return false;
+
+  // Keep LibRaw responsible for the existing RAW-development stages (including
+  // camera WB and demosaic), but stop before its output-colour conversion.
+  // RawNode owns the camera-RGB -> working-RGB matrix application below.
   raw.imgdata.params.output_bps = 16;
   raw.imgdata.params.gamm[0] = 1.0;
   raw.imgdata.params.gamm[1] = 1.0;
   raw.imgdata.params.no_auto_bright = 1;
   raw.imgdata.params.use_camera_wb = 1;
-  raw.imgdata.params.output_color = 1;
+  raw.imgdata.params.output_color = 0;
+
+  // rgb_cam is the matrix LibRaw would otherwise use for camera RGB -> linear
+  // sRGB/Rec.709. Copy it before processing so the colour boundary is explicit
+  // and independent of the lifetime of the LibRaw object.
+  float cameraToRec709[3][4] = {};
+  bool haveMatrix = false;
+  for (int row = 0; row < 3; ++row) {
+    for (int c = 0; c < 4; ++c) {
+      cameraToRec709[row][c] = raw.imgdata.color.rgb_cam[row][c];
+      haveMatrix = haveMatrix || cameraToRec709[row][c] != 0.0f;
+    }
+  }
+  // Unknown cameras can have no usable matrix. Preserve LibRaw's effective
+  // fallback by treating the first three camera channels as RGB.
+  if (!haveMatrix)
+    for (int c = 0; c < 3; ++c) cameraToRec709[c][c] = 1.0f;
+
   if (raw.dcraw_process() != LIBRAW_SUCCESS) return false;
   libraw_processed_image_t *img = raw.dcraw_make_mem_image();
-  if (!img || img->type != LIBRAW_IMAGE_BITMAP || img->colors < 3) {
+  if (!img || img->type != LIBRAW_IMAGE_BITMAP || img->colors < 3 || img->colors > 4) {
     if (img) LibRaw::dcraw_clear_mem(img);
     return false;
   }
+
   const int w = img->width, h = img->height;
   out.w = w;
   out.h = h;
   out.px.resize((size_t)w * h * 4);
-  const float scale = 1.0f / 65535.0f;
+
+  const auto convertPixel = [&](const auto *src, float scale, float *dst) {
+    float camera[4] = {};
+    for (int c = 0; c < img->colors; ++c) camera[c] = (float)src[c] * scale;
+    float rgb[3];
+    applyCameraMatrix(camera, img->colors, cameraToRec709, rgb);
+    // Deliberately do not clamp here. The old LibRaw output-colour stage used
+    // unsigned 16-bit storage and clipped matrix-created negatives/highlights.
+    // Applying the matrix in RawNode float preserves those values.
+    dst[0] = rgb[0];
+    dst[1] = rgb[1];
+    dst[2] = rgb[2];
+    dst[3] = 1.0f;
+  };
+
   if (img->bits == 16) {
     const uint16_t *p = reinterpret_cast<const uint16_t *>(img->data);
+    const float scale = 1.0f / 65535.0f;
     for (int y = 0; y < h; ++y) {
       const uint16_t *src = p + (size_t)(h - 1 - y) * w * img->colors;
       float *dst = out.px.data() + (size_t)y * w * 4;
       for (int x = 0; x < w; ++x) {
-        dst[0] = src[0] * scale;
-        dst[1] = src[1] * scale;
-        dst[2] = src[2] * scale;
-        dst[3] = 1.0f;
+        convertPixel(src, scale, dst);
         src += img->colors;
         dst += 4;
       }
     }
   } else {
     const uint8_t *p = img->data;
-    const float s8 = 1.0f / 255.0f;
+    const float scale = 1.0f / 255.0f;
     for (int y = 0; y < h; ++y) {
       const uint8_t *src = p + (size_t)(h - 1 - y) * w * img->colors;
       float *dst = out.px.data() + (size_t)y * w * 4;
       for (int x = 0; x < w; ++x) {
-        dst[0] = src[0] * s8;
-        dst[1] = src[1] * s8;
-        dst[2] = src[2] * s8;
-        dst[3] = 1.0f;
+        convertPixel(src, scale, dst);
         src += img->colors;
         dst += 4;
       }
     }
   }
+
   LibRaw::dcraw_clear_mem(img);
   return true;
 }
@@ -436,7 +477,7 @@ bool loadImage(const std::string &path, Image &out, ColorSpace &detected) {
     return true;
   }
   if (loadRaw(path, out)) {
-    detected = ColorSpace::LinearRec2020;
+    detected = ColorSpace::LinearRec709;
     return true;
   }
   return false;
