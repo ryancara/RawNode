@@ -48,6 +48,9 @@ struct PersistSidecar {
   std::string sourcePath;
   std::string inputColorSpace;
   std::string workingSpace;
+  // Added within Sidecar V2 as an optional, backwards-compatible RAW setting.
+  // Empty means the sidecar predates selectable RAW working spaces.
+  std::string rawWorkingSpace;
   std::string exportedAt;
   PersistGui gui;
   PersistChain chain;
