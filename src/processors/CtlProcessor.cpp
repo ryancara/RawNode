@@ -141,6 +141,7 @@ struct CtlProcessor::Impl {
   Ctl::FunctionArgPtr bOut;
   Ctl::FunctionArgPtr aOut;
   std::vector<ParameterBinding> exposedParameters;
+  bool artDialect = false;
 
   // Two locks, never held together:
   // - parameterMutex guards parameterValues, the UI-facing state (parallel to
@@ -230,53 +231,111 @@ struct CtlProcessor::Impl {
     interpreter.setUserModulePath(modulePaths, true);
 
     interpreter.loadFile(path);
-    function = interpreter.newFunctionCall("main");
 
-    if (function->returnValue()->type().cast<Ctl::VoidType>().refcount() == 0)
-      throw ContractError("CTL main() must return void");
-
-    rIn = function->findInputArg("rIn");
-    gIn = function->findInputArg("gIn");
-    bIn = function->findInputArg("bIn");
-    aIn = function->findInputArg("aIn");
-    rOut = function->findOutputArg("rOut");
-    gOut = function->findOutputArg("gOut");
-    bOut = function->findOutputArg("bOut");
-    aOut = function->findOutputArg("aOut");
-
-    if (!validVaryingFloat(rIn) || !validVaryingFloat(gIn) || !validVaryingFloat(bIn))
-      throw ContractError("CTL main() must provide varying float rIn, gIn and bIn inputs");
-    if (!validVaryingFloat(rOut) || !validVaryingFloat(gOut) || !validVaryingFloat(bOut))
-      throw ContractError("CTL main() must provide varying float rOut, gOut and bOut outputs");
-    if (aIn.refcount() != 0 && !validVaryingFloat(aIn))
-      throw ContractError("CTL aIn must be a varying float when present");
-    if (aOut.refcount() != 0 && !validVaryingFloat(aOut))
-      throw ContractError("CTL aOut must be a varying float when present");
-
-    for (size_t i = 0; i < function->numInputArgs(); ++i) {
-      Ctl::FunctionArgPtr arg = function->inputArg(i);
-      const std::string &name = arg->name();
-      if (name == "rIn" || name == "gIn" || name == "bIn" || name == "aIn") continue;
-      if (!arg->hasDefaultValue())
-        throw ContractError("Unsupported required CTL input parameter: " + name);
-
-      // Plain CTL provides a type/name/default but no UI range metadata.
-      // Defaulted scalar uniform float/int/bool inputs are therefore exposed
-      // through RawNode's generic parameter API as unbounded controls.
-      arg->setDefaultValue();
-      const ParameterType type = exposedParameterType(arg);
-      if (type == ParameterType::Unsupported) continue;
-
-      ParameterBinding binding;
-      binding.id = name;
-      binding.arg = arg;
-      binding.type = type;
-      binding.defaultValue = readValue(arg, type);
-      parameterValues.push_back(binding.defaultValue);
-      exposedParameters.push_back(std::move(binding));
+    // Standard CTL remains the primary contract. If the module does not define
+    // main(), fall back to ART's documented ART_main entry point. Other errors
+    // creating main() are not hidden by the compatibility fallback.
+    try {
+      function = interpreter.newFunctionCall("main");
+    } catch (const std::exception &e) {
+      if (std::string(e.what()) != "Cannot find CTL function main.") throw;
+      function = interpreter.newFunctionCall("ART_main");
+      artDialect = true;
     }
 
-    if (aIn.refcount() != 0 && aIn->hasDefaultValue()) aIn->setDefaultValue();
+    if (function->returnValue()->type().cast<Ctl::VoidType>().refcount() == 0)
+      throw ContractError(artDialect ? "ART_main() must return void" : "CTL main() must return void");
+
+    if (artDialect) {
+      // ART defines the first three inputs/outputs positionally as varying
+      // float RGB channels; parameter names after them are script-defined.
+      if (function->numInputArgs() < 3 || function->numOutputArgs() < 3)
+        throw ContractError("ART_main() must provide three varying float RGB inputs and outputs");
+
+      rIn = function->inputArg(0);
+      gIn = function->inputArg(1);
+      bIn = function->inputArg(2);
+      rOut = function->outputArg(0);
+      gOut = function->outputArg(1);
+      bOut = function->outputArg(2);
+
+      if (!validVaryingFloat(rIn) || !validVaryingFloat(gIn) || !validVaryingFloat(bIn) ||
+          !validVaryingFloat(rOut) || !validVaryingFloat(gOut) || !validVaryingFloat(bOut))
+        throw ContractError("ART_main() RGB inputs and outputs must be varying float");
+
+      // ART parameters may omit CTL defaults; ART specifies zero as the final
+      // fallback. Metadata defaults/ranges/labels are added by the next adapter
+      // step, but scalar float/int/bool parameters are executable now.
+      for (size_t i = 3; i < function->numInputArgs(); ++i) {
+        Ctl::FunctionArgPtr arg = function->inputArg(i);
+        const ParameterType type = exposedParameterType(arg);
+        if (type == ParameterType::Unsupported)
+          throw ContractError("Unsupported ART CTL parameter type: " + arg->name());
+
+        ParameterBinding binding;
+        binding.id = arg->name();
+        binding.arg = arg;
+        binding.type = type;
+
+        if (arg->hasDefaultValue()) {
+          arg->setDefaultValue();
+          binding.defaultValue = readValue(arg, type);
+        } else {
+          switch (type) {
+            case ParameterType::Double: binding.defaultValue = 0.0; break;
+            case ParameterType::Integer: binding.defaultValue = 0; break;
+            case ParameterType::Boolean: binding.defaultValue = false; break;
+            default: break;
+          }
+        }
+
+        parameterValues.push_back(binding.defaultValue);
+        exposedParameters.push_back(std::move(binding));
+      }
+    } else {
+      rIn = function->findInputArg("rIn");
+      gIn = function->findInputArg("gIn");
+      bIn = function->findInputArg("bIn");
+      aIn = function->findInputArg("aIn");
+      rOut = function->findOutputArg("rOut");
+      gOut = function->findOutputArg("gOut");
+      bOut = function->findOutputArg("bOut");
+      aOut = function->findOutputArg("aOut");
+
+      if (!validVaryingFloat(rIn) || !validVaryingFloat(gIn) || !validVaryingFloat(bIn))
+        throw ContractError("CTL main() must provide varying float rIn, gIn and bIn inputs");
+      if (!validVaryingFloat(rOut) || !validVaryingFloat(gOut) || !validVaryingFloat(bOut))
+        throw ContractError("CTL main() must provide varying float rOut, gOut and bOut outputs");
+      if (aIn.refcount() != 0 && !validVaryingFloat(aIn))
+        throw ContractError("CTL aIn must be a varying float when present");
+      if (aOut.refcount() != 0 && !validVaryingFloat(aOut))
+        throw ContractError("CTL aOut must be a varying float when present");
+
+      for (size_t i = 0; i < function->numInputArgs(); ++i) {
+        Ctl::FunctionArgPtr arg = function->inputArg(i);
+        const std::string &name = arg->name();
+        if (name == "rIn" || name == "gIn" || name == "bIn" || name == "aIn") continue;
+        if (!arg->hasDefaultValue())
+          throw ContractError("Unsupported required CTL input parameter: " + name);
+
+        // Plain CTL provides a type/name/default but no UI range metadata.
+        // Defaulted scalar uniform float/int/bool inputs are therefore exposed
+        // through RawNode's generic parameter API as unbounded controls.
+        arg->setDefaultValue();
+        const ParameterType type = exposedParameterType(arg);
+        if (type == ParameterType::Unsupported) continue;
+
+        ParameterBinding binding;
+        binding.id = name;
+        binding.arg = arg;
+        binding.type = type;
+        binding.defaultValue = readValue(arg, type);
+        parameterValues.push_back(binding.defaultValue);
+        exposedParameters.push_back(std::move(binding));
+      }
+
+      if (aIn.refcount() != 0 && aIn->hasDefaultValue()) aIn->setDefaultValue();
+    }
   }
 };
 
