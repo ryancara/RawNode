@@ -38,6 +38,7 @@ void drawLeftPanel(App &app) {
   ImGui::SameLine();
   if (ImGui::Button("Export")) doExport(app);
 
+  ImGui::Text("Input: %s", app.path.empty() ? "—" : colorSpaceName(app.inputSpace));
   ImGui::Combo("Output tag", &app.outputIndex, kOutputSpaces, 4);
   if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) scheduleDisplayRecolor(app);
   {

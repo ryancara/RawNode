@@ -27,8 +27,8 @@ The current V2 shape is:
   "version": 2,
   "kind": "input",
   "source": "DSC_0001.NEF",
-  "inputColorSpace": "Linear Rec.2020",
-  "workingSpace": "Linear Rec.2020",
+  "inputColorSpace": "Linear Rec.709",
+  "workingSpace": "Linear Rec.709",
   "raw": {},
   "gui": {
     "outputIndex": 0,
