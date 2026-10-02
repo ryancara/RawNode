@@ -58,6 +58,23 @@ static bool writeTinyTiff(const fs::path &p, bool halfFloat) {
   return ok;
 }
 
+static bool writeGray16Tiff(const fs::path &p, uint16_t value) {
+  TIFF *tif = TIFFOpen(p.c_str(), "w");
+  if (!tif) return false;
+  TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, 1);
+  TIFFSetField(tif, TIFFTAG_IMAGELENGTH, 1);
+  TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, 16);
+  TIFFSetField(tif, TIFFTAG_SAMPLEFORMAT, SAMPLEFORMAT_UINT);
+  TIFFSetField(tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
+  TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+  TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+  uint16_t row[3] = {value, value, value};
+  const bool ok = TIFFWriteScanline(tif, row, 0, 0) >= 0;
+  TIFFClose(tif);
+  return ok;
+}
+
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 static int selfTest() {
   for (bool half : {false, true}) {
@@ -70,6 +87,26 @@ static int selfTest() {
     // Untagged float TIFF → Rec.2020; untagged 16-bit int → sRGB.
     if (half && cs != ColorSpace::LinearRec2020) return fail("tiff half colorspace");
     if (!half && cs != ColorSpace::sRGB) return fail("tiff uint colorspace");
+    fs::remove(p);
+  }
+
+  {
+    // Integer raster samples must actually be decoded to the linear encoding
+    // reported by the canonical loader, while the legacy overload still
+    // reports the historical source-file tag.
+    const fs::path p = fs::temp_directory_path() / "rawnode-selftest-gray16.tif";
+    if (!writeGray16Tiff(p, 32768)) return fail("gray16 tiff write");
+    Image img;
+    ColorEncoding encoding;
+    bool decodedRaw = true;
+    if (!loadImage(p.string(), img, encoding, decodedRaw) || decodedRaw ||
+        encoding != ColorEncoding{RgbGamut::Rec709, TransferFunction::Linear})
+      return fail("gray16 canonical encoding");
+    const double encoded = 32768.0 / 65535.0;
+    const double want = decodeTransfer(encoded, TransferFunction::SRGB);
+    if (img.px.size() < 4 || std::fabs(img.px[0] - want) > 2e-5 ||
+        std::fabs(img.px[1] - want) > 2e-5 || std::fabs(img.px[2] - want) > 2e-5)
+      return fail("gray16 sRGB linearisation");
     fs::remove(p);
   }
 
@@ -153,6 +190,18 @@ static int selfTest() {
         std::fabs(working[1][1] - 0.966805801f) > 1e-6f ||
         std::fabs(working[2][2] - 0.910519929f) > 1e-6f)
       return fail("RAW Display P3 registry matrix");
+
+    // A white-point adaptation must keep neutral white neutral.
+    for (RgbGamut target : {RgbGamut::ACES_AP0, RgbGamut::ACES_AP1}) {
+      double m[3][3] = {};
+      if (!linearColorTransformMatrix(RgbGamut::Rec709, target, m))
+        return fail("Bradford white transform setup");
+      for (int row = 0; row < 3; ++row) {
+        const double white = m[row][0] + m[row][1] + m[row][2];
+        if (std::fabs(white - 1.0) > 2e-6)
+          return fail("Bradford white neutrality");
+      }
+    }
 
     // AP0 must have a usable linear ICC interpretation for preview/output-tag
     // colour management, despite its imaginary primaries.
@@ -322,9 +371,24 @@ static int selfTest() {
       return fail("native CST non-finite setup");
     Image badOut;
     if (!renderChain(cstRestored, badPixel, badOut, 0).ok ||
-        !std::isnan(badOut.px[0]) || badOut.px[3] != 1.0f ||
-        !std::isfinite(badOut.px[4]))
+        !std::isnan(badOut.px[0]) || !std::isnan(badOut.px[1]) || !std::isnan(badOut.px[2]) ||
+        badOut.px[3] != 1.0f || !std::isfinite(badOut.px[4]))
       return fail("native CST non-finite pixel handling");
+
+    Image hugeDi;
+    hugeDi.w = 1;
+    hugeDi.h = 1;
+    hugeDi.px = {20.0f, 20.0f, 20.0f, 0.4f};
+    if (!restoredCst.setParameterValue("input_space", (int)RgbGamut::Rec709) ||
+        !restoredCst.setParameterValue("output_space", (int)RgbGamut::Rec709) ||
+        !restoredCst.setParameterValue("input_gamma", (int)TransferFunction::DaVinciIntermediate) ||
+        !restoredCst.setParameterValue("output_gamma", (int)TransferFunction::Linear))
+      return fail("native CST DI overflow setup");
+    Image hugeOut;
+    if (!renderChain(cstRestored, hugeDi, hugeOut, 0).ok ||
+        !std::isfinite(hugeOut.px[0]) || hugeOut.px[0] <= 1.0f ||
+        hugeOut.px[3] != hugeDi.px[3])
+      return fail("native CST DI overflow handling");
 
     // Exact Rec.709 constants make the OETF and inverse continuous and
     // monotonic at the breakpoint.
@@ -464,7 +528,49 @@ static int selfTest() {
     fs::remove(protectedSidecar);
     fs::remove(protectedImage);
 
-    // V1 remains readable and is normalised into the generic persistence model.
+    // RawNode-generated ICC descriptions carry stable encoding IDs so
+    // wide-gamut exports round-trip through the canonical raster loader.
+    Image tagged;
+    tagged.w = 1;
+    tagged.h = 1;
+    tagged.px = {0.18f, 0.18f, 0.18f, 1.0f};
+    for (ColorEncoding exportEncoding : {
+             ColorEncoding{RgbGamut::ACES_AP1, TransferFunction::Linear},
+             ColorEncoding{RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate},
+             ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB}}) {
+      const fs::path taggedPath =
+          fs::temp_directory_path() / (std::string("rawnode-selftest-tagged-") + rgbGamutId(exportEncoding.gamut) + ".png");
+      if (!writeImage(tagged, taggedPath.string(), exportEncoding))
+        return fail("ICC tagged export");
+      Image reloaded;
+      ColorEncoding reloadedEncoding;
+      bool raw = true;
+      if (!loadImage(taggedPath.string(), reloaded, reloadedEncoding, raw) || raw ||
+          reloadedEncoding.gamut != exportEncoding.gamut ||
+          reloadedEncoding.gamma != TransferFunction::Linear)
+        return fail("ICC encoding round trip");
+      fs::remove(taggedPath);
+    }
+
+    // Per-image sidecars must not mutate the RAW session/workspace default.
+    const fs::path defaultImage = fs::temp_directory_path() / "rawnode-selftest-default-owner.tif";
+    if (!writeTinyTiff(defaultImage, false)) return fail("RAW default owner image write");
+    PersistGui oldPerImageGui;
+    oldPerImageGui.rawDefaultColorSpace = "rec709";
+    oldPerImageGui.rawDefaultGamma = "linear";
+    if (!saveInputSidecar(defaultImage.string(), ColorSpace::sRGB, oldPerImageGui, PersistChain{}, nullptr))
+      return fail("RAW default owner sidecar write");
+    App defaultOwner;
+    defaultOwner.rawWorkingEncoding =
+        {RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate};
+    openPath(defaultOwner, defaultImage.string(), true);
+    if (defaultOwner.rawWorkingEncoding !=
+        ColorEncoding{RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate})
+      return fail("per-image sidecar changed RAW default");
+    fs::remove(inputSidecarPath(defaultImage.string()));
+    fs::remove(defaultImage);
+
+        // V1 remains readable and is normalised into the generic persistence model.
     const fs::path legacy = fs::temp_directory_path() / "rawnode-selftest-v1.ofxrawhost.json";
     static const char kV1[] =
         "{\"format\":\"ofxrawhost-sidecar\",\"version\":1,\"kind\":\"input\","
