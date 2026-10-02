@@ -128,3 +128,13 @@ Native Exposure uses a simple RGB gain of `2^EV` and participates in the same ge
 
 This does not imply that contrast, curves, saturation, white balance, or other photographic tools must also be implemented natively. OFX, CTL, DCTL, LUT/CLF, and future backends remain valid ways to provide processing.
 
+
+## D017 — Standard CTL is the core backend; ART compatibility is an adapter
+
+**Status:** Accepted
+
+RawNode's CTL backend uses the standard CTL reference interpreter and a conventional varying float RGB(A) `main` entry point.
+
+ART-specific conventions such as `ART_main`, `@ART-param`, and `_artlib.ctl` are not part of the core CTL contract. They may be supported later through a compatibility adapter layered on top of the standard backend.
+
+**Reason:** CTL is a standalone colour transformation language. Keeping the core backend standards-oriented preserves portability while still allowing RawNode to take advantage of ART's CTL ecosystem later.
