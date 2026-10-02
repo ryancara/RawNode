@@ -28,6 +28,22 @@ add_library(imgui_lib
 target_include_directories(imgui_lib PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(imgui_lib PUBLIC glfw)
 
+# --- OpenEXR / Imath (required by the CTL reference runtime) ---
+find_package(OpenEXR 3 CONFIG QUIET)
+if(NOT OpenEXR_FOUND)
+  message(FATAL_ERROR "OpenEXR 3 not found. Install openexr (e.g. brew install openexr / apt install libopenexr-dev).")
+endif()
+
+# --- CTL reference runtime ---
+set(CTL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(CTL_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(ctl
+  GIT_REPOSITORY https://github.com/aces-aswf/CTL.git
+  GIT_TAG ctl-1.5.5
+  GIT_SHALLOW TRUE
+)
+FetchContent_MakeAvailable(ctl)
+
 # --- LibRaw ---
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)
@@ -88,6 +104,7 @@ add_executable(OfxRawHost
   src/NodeGraph.cpp
   src/processors/OfxProcessor.cpp
   src/processors/NativeExposureProcessor.cpp
+  src/processors/CtlProcessor.cpp
   src/RenderPipeline.cpp
   src/persist/DocumentActions.cpp
   src/persist/ProjectPersistSave.cpp
@@ -177,7 +194,9 @@ else()
   target_link_libraries(OfxRawHost PRIVATE ${LCMS2_LIBRARY})
 endif()
 
-target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB)
+# CTL 1.5.x public headers use unprefixed includes (<half.h>, <IexBaseExc.h>);
+# Imath::Imath and OpenEXR::Iex export include/Imath and include/OpenEXR.
+target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB IlmCtlSimd Imath::Imath OpenEXR::Iex)
 
 if(APPLE)
   target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal")

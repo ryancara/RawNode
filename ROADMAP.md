@@ -64,13 +64,25 @@ Verify preview, reorder, persistence, and export.
 
 ## Phase 5 — CTL
 
-Add CTL as the first external non-OFX backend.
+Add CTL as the first external non-OFX backend using the official CTL reference interpreter.
+
+Initial standard-CTL target:
+
+- load a user-selected `.ctl` file;
+- execute a conventional `void main(...)`;
+- support varying float `rIn/gIn/bIn` and `rOut/gOut/bOut`;
+- support optional `aIn/aOut`;
+- honour defaulted extra CTL inputs, while leaving editable CTL parameters for a later step;
+- resolve sibling/imported CTL modules using the script directory plus the normal CTL module path;
+- persist the script path through Sidecar V2 and preserve a missing script as a placeholder.
 
 Validate mixed stacks such as:
 
 ```text
 OFX -> CTL -> OFX
 ```
+
+ART compatibility is a layer on top of standard CTL, not the definition of the CTL backend. Later work can interpret ART conventions such as `ART_main`, `@ART-param`, and `_artlib.ctl`.
 
 ## Phase 6 — DCTL compatibility
 

@@ -4,6 +4,7 @@
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
 #include "processors/NativeExposureProcessor.h"
+#include "processors/CtlProcessor.h"
 
 #include <cctype>
 #include <cstdlib>
@@ -259,6 +260,17 @@ bool addNativeExposureNode(App &app) {
   return appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
 }
 
+bool addCtlNode(App &app, const std::string &path) {
+  waitRenderIdle(app);
+  std::string error;
+  auto processor = CtlProcessor::create(path, &error);
+  if (!processor) {
+    app.setStatus("Could not load CTL" + (error.empty() ? std::string() : ": " + error));
+    return false;
+  }
+  return appendProcessorNode(app, std::move(processor));
+}
+
 void moveNode(App &app, int from, int to) {
   if (from < 0 || to < 0 || from >= (int)app.nodes.size() || to >= (int)app.nodes.size() || from == to) return;
   waitRenderIdle(app);
@@ -314,6 +326,8 @@ void applyChain(App &app, const PersistChain &chain) {
       created = pluginIndex >= 0 && addNode(app, pluginIndex);
     } else if (backend == "native" && persisted.identifier == NativeExposureProcessor::kIdentifier) {
       created = addNativeExposureNode(app);
+    } else if (backend == "ctl") {
+      created = addCtlNode(app, persisted.identifier);
     }
 
     if (created) {
