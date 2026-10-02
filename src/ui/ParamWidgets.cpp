@@ -130,14 +130,7 @@ static void finishParameterChange(App &app, Node &node, const ProcessorParameter
 
   // A deliberate user edit supersedes any opaque preserved value for this
   // parameter, including an unknown future stable choice ID.
-  node.preservedParamsJson.erase(param.id);
-
-  if (app.sidecarBlockedByUnknownProcessorChoice && !hasUnknownProcessorChoiceIds(app)) {
-    app.sidecarBlockedByUnknownProcessorChoice = false;
-    if (app.sidecarWriteBlockedPath == app.path) app.sidecarWriteBlockedPath.clear();
-    app.setStatus("Unknown processor choice replaced; sidecar writes are enabled again.");
-  }
-
+  markParameterEdited(app, node, param.id);
   scheduleRender(app);
 }
 
