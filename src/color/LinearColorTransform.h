@@ -1,14 +1,7 @@
 #pragma once
 
-#include "imgio/ImageIO.h"
-
-enum class RgbGamut {
-  Rec709 = 0,
-  Rec2020,
-  ACES_AP0,
-  ACES_AP1,
-  DaVinciWideGamut,
-};
+﻿#include "imgio/ImageIO.h"
+#include "color/ColorEncoding.h"
 
 const char *rgbGamutName(RgbGamut gamut);
 
