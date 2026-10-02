@@ -283,6 +283,8 @@ void loadGuiFromJson(const std::string &guiObj, PersistGui &g) {
   extractIntField(guiObj, "outputIndex", g.outputIndex);
   extractStringField(guiObj, "outputColorSpace", g.outputColorSpace);
   extractStringField(guiObj, "outputGamma", g.outputGamma);
+  extractStringField(guiObj, "rawDefaultColorSpace", g.rawDefaultColorSpace);
+  extractStringField(guiObj, "rawDefaultGamma", g.rawDefaultGamma);
   extractIntField(guiObj, "exportFormat", g.exportFormat);
   extractIntField(guiObj, "jpegQuality", g.jpegQuality);
   extractIntField(guiObj, "previewRes", g.previewRes);
