@@ -541,6 +541,49 @@ std::string readArtLabel(const std::string &path) {
   return {};
 }
 
+struct ArtPresetDefinition {
+  int line = 0;
+  std::string key;
+  std::string label;
+  std::vector<std::pair<std::string, JsonValue>> values;
+};
+
+std::vector<ArtPresetDefinition> readArtPresetDefinitions(const std::string &path) {
+  std::vector<ArtPresetDefinition> presets;
+  std::vector<std::string> keys;
+  std::ifstream in(path, std::ios::binary);
+  const std::string file = fs::path(path).filename().string();
+  std::string line;
+  for (int number = 1; std::getline(in, line); ++number) {
+    size_t pos = 0;
+    while (pos < line.size() && std::isspace((unsigned char)line[pos])) ++pos;
+    if (line.compare(pos, 2, "//") == 0) pos += 2;
+    while (pos < line.size() && std::isspace((unsigned char)line[pos])) ++pos;
+    static const std::string kTag = "@ART-preset:";
+    if (line.compare(pos, kTag.size(), kTag) != 0) continue;
+
+    JsonValue root;
+    const std::string where = file + ":" + std::to_string(number) + ": ";
+    if (!JsonReader(line.substr(pos + kTag.size())).parseDocument(root) ||
+        root.kind != JsonValue::Kind::Array || root.items.size() < 3 ||
+        root.items[0].kind != JsonValue::Kind::String ||
+        root.items[1].kind != JsonValue::Kind::String ||
+        root.items[2].kind != JsonValue::Kind::Object)
+      throw ContractError(where + "invalid @ART-preset definition");
+
+    ArtPresetDefinition preset;
+    preset.line = number;
+    preset.key = root.items[0].string;
+    preset.label = artDisplayText(root.items[1].string);
+    preset.values = root.items[2].members;
+    if (std::find(keys.begin(), keys.end(), preset.key) != keys.end())
+      throw ContractError(where + "duplicate @ART-preset definition for " + preset.key);
+    keys.push_back(preset.key);
+    presets.push_back(std::move(preset));
+  }
+  return presets;
+}
+
 }  // namespace
 
 struct CtlProcessor::Impl {
