@@ -3,10 +3,14 @@
 #include "RenderPipeline.h"
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
+#include "processors/NativeExposureProcessor.h"
 
 #include <cctype>
 #include <cstdlib>
+#include <limits>
+#include <locale>
 #include <sstream>
+#include <memory>
 
 // Node creation currently happens on the UI thread. Sidecar V2 persists IDs
 // across sessions; the counter only supplies fresh IDs for newly added nodes.
@@ -59,6 +63,15 @@ static int findPluginIndex(const std::string &identifier, const std::string &lab
   return -1;
 }
 
+// Doubles are written with max_digits10 so strtod restores the exact value;
+// std::to_string's fixed 6 decimals changed restored renders.
+static std::ostringstream jsonNumberStream() {
+  std::ostringstream out;
+  out.imbue(std::locale::classic());
+  out.precision(std::numeric_limits<double>::max_digits10);
+  return out;
+}
+
 static bool persistedParameterType(ParameterType type) {
   return type != ParameterType::Group && type != ParameterType::Page &&
          type != ParameterType::PushButton && type != ParameterType::Unsupported;
@@ -82,7 +95,7 @@ static std::string paramValueJson(const ProcessorParameter &param) {
     }
     case ParameterType::Vector: {
       const auto *value = std::get_if<std::vector<double>>(&param.value);
-      std::ostringstream out;
+      std::ostringstream out = jsonNumberStream();
       out << '[';
       if (value) {
         for (size_t i = 0; i < value->size(); ++i) {
@@ -95,7 +108,9 @@ static std::string paramValueJson(const ProcessorParameter &param) {
     }
     case ParameterType::Double: {
       const double *value = std::get_if<double>(&param.value);
-      return std::to_string(value ? *value : 0.0);
+      std::ostringstream out = jsonNumberStream();
+      out << (value ? *value : 0.0);
+      return out.str();
     }
     default:
       return "null";
@@ -204,18 +219,12 @@ void clearNodes(App &app) {
   app.paramFilter[0] = '\0';
 }
 
-bool addNode(App &app, int pluginIndex) {
-  if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return false;
-  waitRenderIdle(app);
+static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor) {
+  if (!processor) return false;
 
   Node node;
   node.id = makeNodeId(app);
-  node.processor = OfxProcessor::create(pluginIndex);
-  if (!node.processor) {
-    app.setStatus("Plugin failed to create an instance");
-    return false;
-  }
-
+  node.processor = std::move(processor);
   node.storedBackend = processorBackendName(node.processor->backend());
   node.storedIdentifier = node.processor->identifier();
   node.storedLabel = node.processor->displayName();
@@ -231,6 +240,23 @@ bool addNode(App &app, int pluginIndex) {
   syncOutputTag(app);
   scheduleRender(app);
   return true;
+}
+
+bool addNode(App &app, int pluginIndex) {
+  if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return false;
+  waitRenderIdle(app);
+
+  auto processor = OfxProcessor::create(pluginIndex);
+  if (!processor) {
+    app.setStatus("Plugin failed to create an instance");
+    return false;
+  }
+  return appendProcessorNode(app, std::move(processor));
+}
+
+bool addNativeExposureNode(App &app) {
+  waitRenderIdle(app);
+  return appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
 }
 
 void moveNode(App &app, int from, int to) {
@@ -285,39 +311,41 @@ void applyChain(App &app, const PersistChain &chain) {
 
     if (backend == "ofx") {
       const int pluginIndex = findPluginIndex(persisted.identifier, persisted.label);
-      if (pluginIndex >= 0 && addNode(app, pluginIndex)) {
-        created = true;
-        Node &node = app.nodes.back();
-        const int index = (int)app.nodes.size() - 1;
-        if (!persisted.id.empty()) node.id = restoredNodeId(app, persisted.id, index);
-        node.enabled = persisted.enabled;
-        node.groupOpen = persisted.groupOpen;
-        node.storedBackend = backend;
-        node.storedIdentifier = persisted.identifier;
-        node.storedLabel = persisted.label;
-        node.preservedParamsJson = persisted.paramsJson;
-
-        if (node.processor) {
-          const auto params = node.processor->parameters();
-          for (const ProcessorParameter &param : params) {
-            auto it = persisted.paramsJson.find(param.id);
-            if (it != persisted.paramsJson.end()) applyParamValueJson(*node.processor, param, it->second);
-          }
-        }
-      }
+      created = pluginIndex >= 0 && addNode(app, pluginIndex);
+    } else if (backend == "native" && persisted.identifier == NativeExposureProcessor::kIdentifier) {
+      created = addNativeExposureNode(app);
     }
 
-    if (!created) {
-      Node node;
-      node.id = restoredNodeId(app, persisted.id);
+    if (created) {
+      Node &node = app.nodes.back();
+      const int index = (int)app.nodes.size() - 1;
+      if (!persisted.id.empty()) node.id = restoredNodeId(app, persisted.id, index);
       node.enabled = persisted.enabled;
+      node.groupOpen = persisted.groupOpen;
       node.storedBackend = backend;
       node.storedIdentifier = persisted.identifier;
       node.storedLabel = persisted.label;
       node.preservedParamsJson = persisted.paramsJson;
-      node.groupOpen = persisted.groupOpen;
-      app.nodes.push_back(std::move(node));
+
+      if (node.processor) {
+        const auto params = node.processor->parameters();
+        for (const ProcessorParameter &param : params) {
+          auto it = persisted.paramsJson.find(param.id);
+          if (it != persisted.paramsJson.end()) applyParamValueJson(*node.processor, param, it->second);
+        }
+      }
+      continue;
     }
+
+    Node node;
+    node.id = restoredNodeId(app, persisted.id);
+    node.enabled = persisted.enabled;
+    node.storedBackend = backend;
+    node.storedIdentifier = persisted.identifier;
+    node.storedLabel = persisted.label;
+    node.preservedParamsJson = persisted.paramsJson;
+    node.groupOpen = persisted.groupOpen;
+    app.nodes.push_back(std::move(node));
   }
 
   app.selectedNode = -1;

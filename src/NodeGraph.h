@@ -6,7 +6,8 @@
 Node *selectedNode(App &app);
 std::string nodeDisplayName(const Node &node);
 void clearNodes(App &app);
-bool addNode(App &app, int pluginIndex);
+bool addNode(App &app, int pluginIndex);  // OFX plugin
+bool addNativeExposureNode(App &app);
 void destroyNode(App &app, int index);
 void moveNode(App &app, int from, int to);
 

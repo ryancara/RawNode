@@ -50,7 +50,9 @@ Unknown processors/parameters should be preserved where possible.
 
 ## Phase 4 — Prove mixed processors
 
-Add one simple non-OFX processor, such as native linear exposure gain.
+Add a minimal native scene-linear Exposure processor as the first non-OFX reference implementation.
+
+This proves the backend-neutral processor, parameter, persistence, UI, and render seams. It does not imply that every photographic adjustment should be reimplemented as a native processor.
 
 Test mixed processing:
 
