@@ -673,12 +673,12 @@ struct CtlProcessor::Impl {
   static int artStepDigits(double step) {
     // ART's Adjuster derives decimal precision from the step, then rounds to
     // that many decimal places (not to the nearest step multiple).
+    // Mirrors Adjuster::setLimits(), recomputing step * 10^digits on every
+    // pass. This always terminates: the product either becomes an exact
+    // integer or overflows to infinity, where the comparison is false.
     int digits = 0;
-    double scaled = step;
-    while (digits < 12 && std::fabs(scaled - std::floor(scaled)) > 1e-12) {
-      scaled *= 10.0;
+    while (std::fabs(step * std::pow(10.0, digits) - std::floor(step * std::pow(10.0, digits))) > 1e-12)
       ++digits;
-    }
     return digits;
   }
 
@@ -686,6 +686,8 @@ struct CtlProcessor::Impl {
     const int digits = artStepDigits(step);
     const double scale = std::pow(10.0, digits);
     const double shaped = std::round(value * scale) / scale;
+    // Beyond double precision the rounding is a no-op; avoid inf/inf = NaN.
+    if (!std::isfinite(shaped)) return value;
     return shaped == -0.0 ? 0.0 : shaped;
   }
 
@@ -697,13 +699,15 @@ struct CtlProcessor::Impl {
         double v = *input;
 
         // ART's scalar controls are Adjusters. setValue() first rounds to the
-        // decimal precision implied by gui_step, while the GTK adjustment
-        // clamps the result to the declared slider range.
+        // decimal precision implied by gui_step, the GTK adjustment clamps the
+        // result to the declared slider range, and getValue() rounds again.
         if (binding.hasRange) {
           if (!std::isfinite(binding.min) || !std::isfinite(binding.max) || binding.min > binding.max)
             return false;
           v = artShapeValue(v, binding.step);
           v = std::clamp(v, binding.min, binding.max);
+          // Adjuster::getValue() shapes the clamped spin value again.
+          v = artShapeValue(v, binding.step);
         }
 
         // CTL float inputs are 32-bit. For ranged ART controls, clamp before

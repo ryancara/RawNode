@@ -836,11 +836,13 @@ static int selfTest() {
           "// @ART-param: [\"gain\", \"Gain\", 0.0, 4.0, 0.697437, 0.01]\n"
           "// @ART-param: [\"mix\", \"Mix\", -1.0, 1.0, 0.0, 0.1]\n"
           "// @ART-param: [\"count\", \"Count\", 0, 10, 4]\n"
+          "// @ART-param: [\"fine\", \"Fine\", 0.005, 1.0, 0.5, 0.01]\n"
+          "// @ART-param: [\"derived\", \"Derived\", 0.0, 0.7, 0.35]\n"
           "// @ART-preset: [\"outside\", \"Outside\", {\"gain\": 9.0, \"mix\": 0.26, \"count\": 99}]\n"
           "void ART_main(varying float r, varying float g, varying float b,\n"
           "  output varying float ro, output varying float go, output varying float bo,\n"
-          "  float gain, float mix, int count)\n"
-          "{ ro = r * gain + mix; go = g; bo = b * count / 4.0; }\n";
+          "  float gain, float mix, int count, float fine, float derived)\n"
+          "{ ro = r * gain + mix; go = g * (fine + derived); bo = b * count / 4.0; }\n";
       if (!script.good()) return fail("ART adjuster normalisation script write");
     }
     App artAdjuster;
@@ -867,6 +869,20 @@ static int selfTest() {
         adjusterValue("mix", false) != ParameterValue(-1.0) ||
         adjusterValue("count", false) != ParameterValue(0))
       return fail("ART direct scalar rounding and clamping");
+    // A bound finer than the step is shaped again after clamping, as in
+    // Adjuster::getValue(): clamp(0) = 0.005, which rounds to 0.01.
+    if (!adjuster.setParameterValue("fine", 0.0) ||
+        adjusterValue("fine", false) != ParameterValue(0.01))
+      return fail("ART scalar shaping after clamp");
+    // The derived step (0.7 - 0) / 100 is 0.006999999999999999 in double.
+    // ART's digit loop gives 7 places for it, not the 3 an accumulated
+    // step * 10 * 10 * ... product would suggest.
+    bool derivedStep = false;
+    for (const ProcessorParameter &param : adjuster.parameters())
+      if (param.id == "derived") derivedStep = param.step == (0.7 - 0.0) / 100.0;
+    if (!derivedStep || !adjuster.setParameterValue("derived", 0.123456789) ||
+        adjusterValue("derived", false) != ParameterValue(0.1234568))
+      return fail("ART scalar decimal places from derived step");
 
     const PersistChain adjusterSaved = captureChain(artAdjuster);
     App adjusterRestored;
