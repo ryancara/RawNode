@@ -3,6 +3,7 @@
 #include "imgio/ImageIO.h"
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
+#include "persist/ProjectPersist.h"
 #include "UI.h"
 
 #include <tiffio.h>
@@ -81,6 +82,66 @@ static int selfTest() {
     ColorSpace cs = ColorSpace::LinearRec2020;
     if (!loadImage(p.string(), img, cs) || cs != ColorSpace::sRGB) return fail("png colorspace");
     fs::remove(p);
+  }
+
+  {
+    // Sidecar V2 round-trip: IDs/backend identity and opaque future parameter
+    // JSON must survive even when this build cannot interpret the processor.
+    const fs::path source = fs::temp_directory_path() / "rawnode-selftest-source.nef";
+    PersistGui gui;
+    PersistChain chain;
+    chain.selectedNodeId = "node-future";
+
+    PersistNode node;
+    node.id = "node-future";
+    node.backend = "dctl";
+    node.identifier = "FutureTransform.dctl";
+    node.label = "Future Transform";
+    node.enabled = true;
+    node.paramsJson["amount"] = "0.75";
+    node.paramsJson["futureData"] = "{\"curve\":[0,0.5,1],\"mode\":\"test\"}";
+    chain.nodes.push_back(node);
+
+    if (!saveInputSidecar(source.string(), ColorSpace::LinearRec2020, gui, chain))
+      return fail("sidecar v2 save");
+
+    PersistSidecar loaded;
+    const std::string sidecar = inputSidecarPath(source.string());
+    if (!loadSidecarFile(sidecar, loaded)) return fail("sidecar v2 load");
+    if (loaded.format != "rawnode-sidecar" || loaded.version != 2) return fail("sidecar v2 version");
+    if (loaded.chain.selectedNodeId != "node-future" || loaded.chain.nodes.size() != 1)
+      return fail("sidecar v2 node identity");
+    const PersistNode &loadedNode = loaded.chain.nodes[0];
+    if (loadedNode.backend != "dctl" || loadedNode.identifier != "FutureTransform.dctl" ||
+        loadedNode.paramsJson["futureData"] != "{\"curve\":[0,0.5,1],\"mode\":\"test\"}")
+      return fail("sidecar v2 opaque state");
+    fs::remove(sidecar);
+
+    // V1 remains readable and is normalised into the generic persistence model.
+    const fs::path legacy = fs::temp_directory_path() / "rawnode-selftest-v1.ofxrawhost.json";
+    FILE *legacyFile = fopen(legacy.c_str(), "wb");
+    static const char kV1[] =
+        "{\"format\":\"ofxrawhost-sidecar\",\"version\":1,\"kind\":\"input\","
+        "\"sourcePath\":\"old.nef\",\"inputColorSpace\":\"Linear Rec.2020\","
+        "\"chain\":{\"selectedNode\":0,\"nodes\":[{\"pluginIdentifier\":\"example.ofx\","
+        "\"pluginLabel\":\"Example\",\"enabled\":true,\"groupOpen\":{},"
+        "\"params\":{\"gain\":1.25}}]}}";
+    if (!legacyFile || fwrite(kV1, 1, sizeof(kV1) - 1, legacyFile) != sizeof(kV1) - 1) {
+      if (legacyFile) fclose(legacyFile);
+      return fail("sidecar v1 test write");
+    }
+    fclose(legacyFile);
+
+    PersistSidecar migrated;
+    if (!loadSidecarFile(legacy.string(), migrated) || migrated.chain.nodes.size() != 1)
+      return fail("sidecar v1 migration");
+    if (migrated.chain.nodes[0].backend != "ofx" ||
+        migrated.chain.nodes[0].identifier != "example.ofx" ||
+        migrated.chain.nodes[0].paramsJson["gain"] != "1.25")
+      return fail("sidecar v1 normalisation");
+    fs::remove(legacy);
+
+    printf("ok  Sidecar V2\n");
   }
 
   Image src;
