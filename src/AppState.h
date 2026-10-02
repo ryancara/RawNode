@@ -73,10 +73,6 @@ struct FilmstripEntry {
   int thumbLru = 0;
 };
 
-inline constexpr const char *kOutputSpaces[] = {
-    "sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020", "ACES2065-1"};
-inline constexpr int kOutputSpaceCount = 5;
-
 // Long-edge caps for 16:9 frames; 0 = no downscale.
 inline constexpr struct {
   const char *label;
@@ -122,20 +118,20 @@ struct App {
   // automatic image switching. Reopening after the file is fixed/removed
   // clears this protection.
   std::string sidecarWriteBlockedPath;
-  // Raster inputs continue to use the legacy ColorSpace tag. RAW inputs use
-  // explicit gamut + transfer-function state so primaries and encoding are not
-  // conflated.
-  ColorSpace inputSpace = ColorSpace::LinearRec2020;
-  bool inputUsesRawEncoding = false;
-  RgbGamut inputGamut = RgbGamut::Rec2020;
-  TransferFunction inputGamma = TransferFunction::Linear;
+  // Canonical colour state. inputEncoding describes the pixels actually in
+  // memory, independent of the file's original tag. inputIsRaw is determined
+  // by the decoder that successfully opened the current source.
+  ColorEncoding inputEncoding{RgbGamut::Rec2020, TransferFunction::Linear};
+  bool inputIsRaw = false;
 
   // Session/default preference for RAWs that do not yet have an explicit
   // per-image setting. Sidecars may override the current image without changing
   // this default; an explicit UI change updates both the image and the default.
-  RgbGamut rawWorkingGamut = RgbGamut::Rec2020;
-  TransferFunction rawWorkingGamma = TransferFunction::Linear;
-  int outputIndex = 0;
+  ColorEncoding rawWorkingEncoding{RgbGamut::Rec2020, TransferFunction::Linear};
+
+  // Explicit output tag. It is never inferred from processors or automatically
+  // changed by the CST.
+  ColorEncoding outputEncoding{RgbGamut::Rec709, TransferFunction::SRGB};
   int exportFormat = 1;  // JPEG
   int jpegQuality = 92;
   int previewRes = 1;  // 1080p
