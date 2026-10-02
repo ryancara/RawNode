@@ -85,28 +85,6 @@ inline constexpr struct {
 };
 inline constexpr int kPreviewResCount = 4;
 
-inline ColorSpace outputSpace(int index) {
-  index = std::clamp(index, 0, kOutputSpaceCount - 1);
-  return static_cast<ColorSpace>(index);
-}
-
-// Working buffers are scene-linear (stbi_loadf / LibRaw). Gamma tags (sRGB, Display P3)
-// describe the *file*; for CMS display of unprocessed source use the linear counterpart.
-inline ColorSpace linearWorkingSpace(ColorSpace fileOrTag) {
-  switch (fileOrTag) {
-    case ColorSpace::sRGB:
-      return ColorSpace::LinearRec709;
-    case ColorSpace::DisplayP3:
-      // No linear-P3 tag yet; Rec.2020 is the closest wider linear space we have.
-      return ColorSpace::LinearRec2020;
-    case ColorSpace::LinearRec709:
-    case ColorSpace::LinearRec2020:
-    case ColorSpace::ACES2065_1:
-      return fileOrTag;
-  }
-  return ColorSpace::LinearRec709;
-}
-
 struct App {
   GLFWwindow *window = nullptr;
   unsigned int tex = 0;
