@@ -145,9 +145,9 @@ struct App {
   // clears this protection.
   std::string sidecarWriteBlockedPath;
   ColorSpace inputSpace = ColorSpace::LinearRec2020;
-  // Current/session preference for RAW decode. A new V2 sidecar may override
-  // this per image; legacy sidecars without an explicit RAW setting reopen in
-  // Linear Rec.709 to preserve PR #15 behaviour.
+  // Session/default preference for RAWs that do not yet have an explicit
+  // per-image setting. Sidecars may override the current image without changing
+  // this default; an explicit UI change updates both the image and the default.
   ColorSpace rawWorkingSpace = ColorSpace::LinearRec2020;
   int outputIndex = 0;
   int exportFormat = 1;  // JPEG
