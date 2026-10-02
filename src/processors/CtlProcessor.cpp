@@ -393,7 +393,8 @@ std::vector<ProcessorParameter> CtlProcessor::parameters() const {
     ProcessorParameter param;
     param.id = binding.id;
     param.label = binding.id;
-    param.hint = "Standard CTL input parameter";
+    param.hint = impl_->artDialect ? "ART CTL input parameter (presentation metadata not yet applied)"
+                                   : "Standard CTL input parameter";
     param.type = binding.type;
     param.value = impl_->parameterValues[i];
     param.defaultValue = binding.defaultValue;
