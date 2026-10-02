@@ -135,6 +135,8 @@ struct JsonValue {
   double number = 0.0;
   std::string string;
   std::vector<JsonValue> items;  // Array only
+  std::vector<std::string> objectKeys;  // Object only
+  std::vector<JsonValue> objectValues;  // Object only, parallel to objectKeys
 };
 
 class JsonReader {
@@ -270,7 +272,8 @@ class JsonReader {
     return false;
   }
 
-  // Arrays keep their items; objects are validated and skipped (unused).
+  // Arrays keep ordered items; objects keep ordered key/value members so
+  // @ART-preset maps can be validated and applied.
   bool parseContainer(JsonValue &out, int depth) {
     const bool isArray = text_[pos_] == '[';
     const char close = isArray ? ']' : '}';
@@ -282,16 +285,21 @@ class JsonReader {
       return true;
     }
     for (;;) {
+      std::string key;
       if (!isArray) {
         skipWs();
-        std::string key;
         if (pos_ >= text_.size() || text_[pos_] != '"' || !parseString(key)) return false;
         skipWs();
         if (pos_ >= text_.size() || text_[pos_++] != ':') return false;
       }
       JsonValue item;
       if (!parseValue(item, depth + 1)) return false;
-      if (isArray) out.items.push_back(std::move(item));
+      if (isArray)
+        out.items.push_back(std::move(item));
+      else {
+        out.objectKeys.push_back(std::move(key));
+        out.objectValues.push_back(std::move(item));
+      }
       skipWs();
       if (pos_ >= text_.size()) return false;
       const char c = text_[pos_++];
@@ -536,6 +544,52 @@ std::string readArtLabel(const std::string &path) {
   return {};
 }
 
+struct ArtPresetDefinition {
+  int line = 0;
+  std::string key;
+  std::string label;
+  std::vector<std::pair<std::string, JsonValue>> values;
+};
+
+std::vector<ArtPresetDefinition> readArtPresetDefinitions(const std::string &path) {
+  std::vector<ArtPresetDefinition> presets;
+  std::vector<std::string> keys;
+  std::ifstream in(path, std::ios::binary);
+  const std::string file = fs::path(path).filename().string();
+  std::string line;
+  for (int number = 1; std::getline(in, line); ++number) {
+    size_t pos = 0;
+    while (pos < line.size() && std::isspace((unsigned char)line[pos])) ++pos;
+    if (line.compare(pos, 2, "//") == 0) pos += 2;
+    while (pos < line.size() && std::isspace((unsigned char)line[pos])) ++pos;
+    static const std::string kTag = "@ART-preset:";
+    if (line.compare(pos, kTag.size(), kTag) != 0) continue;
+
+    JsonValue root;
+    const std::string where = file + ":" + std::to_string(number) + ": ";
+    if (!JsonReader(line.substr(pos + kTag.size())).parseDocument(root) ||
+        root.kind != JsonValue::Kind::Array || root.items.size() < 3 ||
+        root.items[0].kind != JsonValue::Kind::String ||
+        root.items[1].kind != JsonValue::Kind::String ||
+        root.items[2].kind != JsonValue::Kind::Object)
+      throw ContractError(where + "invalid @ART-preset definition");
+
+    ArtPresetDefinition preset;
+    preset.line = number;
+    preset.key = root.items[0].string;
+    preset.label = artDisplayText(root.items[1].string);
+    for (size_t i = 0; i < root.items[2].objectKeys.size(); ++i)
+      preset.values.emplace_back(root.items[2].objectKeys[i], root.items[2].objectValues[i]);
+    if (std::find(keys.begin(), keys.end(), preset.key) != keys.end())
+      throw ContractError(where + "duplicate @ART-preset definition for " + preset.key);
+    keys.push_back(preset.key);
+    presets.push_back(std::move(preset));
+  }
+  return presets;
+}
+
+constexpr const char *kArtPresetParameterId = "__rawnode_art_preset";
+
 }  // namespace
 
 struct CtlProcessor::Impl {
@@ -557,6 +611,12 @@ struct CtlProcessor::Impl {
     int metadataLine = 0;  // @ART-param line; 0 when the parameter has none
   };
 
+  struct ArtPreset {
+    std::string key;
+    std::string label;
+    std::vector<std::pair<size_t, ParameterValue>> values;
+  };
+
   Ctl::SimdInterpreter interpreter;
   Ctl::FunctionCallPtr function;
   Ctl::FunctionArgPtr rIn;
@@ -569,6 +629,11 @@ struct CtlProcessor::Impl {
   Ctl::FunctionArgPtr aOut;
   std::vector<ParameterBinding> exposedParameters;
   std::vector<std::pair<std::string, std::string>> artGroups;
+  std::vector<ArtPreset> artPresets;
+  // Last preset explicitly chosen on this live node (1-based; 0 = "(None)").
+  // Guarded by parameterMutex. Never inferred, so a restored node shows
+  // "(None)": its restored parameter values are authoritative.
+  int selectedPreset = 0;
   bool artDialect = false;
   std::string artLabel;
 
@@ -653,6 +718,41 @@ struct CtlProcessor::Impl {
     for (size_t i = 0; i < exposedParameters.size(); ++i)
       if (exposedParameters[i].id == id) return (int)i;
     return -1;
+  }
+
+  static ParameterValue artPresetValue(const JsonValue &value, ParameterType type,
+                                       const std::string &where, const std::string &name) {
+    switch (type) {
+      case ParameterType::Boolean:
+        if (value.kind != JsonValue::Kind::Bool)
+          throw ContractError(where + "invalid value for ART preset parameter " + name);
+        return value.boolean;
+      case ParameterType::Double:
+        if (value.kind != JsonValue::Kind::Number || !std::isfinite(value.number) ||
+            std::fabs(value.number) > std::numeric_limits<float>::max())
+          throw ContractError(where + "invalid value for ART preset parameter " + name);
+        return (double)(float)value.number;
+      case ParameterType::Integer:
+      case ParameterType::Choice: {
+        int v = 0;
+        if (!jsonInteger(value, v))
+          throw ContractError(where + "invalid value for ART preset parameter " + name);
+        return v;
+      }
+      default:
+        throw ContractError(where + "unsupported ART preset parameter " + name);
+    }
+  }
+
+  // The chosen preset stays shown while every value it maps still matches;
+  // editing one of them shows "(None)". An empty preset never matches.
+  int shownPresetLocked() const {
+    if (selectedPreset <= 0 || selectedPreset > (int)artPresets.size()) return 0;
+    const auto &values = artPresets[(size_t)selectedPreset - 1].values;
+    if (values.empty()) return 0;
+    for (const auto &entry : values)
+      if (entry.first >= parameterValues.size() || parameterValues[entry.first] != entry.second) return 0;
+    return selectedPreset;
   }
 
   void load(const std::string &path) {
@@ -800,6 +900,30 @@ struct CtlProcessor::Impl {
       }
       exposedParameters = std::move(sortedBindings);
       parameterValues = std::move(sortedValues);
+
+      // ART presets are partial parameter maps. Selecting one changes only the
+      // parameters it names; the selector itself is presentation state, not
+      // edit state, so Sidecar V2 persists the resulting parameter values.
+      for (const ArtPresetDefinition &definition : readArtPresetDefinitions(path)) {
+        ArtPreset preset;
+        preset.key = definition.key;
+        preset.label = definition.label.empty() ? definition.key : definition.label;
+        const std::string where = file + ":" + std::to_string(definition.line) + ": ";
+        for (const auto &member : definition.values) {
+          const int index = findParameter(member.first);
+          if (index < 0)
+            throw ContractError(where + "@ART-preset refers to unknown ART_main parameter " + member.first);
+          const ParameterValue value =
+              artPresetValue(member.second, exposedParameters[(size_t)index].type, where, member.first);
+          auto existing = std::find_if(preset.values.begin(), preset.values.end(),
+                                       [&](const auto &entry) { return entry.first == (size_t)index; });
+          if (existing != preset.values.end())
+            existing->second = value;
+          else
+            preset.values.emplace_back((size_t)index, value);
+        }
+        artPresets.push_back(std::move(preset));
+      }
     } else {
       rIn = function->findInputArg("rIn");
       gIn = function->findInputArg("gIn");
@@ -897,7 +1021,26 @@ std::vector<ProcessorParameter> CtlProcessor::parameters() const {
   if (!impl_) return out;
 
   std::lock_guard<std::mutex> lock(impl_->parameterMutex);
-  out.reserve(impl_->artGroups.size() + impl_->exposedParameters.size());
+  out.reserve(impl_->artGroups.size() + impl_->exposedParameters.size() + (impl_->artPresets.empty() ? 0 : 1));
+
+  if (!impl_->artPresets.empty()) {
+    ProcessorParameter preset;
+    preset.id = kArtPresetParameterId;
+    preset.label = "Preset";
+    preset.hint = "ART CTL preset";
+    preset.type = ParameterType::Choice;
+    preset.value = impl_->shownPresetLocked();
+    preset.defaultValue = 0;
+    preset.hasRange = false;
+    preset.persistValue = false;
+    preset.choices.push_back("(None)");
+    preset.choiceValues.push_back(0);
+    for (size_t i = 0; i < impl_->artPresets.size(); ++i) {
+      preset.choices.push_back(impl_->artPresets[i].label);
+      preset.choiceValues.push_back((int)i + 1);
+    }
+    out.push_back(std::move(preset));
+  }
 
   // As in ART's panel, each group appears where its first member does, so
   // grouped and ungrouped controls keep their relative order.
@@ -944,6 +1087,17 @@ bool CtlProcessor::setParameterValue(const std::string &id, const ParameterValue
   (void)notify;
   if (!impl_) return false;
 
+  if (id == kArtPresetParameterId) {
+    const int *selection = std::get_if<int>(&value);
+    if (!selection || *selection < 0 || *selection > (int)impl_->artPresets.size()) return false;
+    std::lock_guard<std::mutex> lock(impl_->parameterMutex);
+    impl_->selectedPreset = *selection;
+    if (*selection == 0) return true;  // "(None)" changes no parameters.
+    for (const auto &entry : impl_->artPresets[(size_t)*selection - 1].values)
+      impl_->parameterValues[entry.first] = entry.second;
+    return true;
+  }
+
   const int index = impl_->findParameter(id);
   if (index < 0) return false;
   ParameterValue normalised;
@@ -958,6 +1112,10 @@ bool CtlProcessor::setParameterValue(const std::string &id, const ParameterValue
 bool CtlProcessor::resetParameter(const std::string &id, bool notify) {
   (void)notify;
   if (!impl_) return false;
+
+  // The preset selector is transient presentation state; resetting it must
+  // not touch the node's parameters (ART's preset menu has no reset).
+  if (id == kArtPresetParameterId) return false;
 
   const int index = impl_->findParameter(id);
   if (index < 0) return false;

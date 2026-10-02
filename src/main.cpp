@@ -626,6 +626,10 @@ static int selfTest() {
           "// @ART-param: [\"mode\", \"$CTL_MODE;Mode\", [[\"$CTL_ALL;All\", 0], [\"$CTL_RED_ONLY;Red only\", 3]], 3, \"$CTL_TONE;Tone\"]\n"
           "// @ART-param: [\"bias\", \"Bias\", -1.0, 1.0]\n"
           "// @ART-param: [\"steps\", \"Steps\", 0, 10]\n"
+          "// @ART-preset: [\"boost\", \"$CTL_PRESET_BOOST;Boost\", {\"gain\": 2.0, \"mode\": 0, \"steps\": 8}]\n"
+          "// @ART-preset: [\"disabled\", \"Disabled\", {\"enabled\": false}]\n"
+          "// @ART-preset: [\"gainOnly\", \"Gain only\", {\"gain\": 2.0}]\n"
+          "// @ART-preset: [\"empty\", \"Empty\", {}]\n"
           "void ART_main(\n"
           "  varying float r, varying float g, varying float b,\n"
           "  output varying float ro, output varying float go, output varying float bo,\n"
@@ -650,6 +654,12 @@ static int selfTest() {
         if (param.type == ParameterType::Group) {
           ++groups;
           ok = ok && param.id == toneGroup && param.label == "Tone";
+          continue;
+        }
+        if (param.id == "__rawnode_art_preset") {
+          ok = ok && param.label == "Preset" && param.type == ParameterType::Choice && !param.persistValue &&
+               param.choices == std::vector<std::string>({"(None)", "Boost", "Disabled", "Gain only", "Empty"}) &&
+               param.choiceValues == std::vector<int>({0, 1, 2, 3, 4}) && std::get<int>(param.value) == 0;
           continue;
         }
         ++seen;
@@ -679,7 +689,7 @@ static int selfTest() {
       // and a group appears where its first member does, as in ART's panel.
       std::vector<std::string> order;
       for (const ProcessorParameter &param : artMeta.nodes[0].processor->parameters()) order.push_back(param.id);
-      if (order != std::vector<std::string>({"enabled", toneGroup, "gain", "mode", "bias", "steps"}))
+      if (order != std::vector<std::string>({"__rawnode_art_preset", "enabled", toneGroup, "gain", "mode", "bias", "steps"}))
         return fail("ART @ART-param control order");
     }
     Image artMetaOut;
@@ -722,7 +732,88 @@ static int selfTest() {
     if (!artMeta.nodes[0].processor->setParameterValue("mode", 3))
       return fail("ART explicit choice value restore");
 
+    // @ART-preset is exposed as a transient dropdown (1 boost, 2 disabled,
+    // 3 gainOnly, 4 empty). Applying a preset updates only its partial
+    // parameter map; the selector shows the last explicitly chosen preset while
+    // the values it maps still match, and Sidecar V2 stores only parameters.
+    Processor &artPresets = *artMeta.nodes[0].processor;
+    const auto presetValue = [&](const char *id) -> ParameterValue {
+      for (const ProcessorParameter &param : artPresets.parameters())
+        if (param.id == id) return param.value;
+      return {};
+    };
+    const auto shownPreset = [&](Processor &processor) {
+      for (const ProcessorParameter &param : processor.parameters())
+        if (param.id == "__rawnode_art_preset") return std::get<int>(param.value);
+      return -1;
+    };
+    if (shownPreset(artPresets) != 0) return fail("ART preset selector before any choice");
+
+    // Partial map: parameters the preset does not name keep their values,
+    // including a non-default edit.
+    if (!artPresets.setParameterValue("bias", 0.25) || !artPresets.setParameterValue("__rawnode_art_preset", 1))
+      return fail("ART preset apply");
+    if (presetValue("gain") != ParameterValue(2.0) || presetValue("mode") != ParameterValue(0) ||
+        presetValue("steps") != ParameterValue(8) || presetValue("bias") != ParameterValue(0.25) ||
+        presetValue("enabled") != ParameterValue(true) || shownPreset(artPresets) != 1)
+      return fail("ART partial preset map");
+    // Editing a parameter the preset does not control keeps it shown.
+    if (!artPresets.setParameterValue("bias", 0.0) || shownPreset(artPresets) != 1)
+      return fail("ART preset selector after unrelated edit");
+
+    Image artPresetOut;
+    if (!renderChain(artMeta, src, artPresetOut, 0).ok) return fail("ART preset render");
+    for (size_t i = 0; i + 3 < src.px.size(); i += 4) {
+      if (std::fabs(artPresetOut.px[i + 0] - src.px[i + 0] * 2.0f) > 1e-6f ||
+          std::fabs(artPresetOut.px[i + 1] - src.px[i + 1] * 2.0f) > 1e-6f ||
+          std::fabs(artPresetOut.px[i + 2] - src.px[i + 2] * 2.0f) > 1e-6f)
+        return fail("ART preset rendered result");
+    }
+
+    // Overlapping presets: gainOnly's map is a subset of boost's values, yet
+    // the selector shows whichever was explicitly chosen.
+    if (!artPresets.setParameterValue("__rawnode_art_preset", 3) || shownPreset(artPresets) != 3)
+      return fail("ART overlapping preset shows gainOnly");
+    if (!artPresets.setParameterValue("__rawnode_art_preset", 1) || shownPreset(artPresets) != 1)
+      return fail("ART overlapping preset shows boost");
+    // Editing a parameter the chosen preset controls shows "(None)".
+    if (!artPresets.setParameterValue("steps", 7) || shownPreset(artPresets) != 0)
+      return fail("ART preset selector after controlled edit");
+    if (!artPresets.setParameterValue("steps", 8))
+      return fail("ART preset controlled edit restore");
+    // An empty preset changes nothing and is never shown as selected.
+    if (!artPresets.setParameterValue("__rawnode_art_preset", 4) || shownPreset(artPresets) != 0 ||
+        presetValue("gain") != ParameterValue(2.0) || presetValue("steps") != ParameterValue(8))
+      return fail("ART empty preset");
+    // Resetting the transient selector is a no-op: no parameter changes.
+    if (artPresets.resetParameter("__rawnode_art_preset") || presetValue("gain") != ParameterValue(2.0) ||
+        presetValue("steps") != ParameterValue(8) || presetValue("mode") != ParameterValue(0))
+      return fail("ART preset selector reset must not reset parameters");
+
+    {
+      if (!artPresets.setParameterValue("__rawnode_art_preset", 1)) return fail("ART preset reapply");
+      const PersistChain presetSaved = captureChain(artMeta);
+      const auto &presetJson = presetSaved.nodes[0].paramsJson;
+      if (presetJson.count("__rawnode_art_preset") != 0)
+        return fail("ART preset selector must not be saved in Sidecar V2");
+      if (presetJson.at("gain") != "2" || presetJson.at("mode") != "0" || presetJson.at("steps") != "8")
+        return fail("ART preset Sidecar V2 capture");
+      // Restored values are authoritative; the selector is not inferred.
+      App presetRestored;
+      applyChain(presetRestored, presetSaved);
+      Image presetRestoredOut;
+      if (presetRestored.nodes.size() != 1 || !presetRestored.nodes[0].processor ||
+          shownPreset(*presetRestored.nodes[0].processor) != 0 ||
+          !renderChain(presetRestored, src, presetRestoredOut, 0).ok || presetRestoredOut.px != artPresetOut.px)
+        return fail("ART preset Sidecar V2 restore");
+    }
+    for (const char *id : {"gain", "mode", "steps", "enabled", "bias"})
+      if (!artPresets.resetParameter(id)) return fail("ART parameter reset after preset tests");
+
     // Untouched parameters reach Sidecar V2 with ART's defaults, not zeros.
+    // Restore the explicit choice default after the preset/reset tests.
+    if (!artMeta.nodes[0].processor->setParameterValue("mode", 3))
+      return fail("ART metadata mode restore after preset");
     const PersistChain artMetaSaved = captureChain(artMeta);
     const auto &metaJson = artMetaSaved.nodes[0].paramsJson;
     if (metaJson.at("gain") != "1.5" || metaJson.at("mode") != "3" || metaJson.at("enabled") != "true" ||
@@ -794,6 +885,37 @@ static int selfTest() {
                                               "void ART_main(" + artRgb + ", float k) { ro = r * k; go = g; bo = b; }\n"),
                   "invalid @ART-param definition for k"))
       return fail("ART malformed @ART-param error");
+    if (!contains(artLoadError("UnknownPreset.ctl",
+                                            "// @ART-param: [\"k\", \"K\", 0.0, 2.0, 1.0]\n"
+                                            "// @ART-preset: [\"bad\", \"Bad\", {\"missing\": 1.0}]\n"
+                                            "void ART_main(" + artRgb + ", float k) { ro = r * k; go = g; bo = b; }\n"),
+                  "@ART-preset refers to unknown ART_main parameter missing"))
+      return fail("ART unknown @ART-preset parameter error");
+    if (!contains(artLoadError("BadPreset.ctl",
+                                            "// @ART-param: [\"k\", \"K\", 0.0, 2.0, 1.0]\n"
+                                            "// @ART-preset: [\"bad\", \"Bad\", {\"k\": true}]\n"
+                                            "void ART_main(" + artRgb + ", float k) { ro = r * k; go = g; bo = b; }\n"),
+                  "invalid value for ART preset parameter k"))
+      return fail("ART malformed @ART-preset value error");
+    if (!contains(artLoadError("DuplicatePreset.ctl",
+                               "// @ART-param: [\"k\", \"K\", 0.0, 2.0, 1.0]\n"
+                               "// @ART-preset: [\"same\", \"First\", {\"k\": 0.5}]\n"
+                               "// @ART-preset: [\"same\", \"Second\", {\"k\": 1.5}]\n"
+                               "void ART_main(" + artRgb + ", float k) { ro = r * k; go = g; bo = b; }\n"),
+                  "duplicate @ART-preset definition for same"))
+      return fail("ART duplicate @ART-preset key error");
+    for (const char *malformed : {
+             "// @ART-preset: [\"bad\", \"Bad\", {\"k\": }]\n",          // invalid JSON
+             "// @ART-preset: [\"bad\", \"Bad\", [0.5]]\n",               // map is not an object
+             "// @ART-preset: [\"bad\", \"Bad\"]\n",                      // missing map
+             "// @ART-preset: [\"bad\", 7, {\"k\": 0.5}]\n",              // label is not a string
+             "// @ART-preset: {\"k\": 0.5}\n"}) {                        // not an array
+      if (!contains(artLoadError("MalformedPreset.ctl",
+                                 std::string("// @ART-param: [\"k\", \"K\", 0.0, 2.0, 1.0]\n") + malformed +
+                                     "void ART_main(" + artRgb + ", float k) { ro = r * k; go = g; bo = b; }\n"),
+                    "invalid @ART-preset definition"))
+        return fail(("ART malformed @ART-preset definition error: " + std::string(malformed)).c_str());
+    }
     if (!contains(artLoadError("NoLib.ctl", "import \"_artlib_missing\";\n"
                                             "void ART_main(" + artRgb + ") { ro = r; go = g; bo = b; }\n"),
                   "Cannot find CTL module \"_artlib_missing\""))
