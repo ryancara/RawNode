@@ -855,6 +855,18 @@ static int selfTest() {
                                               "void ART_main(" + artRgb + ", float k) { ro = r * k; go = g; bo = b; }\n"),
                   "invalid @ART-param definition for k"))
       return fail("ART malformed @ART-param error");
+    if (!contains(artLoadError("UnknownPreset.ctl",
+                                            "// @ART-param: [\"k\", \"K\", 0.0, 2.0, 1.0]\n"
+                                            "// @ART-preset: [\"bad\", \"Bad\", {\"missing\": 1.0}]\n"
+                                            "void ART_main(" + artRgb + ", float k) { ro = r * k; go = g; bo = b; }\n"),
+                  "@ART-preset refers to unknown ART_main parameter missing"))
+      return fail("ART unknown @ART-preset parameter error");
+    if (!contains(artLoadError("BadPreset.ctl",
+                                            "// @ART-param: [\"k\", \"K\", 0.0, 2.0, 1.0]\n"
+                                            "// @ART-preset: [\"bad\", \"Bad\", {\"k\": true}]\n"
+                                            "void ART_main(" + artRgb + ", float k) { ro = r * k; go = g; bo = b; }\n"),
+                  "invalid value for ART preset parameter k"))
+      return fail("ART malformed @ART-preset value error");
     if (!contains(artLoadError("NoLib.ctl", "import \"_artlib_missing\";\n"
                                             "void ART_main(" + artRgb + ") { ro = r; go = g; bo = b; }\n"),
                   "Cannot find CTL module \"_artlib_missing\""))
