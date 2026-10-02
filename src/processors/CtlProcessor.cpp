@@ -125,9 +125,9 @@ std::string canonicalScriptPath(const std::string &path) {
 // --- ART metadata ---------------------------------------------------------
 // ART scripts describe each ART_main parameter in a comment line such as
 //   // @ART-param: ["gain", "Gain", 0.0, 4.0, 1.0, 0.01]
-// whose value is a JSON array. Only what RawNode uses so far is interpreted:
-// the parameter name and its default. Labels, ranges, groups and choices are
-// parsed past but left for the presentation step.
+// whose value is a JSON array. RawNode interprets the scalar presentation
+// metadata used by ART: defaults, labels, numeric ranges/precision, groups,
+// tooltips and integer choice menus. Curve metadata is handled separately.
 
 struct JsonValue {
   enum class Kind { Null, Bool, Number, String, Array, Object } kind = Kind::Null;
