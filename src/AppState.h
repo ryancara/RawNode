@@ -77,28 +77,6 @@ inline constexpr const char *kOutputSpaces[] = {
     "sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020", "ACES2065-1"};
 inline constexpr int kOutputSpaceCount = 5;
 
-inline constexpr const char *kRawWorkingSpaces[] = {
-    "Linear Rec.709", "Linear Rec.2020", "ACES2065-1 (AP0)"};
-inline constexpr int kRawWorkingSpaceCount = 3;
-
-inline ColorSpace rawWorkingSpace(int index) {
-  switch (std::clamp(index, 0, kRawWorkingSpaceCount - 1)) {
-    case 0: return ColorSpace::LinearRec709;
-    case 1: return ColorSpace::LinearRec2020;
-    case 2: return ColorSpace::ACES2065_1;
-  }
-  return ColorSpace::LinearRec2020;
-}
-
-inline int rawWorkingSpaceIndex(ColorSpace cs) {
-  switch (cs) {
-    case ColorSpace::LinearRec709: return 0;
-    case ColorSpace::ACES2065_1: return 2;
-    case ColorSpace::LinearRec2020:
-    default: return 1;
-  }
-}
-
 // Long-edge caps for 16:9 frames; 0 = no downscale.
 inline constexpr struct {
   const char *label;
@@ -144,11 +122,19 @@ struct App {
   // automatic image switching. Reopening after the file is fixed/removed
   // clears this protection.
   std::string sidecarWriteBlockedPath;
+  // Raster inputs continue to use the legacy ColorSpace tag. RAW inputs use
+  // explicit gamut + transfer-function state so primaries and encoding are not
+  // conflated.
   ColorSpace inputSpace = ColorSpace::LinearRec2020;
+  bool inputUsesRawEncoding = false;
+  RgbGamut inputGamut = RgbGamut::Rec2020;
+  TransferFunction inputGamma = TransferFunction::Linear;
+
   // Session/default preference for RAWs that do not yet have an explicit
   // per-image setting. Sidecars may override the current image without changing
   // this default; an explicit UI change updates both the image and the default.
-  ColorSpace rawWorkingSpace = ColorSpace::LinearRec2020;
+  RgbGamut rawWorkingGamut = RgbGamut::Rec2020;
+  TransferFunction rawWorkingGamma = TransferFunction::Linear;
   int outputIndex = 0;
   int exportFormat = 1;  // JPEG
   int jpegQuality = 92;
