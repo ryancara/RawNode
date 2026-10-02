@@ -1,5 +1,6 @@
 #include "RenderPipeline.h"
 #include "perf.h"
+#include "ofx/OfxHost.h"  // gLatestGen cancellation token; move to generic render state later.
 
 #include <GLFW/glfw3.h>
 
