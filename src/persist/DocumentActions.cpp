@@ -165,7 +165,6 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
   app.path = path;
   app.full = std::move(img);
   app.inputSpace = detected;
-  if (isRawImagePath(path)) app.rawWorkingSpace = detected;
   app.previewZoom = 1.0f;
   app.previewPanX = 0.0f;
   app.previewPanY = 0.0f;
