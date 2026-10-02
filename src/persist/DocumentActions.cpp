@@ -188,11 +188,19 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
 }
 
 void setRawWorkingSpace(App &app, ColorSpace space) {
-  if (!isRawWorkingSpace(space) || app.rawWorkingSpace == space) return;
+  if (!isRawWorkingSpace(space)) return;
+  const bool currentIsRaw = !app.path.empty() && isRawImagePath(app.path);
+  const ColorSpace currentSpace = currentIsRaw ? app.inputSpace : app.rawWorkingSpace;
+  if (currentSpace == space) {
+    app.rawWorkingSpace = space;
+    return;
+  }
+
+  // An explicit UI choice also becomes the session default for new RAWs.
   app.rawWorkingSpace = space;
 
   // For raster images this is simply the preference for the next RAW.
-  if (app.path.empty() || !isRawImagePath(app.path)) return;
+  if (!currentIsRaw) return;
 
   waitRenderIdle(app);
   Image img;
