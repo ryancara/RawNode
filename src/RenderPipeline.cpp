@@ -158,12 +158,10 @@ void renderWorker(App *app) {
     }
     if (recolorOnly) {
       Image img;
-      ColorSpace space;
       {
         std::lock_guard<std::mutex> lock(app->displayMutex);
         if (app->display.px.empty()) continue;
         img = app->display;
-        space = ColorSpace::sRGB;
       }
       std::vector<unsigned char> rgba;
       if (app->nodes.empty())
@@ -184,9 +182,8 @@ void renderWorker(App *app) {
     const ProcessorResult result = renderChain(*app, app->preview, out, gen);
     if (gen != gLatestGen) continue;
     if (result.ok) {
-      const ColorSpace space = outputSpace(app->outputIndex);
       std::vector<unsigned char> rgba;
-      toDisplayRGBA8(out, space, rgba);
+      toDisplayRGBA8(out, app->outputEncoding, rgba);
       const int ow = out.w, oh = out.h;
       std::lock_guard<std::mutex> lock(app->displayMutex);
       app->display = std::move(out);
