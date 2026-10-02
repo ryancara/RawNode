@@ -13,10 +13,7 @@
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
 
 static void sourceToDisplayRGBA8(const App &app, const Image &img, std::vector<unsigned char> &rgba) {
-  if (app.inputUsesRawEncoding)
-    toDisplayRGBA8(img, app.inputGamut, app.inputGamma, rgba);
-  else
-    toDisplayRGBA8(img, linearWorkingSpace(app.inputSpace), rgba);
+  toDisplayRGBA8(img, app.inputEncoding, rgba);
 }
 
 static void showSourcePreview(App &app) {
@@ -51,21 +48,21 @@ void rebuildPreview(App &app) {
   if (app.full.px.empty()) return;
   const int maxEdge = kPreviewRes[std::clamp(app.previewRes, 0, kPreviewResCount - 1)].maxEdge;
 
-  if (app.inputUsesRawEncoding && app.inputGamma != TransferFunction::Linear && maxEdge > 0) {
+  if (app.inputEncoding.gamma != TransferFunction::Linear && maxEdge > 0) {
     // Resample RAW previews in linear light, then restore the selected working
     // encoding. This keeps a non-linear RAW working gamma from changing the
     // interpolation maths relative to the full-resolution source.
     Image linear = app.full;
     for (size_t i = 0; i + 3 < linear.px.size(); i += 4) {
-      linear.px[i + 0] = (float)decodeTransfer(linear.px[i + 0], app.inputGamma);
-      linear.px[i + 1] = (float)decodeTransfer(linear.px[i + 1], app.inputGamma);
-      linear.px[i + 2] = (float)decodeTransfer(linear.px[i + 2], app.inputGamma);
+      linear.px[i + 0] = (float)decodeTransfer(linear.px[i + 0], app.inputEncoding.gamma);
+      linear.px[i + 1] = (float)decodeTransfer(linear.px[i + 1], app.inputEncoding.gamma);
+      linear.px[i + 2] = (float)decodeTransfer(linear.px[i + 2], app.inputEncoding.gamma);
     }
     makePreview(linear, maxEdge, app.preview);
     for (size_t i = 0; i + 3 < app.preview.px.size(); i += 4) {
-      app.preview.px[i + 0] = (float)encodeTransfer(app.preview.px[i + 0], app.inputGamma);
-      app.preview.px[i + 1] = (float)encodeTransfer(app.preview.px[i + 1], app.inputGamma);
-      app.preview.px[i + 2] = (float)encodeTransfer(app.preview.px[i + 2], app.inputGamma);
+      app.preview.px[i + 0] = (float)encodeTransfer(app.preview.px[i + 0], app.inputEncoding.gamma);
+      app.preview.px[i + 1] = (float)encodeTransfer(app.preview.px[i + 1], app.inputEncoding.gamma);
+      app.preview.px[i + 2] = (float)encodeTransfer(app.preview.px[i + 2], app.inputEncoding.gamma);
     }
   } else {
     makePreview(app.full, maxEdge, app.preview);
@@ -97,7 +94,7 @@ void uploadTexture(App &app, const Image &img) {
   if (app.nodes.empty())
     sourceToDisplayRGBA8(app, img, rgba);
   else
-    toDisplayRGBA8(img, outputSpace(app.outputIndex), rgba);
+    toDisplayRGBA8(img, app.outputEncoding, rgba);
   uploadTextureRGBA(app, rgba.data(), img.w, img.h);
 }
 
@@ -166,13 +163,13 @@ void renderWorker(App *app) {
         std::lock_guard<std::mutex> lock(app->displayMutex);
         if (app->display.px.empty()) continue;
         img = app->display;
-        space = outputSpace(app->outputIndex);
+        space = ColorSpace::sRGB;
       }
       std::vector<unsigned char> rgba;
       if (app->nodes.empty())
         sourceToDisplayRGBA8(*app, img, rgba);
       else
-        toDisplayRGBA8(img, space, rgba);
+        toDisplayRGBA8(img, app->outputEncoding, rgba);
       std::lock_guard<std::mutex> lock(app->displayMutex);
       app->displayRGBA = std::move(rgba);
       app->displayDirty = true;
