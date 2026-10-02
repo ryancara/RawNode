@@ -234,6 +234,79 @@ static int selfTest() {
   }
   if (order.px[0] > 0.1f || order.px[(size_t)7 * 8 * 4] < 0.5f) return fail("source rows are not bottom-up");
 
+  // Standard CTL backend: load a real .ctl with a sibling import, render it
+  // through Processor, persist/restore it through Sidecar V2, then verify a
+  // missing script degrades to the normal preserved placeholder.
+  {
+    const fs::path ctlDir = fs::temp_directory_path() / "rawnode-selftest-ctl";
+    fs::create_directories(ctlDir);
+    const fs::path libPath = ctlDir / "GainLib.ctl";
+    const fs::path scriptPath = ctlDir / "DoubleRGB.ctl";
+
+    {
+      std::ofstream lib(libPath.string(), std::ios::binary);
+      lib << "float timesTwo(float x) { return x * 2.0; }\n";
+      if (!lib.good()) return fail("ctl library test write");
+    }
+    {
+      std::ofstream script(scriptPath.string(), std::ios::binary);
+      script <<
+          "import \"GainLib\";\n"
+          "void main(\n"
+          "  input varying float rIn, input varying float gIn, input varying float bIn,\n"
+          "  output varying float rOut, output varying float gOut, output varying float bOut,\n"
+          "  output varying float aOut, input varying float aIn = 1.0)\n"
+          "{\n"
+          "  rOut = timesTwo(rIn); gOut = timesTwo(gIn); bOut = timesTwo(bIn); aOut = aIn;\n"
+          "}\n";
+      if (!script.good()) return fail("ctl script test write");
+    }
+
+    App ctlApp;
+    if (!addCtlNode(ctlApp, scriptPath.string()) || ctlApp.nodes.size() != 1 ||
+        !ctlApp.nodes[0].processor || ctlApp.nodes[0].processor->backend() != ProcessorBackend::CTL)
+      return fail("ctl processor creation");
+
+    Image ctlOut;
+    ProcessorResult ctlResult = renderChain(ctlApp, src, ctlOut, 0);
+    if (!ctlResult.ok || ctlOut.w != src.w || ctlOut.h != src.h || ctlOut.px.size() != src.px.size())
+      return fail("ctl processor render");
+
+    for (size_t i = 0; i + 3 < src.px.size(); i += 4) {
+      for (int c = 0; c < 3; ++c)
+        if (std::fabs(ctlOut.px[i + c] - src.px[i + c] * 2.0f) > 1e-6f)
+          return fail("ctl RGB result");
+      if (ctlOut.px[i + 3] != src.px[i + 3]) return fail("ctl alpha result");
+    }
+
+    const PersistChain ctlSaved = captureChain(ctlApp);
+    if (ctlSaved.nodes.size() != 1 || ctlSaved.nodes[0].backend != "ctl" ||
+        fs::path(ctlSaved.nodes[0].identifier).filename() != scriptPath.filename())
+      return fail("ctl persistence capture");
+
+    App ctlRestored;
+    applyChain(ctlRestored, ctlSaved);
+    if (ctlRestored.nodes.size() != 1 || !ctlRestored.nodes[0].processor ||
+        ctlRestored.nodes[0].processor->backend() != ProcessorBackend::CTL)
+      return fail("ctl persistence restore");
+
+    Image ctlRestoredOut;
+    if (!renderChain(ctlRestored, src, ctlRestoredOut, 0).ok || ctlRestoredOut.px != ctlOut.px)
+      return fail("ctl restored render");
+
+    fs::remove(scriptPath);
+    App ctlMissing;
+    applyChain(ctlMissing, ctlSaved);
+    if (ctlMissing.nodes.size() != 1 || ctlMissing.nodes[0].processor ||
+        ctlMissing.nodes[0].storedBackend != "ctl" ||
+        ctlMissing.nodes[0].storedIdentifier != ctlSaved.nodes[0].identifier)
+      return fail("ctl missing script placeholder");
+
+    fs::remove(libPath);
+    fs::remove(ctlDir);
+    printf("ok  Standard CTL processor\n");
+  }
+
   loadPlugins();
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
 
