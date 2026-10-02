@@ -2,6 +2,7 @@
 
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
+#include "processors/OfxProcessor.h"
 
 #include "ofxParam.h"
 #include "imgui.h"
@@ -270,9 +271,16 @@ static bool paramMatches(Param *p, const std::string &q) {
          icontains(sprop(p->props, kOfxParamPropHint), q);
 }
 
+static Effect *effectFor(Node &node) {
+  auto *ofx = dynamic_cast<OfxProcessor *>(node.processor.get());
+  return ofx ? ofx->effect() : nullptr;
+}
+
 static bool ancestorsOpen(Node &node, const std::string &group) {
   if (group.empty()) return true;
-  Param *g = findParam(node.instance.get(), group.c_str());
+  Effect *effect = effectFor(node);
+  if (!effect) return false;
+  Param *g = findParam(effect, group.c_str());
   return g && node.groupOpen[group] && ancestorsOpen(node, sprop(g->props, kOfxParamPropParent));
 }
 
@@ -291,15 +299,16 @@ static bool subtreeMatches(Effect *e, const std::string &parent, const std::stri
 }
 
 void drawParams(App &app, Node &node, const std::string &parent) {
-  if (!node.instance) return;
+  Effect *effect = effectFor(node);
+  if (!effect) return;
   const std::string filter = app.paramFilter;
   const bool filtering = filter[0] != '\0';
-  for (auto &up : node.instance->params) {
+  for (auto &up : effect->params) {
     Param *p = up.get();
     if (sprop(p->props, kOfxParamPropParent) != parent || p->type == kOfxParamTypePage) continue;
     if (dprop(p->props, kOfxParamPropSecret, 0, 0) != 0) continue;
     if (p->type == kOfxParamTypeGroup) {
-      if (filtering && !subtreeMatches(node.instance.get(), p->name, filter) && !paramMatches(p, filter)) continue;
+      if (filtering && !subtreeMatches(effect, p->name, filter) && !paramMatches(p, filter)) continue;
       if (!filtering && !ancestorsOpen(node, parent) && parent != "") continue;
       const std::string groupLabel = sprop(p->props, kOfxPropLabel) + "##" + p->name;
       if (filtering) ImGui::SetNextItemOpen(true, ImGuiCond_Always);
