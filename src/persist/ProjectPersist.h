@@ -91,4 +91,11 @@ bool saveExportSidecar(const std::string &exportPath, const std::string &sourceI
                        ColorEncoding inputEncoding, const PersistGui &gui,
                        const PersistChain &chain, const ColorEncoding *rawEncoding = nullptr);
 
+// Compatibility overloads for older tests/call sites.
+bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui,
+                      const PersistChain &chain, const ColorEncoding *rawEncoding);
+bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath,
+                       ColorSpace inputSpace, const PersistGui &gui,
+                       const PersistChain &chain, const ColorEncoding *rawEncoding);
+
 std::string relativeToWorkspace(const std::string &workspaceDir, const std::string &absPath);
