@@ -1,6 +1,7 @@
 // Minimal still-image OpenFX host: decode RAW/raster, run one OFX filter, preview, export.
 
 #include "imgio/ImageIO.h"
+#include "NodeGraph.h"
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
 #include "persist/ProjectPersist.h"
@@ -115,6 +116,18 @@ static int selfTest() {
     if (loadedNode.backend != "dctl" || loadedNode.identifier != "FutureTransform.dctl" ||
         loadedNode.paramsJson.at("futureData") != "{\"curve\":[0,0.5,1],\"mode\":\"test\"}")
       return fail("sidecar v2 opaque state");
+
+    App placeholderApp;
+    applyChain(placeholderApp, loaded.chain);
+    if (placeholderApp.nodes.size() != 1 || placeholderApp.nodes[0].processor ||
+        placeholderApp.nodes[0].id != "node-future" ||
+        placeholderApp.nodes[0].storedBackend != "dctl")
+      return fail("sidecar v2 missing processor placeholder");
+    const PersistChain recaptured = captureChain(placeholderApp);
+    if (recaptured.nodes.size() != 1 || recaptured.nodes[0].id != "node-future" ||
+        recaptured.nodes[0].paramsJson.at("futureData") != "{\"curve\":[0,0.5,1],\"mode\":\"test\"}")
+      return fail("sidecar v2 missing processor preservation");
+
     fs::remove(sidecar);
 
     // V1 remains readable and is normalised into the generic persistence model.
