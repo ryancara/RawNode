@@ -111,13 +111,13 @@ void multiply3x3(const double a[3][3], const double b[3][3], double out[3][3]) {
 
 const char *rgbGamutName(RgbGamut gamut) {
   switch (gamut) {
-    case RgbGamut::Rec709: return "Rec.709 / sRGB";
+    case RgbGamut::Rec709: return "Rec.709";
     case RgbGamut::Rec2020: return "Rec.2020";
     case RgbGamut::ACES_AP0: return "ACES AP0";
     case RgbGamut::ACES_AP1: return "ACES AP1";
     case RgbGamut::DaVinciWideGamut: return "DaVinci Wide Gamut";
   }
-  return "Rec.709 / sRGB";
+  return "Rec.709";
 }
 
 bool linearColorTransformMatrix(RgbGamut source, RgbGamut target, double out[3][3]) {
