@@ -163,6 +163,22 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       }
     }
 
+    if (!param.hasRange) {
+      ImGui::SameLine(0, gap);
+      ImGui::SetNextItemWidth(valueWidth());
+      if (asInt) {
+        int iv = (int)std::lround(value);
+        if (ImGui::InputInt(idLabel.c_str(), &iv, 0, 0)) commitNumeric(iv);
+      } else {
+        double dv = value;
+        if (ImGui::InputDouble(idLabel.c_str(), &dv, 0.0, 0.0, "%.6g")) commitNumeric(dv);
+      }
+      if (!param.enabled) ImGui::EndDisabled();
+      ImGui::PopID();
+      finishParameterChange(app, changed);
+      return;
+    }
+
     ImGui::SameLine(0, gap);
     double typed = value;
     if (paramEditButton(typed, asInt, hardLo, hardHi)) {
