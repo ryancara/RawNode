@@ -125,8 +125,19 @@ static bool paramEditButton(double &value, bool asInt, double lo, double hi) {
   return commit;
 }
 
-static void finishParameterChange(App &app, bool changed) {
+static void finishParameterChange(App &app, Node &node, const ProcessorParameter &param, bool changed) {
   if (!changed) return;
+
+  // A deliberate user edit supersedes any opaque preserved value for this
+  // parameter, including an unknown future stable choice ID.
+  node.preservedParamsJson.erase(param.id);
+
+  if (app.sidecarBlockedByUnknownProcessorChoice && !hasUnknownProcessorChoiceIds(app)) {
+    app.sidecarBlockedByUnknownProcessorChoice = false;
+    if (app.sidecarWriteBlockedPath == app.path) app.sidecarWriteBlockedPath.clear();
+    app.setStatus("Unknown processor choice replaced; sidecar writes are enabled again.");
+  }
+
   scheduleRender(app);
 }
 
@@ -212,7 +223,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       }
       if (!param.enabled) ImGui::EndDisabled();
       ImGui::PopID();
-      finishParameterChange(app, changed);
+      finishParameterChange(app, node, param, changed);
       return;
     }
 
@@ -352,7 +363,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
 
   if (!param.enabled) ImGui::EndDisabled();
   ImGui::PopID();
-  finishParameterChange(app, changed);
+  finishParameterChange(app, node, param, changed);
 }
 
 static bool icontains(const std::string &haystack, const std::string &needle) {
