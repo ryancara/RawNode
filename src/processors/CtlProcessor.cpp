@@ -397,7 +397,148 @@ bool artMetadataDefault(const ArtParamDefinition &def, ParameterType type, const
 
 
 std::string artDisplayText(const std::string &text) {
-  if (text.empty() || text[0] != '
+  if (text.empty() || text[0] != char(36)) return text;
+  const size_t semi = text.find(';');
+  if (semi != std::string::npos) return text.substr(semi + 1);
+  return text.substr(1);
+}
+
+struct ArtPresentation {
+  ParameterType type = ParameterType::Unsupported;
+  std::string label;
+  std::string groupId;
+  std::string groupLabel;
+  std::string hint;
+  bool hasRange = false;
+  double min = 0.0;
+  double max = 1.0;
+  double step = 0.0;
+  std::vector<std::string> choices;
+  std::vector<int> choiceValues;
+};
+
+ArtPresentation artPresentation(const ArtParamDefinition &def, ParameterType baseType, const std::string &file) {
+  const auto &items = def.spec.items;
+  const auto bad = [&]() {
+    return ContractError(file + ":" + std::to_string(def.line) + ": invalid @ART-param definition for " +
+                         items[0].string);
+  };
+  if (items.size() < 2 || items[1].kind != JsonValue::Kind::String) throw bad();
+
+  ArtPresentation out;
+  out.type = baseType;
+  out.label = artDisplayText(items[1].string);
+
+  auto setGroupTooltip = [&](size_t at) {
+    if (items.size() <= at) return;
+    if (items[at].kind != JsonValue::Kind::String) throw bad();
+    if (!items[at].string.empty()) {
+      out.groupId = "__art_group__:" + items[at].string;
+      out.groupLabel = artDisplayText(items[at].string);
+    }
+    if (items.size() > at + 1) {
+      if (items[at + 1].kind != JsonValue::Kind::String) throw bad();
+      out.hint = artDisplayText(items[at + 1].string);
+    }
+  };
+
+  switch (baseType) {
+    case ParameterType::Boolean:
+      if (items.size() < 2 || items.size() > 5) throw bad();
+      if (items.size() >= 3 && items[2].kind != JsonValue::Kind::Bool) throw bad();
+      if (items.size() >= 4) setGroupTooltip(3);
+      break;
+
+    case ParameterType::Double:
+      if (items.size() < 4 || items.size() > 8 ||
+          items[2].kind != JsonValue::Kind::Number || items[3].kind != JsonValue::Kind::Number ||
+          !std::isfinite(items[2].number) || !std::isfinite(items[3].number))
+        throw bad();
+      out.hasRange = true;
+      out.min = items[2].number;
+      out.max = items[3].number;
+      if (items.size() >= 5 && items[4].kind != JsonValue::Kind::Number) throw bad();
+      if (items.size() >= 6) {
+        if (items[5].kind != JsonValue::Kind::Number || !std::isfinite(items[5].number)) throw bad();
+        out.step = items[5].number;
+      } else if (items.size() >= 5) {
+        out.step = (out.max - out.min) / 100.0;
+      }
+      if (items.size() >= 7) setGroupTooltip(6);
+      break;
+
+    case ParameterType::Integer:
+      if (items.size() < 3 || items.size() > 7) throw bad();
+      if (items[2].kind == JsonValue::Kind::Array) {
+        out.type = ParameterType::Choice;
+        bool strings = true;
+        for (const JsonValue &choice : items[2].items) {
+          if (choice.kind != JsonValue::Kind::String) {
+            strings = false;
+            break;
+          }
+        }
+        if (strings) {
+          for (size_t i = 0; i < items[2].items.size(); ++i) {
+            out.choices.push_back(artDisplayText(items[2].items[i].string));
+            out.choiceValues.push_back((int)i);
+          }
+        } else {
+          for (const JsonValue &choice : items[2].items) {
+            if (choice.kind != JsonValue::Kind::Array || choice.items.size() != 2 ||
+                choice.items[0].kind != JsonValue::Kind::String)
+              throw bad();
+            int value = 0;
+            if (!jsonInteger(choice.items[1], value) || value < 0) throw bad();
+            out.choices.push_back(artDisplayText(choice.items[0].string));
+            out.choiceValues.push_back(value);
+          }
+        }
+        if (items.size() >= 4) {
+          int ignored = 0;
+          if (!jsonInteger(items[3], ignored)) throw bad();
+        }
+        if (items.size() >= 5) setGroupTooltip(4);
+      } else {
+        if (items.size() < 4) throw bad();
+        int lo = 0, hi = 0;
+        if (!jsonInteger(items[2], lo) || !jsonInteger(items[3], hi)) throw bad();
+        out.hasRange = true;
+        out.min = lo;
+        out.max = hi;
+        out.step = 1.0;
+        if (items.size() >= 5) {
+          int ignored = 0;
+          if (!jsonInteger(items[4], ignored)) throw bad();
+        }
+        if (items.size() >= 6) setGroupTooltip(5);
+      }
+      break;
+
+    default:
+      throw bad();
+  }
+  return out;
+}
+
+std::string readArtLabel(const std::string &path) {
+  std::ifstream in(path, std::ios::binary);
+  std::string line;
+  for (; std::getline(in, line);) {
+    size_t s = 0;
+    while (s < line.size() && std::isspace((unsigned char)line[s])) ++s;
+    if (line.compare(s, 2, "//") == 0) s += 2;
+    while (s < line.size() && std::isspace((unsigned char)line[s])) ++s;
+    static const std::string kTag = "@ART-label:";
+    if (line.compare(s, kTag.size(), kTag) != 0) continue;
+    JsonValue value;
+    if (JsonReader(line.substr(s + kTag.size())).parseDocument(value) &&
+        value.kind == JsonValue::Kind::String)
+      return artDisplayText(value.string);
+  }
+  return {};
+}
+
 }  // namespace
 
 struct CtlProcessor::Impl {
