@@ -38,6 +38,8 @@ PersistGui captureGui(const App &app) {
   g.outputIndex = legacyOutputIndex(app.outputEncoding);
   g.outputColorSpace = rgbGamutId(app.outputEncoding.gamut);
   g.outputGamma = transferFunctionId(app.outputEncoding.gamma);
+  g.rawDefaultColorSpace = rgbGamutId(app.rawWorkingEncoding.gamut);
+  g.rawDefaultGamma = transferFunctionId(app.rawWorkingEncoding.gamma);
   g.exportFormat = app.exportFormat;
   g.jpegQuality = app.jpegQuality;
   g.previewRes = app.previewRes;
@@ -61,6 +63,13 @@ void applyGui(App &app, const PersistGui &g) {
   } else {
     app.outputEncoding = legacyOutputEncoding(g.outputIndex);
   }
+
+  RgbGamut rawGamut;
+  TransferFunction rawGamma;
+  if (!g.rawDefaultColorSpace.empty() && !g.rawDefaultGamma.empty() &&
+      rgbGamutFromIdOrName(g.rawDefaultColorSpace, rawGamut) &&
+      transferFunctionFromIdOrName(g.rawDefaultGamma, rawGamma))
+    app.rawWorkingEncoding = {rawGamut, rawGamma};
 
   app.exportFormat = std::clamp(g.exportFormat, 0, 1);
   app.jpegQuality = std::clamp(g.jpegQuality, 1, 100);
