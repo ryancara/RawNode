@@ -16,3 +16,4 @@ void moveNode(App &app, int from, int to);
 PersistChain captureChain(const App &app);
 void applyChain(App &app, const PersistChain &chain);
 bool hasUnknownProcessorChoiceIds(const App &app);
+void markParameterEdited(App &app, Node &node, const std::string &parameterId);
