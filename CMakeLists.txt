@@ -100,6 +100,7 @@ add_executable(OfxRawHost
   src/imgio/ImageLoad.cpp
   src/imgio/ImageColor.cpp
   src/imgio/ImageWrite.cpp
+  src/color/ColorEncoding.cpp
   src/color/LinearColorTransform.cpp
   src/color/TransferFunction.cpp
   src/UI.cpp
