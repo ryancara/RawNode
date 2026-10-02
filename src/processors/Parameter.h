@@ -35,6 +35,10 @@ struct ProcessorParameter {
   double max = 1.0;
   double displayMin = 0.0;
   double displayMax = 1.0;
+  // Some backends (notably plain CTL) expose numeric values without any
+  // declared min/max metadata. In that case the UI must not invent a slider
+  // range and should use a direct numeric editor instead.
+  bool hasRange = true;
 
   std::vector<std::string> choices;
 
