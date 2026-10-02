@@ -44,6 +44,9 @@ struct ProcessorParameter {
   double step = 0.0;
 
   std::vector<std::string> choices;
+  // Optional stable persistence identifiers for choices. When present, generic
+  // sidecar persistence stores the selected ID instead of a fragile menu index.
+  std::vector<std::string> choiceIds;
   // Usually choices map to 0..N-1. Backends such as ART CTL may declare
   // explicit integer values for each choice; an empty vector keeps the normal
   // index mapping.
