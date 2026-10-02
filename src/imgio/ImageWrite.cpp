@@ -180,15 +180,19 @@ static bool writeJpgWithIcc(const Image &img, const std::string &path, const std
   return ok;
 }
 
-bool writeImage(const Image &img, const std::string &path, ColorSpace space, int jpegQuality) {
+bool writeImage(const Image &img, const std::string &path, ColorEncoding encoding, int jpegQuality) {
   if (img.w <= 0 || img.h <= 0) return false;
   std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
+  for (char &ch : e) ch = (char)tolower((unsigned char)ch);
 
   std::vector<uint8_t> icc;
-  if (!profileBytes(space, icc)) return false;
+  if (!profileBytes(encoding, icc)) return false;
 
   if (e == ".png") return writePngWithIcc(img, path, icc);
   if (e == ".jpg" || e == ".jpeg") return writeJpgWithIcc(img, path, icc, jpegQuality);
   return false;
+}
+
+bool writeImage(const Image &img, const std::string &path, ColorSpace space, int jpegQuality) {
+  return writeImage(img, path, legacyColorSpaceEncoding(space), jpegQuality);
 }
