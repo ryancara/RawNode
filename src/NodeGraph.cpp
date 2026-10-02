@@ -347,6 +347,15 @@ bool hasUnknownProcessorChoiceIds(const App &app) {
   return false;
 }
 
+void markParameterEdited(App &app, Node &node, const std::string &parameterId) {
+  node.preservedParamsJson.erase(parameterId);
+  if (app.sidecarBlockedByUnknownProcessorChoice && !hasUnknownProcessorChoiceIds(app)) {
+    app.sidecarBlockedByUnknownProcessorChoice = false;
+    if (app.sidecarWriteBlockedPath == app.path) app.sidecarWriteBlockedPath.clear();
+    app.setStatus("Unknown processor choice replaced; sidecar writes are enabled again.");
+  }
+}
+
 void applyChain(App &app, const PersistChain &chain) {
   clearNodes(app);
 
