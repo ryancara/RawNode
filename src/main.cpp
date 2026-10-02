@@ -134,8 +134,8 @@ static int selfTest() {
   }
 
   {
-    // Native CST: explicit linear gamut conversion, out-of-range preservation,
-    // alpha preservation, and Sidecar V2 restoration.
+    // Native CST: gamut and transfer function are explicit, independent
+    // controls. Verify colour maths, float range, alpha, and Sidecar V2.
     App cstApp;
     if (!addNativeCstNode(cstApp) || cstApp.nodes.size() != 1 || !cstApp.nodes[0].processor ||
         cstApp.nodes[0].processor->backend() != ProcessorBackend::Native ||
@@ -143,13 +143,20 @@ static int selfTest() {
       return fail("native CST processor creation");
 
     const auto cstParams = cstApp.nodes[0].processor->parameters();
-    if (cstParams.size() != 2 || cstParams[0].id != "input_space" || cstParams[1].id != "output_space" ||
-        cstParams[0].choices.size() != 3 || cstParams[1].choices.size() != 3)
+    if (cstParams.size() != 4 ||
+        cstParams[0].id != "input_space" || cstParams[0].choices.size() != 5 ||
+        cstParams[1].id != "input_gamma" || cstParams[1].choices.size() != 4 ||
+        cstParams[2].id != "output_space" || cstParams[2].choices.size() != 5 ||
+        cstParams[3].id != "output_gamma" || cstParams[3].choices.size() != 4)
       return fail("native CST parameters");
 
-    if (!cstApp.nodes[0].processor->setParameterValue("input_space", 0) ||
-        !cstApp.nodes[0].processor->setParameterValue("output_space", 1) ||
-        cstApp.nodes[0].processor->setParameterValue("output_space", 9))
+    Processor &cst = *cstApp.nodes[0].processor;
+    if (!cst.setParameterValue("input_space", 0) ||
+        !cst.setParameterValue("input_gamma", 0) ||
+        !cst.setParameterValue("output_space", 1) ||
+        !cst.setParameterValue("output_gamma", 0) ||
+        cst.setParameterValue("output_space", 9) ||
+        cst.setParameterValue("output_gamma", 9))
       return fail("native CST parameter validation");
 
     Image cstIn;
@@ -170,7 +177,6 @@ static int selfTest() {
       return fail("native CST Rec.709 to Rec.2020");
 
     // The second pixel deliberately contains a negative and a >1 component.
-    // The transformed blue remains >1, proving the CST does not clamp.
     if (std::fabs(cstOut.px[4] - 0.09979903f) > 1e-6f ||
         std::fabs(cstOut.px[5] - 0.46185798f) > 1e-6f ||
         std::fabs(cstOut.px[6] - 1.29456172f) > 1e-6f ||
@@ -181,7 +187,9 @@ static int selfTest() {
     if (cstSaved.nodes.size() != 1 || cstSaved.nodes[0].backend != "native" ||
         cstSaved.nodes[0].identifier != NativeCstProcessor::kIdentifier ||
         cstSaved.nodes[0].paramsJson.at("input_space") != "0" ||
-        cstSaved.nodes[0].paramsJson.at("output_space") != "1")
+        cstSaved.nodes[0].paramsJson.at("input_gamma") != "0" ||
+        cstSaved.nodes[0].paramsJson.at("output_space") != "1" ||
+        cstSaved.nodes[0].paramsJson.at("output_gamma") != "0")
       return fail("native CST persistence capture");
 
     App cstRestored;
@@ -194,25 +202,82 @@ static int selfTest() {
     if (!renderChain(cstRestored, cstIn, cstRestoredOut, 0).ok || cstRestoredOut.px != cstOut.px)
       return fail("native CST restored render");
 
-    // AP0 round trip should recover the original RGB within float rounding.
-    if (!cstRestored.nodes[0].processor->setParameterValue("input_space", 0) ||
-        !cstRestored.nodes[0].processor->setParameterValue("output_space", 2))
-      return fail("native CST AP0 setup");
-    Image ap0;
-    if (!renderChain(cstRestored, cstIn, ap0, 0).ok) return fail("native CST AP0 render");
+    Processor &restoredCst = *cstRestored.nodes[0].processor;
 
-    if (!cstRestored.nodes[0].processor->setParameterValue("input_space", 2) ||
-        !cstRestored.nodes[0].processor->setParameterValue("output_space", 0))
-      return fail("native CST AP0 inverse setup");
-    Image rec709RoundTrip;
-    if (!renderChain(cstRestored, ap0, rec709RoundTrip, 0).ok) return fail("native CST AP0 inverse render");
-    for (size_t i = 0; i < cstIn.px.size(); ++i) {
-      if (i % 4 == 3) {
-        if (rec709RoundTrip.px[i] != cstIn.px[i]) return fail("native CST AP0 round-trip alpha");
-      } else if (std::fabs(rec709RoundTrip.px[i] - cstIn.px[i]) > 2e-6f) {
-        return fail("native CST AP0 round trip");
+    // Every added gamut must round-trip through Rec.709 in linear light.
+    for (int targetSpace : {2, 3, 4}) {  // AP0, AP1, DaVinci Wide Gamut
+      if (!restoredCst.setParameterValue("input_space", 0) ||
+          !restoredCst.setParameterValue("input_gamma", 0) ||
+          !restoredCst.setParameterValue("output_space", targetSpace) ||
+          !restoredCst.setParameterValue("output_gamma", 0))
+        return fail("native CST gamut round-trip setup");
+      Image wide;
+      if (!renderChain(cstRestored, cstIn, wide, 0).ok) return fail("native CST gamut forward render");
+
+      if (!restoredCst.setParameterValue("input_space", targetSpace) ||
+          !restoredCst.setParameterValue("output_space", 0))
+        return fail("native CST gamut inverse setup");
+      Image roundTrip;
+      if (!renderChain(cstRestored, wide, roundTrip, 0).ok) return fail("native CST gamut inverse render");
+
+      for (size_t i = 0; i < cstIn.px.size(); ++i) {
+        if (i % 4 == 3) {
+          if (roundTrip.px[i] != cstIn.px[i]) return fail("native CST gamut round-trip alpha");
+        } else if (std::fabs(roundTrip.px[i] - cstIn.px[i]) > 3e-6f) {
+          return fail("native CST gamut round trip");
+        }
       }
     }
+
+    // Transfer functions are independent of gamut. Use an identity Rec.709
+    // gamut transform to check their published 18% grey mappings and inverse.
+    Image grey;
+    grey.w = 1;
+    grey.h = 1;
+    grey.px = {0.18f, 0.18f, 0.18f, 0.6f};
+    const float expected18[] = {
+        0.18f,
+        0.46135613f,  // sRGB
+        0.40900773f,  // Rec.709 OETF
+        0.33604327f,  // DaVinci Intermediate
+    };
+    for (int gamma = 0; gamma < 4; ++gamma) {
+      if (!restoredCst.setParameterValue("input_space", 0) ||
+          !restoredCst.setParameterValue("output_space", 0) ||
+          !restoredCst.setParameterValue("input_gamma", 0) ||
+          !restoredCst.setParameterValue("output_gamma", gamma))
+        return fail("native CST gamma forward setup");
+
+      Image encoded;
+      if (!renderChain(cstRestored, grey, encoded, 0).ok) return fail("native CST gamma forward render");
+      for (int channel = 0; channel < 3; ++channel)
+        if (std::fabs(encoded.px[(size_t)channel] - expected18[gamma]) > 2e-6f)
+          return fail("native CST gamma 18 percent mapping");
+      if (encoded.px[3] != grey.px[3]) return fail("native CST gamma alpha");
+
+      if (!restoredCst.setParameterValue("input_gamma", gamma) ||
+          !restoredCst.setParameterValue("output_gamma", 0))
+        return fail("native CST gamma inverse setup");
+      Image decoded;
+      if (!renderChain(cstRestored, encoded, decoded, 0).ok) return fail("native CST gamma inverse render");
+      for (int channel = 0; channel < 3; ++channel)
+        if (std::fabs(decoded.px[(size_t)channel] - 0.18f) > 2e-6f)
+          return fail("native CST gamma round trip");
+    }
+
+    // Blackmagic's published DI mapping explicitly includes negative linear
+    // values; preserve that behaviour rather than clamping at zero.
+    Image negative;
+    negative.w = 1;
+    negative.h = 1;
+    negative.px = {-0.01f, -0.01f, -0.01f, 1.0f};
+    if (!restoredCst.setParameterValue("input_gamma", 0) ||
+        !restoredCst.setParameterValue("output_gamma", 3))
+      return fail("native CST DI negative setup");
+    Image negativeDi;
+    if (!renderChain(cstRestored, negative, negativeDi, 0).ok ||
+        std::fabs(negativeDi.px[0] - (-0.10444269f)) > 2e-6f)
+      return fail("native CST DI negative mapping");
 
     printf("ok  Native CST processor\n");
   }
