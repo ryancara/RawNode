@@ -93,6 +93,15 @@ static int selfTest() {
   }
 
   {
+    // Workspace/open-dialog extension hints include formats that LibRaw can
+    // decode even though they were missing from the first PR #17 allow-list.
+    for (const char *ext : {".nrw", ".erf", ".3fr", ".crw", ".iiq", ".mrw", ".x3f", ".srf", ".rwl"}) {
+      if (!isSupportedImagePath(std::string("camera") + ext))
+        return fail("expanded RAW extension support");
+    }
+  }
+
+  {
     // RAW colour boundary: camera -> working-space matrix application happens
     // in float and must preserve values outside 0..1 rather than clipping them.
     const float camera[4] = {0.25f, 0.5f, 0.75f, 0.125f};
@@ -144,9 +153,9 @@ static int selfTest() {
 
     const auto cstParams = cstApp.nodes[0].processor->parameters();
     if (cstParams.size() != 4 ||
-        cstParams[0].id != "input_space" || cstParams[0].choices.size() != 5 ||
+        cstParams[0].id != "input_space" || cstParams[0].choices.size() != 6 ||
         cstParams[1].id != "input_gamma" || cstParams[1].choices.size() != 4 ||
-        cstParams[2].id != "output_space" || cstParams[2].choices.size() != 5 ||
+        cstParams[2].id != "output_space" || cstParams[2].choices.size() != 6 ||
         cstParams[3].id != "output_gamma" || cstParams[3].choices.size() != 4)
       return fail("native CST parameters");
 
@@ -186,10 +195,10 @@ static int selfTest() {
     const PersistChain cstSaved = captureChain(cstApp);
     if (cstSaved.nodes.size() != 1 || cstSaved.nodes[0].backend != "native" ||
         cstSaved.nodes[0].identifier != NativeCstProcessor::kIdentifier ||
-        cstSaved.nodes[0].paramsJson.at("input_space") != "0" ||
-        cstSaved.nodes[0].paramsJson.at("input_gamma") != "0" ||
-        cstSaved.nodes[0].paramsJson.at("output_space") != "1" ||
-        cstSaved.nodes[0].paramsJson.at("output_gamma") != "0")
+        cstSaved.nodes[0].paramsJson.at("input_space") != "\"rec709\"" ||
+        cstSaved.nodes[0].paramsJson.at("input_gamma") != "\"linear\"" ||
+        cstSaved.nodes[0].paramsJson.at("output_space") != "\"rec2020\"" ||
+        cstSaved.nodes[0].paramsJson.at("output_gamma") != "\"linear\"")
       return fail("native CST persistence capture");
 
     App cstRestored;
@@ -205,7 +214,7 @@ static int selfTest() {
     Processor &restoredCst = *cstRestored.nodes[0].processor;
 
     // Every added gamut must round-trip through Rec.709 in linear light.
-    for (int targetSpace : {2, 3, 4}) {  // AP0, AP1, DaVinci Wide Gamut
+    for (int targetSpace : {2, 3, 4, 5}) {  // AP0, AP1, DWG, Display P3
       if (!restoredCst.setParameterValue("input_space", 0) ||
           !restoredCst.setParameterValue("input_gamma", 0) ||
           !restoredCst.setParameterValue("output_space", targetSpace) ||
@@ -238,7 +247,7 @@ static int selfTest() {
     const float expected18[] = {
         0.18f,
         0.46135613f,  // sRGB
-        0.40900773f,  // Rec.709 OETF
+        0.40884811f,  // exact Rec.709 camera OETF
         0.33604327f,  // DaVinci Intermediate
     };
     for (int gamma = 0; gamma < 4; ++gamma) {
@@ -279,6 +288,50 @@ static int selfTest() {
         std::fabs(negativeDi.px[0] - (-0.10444269f)) > 2e-6f)
       return fail("native CST DI negative mapping");
 
+    // A bad upstream pixel is local data, not a frame-level render failure.
+    Image badPixel;
+    badPixel.w = 2;
+    badPixel.h = 1;
+    badPixel.px = {
+        std::numeric_limits<float>::quiet_NaN(), 0.2f, 0.3f, 1.0f,
+        0.2f, 0.3f, 0.4f, 0.5f,
+    };
+    if (!restoredCst.setParameterValue("input_space", (int)RgbGamut::Rec709) ||
+        !restoredCst.setParameterValue("output_space", (int)RgbGamut::Rec2020) ||
+        !restoredCst.setParameterValue("input_gamma", (int)TransferFunction::Linear) ||
+        !restoredCst.setParameterValue("output_gamma", (int)TransferFunction::Linear))
+      return fail("native CST non-finite setup");
+    Image badOut;
+    if (!renderChain(cstRestored, badPixel, badOut, 0).ok ||
+        !std::isnan(badOut.px[0]) || badOut.px[3] != 1.0f ||
+        !std::isfinite(badOut.px[4]))
+      return fail("native CST non-finite pixel handling");
+
+    // Exact Rec.709 constants make the OETF and inverse continuous and
+    // monotonic at the breakpoint.
+    constexpr double k709Beta = 0.018053968510807;
+    const double encodedCut = encodeTransfer(k709Beta, TransferFunction::Rec709);
+    if (std::fabs(encodedCut - 4.5 * k709Beta) > 1e-12 ||
+        std::fabs(decodeTransfer(encodedCut, TransferFunction::Rec709) - k709Beta) > 1e-12 ||
+        decodeTransfer(encodedCut + 1e-7, TransferFunction::Rec709) <
+            decodeTransfer(encodedCut - 1e-7, TransferFunction::Rec709))
+      return fail("Rec.709 exact breakpoint");
+
+    // Early PR #17 numeric CST sidecars must still restore after switching new
+    // writes to stable string IDs.
+    PersistChain numericLegacy = cstSaved;
+    numericLegacy.nodes[0].paramsJson["input_space"] = "0";
+    numericLegacy.nodes[0].paramsJson["input_gamma"] = "0";
+    numericLegacy.nodes[0].paramsJson["output_space"] = "1";
+    numericLegacy.nodes[0].paramsJson["output_gamma"] = "0";
+    App numericRestored;
+    applyChain(numericRestored, numericLegacy);
+    Image numericOut;
+    if (numericRestored.nodes.size() != 1 ||
+        !renderChain(numericRestored, cstIn, numericOut, 0).ok ||
+        numericOut.px != cstOut.px)
+      return fail("numeric PR17 CST sidecar compatibility");
+
     printf("ok  Native CST processor\n");
   }
 
@@ -311,8 +364,8 @@ static int selfTest() {
     if (!loadSidecarFile(sidecar, loaded)) return fail("sidecar v2 load");
     if (loaded.format != "rawnode-sidecar" || loaded.version != 2) return fail("sidecar v2 version");
     if (loaded.rawWorkingSpace != "DaVinci Wide Gamut / DaVinci Intermediate" ||
-        loaded.rawColorSpace != "DaVinci Wide Gamut" ||
-        loaded.rawGamma != "DaVinci Intermediate")
+        loaded.rawColorSpace != "davinci-wide-gamut" ||
+        loaded.rawGamma != "davinci-intermediate")
       return fail("sidecar v2 RAW encoding");
     if (loaded.chain.selectedNodeId != "node-future" || loaded.chain.nodes.size() != 1)
       return fail("sidecar v2 node identity");
