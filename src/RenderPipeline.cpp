@@ -11,11 +11,17 @@
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
 
+static void sourceToDisplayRGBA8(const App &app, const Image &img, std::vector<unsigned char> &rgba) {
+  if (app.inputUsesRawEncoding)
+    toDisplayRGBA8(img, app.inputGamut, app.inputGamma, rgba);
+  else
+    toDisplayRGBA8(img, linearWorkingSpace(app.inputSpace), rgba);
+}
+
 static void showSourcePreview(App &app) {
   if (app.preview.px.empty()) return;
-  const ColorSpace space = linearWorkingSpace(app.inputSpace);
   std::vector<unsigned char> rgba;
-  toDisplayRGBA8(app.preview, space, rgba);
+  sourceToDisplayRGBA8(app, app.preview, rgba);
   std::lock_guard<std::mutex> lock(app.displayMutex);
   app.display = app.preview;
   app.displayRGBA = std::move(rgba);
@@ -66,10 +72,11 @@ static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h)
 }
 
 void uploadTexture(App &app, const Image &img) {
-  const ColorSpace space =
-      app.nodes.empty() ? linearWorkingSpace(app.inputSpace) : outputSpace(app.outputIndex);
   std::vector<unsigned char> rgba;
-  toDisplayRGBA8(img, space, rgba);
+  if (app.nodes.empty())
+    sourceToDisplayRGBA8(app, img, rgba);
+  else
+    toDisplayRGBA8(img, outputSpace(app.outputIndex), rgba);
   uploadTextureRGBA(app, rgba.data(), img.w, img.h);
 }
 
@@ -138,10 +145,13 @@ void renderWorker(App *app) {
         std::lock_guard<std::mutex> lock(app->displayMutex);
         if (app->display.px.empty()) continue;
         img = app->display;
-        space = app->nodes.empty() ? linearWorkingSpace(app->inputSpace) : outputSpace(app->outputIndex);
+        space = outputSpace(app->outputIndex);
       }
       std::vector<unsigned char> rgba;
-      toDisplayRGBA8(img, space, rgba);
+      if (app->nodes.empty())
+        sourceToDisplayRGBA8(*app, img, rgba);
+      else
+        toDisplayRGBA8(img, space, rgba);
       std::lock_guard<std::mutex> lock(app->displayMutex);
       app->displayRGBA = std::move(rgba);
       app->displayDirty = true;
