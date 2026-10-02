@@ -328,6 +328,25 @@ PersistChain captureChain(const App &app) {
   return chain;
 }
 
+static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParameter &param) {
+  if (param.type != ParameterType::Choice || param.choiceIds.empty()) return false;
+  const auto it = node.preservedParamsJson.find(param.id);
+  if (it == node.preservedParamsJson.end()) return false;
+
+  std::string id;
+  if (!parseJsonStringValue(trimParamJson(it->second), id)) return false;
+  return std::find(param.choiceIds.begin(), param.choiceIds.end(), id) == param.choiceIds.end();
+}
+
+bool hasUnknownProcessorChoiceIds(const App &app) {
+  for (const Node &node : app.nodes) {
+    if (!node.processor) continue;
+    for (const ProcessorParameter &param : node.processor->parameters())
+      if (parameterHasUnknownChoiceId(node, param)) return true;
+  }
+  return false;
+}
+
 void applyChain(App &app, const PersistChain &chain) {
   clearNodes(app);
 
