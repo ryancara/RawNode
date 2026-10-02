@@ -2,6 +2,7 @@
 
 #include "imgio/ImageIO.h"
 #include "NodeGraph.h"
+#include "RenderPipeline.h"
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
 #include "persist/ProjectPersist.h"
@@ -234,6 +235,58 @@ static int selfTest() {
 
   loadPlugins();
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
+
+  // Phase 4 mixed-backend seam: OFX -> native Exposure -> OFX must render,
+  // persist, restore, and render identically through the generic interfaces.
+  {
+    auto cropIt = std::find_if(gPlugins.begin(), gPlugins.end(),
+                               [](const PluginEntry &pe) { return pe.label == "Crop"; });
+    if (cropIt == gPlugins.end()) return fail("bundled Crop plugin not found (mixed)");
+    const int cropIndex = (int)std::distance(gPlugins.begin(), cropIt);
+
+    App mixed;
+    if (!addNode(mixed, cropIndex) || !addNativeExposureNode(mixed) || !addNode(mixed, cropIndex))
+      return fail("mixed processor node creation");
+    if (mixed.nodes.size() != 3 || !mixed.nodes[1].processor ||
+        mixed.nodes[1].processor->backend() != ProcessorBackend::Native)
+      return fail("mixed processor backend");
+
+    if (!mixed.nodes[1].processor->setParameterValue("exposure", 1.0))
+      return fail("native exposure parameter set");
+
+    Image mixedOut;
+    ProcessorResult mixedResult = renderChain(mixed, src, mixedOut, 0);
+    if (!mixedResult.ok || mixedOut.w != src.w || mixedOut.h != src.h || mixedOut.px.size() != src.px.size())
+      return fail("mixed processor render");
+
+    for (size_t i = 0; i + 3 < src.px.size(); i += 4) {
+      for (int c = 0; c < 3; ++c) {
+        if (std::fabs(mixedOut.px[i + c] - src.px[i + c] * 2.0f) > 1e-6f)
+          return fail("native exposure gain");
+      }
+      if (mixedOut.px[i + 3] != src.px[i + 3]) return fail("native exposure alpha");
+    }
+
+    const PersistChain saved = captureChain(mixed);
+    if (saved.nodes.size() != 3 || saved.nodes[1].backend != "native" ||
+        saved.nodes[1].identifier != "rawnode.native.exposure" ||
+        saved.nodes[1].paramsJson.at("exposure") != "1.000000")
+      return fail("native exposure persistence capture");
+
+    App restored;
+    applyChain(restored, saved);
+    if (restored.nodes.size() != 3 || !restored.nodes[0].processor || !restored.nodes[1].processor ||
+        !restored.nodes[2].processor || restored.nodes[1].processor->backend() != ProcessorBackend::Native)
+      return fail("native exposure persistence restore");
+
+    Image restoredOut;
+    ProcessorResult restoredResult = renderChain(restored, src, restoredOut, 0);
+    if (!restoredResult.ok || restoredOut.w != mixedOut.w || restoredOut.h != mixedOut.h ||
+        restoredOut.px != mixedOut.px)
+      return fail("mixed processor restored render");
+
+    printf("ok  Mixed OFX/Native processors\n");
+  }
 
   // Generic processor/parameter seam: exercise the same Crop plugin through
   // Processor rather than touching OFX Param/Effect objects directly.
