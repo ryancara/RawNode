@@ -1,5 +1,7 @@
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
+#include "color/LinearColorTransform.h"
+#include "color/TransferFunction.h"
 #include "perf.h"
 
 #include <lcms2.h>
@@ -397,4 +399,34 @@ void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned cha
         dst[i] = (unsigned char)std::lround(std::clamp(src[i], 0.0f, 1.0f) * 255.0f);
     }
   }
+}
+
+void toDisplayRGBA8(const Image &img, RgbGamut gamut, TransferFunction gamma,
+                    std::vector<unsigned char> &out) {
+  if (img.w <= 0 || img.h <= 0 || img.px.empty()) {
+    out.clear();
+    return;
+  }
+
+  double toRec709[3][3] = {};
+  if (!linearColorTransformMatrix(gamut, RgbGamut::Rec709, toRec709)) {
+    out.clear();
+    return;
+  }
+
+  Image rec709 = img;
+  for (size_t i = 0; i + 3 < rec709.px.size(); i += 4) {
+    const float linear[3] = {
+        (float)decodeTransfer(img.px[i + 0], gamma),
+        (float)decodeTransfer(img.px[i + 1], gamma),
+        (float)decodeTransfer(img.px[i + 2], gamma),
+    };
+    float converted[3] = {};
+    applyLinearColorMatrix(toRec709, linear, converted);
+    rec709.px[i + 0] = converted[0];
+    rec709.px[i + 1] = converted[1];
+    rec709.px[i + 2] = converted[2];
+  }
+
+  toDisplayRGBA8(rec709, ColorSpace::LinearRec709, out);
 }
