@@ -135,6 +135,7 @@ struct JsonValue {
   double number = 0.0;
   std::string string;
   std::vector<JsonValue> items;  // Array only
+  std::vector<std::pair<std::string, JsonValue>> members;  // Object only
 };
 
 class JsonReader {
@@ -270,7 +271,8 @@ class JsonReader {
     return false;
   }
 
-  // Arrays keep their items; objects are validated and skipped (unused).
+  // Arrays keep ordered items; objects keep ordered key/value members so
+  // @ART-preset maps can be validated and applied.
   bool parseContainer(JsonValue &out, int depth) {
     const bool isArray = text_[pos_] == '[';
     const char close = isArray ? ']' : '}';
@@ -282,16 +284,19 @@ class JsonReader {
       return true;
     }
     for (;;) {
+      std::string key;
       if (!isArray) {
         skipWs();
-        std::string key;
         if (pos_ >= text_.size() || text_[pos_] != '"' || !parseString(key)) return false;
         skipWs();
         if (pos_ >= text_.size() || text_[pos_++] != ':') return false;
       }
       JsonValue item;
       if (!parseValue(item, depth + 1)) return false;
-      if (isArray) out.items.push_back(std::move(item));
+      if (isArray)
+        out.items.push_back(std::move(item));
+      else
+        out.members.emplace_back(std::move(key), std::move(item));
       skipWs();
       if (pos_ >= text_.size()) return false;
       const char c = text_[pos_++];
