@@ -46,16 +46,18 @@ std::string jsonStringValue(const std::string &value) {
   return std::string("\"") + jsonEscape(value) + "\"";
 }
 
-void appendGuiJson(std::ostringstream &o, const PersistGui &g) {
+void appendGuiJson(std::ostringstream &o, const PersistGui &g, bool includeSessionDefaults) {
   // Kept in V2 for behaviour compatibility. Essential edit reconstruction
   // lives in graph/document fields; layout state may move fully to workspace state later.
   o << "\"gui\":{"
     << "\"outputIndex\":" << g.outputIndex << ","
     << "\"outputColorSpace\":\"" << jsonEscape(g.outputColorSpace) << "\","
-    << "\"outputGamma\":\"" << jsonEscape(g.outputGamma) << "\","
-    << "\"rawDefaultColorSpace\":\"" << jsonEscape(g.rawDefaultColorSpace) << "\","
-    << "\"rawDefaultGamma\":\"" << jsonEscape(g.rawDefaultGamma) << "\","
-    << "\"exportFormat\":" << g.exportFormat << ","
+    << "\"outputGamma\":\"" << jsonEscape(g.outputGamma) << "\",";
+  if (includeSessionDefaults) {
+    o << "\"rawDefaultColorSpace\":\"" << jsonEscape(g.rawDefaultColorSpace) << "\","
+      << "\"rawDefaultGamma\":\"" << jsonEscape(g.rawDefaultGamma) << "\",";
+  }
+  o << "\"exportFormat\":" << g.exportFormat << ","
     << "\"jpegQuality\":" << g.jpegQuality << ","
     << "\"previewRes\":" << g.previewRes << ","
     << "\"themeIndex\":" << g.themeIndex << ","
@@ -185,7 +187,7 @@ bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui
     << "\"format\":\"ofxrawhost-workspace\","
     << "\"version\":1,"
     << "\"activeImage\":\"" << jsonEscape(activeImageRel) << "\",";
-  appendGuiJson(o, gui);
+  appendGuiJson(o, gui, true);
   o << '}';
   return writeFile(workspaceProjectPath(workspaceDir), o.str());
 }
@@ -234,7 +236,7 @@ bool saveInputSidecar(const std::string &imagePath, ColorEncoding inputEncoding,
                       const PersistChain &chain, const ColorEncoding *rawEncoding) {
   std::ostringstream o;
   appendSidecarHeader(o, "input", fs::path(imagePath).filename().string(), inputEncoding, rawEncoding);
-  appendGuiJson(o, gui);
+  appendGuiJson(o, gui, false);
   o << ',';
   appendChainJson(o, chain);
   o << '}';
@@ -247,7 +249,7 @@ bool saveExportSidecar(const std::string &exportPath, const std::string &sourceI
   std::ostringstream o;
   appendSidecarHeader(o, "export", sourceImagePath, inputEncoding, rawEncoding);
   o << "\"exportedAt\":\"" << iso8601Now() << "\",";
-  appendGuiJson(o, gui);
+  appendGuiJson(o, gui, false);
   o << ',';
   appendChainJson(o, chain);
   o << '}';
