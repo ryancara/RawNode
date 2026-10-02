@@ -138,3 +138,15 @@ RawNode's CTL backend uses the standard CTL reference interpreter and a conventi
 ART-specific conventions such as `ART_main`, `@ART-param`, and `_artlib.ctl` are not part of the core CTL contract. They may be supported later through a compatibility adapter layered on top of the standard backend.
 
 **Reason:** CTL is a standalone colour transformation language. Keeping the core backend standards-oriented preserves portability while still allowing RawNode to take advantage of ART's CTL ecosystem later.
+
+## D018 — Plain CTL parameters do not invent UI ranges
+
+**Status:** Accepted
+
+Defaulted uniform scalar `float`, `int`, and `bool` inputs in a standard CTL `main` function are exposed through RawNode's generic parameter API.
+
+Plain CTL provides parameter names, types, and defaults but does not define UI presentation metadata such as min/max slider ranges. RawNode therefore presents plain CTL numeric parameters as direct value fields rather than guessing ranges.
+
+ART or other host-specific compatibility layers may later supply labels, ranges, choices, grouping, or other presentation metadata without changing the standard CTL backend.
+
+**Reason:** Invented ranges would impose RawNode-specific semantics on otherwise portable CTL scripts and could silently prevent valid values from being entered.
