@@ -135,7 +135,8 @@ struct JsonValue {
   double number = 0.0;
   std::string string;
   std::vector<JsonValue> items;  // Array only
-  std::vector<std::pair<std::string, JsonValue>> members;  // Object only
+  std::vector<std::string> objectKeys;  // Object only
+  std::vector<JsonValue> objectValues;  // Object only, parallel to objectKeys
 };
 
 class JsonReader {
@@ -295,8 +296,10 @@ class JsonReader {
       if (!parseValue(item, depth + 1)) return false;
       if (isArray)
         out.items.push_back(std::move(item));
-      else
-        out.members.emplace_back(std::move(key), std::move(item));
+      else {
+        out.objectKeys.push_back(std::move(key));
+        out.objectValues.push_back(std::move(item));
+      }
       skipWs();
       if (pos_ >= text_.size()) return false;
       const char c = text_[pos_++];
@@ -575,7 +578,8 @@ std::vector<ArtPresetDefinition> readArtPresetDefinitions(const std::string &pat
     preset.line = number;
     preset.key = root.items[0].string;
     preset.label = artDisplayText(root.items[1].string);
-    preset.values = root.items[2].members;
+    for (size_t i = 0; i < root.items[2].objectKeys.size(); ++i)
+      preset.values.emplace_back(root.items[2].objectKeys[i], root.items[2].objectValues[i]);
     if (std::find(keys.begin(), keys.end(), preset.key) != keys.end())
       throw ContractError(where + "duplicate @ART-preset definition for " + preset.key);
     keys.push_back(preset.key);
