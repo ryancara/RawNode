@@ -41,22 +41,12 @@ const char *transferFunctionName(TransferFunction tf) {
   return transferFunctionDefinition(tf).name;
 }
 
-bool transferFunctionFromIdOrName(const std::string &name, TransferFunction &tf) {
+bool transferFunctionFromId(const std::string &id, TransferFunction &tf) {
   for (const auto &def : kTransferFunctions) {
-    if (name == def.id || name == def.name) {
+    if (id == def.id) {
       tf = def.value;
       return true;
     }
-  }
-
-  // PR #17 and historical aliases.
-  if (name == "Rec.709" || name == "Rec.709 Scene" || name == "Rec709") {
-    tf = TransferFunction::Rec709;
-    return true;
-  }
-  if (name == "Intermediate") {
-    tf = TransferFunction::DaVinciIntermediate;
-    return true;
   }
   return false;
 }
