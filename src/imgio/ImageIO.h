@@ -18,7 +18,9 @@ struct Image {
   }
 };
 
+const std::vector<std::string> &rasterImageExtensions();
 const std::vector<std::string> &rawImageExtensions();
+bool isRasterImagePath(const std::string &path);
 bool isRawImagePath(const std::string &path);
 
 // Loads RAW via LibRaw (camera WB/demosaic, then RawNode-owned gamut and
