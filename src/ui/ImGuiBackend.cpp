@@ -45,6 +45,11 @@ bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex) {
   ImGui::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+#if defined(__APPLE__)
+  // Dear ImGui swaps Cmd/Ctrl semantics for normal macOS editing shortcuts
+  // when this is enabled. Without it, text fields and app shortcuts use Ctrl.
+  io.ConfigMacOSXBehaviors = true;
+#endif
   io.IniFilename = gIniPath.c_str();
 
   // Rasterize fonts at framebuffer DPI so Retina text stays sharp.
