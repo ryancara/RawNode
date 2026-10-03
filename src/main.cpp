@@ -464,7 +464,7 @@ static int selfTest() {
     const std::string sidecar = inputSidecarPath(source.string());
     if (!loadSidecarFile(sidecar, loaded)) return fail("sidecar v2 load");
     if (loaded.format != "rawnode-sidecar" || loaded.version != 2) return fail("sidecar v2 version");
-    if (!loaded.rawWorkingSpace.empty() ||
+    if (!loaded.legacyRawWorkingSpace.empty() ||
         loaded.rawColorSpace != "davinci-wide-gamut" ||
         loaded.rawGamma != "davinci-intermediate")
       return fail("sidecar v2 RAW encoding");
@@ -566,7 +566,6 @@ static int selfTest() {
     const fs::path defaultImage = fs::temp_directory_path() / "rawnode-selftest-default-owner.tif";
     if (!writeTinyTiff(defaultImage, false)) return fail("RAW default owner image write");
     PersistGui oldPerImageGui;
-    oldPerImageGui.outputIndex = 0;
     oldPerImageGui.outputColorSpace = "rec709";
     oldPerImageGui.outputGamma = "srgb";
     if (!saveInputSidecar(defaultImage.string(), oldPerImageGui, PersistChain{}, nullptr))
