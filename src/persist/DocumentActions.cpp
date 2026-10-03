@@ -16,6 +16,33 @@
 
 namespace fs = std::filesystem;
 
+static bool persistedColorEncoding(const std::string &gamutId,
+                                   const std::string &transferId,
+                                   ColorEncoding &encoding) {
+  if (colorEncodingFromIds(gamutId, transferId, encoding)) return true;
+
+  // Persistence-only migration for development builds that briefly wrote
+  // display names instead of stable IDs. Runtime colour APIs remain IDs-only.
+  RgbGamut gamut;
+  if (gamutId == "Rec.709") gamut = RgbGamut::Rec709;
+  else if (gamutId == "Rec.2020") gamut = RgbGamut::Rec2020;
+  else if (gamutId == "Display P3") gamut = RgbGamut::DisplayP3;
+  else if (gamutId == "ACES AP0" || gamutId == "ACES2065-1" || gamutId == "AP0") gamut = RgbGamut::ACES_AP0;
+  else if (gamutId == "ACES AP1" || gamutId == "ACEScg" || gamutId == "AP1") gamut = RgbGamut::ACES_AP1;
+  else if (gamutId == "DaVinci Wide Gamut") gamut = RgbGamut::DaVinciWideGamut;
+  else return false;
+
+  TransferFunction gamma;
+  if (transferId == "Linear") gamma = TransferFunction::Linear;
+  else if (transferId == "sRGB") gamma = TransferFunction::SRGB;
+  else if (transferId == "Rec.709 (camera)" || transferId == "Rec.709") gamma = TransferFunction::Rec709;
+  else if (transferId == "DaVinci Intermediate") gamma = TransferFunction::DaVinciIntermediate;
+  else return false;
+
+  encoding = {gamut, gamma};
+  return true;
+}
+
 static ColorEncoding legacyOutputEncoding(int index) {
   switch (std::clamp(index, 0, 4)) {
     case 0: return {RgbGamut::Rec709, TransferFunction::SRGB};
@@ -69,7 +96,7 @@ void applyGui(App &app, const PersistGui &g) {
   ColorEncoding output = legacyOutputEncoding(g.legacyOutputIndex);
   ColorEncoding persistedOutput;
   if (!g.outputColorSpace.empty() && !g.outputGamma.empty() &&
-      colorEncodingFromIds(g.outputColorSpace, g.outputGamma, persistedOutput))
+      persistedColorEncoding(g.outputColorSpace, g.outputGamma, persistedOutput))
     output = persistedOutput;
   {
     std::lock_guard<std::mutex> lock(app.colorMutex);
@@ -92,7 +119,7 @@ void applyGui(App &app, const PersistGui &g) {
 static void applyWorkspaceSessionDefaults(App &app, const PersistGui &g) {
   ColorEncoding rawDefault;
   if (!g.rawDefaultColorSpace.empty() && !g.rawDefaultGamma.empty() &&
-      colorEncodingFromIds(g.rawDefaultColorSpace, g.rawDefaultGamma, rawDefault)) {
+      persistedColorEncoding(g.rawDefaultColorSpace, g.rawDefaultGamma, rawDefault)) {
     std::lock_guard<std::mutex> lock(app.colorMutex);
     app.rawWorkingEncoding = rawDefault;
   }
@@ -131,7 +158,7 @@ static bool hasUnknownEncodingPair(const std::string &gamutId, const std::string
   if (gamutId.empty() && transferId.empty()) return false;
   if (gamutId.empty() || transferId.empty()) return true;
   ColorEncoding encoding;
-  return !colorEncodingFromIds(gamutId, transferId, encoding);
+  return !persistedColorEncoding(gamutId, transferId, encoding);
 }
 
 static bool sidecarHasUnknownColourEncoding(const PersistSidecar &sc) {
@@ -255,7 +282,7 @@ static ColorEncoding rawWorkingEncodingForOpen(const App &app, const std::string
     if (!sc.rawColorSpace.empty() || !sc.rawGamma.empty()) {
       ColorEncoding stored;
       if (!sc.rawColorSpace.empty() && !sc.rawGamma.empty() &&
-          colorEncodingFromIds(sc.rawColorSpace, sc.rawGamma, stored))
+          persistedColorEncoding(sc.rawColorSpace, sc.rawGamma, stored))
         return stored;
 
       // Unknown future explicit encoding. Decode with the historical safe
