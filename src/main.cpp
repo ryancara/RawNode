@@ -82,19 +82,23 @@ static int selfTest() {
     const fs::path p = fs::temp_directory_path() / (half ? "ofxrawhost-selftest-half.tif" : "ofxrawhost-selftest.tif");
     if (!writeTinyTiff(p, half)) return fail(half ? "tiff write half" : "tiff write");
     Image img;
-    ColorSpace cs = ColorSpace::sRGB;
-    if (!loadImage(p.string(), img, cs) || img.w != 2 || img.h != 2) return fail(half ? "tiff load half" : "tiff load");
+    ColorEncoding encoding;
+    bool decodedRaw = true;
+    if (!loadImage(p.string(), img, encoding, decodedRaw) || decodedRaw || img.w != 2 || img.h != 2)
+      return fail(half ? "tiff load half" : "tiff load");
     if (img.px[(size_t)1 * 2 * 4 + 0] < 0.9f) return fail(half ? "tiff pixels half" : "tiff pixels");
-    // Untagged float TIFF → Rec.2020; untagged 16-bit int → sRGB.
-    if (half && cs != ColorSpace::LinearRec2020) return fail("tiff half colorspace");
-    if (!half && cs != ColorSpace::sRGB) return fail("tiff uint colorspace");
+    // Processing buffers are linear: untagged float TIFF → Linear Rec.2020;
+    // untagged 16-bit integer TIFF → sRGB decoded to Linear Rec.709.
+    const ColorEncoding expected = half
+        ? ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear}
+        : ColorEncoding{RgbGamut::Rec709, TransferFunction::Linear};
+    if (encoding != expected) return fail(half ? "tiff half colorspace" : "tiff uint colorspace");
     fs::remove(p);
   }
 
   {
     // Integer raster samples must actually be decoded to the linear encoding
-    // reported by the canonical loader, while the legacy overload still
-    // reports the historical source-file tag.
+    // reported by the canonical loader.
     const fs::path p = fs::temp_directory_path() / "rawnode-selftest-gray16.tif";
     if (!writeGray16Tiff(p, 32768)) return fail("gray16 tiff write");
     Image img;
@@ -126,8 +130,11 @@ static int selfTest() {
     }
     fclose(f);
     Image img;
-    ColorSpace cs = ColorSpace::LinearRec2020;
-    if (!loadImage(p.string(), img, cs) || cs != ColorSpace::sRGB) return fail("png colorspace");
+    ColorEncoding encoding;
+    bool decodedRaw = true;
+    if (!loadImage(p.string(), img, encoding, decodedRaw) || decodedRaw ||
+        encoding != ColorEncoding{RgbGamut::Rec709, TransferFunction::Linear})
+      return fail("png colorspace");
     fs::remove(p);
   }
 
@@ -162,13 +169,13 @@ static int selfTest() {
         {0.0f, 0.0f, 1.0f, 0.0f},
     };
     float working[3][4] = {};
-    if (!makeCameraToWorkingMatrix(identityCamera, ColorSpace::LinearRec2020, working) ||
+    if (!makeCameraToWorkingMatrix(identityCamera, RgbGamut::Rec2020, working) ||
         std::fabs(working[0][0] - 0.627403896f) > 1e-6f ||
         std::fabs(working[1][1] - 0.919540395f) > 1e-6f ||
         std::fabs(working[2][2] - 0.895595253f) > 1e-6f)
       return fail("RAW Linear Rec.2020 matrix");
 
-    if (!makeCameraToWorkingMatrix(identityCamera, ColorSpace::ACES2065_1, working) ||
+    if (!makeCameraToWorkingMatrix(identityCamera, RgbGamut::ACES_AP0, working) ||
         std::fabs(working[0][0] - 0.439632982f) > 1e-6f ||
         std::fabs(working[1][1] - 0.813439429f) > 1e-6f ||
         std::fabs(working[2][2] - 0.870912276f) > 1e-6f)
@@ -207,7 +214,7 @@ static int selfTest() {
     // AP0 must have a usable linear ICC interpretation for preview/output-tag
     // colour management, despite its imaginary primaries.
     std::vector<uint8_t> ap0Icc;
-    if (!profileBytes(ColorSpace::ACES2065_1, ap0Icc) || ap0Icc.empty())
+    if (!profileBytes(ColorEncoding{RgbGamut::ACES_AP0, TransferFunction::Linear}, ap0Icc) || ap0Icc.empty())
       return fail("ACES2065-1 ICC profile");
   }
 
@@ -465,14 +472,14 @@ static int selfTest() {
     chain.nodes.push_back(node);
 
     const ColorEncoding rawEncoding{RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate};
-    if (!saveInputSidecar(source.string(), ColorSpace::LinearRec2020, gui, chain, &rawEncoding))
+    if (!saveInputSidecar(source.string(), ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear}, gui, chain, &rawEncoding))
       return fail("sidecar v2 save");
 
     PersistSidecar loaded;
     const std::string sidecar = inputSidecarPath(source.string());
     if (!loadSidecarFile(sidecar, loaded)) return fail("sidecar v2 load");
     if (loaded.format != "rawnode-sidecar" || loaded.version != 2) return fail("sidecar v2 version");
-    if (loaded.rawWorkingSpace != "DaVinci Wide Gamut / DaVinci Intermediate" ||
+    if (!loaded.rawWorkingSpace.empty() ||
         loaded.rawColorSpace != "davinci-wide-gamut" ||
         loaded.rawGamma != "davinci-intermediate")
       return fail("sidecar v2 RAW encoding");
@@ -513,7 +520,7 @@ static int selfTest() {
     if (!writeTinyTiff(protectedImage, false)) return fail("protected sidecar image write");
     PersistChain emptyChain;
     const ColorEncoding protectedRaw{RgbGamut::Rec2020, TransferFunction::Linear};
-    if (!saveInputSidecar(protectedImage.string(), ColorSpace::LinearRec2020, gui, emptyChain, &protectedRaw))
+    if (!saveInputSidecar(protectedImage.string(), ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear}, gui, emptyChain, &protectedRaw))
       return fail("protected sidecar initial save");
     const std::string protectedSidecar = inputSidecarPath(protectedImage.string());
     std::string protectedJson;
@@ -577,7 +584,7 @@ static int selfTest() {
     oldPerImageGui.outputIndex = 0;
     oldPerImageGui.outputColorSpace = "rec709";
     oldPerImageGui.outputGamma = "srgb";
-    if (!saveInputSidecar(defaultImage.string(), ColorSpace::sRGB, oldPerImageGui, PersistChain{}, nullptr))
+    if (!saveInputSidecar(defaultImage.string(), ColorEncoding{RgbGamut::Rec709, TransferFunction::Linear}, oldPerImageGui, PersistChain{}, nullptr))
       return fail("RAW default owner sidecar write");
     const std::string defaultSidecar = inputSidecarPath(defaultImage.string());
     std::string defaultJson;
