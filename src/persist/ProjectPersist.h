@@ -80,11 +80,11 @@ std::string jsonStringValue(const std::string &value);
 bool parseJsonStringValue(const std::string &raw, std::string &out);
 
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);
-bool saveInputSidecar(const std::string &imagePath, ColorEncoding inputEncoding, const PersistGui &gui,
+bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,
                       const PersistChain &chain, const ColorEncoding *rawEncoding = nullptr);
 bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath,
-                       ColorEncoding inputEncoding, const PersistGui &gui,
-                       const PersistChain &chain, const ColorEncoding *rawEncoding = nullptr);
+                       const PersistGui &gui, const PersistChain &chain,
+                       const ColorEncoding *rawEncoding = nullptr);
 
 
 std::string relativeToWorkspace(const std::string &workspaceDir, const std::string &absPath);
