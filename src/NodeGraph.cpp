@@ -142,6 +142,33 @@ static std::string trimParamJson(std::string value) {
   return value;
 }
 
+static bool legacyNumericChoiceValue(const ProcessorParameter &param,
+                                     const std::string &raw, int &selected) {
+  if (param.type != ParameterType::Choice || param.choiceIds.empty()) return false;
+  const std::string value = trimParamJson(raw);
+  if (value.empty()) return false;
+
+  char *end = nullptr;
+  const long parsed = std::strtol(value.c_str(), &end, 10);
+  if (end == value.c_str()) return false;
+  while (*end && std::isspace((unsigned char)*end)) ++end;
+  if (*end) return false;
+
+  if (param.choiceValues.size() == param.choices.size()) {
+    for (int candidate : param.choiceValues) {
+      if (candidate == parsed) {
+        selected = candidate;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  if (parsed < 0 || parsed >= (long)param.choices.size()) return false;
+  selected = (int)parsed;
+  return true;
+}
+
 static void applyParamValueJson(Processor &processor, const ProcessorParameter &param, const std::string &raw) {
   const std::string value = trimParamJson(raw);
   switch (param.type) {
@@ -160,14 +187,23 @@ static void applyParamValueJson(Processor &processor, const ProcessorParameter &
     case ParameterType::Choice: {
       if (param.choiceIds.size() == param.choices.size() && !param.choiceIds.empty()) {
         std::string id;
-        if (!parseJsonStringValue(value, id)) return;
-        for (size_t i = 0; i < param.choiceIds.size(); ++i) {
-          if (param.choiceIds[i] != id) continue;
-          const int selected =
-              param.choiceValues.size() == param.choices.size() ? param.choiceValues[i] : (int)i;
-          processor.setParameterValue(param.id, selected, false);
+        if (parseJsonStringValue(value, id)) {
+          for (size_t i = 0; i < param.choiceIds.size(); ++i) {
+            if (param.choiceIds[i] != id) continue;
+            const int selected =
+                param.choiceValues.size() == param.choices.size() ? param.choiceValues[i] : (int)i;
+            processor.setParameterValue(param.id, selected, false);
+            return;
+          }
           return;
         }
+
+        // Development builds briefly persisted stable choices numerically.
+        // Accept only a numeric value that maps exactly to a current choice;
+        // captureChain() will normalise it back to the stable string ID.
+        int selected = 0;
+        if (legacyNumericChoiceValue(param, value, selected))
+          processor.setParameterValue(param.id, selected, false);
         return;
       }
 
@@ -307,9 +343,14 @@ static PersistNode capturePersistedNode(const Node &node) {
         auto preserved = node.preservedParamsJson.find(param.id);
         if (preserved != node.preservedParamsJson.end()) {
           std::string preservedId;
-          if (!parseJsonStringValue(trimParamJson(preserved->second), preservedId) ||
-              std::find(param.choiceIds.begin(), param.choiceIds.end(), preservedId) == param.choiceIds.end())
-            continue;
+          if (parseJsonStringValue(trimParamJson(preserved->second), preservedId)) {
+            if (std::find(param.choiceIds.begin(), param.choiceIds.end(), preservedId) == param.choiceIds.end())
+              continue;
+          } else {
+            int legacySelected = 0;
+            if (!legacyNumericChoiceValue(param, preserved->second, legacySelected))
+              continue;
+          }
         }
       }
 
@@ -410,11 +451,14 @@ static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParamet
   const auto it = node.preservedParamsJson.find(param.id);
   if (it == node.preservedParamsJson.end()) return false;
 
-  // Stable-ID choices must be persisted as strings. Any other JSON type belongs
-  // to an unsupported/development-era format and is protected from overwrite.
   std::string id;
-  if (!parseJsonStringValue(trimParamJson(it->second), id)) return true;
-  return std::find(param.choiceIds.begin(), param.choiceIds.end(), id) == param.choiceIds.end();
+  if (parseJsonStringValue(trimParamJson(it->second), id))
+    return std::find(param.choiceIds.begin(), param.choiceIds.end(), id) == param.choiceIds.end();
+
+  // Development builds briefly wrote stable choices as numbers. Treat a
+  // numeric value as migratable only when it maps exactly to a current choice.
+  int legacySelected = 0;
+  return !legacyNumericChoiceValue(param, it->second, legacySelected);
 }
 
 bool hasUnknownProcessorChoiceIds(const App &app) {
