@@ -100,15 +100,20 @@ void appendChainJson(std::ostringstream &o, const PersistChain &chain) {
   o << "]}";
 }
 
-std::string serializeTransferPayload(const std::string &kind, const PersistChain &chain) {
+static std::string serializeGraphEnvelope(const char *format, const std::string &kind,
+                                          const PersistChain &chain) {
   std::ostringstream o;
   o << '{'
-    << "\"format\":\"rawnode-transfer\","
+    << "\"format\":\"" << jsonEscape(format) << "\","
     << "\"version\":1,"
     << "\"kind\":\"" << jsonEscape(kind) << "\",";
   appendChainJson(o, chain);
   o << '}';
   return o.str();
+}
+
+std::string serializeTransferPayload(const std::string &kind, const PersistChain &chain) {
+  return serializeGraphEnvelope("rawnode-transfer", kind, chain);
 }
 
 bool writeFile(const fs::path &path, const std::string &body) {
@@ -187,6 +192,11 @@ std::string relativeToWorkspace(const std::string &workspaceDir, const std::stri
     return rel.string();
   }
   return absPath;
+}
+
+bool savePresetFile(const std::string &path, const std::string &kind, const PersistChain &chain) {
+  if (kind != "node" && kind != "grade") return false;
+  return writeFile(fs::path(path), serializeGraphEnvelope("rawnode-preset", kind, chain));
 }
 
 bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui, const std::string &activeImageRel) {
