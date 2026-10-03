@@ -13,6 +13,8 @@ bool addCtlNode(App &app, const std::string &path);
 void destroyNode(App &app, int index);
 void moveNode(App &app, int from, int to);
 
+bool captureNode(const App &app, int index, PersistNode &out);
+bool appendPersistedNode(App &app, const PersistNode &node, int insertAfter = -1);
 PersistChain captureChain(const App &app);
 void applyChain(App &app, const PersistChain &chain);
 bool hasUnknownProcessorChoiceIds(const App &app);
