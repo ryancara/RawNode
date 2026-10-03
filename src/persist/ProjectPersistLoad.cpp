@@ -280,7 +280,7 @@ bool extractBoolField(const std::string &json, const char *key, bool &out) {
 }
 
 void loadGuiFromJson(const std::string &guiObj, PersistGui &g) {
-  extractIntField(guiObj, "outputIndex", g.outputIndex);
+  extractIntField(guiObj, "outputIndex", g.legacyOutputIndex);
   extractStringField(guiObj, "outputColorSpace", g.outputColorSpace);
   extractStringField(guiObj, "outputGamma", g.outputGamma);
   extractStringField(guiObj, "rawDefaultColorSpace", g.rawDefaultColorSpace);
@@ -449,7 +449,7 @@ bool loadSidecarFile(const std::string &path, PersistSidecar &out) {
     extractStringField(json, "source", out.sourcePath);
     std::string rawObj;
     if (extractObject(json, "raw", rawObj)) {
-      extractStringField(rawObj, "workingSpace", out.rawWorkingSpace);
+      extractStringField(rawObj, "workingSpace", out.legacyRawWorkingSpace);
       extractStringField(rawObj, "colorSpace", out.rawColorSpace);
       extractStringField(rawObj, "gamma", out.rawGamma);
     }
