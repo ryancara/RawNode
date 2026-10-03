@@ -592,6 +592,78 @@ int runSelfTests() {
   }
 
   {
+    // Copy/paste uses a versioned transfer payload built from the same
+    // PersistNode/Sidecar V2 representation as normal project persistence.
+    App copyApp;
+    if (!addNativeExposureNode(copyApp) || copyApp.nodes.size() != 1 ||
+        !copyApp.nodes[0].processor ||
+        !copyApp.nodes[0].processor->setParameterValue("exposure", 2.25))
+      return fail("node copy setup");
+    copyApp.nodes[0].enabled = false;
+
+    PersistNode copied;
+    if (!captureNode(copyApp, 0, copied) ||
+        copied.backend != "native" ||
+        copied.identifier != NativeExposureProcessor::kIdentifier ||
+        copied.paramsJson.at("exposure") != "2.25")
+      return fail("node copy capture");
+
+    PersistChain transfer;
+    transfer.selectedNodeId = copied.id;
+    transfer.nodes.push_back(copied);
+    const std::string payload = serializeTransferPayload("node", transfer);
+
+    std::string transferKind;
+    PersistChain decoded;
+    if (!parseTransferPayload(payload, transferKind, decoded) ||
+        transferKind != "node" || decoded.nodes.size() != 1 ||
+        decoded.nodes[0].paramsJson.at("exposure") != "2.25")
+      return fail("node copy transfer payload");
+
+    const std::string originalId = copyApp.nodes[0].id;
+    if (!appendPersistedNode(copyApp, decoded.nodes[0], 0) ||
+        copyApp.nodes.size() != 2 || copyApp.selectedNode != 1 ||
+        copyApp.nodes[1].id == originalId ||
+        copyApp.nodes[1].enabled ||
+        !copyApp.nodes[1].processor ||
+        copyApp.nodes[1].processor->identifier() != NativeExposureProcessor::kIdentifier)
+      return fail("node paste restore");
+
+    bool exposureRestored = false;
+    for (const ProcessorParameter &param : copyApp.nodes[1].processor->parameters()) {
+      if (param.id == "exposure") {
+        const double *value = std::get_if<double>(&param.value);
+        exposureRestored = value && *value == 2.25;
+      }
+    }
+    if (!exposureRestored) return fail("node paste parameter");
+
+    // Missing/future processors must remain transferable rather than being
+    // discarded just because this build cannot instantiate them.
+    PersistNode future;
+    future.id = "foreign-id";
+    future.backend = "dctl";
+    future.identifier = "FutureNode.dctl";
+    future.label = "Future Node";
+    future.enabled = true;
+    future.paramsJson["future"] = "{\"curve\":[0,0.5,1]}";
+    if (!appendPersistedNode(copyApp, future, copyApp.selectedNode) ||
+        copyApp.nodes.size() != 3 || copyApp.selectedNode != 2 ||
+        copyApp.nodes[2].processor ||
+        copyApp.nodes[2].id == "foreign-id" ||
+        copyApp.nodes[2].storedBackend != "dctl" ||
+        copyApp.nodes[2].preservedParamsJson.at("future") != "{\"curve\":[0,0.5,1]}")
+      return fail("node paste missing processor preservation");
+
+    if (parseTransferPayload(
+            "{\"format\":\"rawnode-transfer\",\"version\":2,\"kind\":\"node\",\"graph\":{\"nodes\":[]}}",
+            transferKind, decoded))
+      return fail("node transfer future version rejection");
+
+    printf("ok  Node copy/paste transfer\n");
+  }
+
+  {
     // Sidecar V2 round-trip: IDs/backend identity and opaque future parameter
     // JSON must survive even when this build cannot interpret the processor.
     const fs::path source = fs::temp_directory_path() / "rawnode-selftest-source.nef";
