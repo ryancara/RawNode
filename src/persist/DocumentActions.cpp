@@ -66,7 +66,7 @@ PersistGui captureGui(const App &app) {
 }
 
 void applyGui(App &app, const PersistGui &g) {
-  ColorEncoding output = legacyOutputEncoding(g.outputIndex);
+  ColorEncoding output = legacyOutputEncoding(g.legacyOutputIndex);
   ColorEncoding persistedOutput;
   if (!g.outputColorSpace.empty() && !g.outputGamma.empty() &&
       colorEncodingFromIds(g.outputColorSpace, g.outputGamma, persistedOutput))
@@ -264,8 +264,8 @@ static ColorEncoding rawWorkingEncodingForOpen(const App &app, const std::string
     }
 
     ColorEncoding stored;
-    if (!sc.rawWorkingSpace.empty() &&
-        legacyRawEncodingFromName(sc.rawWorkingSpace, stored))
+    if (!sc.legacyRawWorkingSpace.empty() &&
+        legacyRawEncodingFromName(sc.legacyRawWorkingSpace, stored))
       return stored;
 
     // V2 sidecar predating selectable RAW working space.
