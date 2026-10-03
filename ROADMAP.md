@@ -2,91 +2,49 @@
 
 This roadmap is intentionally staged so major architectural assumptions are proven before more complex features are added.
 
-## Phase 0 — Fork validation
+## Current foundation
 
-Verify the inherited OFX Raw Host behaviour on macOS, Windows, and Linux.
+The original backend-neutral architecture work is now in place:
 
-Confirm:
+- generic processor/node model;
+- generic parameters;
+- Sidecar V2 persistence;
+- native processors;
+- CTL backend;
+- shared colour architecture based on `ColorEncoding`;
+- native CST with separate gamut and transfer-function controls;
+- RAW working gamut + transfer function;
+- explicit Output gamut + transfer function;
+- stable persisted choice IDs;
+- third-party RGB ICC input converted through Little CMS into Linear Rec.2020;
+- Linux CI and extracted self-tests.
 
-- RAW and standard image opening;
-- OFX discovery/rendering;
-- reorder/bypass;
-- filmstrip/folder workflow;
-- sidecar save/restore;
-- export;
-- build reproducibility.
+The current codebase is a clean base for feature development. New work should return to small, focused PRs.
 
-Add CI builds for all three platforms.
+## Next — editing workflow
 
-## Phase 1 — Generic processing core
+### 1. Node copy / paste
 
-Refactor the current OFX-specific node representation into a generic processor/node model.
+Copy a single processor node, including its parameter state, and paste it elsewhere in the chain or onto another image.
 
-Initially, only `OFXProcessor` needs to exist.
+Reuse the generic node/persistence representation rather than adding a second clipboard-specific parameter format.
 
-Success criterion: the app behaves the same as before the refactor.
+### 2. Full-grade copy / paste
 
-## Phase 2 — Generic parameters
+Copy the complete processing chain from one image and apply it to another image.
 
-Move parameter UI/state away from direct OFX assumptions.
+This should integrate naturally with the workspace / filmstrip workflow.
 
-Existing OFX parameters should be surfaced through the common parameter abstraction.
+### 3. Presets
 
-## Phase 3 — Sidecar V2
+Add reusable presets on top of the same serialisation model:
 
-Generalise persistence to store:
+- single-node presets;
+- full-grade presets.
 
-- RAW settings;
-- working colour space;
-- node instance IDs;
-- processor/backend type;
-- plugin/script identifier;
-- order/connections;
-- bypass state;
-- parameters;
-- space for future mask metadata.
+Do not invent a parallel processor-state format if Sidecar V2 structures can be reused cleanly.
 
-Unknown processors/parameters should be preserved where possible.
-
-## Phase 4 — Prove mixed processors
-
-Add a minimal native scene-linear Exposure processor as the first non-OFX reference implementation.
-
-This proves the backend-neutral processor, parameter, persistence, UI, and render seams. It does not imply that every photographic adjustment should be reimplemented as a native processor.
-
-Test mixed processing:
-
-```text
-OFX -> Native Exposure -> OFX
-```
-
-Verify preview, reorder, persistence, and export.
-
-## Phase 5 — CTL
-
-Add CTL as the first external non-OFX backend using the official CTL reference interpreter.
-
-Initial standard-CTL target:
-
-- load a user-selected `.ctl` file;
-- execute a conventional `void main(...)`;
-- support varying float `rIn/gIn/bIn` and `rOut/gOut/bOut`;
-- support optional `aIn/aOut`;
-- expose defaulted uniform scalar `float`, `int`, and `bool` inputs through the generic parameter API;
-- use direct numeric fields when plain CTL provides no min/max metadata rather than inventing slider ranges;
-- leave arrays/vectors, richer metadata, and host-specific parameter conventions for later;
-- resolve sibling/imported CTL modules using the script directory plus the normal CTL module path;
-- persist the script path through Sidecar V2 and preserve a missing script as a placeholder.
-
-Validate mixed stacks such as:
-
-```text
-OFX -> CTL -> OFX
-```
-
-ART compatibility is a layer on top of standard CTL, not the definition of the CTL backend. Later work can interpret ART conventions such as `ART_main`, `@ART-param`, and `_artlib.ctl`.
-
-## Phase 6 — DCTL compatibility
+## DCTL compatibility
 
 Implement incrementally.
 
@@ -99,71 +57,133 @@ Initial target:
 
 Later possibilities:
 
-- textures/spatial operations;
+- textures / spatial operations;
 - includes;
 - LUT access;
 - broader Resolve compatibility.
 
 Do not require perfect Resolve compatibility before DCTL becomes useful.
 
-## Future processor formats — LUT and CLF
+## LUT and CLF processors
 
 Add first-class colour-transform processors rather than requiring LUTs to be hosted through OFX.
 
 Initial LUT target:
 
 - `.cube` files;
-- trilinear/tetrahedral interpolation as appropriate;
-- generic node behaviour and sidecar persistence.
+- trilinear / tetrahedral interpolation as appropriate;
+- generic node behaviour and Sidecar V2 persistence.
 
 CLF should be treated as a richer transform format rather than assumed to be only a LUT, because it may contain matrices, ranges, LUTs, and other operations.
 
-These can be introduced after the generic persistence and mixed-processor seams are proven.
+## Pick / reject workflow
 
-## Phase 7 — Graph/List interface
+Add a simple photo-culling workflow:
+
+- Pick / Reject states;
+- filmstrip filtering;
+- efficient navigation between images;
+- delete or move rejected photos through an explicit user action.
+
+## Batch / workspace export
+
+Allow exporting multiple selected/workspace images using the same processing and export infrastructure.
+
+Before expanding batch export, fix the existing full-resolution export lifetime race by snapshotting or synchronising the render graph rather than rendering against mutable processors from a detached thread.
+
+## Graph / List interface
 
 Allow switching between graph and list views of the same processing structure.
 
-Initially both can represent a serial chain.
+Initially both should represent the existing serial chain.
 
 Add number-key node selection.
 
-Enable graph branching only when a concrete use case justifies it.
+Enable branching only when a concrete use case justifies it.
 
-## Phase 8 — Assignable input system
+## Assignable input system
 
 Add configurable keyboard/mouse parameter bindings.
 
-Keep the input abstraction generic so future MIDI, OSC/TouchOSC, or hardware controllers can use the same path.
+Keep the input abstraction generic so future MIDI, OSC / TouchOSC, jog wheels, or other hardware controllers can use the same path.
 
-## Phase 9 — RAW architecture refactor
+## RAW architecture refactor
 
 Separate RAW decoding from RAW development behind interfaces.
 
 Evaluate LibRaw, Rawler, and RawSpeed using real criteria:
 
-- format/camera support;
+- format / camera support;
 - metadata access;
 - image quality;
 - performance;
 - cross-platform build complexity;
-- compressed DNG/JPEG XL support where relevant.
+- compressed DNG / JPEG XL support where relevant.
 
-## Phase 10 — Masks and local adjustments
+Do not replace LibRaw without a measured benefit.
 
-After the base architecture is mature, investigate:
+## Masks and local adjustments
+
+After the base architecture and editing workflow are mature, investigate:
 
 - node masks;
 - opacity;
-- brush/gradient/key masks;
-- shared/group masks;
+- brush / gradient / key masks;
+- shared / group masks;
 - local adjustments;
 - AI-generated masks.
 
-## Known technical debt
+## Completed architecture milestones
 
-- Full-resolution export currently runs on a detached thread that can race with node mutation and processor resize/lifetime changes. This predates the generic Processor refactor and should be fixed separately by snapshotting or synchronising the render graph.
+### Generic processing core
+
+The original OFX-specific representation was refactored into a generic processor/node model.
+
+Mixed backends now share the same chain, parameter, persistence, UI, and render seams.
+
+### Generic parameters
+
+OFX, native and CTL processors expose controls through the common parameter abstraction.
+
+### Sidecar V2
+
+Persistence stores processor/backend identity, order, bypass state, parameter state, RAW/output colour state, and stable choice IDs.
+
+Unknown future data is protected from destructive overwrite where possible.
+
+### Native processors
+
+Native Exposure proved the backend-neutral processor path.
+
+Native CST now provides explicit:
+
+- Input Colour Space;
+- Input Gamma;
+- Output Colour Space;
+- Output Gamma.
+
+### CTL
+
+The CTL backend uses the official CTL reference interpreter and supports standard CTL plus the current ART-compatibility layer.
+
+### Colour architecture
+
+Runtime colour state uses one canonical `ColorEncoding { gamut, gamma }` model.
+
+The shared gamut/transfer registries drive RAW, CST, Output, matrix derivation and RawNode-authored ICC profiles.
+
+Arbitrary third-party RGB ICC profiles are transformed with Little CMS instead of being guessed as the nearest RawNode gamut.
+
+## Deferred edge cases
+
+These should be addressed only when a real use case justifies them:
+
+- TIFF/SubIFD CFA RAW detection for RAW files renamed to `.tif`;
+- richer unsupported-ICC user warnings;
+- unusual LUT-based ICC profiles with extended-range float TIFF data.
 
 ## Working rule
 
-Do not start multiple major architectural changes simultaneously. Prefer proving one seam at a time so regressions are attributable and changes remain reversible.
+Do not start multiple major architectural changes simultaneously.
+
+Prefer small, focused PRs that prove one behaviour or seam at a time so regressions are attributable and changes remain reversible.
