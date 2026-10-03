@@ -17,6 +17,8 @@
 #include <lcms2.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -25,8 +27,36 @@
 #include <fstream>
 #include <limits>
 #include <string>
+#include <thread>
 
 namespace fs = std::filesystem;
+
+class SlowSelfTestProcessor final : public Processor {
+ public:
+  SlowSelfTestProcessor(std::atomic<bool> &entered, std::atomic<bool> &completed)
+      : entered_(entered), completed_(completed) {}
+
+  ProcessorBackend backend() const override { return ProcessorBackend::Native; }
+  std::string identifier() const override { return "org.rawnode.selftest.slow"; }
+  std::string displayName() const override { return "Self-test Slow"; }
+  std::vector<ProcessorParameter> parameters() const override { return {}; }
+  bool setParameterValue(const std::string &, const ParameterValue &, bool) override { return false; }
+  bool resetParameter(const std::string &, bool) override { return false; }
+  bool activateParameter(const std::string &) override { return false; }
+  void setRenderSize(int, int) override {}
+
+  ProcessorResult render(const Image &input, Image &output, int) override {
+    entered_.store(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+    output = input;
+    completed_.store(true);
+    return ProcessorResult::success();
+  }
+
+ private:
+  std::atomic<bool> &entered_;
+  std::atomic<bool> &completed_;
+};
 
 static int fail(const char *msg) {
   fprintf(stderr, "selftest FAILED: %s\n", msg);
@@ -601,6 +631,74 @@ int runSelfTests() {
       return fail("invalid numeric stable choice protection");
 
     printf("ok  Native CST processor\n");
+  }
+
+  {
+    // waitRenderIdle must not return while the preview worker is still inside
+    // a processor render. Chain deletion/replacement is safe only after this.
+    App renderLifetime;
+    renderLifetime.preview.w = 1;
+    renderLifetime.preview.h = 1;
+    renderLifetime.preview.px = {0.18f, 0.18f, 0.18f, 1.0f};
+    std::atomic<bool> entered{false};
+    std::atomic<bool> completed{false};
+    Node slowNode;
+    slowNode.id = "slow-node";
+    slowNode.processor = std::make_unique<SlowSelfTestProcessor>(entered, completed);
+    slowNode.storedBackend = "native";
+    slowNode.storedIdentifier = slowNode.processor->identifier();
+    slowNode.storedLabel = slowNode.processor->displayName();
+    renderLifetime.nodes.push_back(std::move(slowNode));
+
+    renderLifetime.renderThread = std::thread(renderWorker, &renderLifetime);
+    scheduleRender(renderLifetime);
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!entered.load() && std::chrono::steady_clock::now() < deadline)
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if (!entered.load()) {
+      stopRenderWorker(renderLifetime);
+      renderLifetime.renderThread.join();
+      return fail("render lifetime worker entry");
+    }
+
+    waitRenderIdle(renderLifetime);
+    if (!completed.load()) {
+      stopRenderWorker(renderLifetime);
+      renderLifetime.renderThread.join();
+      return fail("waitRenderIdle returned during active render");
+    }
+
+    clearNodes(renderLifetime);
+
+    // Full-resolution export owns the same processor graph. Mutating callers
+    // must also wait until that ownership is released.
+    {
+      std::lock_guard<std::mutex> lock(renderLifetime.renderMutex);
+      renderLifetime.exportBusy = true;
+    }
+    std::atomic<bool> exportReleased{false};
+    std::thread releaseExport([&] {
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+      {
+        std::lock_guard<std::mutex> lock(renderLifetime.renderMutex);
+        renderLifetime.exportBusy = false;
+      }
+      exportReleased = true;
+      renderLifetime.renderIdleCv.notify_all();
+      renderLifetime.renderCv.notify_one();
+    });
+    waitRenderIdle(renderLifetime);
+    releaseExport.join();
+    if (!exportReleased.load()) {
+      stopRenderWorker(renderLifetime);
+      renderLifetime.renderThread.join();
+      return fail("waitRenderIdle returned during export");
+    }
+
+    stopRenderWorker(renderLifetime);
+    renderLifetime.renderThread.join();
+    printf("ok  Render lifetime synchronization\n");
   }
 
   {

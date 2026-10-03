@@ -231,6 +231,7 @@ void drawLeftPanel(App &app) {
     }
     ImGui::SameLine(0.0f, btnGap);
     if (iconBtn("##en", node.enabled ? ICON_FA_EYE : ICON_FA_EYE_SLASH)) {
+      waitRenderIdle(app);
       node.enabled = !node.enabled;
       scheduleRender(app);
     }

@@ -4,6 +4,11 @@
 #include "processors/Processor.h"
 
 void waitRenderIdle(App &app);
+void stopRenderWorker(App &app);
+void beginRenderMutation(App &app);
+void endRenderMutation(App &app);
+void beginFullResolutionRender(App &app);
+void endFullResolutionRender(App &app);
 void scheduleRender(App &app);
 void scheduleDisplayRecolor(App &app);
 void rebuildPreview(App &app);
