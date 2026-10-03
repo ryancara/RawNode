@@ -237,12 +237,26 @@ int runSelfTests() {
   }
 
   {
-    // Workspace/open-dialog extension hints include formats that LibRaw can
-    // decode even though they were missing from the first PR #17 allow-list.
+    // Workspace discovery and Open-dialog filtering share the same raster/RAW
+    // extension definitions.
+    for (const std::string &ext : rasterImageExtensions()) {
+      if (!isSupportedImagePath(std::string("image") + ext) ||
+          !isRasterImagePath(std::string("IMAGE") + ext))
+        return fail("raster extension support");
+    }
     for (const char *ext : {".nrw", ".erf", ".3fr", ".crw", ".iiq", ".mrw", ".x3f", ".srf", ".rwl"}) {
       if (!isSupportedImagePath(std::string("camera") + ext))
         return fail("expanded RAW extension support");
     }
+
+    const auto filters = openImageDialogFilters();
+    if (filters.size() != 2) return fail("image dialog filter shape");
+    for (const std::string &ext : rasterImageExtensions())
+      if (filters[1].find("*" + ext) == std::string::npos)
+        return fail("raster dialog extension");
+    for (const std::string &ext : rawImageExtensions())
+      if (filters[1].find("*" + ext) == std::string::npos)
+        return fail("RAW dialog extension");
   }
 
   {
