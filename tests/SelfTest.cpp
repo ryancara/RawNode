@@ -577,17 +577,28 @@ int runSelfTests() {
         !hasUnknownProcessorChoiceIds(futureChoiceApp))
       return fail("future CST choice preservation");
 
-    // Stable-ID choices must be strings. A development-era numeric value is
-    // treated as unknown and preserved rather than silently replaced.
+    // Development builds briefly wrote stable choices numerically. Known
+    // numeric values migrate to the current stable ID; invalid values remain
+    // protected as unknown future/development data.
     PersistChain numericChoice = cstSaved;
-    numericChoice.nodes[0].paramsJson["output_gamma"] = "0";
+    numericChoice.nodes[0].paramsJson["output_gamma"] = "3";
     App numericChoiceApp;
     applyChain(numericChoiceApp, numericChoice);
     const PersistChain numericChoiceSaved = captureChain(numericChoiceApp);
-    if (!hasUnknownProcessorChoiceIds(numericChoiceApp) ||
+    if (hasUnknownProcessorChoiceIds(numericChoiceApp) ||
         numericChoiceSaved.nodes.empty() ||
-        numericChoiceSaved.nodes[0].paramsJson.at("output_gamma") != "0")
-      return fail("numeric stable choice protection");
+        numericChoiceSaved.nodes[0].paramsJson.at("output_gamma") != "\"davinci-intermediate\"")
+      return fail("numeric stable choice migration");
+
+    PersistChain invalidNumericChoice = cstSaved;
+    invalidNumericChoice.nodes[0].paramsJson["output_gamma"] = "99";
+    App invalidNumericChoiceApp;
+    applyChain(invalidNumericChoiceApp, invalidNumericChoice);
+    const PersistChain invalidNumericChoiceSaved = captureChain(invalidNumericChoiceApp);
+    if (!hasUnknownProcessorChoiceIds(invalidNumericChoiceApp) ||
+        invalidNumericChoiceSaved.nodes.empty() ||
+        invalidNumericChoiceSaved.nodes[0].paramsJson.at("output_gamma") != "99")
+      return fail("invalid numeric stable choice protection");
 
     printf("ok  Native CST processor\n");
   }
@@ -932,6 +943,35 @@ int runSelfTests() {
       return fail("sidecar v2 missing processor preservation");
 
     fs::remove(sidecar);
+
+    // Development builds briefly wrote colour display names instead of
+    // stable IDs. They should load as known values and normalise on next save.
+    const fs::path legacyNamesImage =
+        fs::temp_directory_path() / "rawnode-selftest-legacy-colour-names.tif";
+    if (!writeTinyTiff(legacyNamesImage, false))
+      return fail("legacy colour names image write");
+    PersistGui legacyNamesGui;
+    legacyNamesGui.outputColorSpace = "Display P3";
+    legacyNamesGui.outputGamma = "sRGB";
+    if (!saveInputSidecar(legacyNamesImage.string(), legacyNamesGui, PersistChain{}, nullptr))
+      return fail("legacy colour names sidecar initial save");
+    App legacyNamesApp;
+    openPath(legacyNamesApp, legacyNamesImage.string(), true);
+    {
+      std::lock_guard<std::mutex> lock(legacyNamesApp.colorMutex);
+      if (legacyNamesApp.outputEncoding != ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB})
+        return fail("legacy colour names migration");
+    }
+    if (!legacyNamesApp.sidecarWriteBlockedPath.empty())
+      return fail("legacy colour names write protection");
+    saveCurrentInputSidecar(legacyNamesApp);
+    PersistSidecar normalisedNames;
+    if (!loadSidecarFile(inputSidecarPath(legacyNamesImage.string()), normalisedNames) ||
+        normalisedNames.gui.outputColorSpace != "display-p3" ||
+        normalisedNames.gui.outputGamma != "srgb")
+      return fail("legacy colour names normalisation");
+    fs::remove(inputSidecarPath(legacyNamesImage.string()));
+    fs::remove(legacyNamesImage);
 
     // Unknown future colour identifiers must be readable but write-protected,
     // rather than silently replaced by this build's fallback.
