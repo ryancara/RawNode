@@ -156,7 +156,7 @@ static void loadSidecarForPath(App &app, const std::string &imagePath) {
       clearNodes(app);
       app.sidecarWriteBlockedPath = imagePath;
       if (sc.format == "rawnode-sidecar" && sc.version > 2) {
-        app.setStatus("This image uses a newer RawNode sidecar version; edits are not being overwritten.");
+        app.setStatus("This image uses a newer RawNode sidecar version; changes will not be saved.");
       } else {
         app.setStatus("Could not read RawNode sidecar; the existing file is protected from overwrite.");
       }
