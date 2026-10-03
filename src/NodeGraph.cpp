@@ -336,8 +336,10 @@ static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParamet
   const auto it = node.preservedParamsJson.find(param.id);
   if (it == node.preservedParamsJson.end()) return false;
 
+  // Stable-ID choices must be persisted as strings. Any other JSON type belongs
+  // to an unsupported/development-era format and is protected from overwrite.
   std::string id;
-  if (!parseJsonStringValue(trimParamJson(it->second), id)) return false;
+  if (!parseJsonStringValue(trimParamJson(it->second), id)) return true;
   return std::find(param.choiceIds.begin(), param.choiceIds.end(), id) == param.choiceIds.end();
 }
 
