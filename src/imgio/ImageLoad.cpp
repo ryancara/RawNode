@@ -63,6 +63,23 @@ void applyCameraMatrix(const float camera[4], int channels, const float matrix[3
   }
 }
 
+const std::vector<std::string> &rasterImageExtensions() {
+  static const std::vector<std::string> extensions = {
+      ".exr", ".tif", ".tiff", ".png", ".jpg", ".jpeg"};
+  return extensions;
+}
+
+static bool pathHasExtension(const std::string &path,
+                             const std::vector<std::string> &extensions) {
+  std::string e = fs::path(path).extension().string();
+  for (char &ch : e) ch = (char)tolower((unsigned char)ch);
+  return std::find(extensions.begin(), extensions.end(), e) != extensions.end();
+}
+
+bool isRasterImagePath(const std::string &path) {
+  return pathHasExtension(path, rasterImageExtensions());
+}
+
 const std::vector<std::string> &rawImageExtensions() {
   static const std::vector<std::string> extensions = {
       ".3fr", ".arw", ".cr2", ".cr3", ".crw", ".dcr", ".dng", ".erf", ".iiq", ".kdc",
@@ -72,11 +89,7 @@ const std::vector<std::string> &rawImageExtensions() {
 }
 
 bool isRawImagePath(const std::string &path) {
-  std::string e = fs::path(path).extension().string();
-  for (char &ch : e) ch = (char)tolower((unsigned char)ch);
-  for (const std::string &rawExt : rawImageExtensions())
-    if (e == rawExt) return true;
-  return false;
+  return pathHasExtension(path, rawImageExtensions());
 }
 
 bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], RgbGamut target, float out[3][4]) {
