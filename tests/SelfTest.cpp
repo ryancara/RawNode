@@ -13,6 +13,7 @@
 #include "persist/DocumentActions.h"
 
 #include <tiffio.h>
+#include <lcms2.h>
 
 #include <algorithm>
 #include <cmath>
@@ -75,6 +76,48 @@ static bool writeGray16Tiff(const fs::path &p, uint16_t value) {
   return ok;
 }
 
+static bool makeTestRgbIcc(const cmsCIExyY &white, const cmsCIExyYTRIPLE &primaries,
+                           double gamma, std::vector<uint8_t> &icc) {
+  icc.clear();
+  cmsToneCurve *curve = cmsBuildGamma(nullptr, gamma);
+  if (!curve) return false;
+  cmsToneCurve *curves[3] = {curve, curve, curve};
+  cmsHPROFILE profile = cmsCreateRGBProfile(&white, &primaries, curves);
+  cmsFreeToneCurve(curve);
+  if (!profile) return false;
+
+  cmsUInt32Number size = 0;
+  bool ok = cmsSaveProfileToMem(profile, nullptr, &size) && size > 0;
+  if (ok) {
+    icc.resize(size);
+    ok = cmsSaveProfileToMem(profile, icc.data(), &size) != 0;
+    if (ok) icc.resize(size);
+  }
+  cmsCloseProfile(profile);
+  if (!ok) icc.clear();
+  return ok;
+}
+
+static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
+                                   const std::vector<uint8_t> &icc) {
+  TIFF *tif = TIFFOpen(p.c_str(), "w");
+  if (!tif) return false;
+  TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, 1);
+  TIFFSetField(tif, TIFFTAG_IMAGELENGTH, 1);
+  TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, 16);
+  TIFFSetField(tif, TIFFTAG_SAMPLEFORMAT, SAMPLEFORMAT_UINT);
+  TIFFSetField(tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
+  TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+  TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+  if (!icc.empty())
+    TIFFSetField(tif, TIFFTAG_ICCPROFILE, (uint32_t)icc.size(), (void *)icc.data());
+  uint16_t row[3] = {value, value, value};
+  const bool ok = TIFFWriteScanline(tif, row, 0, 0) >= 0;
+  TIFFClose(tif);
+  return ok;
+}
+
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 int runSelfTests() {
   for (bool half : {false, true}) {
@@ -112,6 +155,62 @@ int runSelfTests() {
         std::fabs(img.px[1] - want) > 2e-5 || std::fabs(img.px[2] - want) > 2e-5)
       return fail("gray16 sRGB linearisation");
     fs::remove(p);
+  }
+
+  {
+    // Third-party RGB ICC profiles are converted through lcms into the
+    // canonical raster working encoding rather than being relabelled as the
+    // nearest RawNode gamut.
+    struct ProfileCase {
+      const char *name;
+      cmsCIExyY white;
+      cmsCIExyYTRIPLE primaries;
+      double gamma;
+    };
+    const ProfileCase cases[] = {
+        {
+            "adobe-rgb",
+            {0.3127, 0.3290, 1.0},
+            {{0.6400, 0.3300, 1.0}, {0.2100, 0.7100, 1.0}, {0.1500, 0.0600, 1.0}},
+            2.2,
+        },
+        {
+            "prophoto",
+            {0.3457, 0.3585, 1.0},
+            {{0.7347, 0.2653, 1.0}, {0.1596, 0.8404, 1.0}, {0.0366, 0.0001, 1.0}},
+            1.8,
+        },
+    };
+
+    constexpr uint16_t code = 32768;
+    const double encoded = (double)code / 65535.0;
+    for (const ProfileCase &profileCase : cases) {
+      std::vector<uint8_t> icc;
+      if (!makeTestRgbIcc(profileCase.white, profileCase.primaries, profileCase.gamma, icc))
+        return fail("third-party ICC test profile");
+
+      const fs::path p =
+          fs::temp_directory_path() / (std::string("rawnode-selftest-") + profileCase.name + ".tif");
+      if (!writeGray16TiffWithIcc(p, code, icc))
+        return fail("third-party ICC TIFF write");
+
+      Image img;
+      ColorEncoding encoding;
+      bool decodedRaw = true;
+      if (!loadImage(p.string(), img, encoding, decodedRaw) || decodedRaw ||
+          encoding != ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear})
+        return fail("third-party ICC canonical encoding");
+
+      const double expected = std::pow(encoded, profileCase.gamma);
+      if (img.px.size() < 4 ||
+          std::fabs(img.px[0] - expected) > 5e-4 ||
+          std::fabs(img.px[1] - expected) > 5e-4 ||
+          std::fabs(img.px[2] - expected) > 5e-4 ||
+          img.px[3] != 1.0f)
+        return fail("third-party ICC conversion");
+
+      fs::remove(p);
+    }
   }
 
   {
