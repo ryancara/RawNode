@@ -63,14 +63,18 @@ void applyCameraMatrix(const float camera[4], int channels, const float matrix[3
   }
 }
 
-bool isRawImagePath(const std::string &path) {
-  std::string e = fs::path(path).extension().string();
-  for (char &ch : e) ch = (char)tolower((unsigned char)ch);
-  static const char *kRawExtensions[] = {
+const std::vector<std::string> &rawImageExtensions() {
+  static const std::vector<std::string> extensions = {
       ".3fr", ".arw", ".cr2", ".cr3", ".crw", ".dcr", ".dng", ".erf", ".iiq", ".kdc",
       ".mef", ".mos", ".mrw", ".nef", ".nrw", ".orf", ".pef", ".raf", ".raw", ".rwl",
       ".rw2", ".sr2", ".srf", ".srw", ".x3f"};
-  for (const char *rawExt : kRawExtensions)
+  return extensions;
+}
+
+bool isRawImagePath(const std::string &path) {
+  std::string e = fs::path(path).extension().string();
+  for (char &ch : e) ch = (char)tolower((unsigned char)ch);
+  for (const std::string &rawExt : rawImageExtensions())
     if (e == rawExt) return true;
   return false;
 }
