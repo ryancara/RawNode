@@ -4,8 +4,6 @@
 
 bool linearColorTransformMatrix(RgbGamut source, RgbGamut target, double out[3][3]);
 
-// Compatibility overload for historical scene-linear ColorSpace presets.
-bool linearColorTransformMatrix(ColorSpace source, ColorSpace target, double out[3][3]);
 
 inline void applyLinearColorMatrix(const double matrix[3][3], const float rgbIn[3], float rgbOut[3]) {
   for (int row = 0; row < 3; ++row) {
