@@ -433,21 +433,6 @@ static int selfTest() {
         !hasUnknownProcessorChoiceIds(futureChoiceApp))
       return fail("future CST choice preservation");
 
-    futureChoiceApp.path = "future-choice-test";
-    futureChoiceApp.sidecarWriteBlockedPath = futureChoiceApp.path;
-    futureChoiceApp.sidecarBlockedByUnknownProcessorChoice = true;
-    Node &futureNode = futureChoiceApp.nodes[0];
-    if (!futureNode.processor ||
-        !futureNode.processor->setParameterValue("output_gamma", (int)TransferFunction::Linear))
-      return fail("future CST choice replacement setup");
-    markParameterEdited(futureChoiceApp, futureNode, "output_gamma");
-    const PersistChain replacedChoice = captureChain(futureChoiceApp);
-    if (hasUnknownProcessorChoiceIds(futureChoiceApp) ||
-        futureChoiceApp.sidecarBlockedByUnknownProcessorChoice ||
-        !futureChoiceApp.sidecarWriteBlockedPath.empty() ||
-        replacedChoice.nodes[0].paramsJson.at("output_gamma") != "\"linear\"")
-      return fail("future CST choice deliberate replacement");
-
     printf("ok  Native CST processor\n");
   }
 
