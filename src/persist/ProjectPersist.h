@@ -83,6 +83,11 @@ bool parseJsonStringValue(const std::string &raw, std::string &out);
 std::string serializeTransferPayload(const std::string &kind, const PersistChain &chain);
 bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain);
 
+// Portable node/full-grade presets use the same graph representation as
+// transfer payloads, with an independent file-format version.
+bool savePresetFile(const std::string &path, const std::string &kind, const PersistChain &chain);
+bool loadPresetFile(const std::string &path, std::string &kind, PersistChain &chain);
+
 
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);
 bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,

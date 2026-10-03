@@ -419,17 +419,29 @@ bool readAllText(const std::string &path, std::string &out) {
   return true;
 }
 
-bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain) {
+static bool parseGraphEnvelope(const std::string &json, const char *expectedFormat,
+                               std::string &kind, PersistChain &chain) {
   std::string format;
   int version = 0;
-  if (!extractStringField(json, "format", format) || format != "rawnode-transfer" ||
+  if (!extractStringField(json, "format", format) || format != expectedFormat ||
       !extractIntField(json, "version", version) || version != 1 ||
-      !extractStringField(json, "kind", kind))
+      !extractStringField(json, "kind", kind) ||
+      (kind != "node" && kind != "grade"))
     return false;
 
   std::string graphObj;
   if (!extractObject(json, "graph", graphObj)) return false;
   return loadGraphV2FromJson(graphObj, chain);
+}
+
+bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain) {
+  return parseGraphEnvelope(json, "rawnode-transfer", kind, chain);
+}
+
+bool loadPresetFile(const std::string &path, std::string &kind, PersistChain &chain) {
+  std::string json;
+  if (!readAllText(path, json)) return false;
+  return parseGraphEnvelope(json, "rawnode-preset", kind, chain);
 }
 
 bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std::string &activeImageRel) {
