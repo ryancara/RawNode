@@ -809,6 +809,68 @@ int runSelfTests() {
   }
 
   {
+    // Real document switching must save image A before opening B, then restore
+    // A's document colour/output state and node chain when returning to it.
+    const fs::path imageA = fs::temp_directory_path() / "rawnode-selftest-switch-a.tif";
+    const fs::path imageB = fs::temp_directory_path() / "rawnode-selftest-switch-b.tif";
+    if (!writeTinyTiff(imageA, false) || !writeTinyTiff(imageB, false))
+      return fail("document switch image write");
+
+    App switched;
+    openPath(switched, imageA.string(), true);
+    {
+      std::lock_guard<std::mutex> lock(switched.colorMutex);
+      switched.outputEncoding = {RgbGamut::DisplayP3, TransferFunction::SRGB};
+    }
+    if (!addNativeExposureNode(switched) ||
+        !switched.nodes[0].processor ||
+        !switched.nodes[0].processor->setParameterValue("exposure", 1.5))
+      return fail("document switch edit setup");
+    switched.nodes[0].enabled = false;
+
+    openPath(switched, imageB.string(), true);
+
+    PersistSidecar savedA;
+    const std::string sidecarA = inputSidecarPath(imageA.string());
+    if (!loadSidecarFile(sidecarA, savedA) ||
+        savedA.gui.outputColorSpace != rgbGamutId(RgbGamut::DisplayP3) ||
+        savedA.gui.outputGamma != transferFunctionId(TransferFunction::SRGB) ||
+        savedA.chain.nodes.size() != 1 ||
+        savedA.chain.nodes[0].identifier != NativeExposureProcessor::kIdentifier ||
+        savedA.chain.nodes[0].enabled ||
+        savedA.chain.nodes[0].paramsJson.at("exposure") != "1.5")
+      return fail("document switch sidecar save");
+
+    openPath(switched, imageA.string(), true);
+    ColorEncoding restoredOutput;
+    {
+      std::lock_guard<std::mutex> lock(switched.colorMutex);
+      restoredOutput = switched.outputEncoding;
+    }
+    if (restoredOutput != ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB} ||
+        switched.nodes.size() != 1 ||
+        switched.nodes[0].enabled ||
+        !switched.nodes[0].processor ||
+        switched.nodes[0].processor->identifier() != NativeExposureProcessor::kIdentifier)
+      return fail("document switch sidecar restore");
+
+    bool restoredExposure = false;
+    for (const ProcessorParameter &param : switched.nodes[0].processor->parameters()) {
+      if (param.id == "exposure") {
+        const double *value = std::get_if<double>(&param.value);
+        restoredExposure = value && *value == 1.5;
+      }
+    }
+    if (!restoredExposure) return fail("document switch node parameter restore");
+
+    fs::remove(inputSidecarPath(imageA.string()));
+    fs::remove(inputSidecarPath(imageB.string()));
+    fs::remove(imageA);
+    fs::remove(imageB);
+    printf("ok  Document switch sidecar persistence\n");
+  }
+
+  {
     // Sidecar V2 round-trip: IDs/backend identity and opaque future parameter
     // JSON must survive even when this build cannot interpret the processor.
     const fs::path source = fs::temp_directory_path() / "rawnode-selftest-source.nef";
