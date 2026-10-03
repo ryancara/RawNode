@@ -95,6 +95,7 @@ endif()
 
 add_executable(OfxRawHost
   src/main.cpp
+  tests/SelfTest.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
   src/imgio/ImageLoad.cpp
@@ -161,6 +162,7 @@ endif()
 
 target_include_directories(OfxRawHost PRIVATE
   src
+  tests
   third_party/openfx/include
   third_party/stb
   third_party/tinyexr
