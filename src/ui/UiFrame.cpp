@@ -30,6 +30,15 @@ static bool copySelectedNode(App &app) {
 static bool copyGrade(App &app) {
   if (app.nodes.empty()) return false;
   const PersistChain transfer = captureChain(app);
+  const bool colourProtected =
+      (!app.path.empty() && app.sidecarWriteBlockedPath == app.path) || app.workspaceWriteBlocked;
+  if (colourProtected) {
+    const std::string payload = serializeTransferPayload("grade", transfer);
+    ImGui::SetClipboardText(payload.c_str());
+    app.setStatus("Copied full grade without colour settings (source metadata is read-only)");
+    return true;
+  }
+
   const PersistGradeColor color = captureGradeColor(app);
   const std::string payload = serializeTransferPayload("grade", transfer, &color);
   ImGui::SetClipboardText(payload.c_str());
@@ -119,7 +128,8 @@ static bool saveNodePreset(App &app) {
 static bool saveGradePreset(App &app) {
   if (app.nodes.empty()) return false;
   const PersistChain preset = captureChain(app);
-  const PersistGradeColor color = captureGradeColor(app);
+  const bool colourProtected =
+      (!app.path.empty() && app.sidecarWriteBlockedPath == app.path) || app.workspaceWriteBlocked;
 
   auto dialog = pfd::save_file(
       "Save Full Grade Preset", "Grade.rawnodepreset",
@@ -127,11 +137,21 @@ static bool saveGradePreset(App &app) {
   std::string path = ensurePresetExtension(dialog.result());
   if (path.empty()) return false;
 
-  if (!savePresetFile(path, "grade", preset, &color)) {
+  bool ok = false;
+  if (colourProtected) {
+    ok = savePresetFile(path, "grade", preset);
+  } else {
+    const PersistGradeColor color = captureGradeColor(app);
+    ok = savePresetFile(path, "grade", preset, &color);
+  }
+  if (!ok) {
     app.setStatus("Could not save full-grade preset");
     return false;
   }
-  app.setStatus("Saved full-grade preset: " + std::filesystem::path(path).filename().string());
+  if (colourProtected)
+    app.setStatus("Saved full-grade preset without colour settings (source metadata is read-only)");
+  else
+    app.setStatus("Saved full-grade preset: " + std::filesystem::path(path).filename().string());
   return true;
 }
 
