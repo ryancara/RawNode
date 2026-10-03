@@ -312,17 +312,12 @@ void DrawUiFrame(App &app) {
   }
 
   if (!ImGui::GetIO().WantTextInput) {
-#ifdef __APPLE__
-    const ImGuiKeyChord copyNodeChord = ImGuiMod_Super | ImGuiKey_C;
-    const ImGuiKeyChord pasteNodeChord = ImGuiMod_Super | ImGuiKey_V;
-    const ImGuiKeyChord copyGradeChord = ImGuiMod_Super | ImGuiMod_Shift | ImGuiKey_C;
-    const ImGuiKeyChord pasteGradeChord = ImGuiMod_Super | ImGuiMod_Shift | ImGuiKey_V;
-#else
+    // With ConfigMacOSXBehaviors enabled, Dear ImGui maps ImGuiMod_Ctrl to
+    // Command on macOS and to Control on Windows/Linux.
     const ImGuiKeyChord copyNodeChord = ImGuiMod_Ctrl | ImGuiKey_C;
     const ImGuiKeyChord pasteNodeChord = ImGuiMod_Ctrl | ImGuiKey_V;
     const ImGuiKeyChord copyGradeChord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C;
     const ImGuiKeyChord pasteGradeChord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V;
-#endif
     if (ImGui::IsKeyChordPressed(copyGradeChord))
       copyGrade(app);
     else if (ImGui::IsKeyChordPressed(copyNodeChord))
