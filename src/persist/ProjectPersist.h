@@ -52,11 +52,7 @@ struct PersistSidecar {
   int version = 0;
   std::string kind;
   std::string sourcePath;
-  std::string inputColorSpace;
-  std::string workingSpace;
-  // RAW encoding is additive within Sidecar V2. rawWorkingSpace is retained
-  // for PR #16 sidecars and older builds; new sidecars also persist gamut and
-  // transfer function independently.
+  // Read-only migration field for PR #16-era combined RAW working-space names.
   std::string rawWorkingSpace;
   std::string rawColorSpace;
   std::string rawGamma;
