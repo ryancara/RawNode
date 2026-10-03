@@ -128,11 +128,7 @@ bool isSupportedImagePath(const std::string &path) {
   std::string e = fs::path(path).extension().string();
   for (char &c : e) c = (char)tolower((unsigned char)c);
   if (e == ".exr" || e == ".tif" || e == ".tiff" || e == ".png" || e == ".jpg" || e == ".jpeg") return true;
-  static const char *kRawExtensions[] = {
-      ".3fr", ".arw", ".cr2", ".cr3", ".crw", ".dcr", ".dng", ".erf", ".iiq", ".kdc",
-      ".mef", ".mos", ".mrw", ".nef", ".nrw", ".orf", ".pef", ".raf", ".raw", ".rwl",
-      ".rw2", ".sr2", ".srf", ".srw", ".x3f"};
-  for (const char *rawExt : kRawExtensions)
+  for (const std::string &rawExt : rawImageExtensions())
     if (e == rawExt) return true;
   return false;
 }
@@ -146,8 +142,10 @@ bool isHostMetadataPath(const std::string &path) {
 }
 
 std::vector<std::string> openImageDialogFilters() {
-  return {"Images",
-          "*.exr *.tif *.tiff *.png *.jpg *.jpeg *.3fr *.arw *.cr2 *.cr3 *.crw *.dcr *.dng *.erf *.iiq *.kdc *.mef *.mos *.mrw *.nef *.nrw *.orf *.pef *.raf *.raw *.rwl *.rw2 *.sr2 *.srf *.srw *.x3f"};
+  std::string patterns = "*.exr *.tif *.tiff *.png *.jpg *.jpeg";
+  for (const std::string &ext : rawImageExtensions())
+    patterns += " *" + ext;
+  return {"Images", patterns};
 }
 
 std::vector<std::string> listWorkspaceImages(const std::string &workspaceDir) {
