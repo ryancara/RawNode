@@ -96,9 +96,6 @@ struct App {
   // automatic image switching. Reopening after the file is fixed/removed
   // clears this protection.
   std::string sidecarWriteBlockedPath;
-  // True only when the write block is caused by unknown processor choice IDs.
-  // A deliberate replacement of all such choices can safely clear this block.
-  bool sidecarBlockedByUnknownProcessorChoice = false;
   // Colour state is read by the render worker and written by the UI/document
   // thread. Guard snapshots/updates so gamut+gamma pairs remain coherent.
   mutable std::mutex colorMutex;
