@@ -307,12 +307,10 @@ ColorEncoding classifyIccEncoding(const std::vector<uint8_t> &icc) {
     if (sep != std::string::npos && payload.find(" / ", sep + 3) == std::string::npos) {
       const std::string gamutId = payload.substr(0, sep);
       const std::string transferId = payload.substr(sep + 3);
-      RgbGamut gamut;
-      TransferFunction tf;
-      if (rgbGamutFromIdOrName(gamutId, gamut) &&
-          transferFunctionFromIdOrName(transferId, tf)) {
+      ColorEncoding encoding;
+      if (colorEncodingFromIds(gamutId, transferId, encoding)) {
         cmsCloseProfile(p);
-        return {gamut, tf};
+        return encoding;
       }
     }
   }
@@ -397,18 +395,13 @@ static void linearRec709ToDisplayRGBA8(const Image &img, std::vector<unsigned ch
 
 void toDisplayRGBA8(const Image &img, ColorEncoding encoding,
                     std::vector<unsigned char> &out) {
-  toDisplayRGBA8(img, encoding.gamut, encoding.gamma, out);
-}
-
-void toDisplayRGBA8(const Image &img, RgbGamut gamut, TransferFunction gamma,
-                    std::vector<unsigned char> &out) {
   if (img.w <= 0 || img.h <= 0 || img.px.empty()) {
     out.clear();
     return;
   }
 
   double toRec709[3][3] = {};
-  if (!linearColorTransformMatrix(gamut, RgbGamut::Rec709, toRec709)) {
+  if (!linearColorTransformMatrix(encoding.gamut, RgbGamut::Rec709, toRec709)) {
     out.clear();
     return;
   }
@@ -416,9 +409,9 @@ void toDisplayRGBA8(const Image &img, RgbGamut gamut, TransferFunction gamma,
   Image rec709 = img;
   for (size_t i = 0; i + 3 < rec709.px.size(); i += 4) {
     const float linear[3] = {
-        (float)decodeTransfer(img.px[i + 0], gamma),
-        (float)decodeTransfer(img.px[i + 1], gamma),
-        (float)decodeTransfer(img.px[i + 2], gamma),
+        (float)decodeTransfer(img.px[i + 0], encoding.gamma),
+        (float)decodeTransfer(img.px[i + 1], encoding.gamma),
+        (float)decodeTransfer(img.px[i + 2], encoding.gamma),
     };
     float converted[3] = {};
     applyLinearColorMatrix(toRec709, linear, converted);
