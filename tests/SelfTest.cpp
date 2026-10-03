@@ -98,24 +98,31 @@ static bool makeTestRgbIcc(const cmsCIExyY &white, const cmsCIExyYTRIPLE &primar
   return ok;
 }
 
-static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
+static bool writeRgba16TiffWithIcc(const fs::path &p, const uint16_t rgba[4],
                                    const std::vector<uint8_t> &icc) {
   TIFF *tif = TIFFOpen(p.c_str(), "w");
   if (!tif) return false;
   TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, 1);
   TIFFSetField(tif, TIFFTAG_IMAGELENGTH, 1);
-  TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, 4);
   TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, 16);
   TIFFSetField(tif, TIFFTAG_SAMPLEFORMAT, SAMPLEFORMAT_UINT);
   TIFFSetField(tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
   TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
   TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+  uint16_t extraSample = EXTRASAMPLE_UNASSALPHA;
+  TIFFSetField(tif, TIFFTAG_EXTRASAMPLES, 1, &extraSample);
   if (!icc.empty())
     TIFFSetField(tif, TIFFTAG_ICCPROFILE, (uint32_t)icc.size(), (void *)icc.data());
-  uint16_t row[3] = {value, value, value};
-  const bool ok = TIFFWriteScanline(tif, row, 0, 0) >= 0;
+  const bool ok = TIFFWriteScanline(tif, (void *)rgba, 0, 0) >= 0;
   TIFFClose(tif);
   return ok;
+}
+
+static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
+                                   const std::vector<uint8_t> &icc) {
+  const uint16_t rgba[4] = {value, value, value, 65535};
+  return writeRgba16TiffWithIcc(p, rgba, icc);
 }
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
@@ -211,6 +218,45 @@ int runSelfTests() {
 
       fs::remove(p);
     }
+
+    // Neutral grey cannot prove that the gamut matrix ran. ProPhoto green is
+    // deliberately outside Rec.2020 in this direction, so a correct D50 ->
+    // D65/Rec.2020 transform produces negative red/blue components. Use an
+    // unassociated alpha below 1 to verify cmsFLAGS_COPY_ALPHA at the same time.
+    std::vector<uint8_t> proPhotoIcc;
+    const cmsCIExyY proPhotoWhite = {0.3457, 0.3585, 1.0};
+    const cmsCIExyYTRIPLE proPhotoPrimaries = {
+        {0.7347, 0.2653, 1.0},
+        {0.1596, 0.8404, 1.0},
+        {0.0366, 0.0001, 1.0},
+    };
+    if (!makeTestRgbIcc(proPhotoWhite, proPhotoPrimaries, 1.8, proPhotoIcc))
+      return fail("ProPhoto saturated ICC profile");
+
+    constexpr uint16_t alphaCode = 19660;  // ~0.3
+    const uint16_t greenRgba[4] = {0, 65535, 0, alphaCode};
+    const fs::path greenPath =
+        fs::temp_directory_path() / "rawnode-selftest-prophoto-green-alpha.tif";
+    if (!writeRgba16TiffWithIcc(greenPath, greenRgba, proPhotoIcc))
+      return fail("ProPhoto saturated TIFF write");
+
+    Image green;
+    ColorEncoding greenEncoding;
+    bool greenDecodedRaw = true;
+    if (!loadImage(greenPath.string(), green, greenEncoding, greenDecodedRaw) ||
+        greenDecodedRaw ||
+        greenEncoding != ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear} ||
+        green.px.size() < 4)
+      return fail("ProPhoto saturated ICC load");
+
+    // Independently verified lcms/Bradford result for this test profile.
+    if (std::fabs(green.px[0] - (-0.058f)) > 2e-3f ||
+        std::fabs(green.px[1] - 1.081f) > 2e-3f ||
+        std::fabs(green.px[2] - (-0.041f)) > 2e-3f ||
+        std::fabs(green.px[3] - (float)alphaCode / 65535.0f) > 1e-6f)
+      return fail("ProPhoto saturated gamut/alpha conversion");
+
+    fs::remove(greenPath);
   }
 
   {
