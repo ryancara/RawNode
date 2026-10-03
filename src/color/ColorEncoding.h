@@ -30,7 +30,7 @@ const RgbGamutDefinition &rgbGamutDefinition(RgbGamut gamut);
 int rgbGamutIndex(RgbGamut gamut);
 const char *rgbGamutId(RgbGamut gamut);
 const char *rgbGamutName(RgbGamut gamut);
-bool rgbGamutFromIdOrName(const std::string &name, RgbGamut &gamut);
+bool rgbGamutFromId(const std::string &id, RgbGamut &gamut);
 
 struct ColorEncoding {
   RgbGamut gamut = RgbGamut::Rec2020;
