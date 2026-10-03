@@ -4,9 +4,7 @@
 
 #include <string>
 
-// Numeric values 0..4 are retained from the first PR #17 CST implementation so
-// numeric sidecars written by that build keep their original meaning.
-// Display P3 is appended rather than inserted for backwards compatibility.
+// Enum values are internal; persisted files use stable string IDs from the registry.
 enum class RgbGamut {
   Rec709 = 0,
   Rec2020 = 1,
