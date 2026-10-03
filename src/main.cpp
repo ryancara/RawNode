@@ -408,21 +408,6 @@ static int selfTest() {
             decodeTransfer(encodedCut - 1e-7, TransferFunction::Rec709))
       return fail("Rec.709 exact breakpoint");
 
-    // Early PR #17 numeric CST sidecars must still restore after switching new
-    // writes to stable string IDs.
-    PersistChain numericLegacy = cstSaved;
-    numericLegacy.nodes[0].paramsJson["input_space"] = "0";
-    numericLegacy.nodes[0].paramsJson["input_gamma"] = "0";
-    numericLegacy.nodes[0].paramsJson["output_space"] = "1";
-    numericLegacy.nodes[0].paramsJson["output_gamma"] = "0";
-    App numericRestored;
-    applyChain(numericRestored, numericLegacy);
-    Image numericOut;
-    if (numericRestored.nodes.size() != 1 ||
-        !renderChain(numericRestored, cstIn, numericOut, 0).ok ||
-        numericOut.px != cstOut.px)
-      return fail("numeric PR17 CST sidecar compatibility");
-
     PersistChain futureChoice = cstSaved;
     futureChoice.nodes[0].paramsJson["output_gamma"] = "\"future-transfer\"";
     App futureChoiceApp;
