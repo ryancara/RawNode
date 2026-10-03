@@ -17,32 +17,22 @@ The original backend-neutral architecture work is now in place:
 - explicit Output gamut + transfer function;
 - stable persisted choice IDs;
 - third-party RGB ICC input converted through Little CMS into Linear Rec.2020;
-- Linux CI and extracted self-tests.
+- Linux CI and extracted self-tests;
+- node copy / paste;
+- full-grade copy / paste;
+- portable node and full-grade presets.
 
 The current codebase is a clean base for feature development. New work should return to small, focused PRs.
 
-## Next — editing workflow
+## Completed editing workflow milestone
 
-### 1. Node copy / paste
+RawNode now supports:
 
-Copy a single processor node, including its parameter state, and paste it elsewhere in the chain or onto another image.
+- copying and pasting a single processor node through a versioned system-clipboard payload;
+- copying and pasting the complete serial processing chain between images;
+- portable `.rawnodepreset` files for both single nodes and full grades.
 
-Reuse the generic node/persistence representation rather than adding a second clipboard-specific parameter format.
-
-### 2. Full-grade copy / paste
-
-Copy the complete processing chain from one image and apply it to another image.
-
-This should integrate naturally with the workspace / filmstrip workflow.
-
-### 3. Presets
-
-Add reusable presets on top of the same serialisation model:
-
-- single-node presets;
-- full-grade presets.
-
-Do not invent a parallel processor-state format if Sidecar V2 structures can be reused cleanly.
+All three features reuse the same `PersistNode` / `PersistChain` representation as Sidecar V2. RAW working settings and Output tagging remain document settings and are intentionally not part of copied grades or presets.
 
 ## DCTL compatibility
 
