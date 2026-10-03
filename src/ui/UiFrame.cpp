@@ -27,66 +27,65 @@ static bool copySelectedNode(App &app) {
   return true;
 }
 
-static bool pasteNodeFromClipboard(App &app) {
-  const char *clipboard = ImGui::GetClipboardText();
-  if (!clipboard || !*clipboard) {
-    app.setStatus("Clipboard does not contain a RawNode node");
-    return false;
-  }
-
-  std::string kind;
-  PersistChain transfer;
-  if (!parseTransferPayload(clipboard, kind, transfer) ||
-      kind != "node" || transfer.nodes.size() != 1) {
-    app.setStatus("Clipboard does not contain a RawNode node");
-    return false;
-  }
-
-  const int insertAfter = app.selectedNode;
-  if (!appendPersistedNode(app, transfer.nodes.front(), insertAfter)) {
-    app.setStatus("Could not paste node");
-    return false;
-  }
-
-  if (Node *node = selectedNode(app); node && !node->processor)
-    app.setStatus("Pasted node (processor unavailable)");
-  else
-    app.setStatus("Pasted node");
-  return true;
-}
-
 static bool copyGrade(App &app) {
   if (app.nodes.empty()) return false;
   const PersistChain transfer = captureChain(app);
-  const std::string payload = serializeTransferPayload("grade", transfer);
+  const PersistGradeColor color = captureGradeColor(app);
+  const std::string payload = serializeTransferPayload("grade", transfer, &color);
   ImGui::SetClipboardText(payload.c_str());
   app.setStatus("Copied full grade");
   return true;
 }
 
-static bool pasteGradeFromClipboard(App &app) {
+static bool pasteFromClipboard(App &app) {
   const char *clipboard = ImGui::GetClipboardText();
   if (!clipboard || !*clipboard) {
-    app.setStatus("Clipboard does not contain a RawNode grade");
+    app.setStatus("Clipboard does not contain RawNode data");
     return false;
   }
 
   std::string kind;
   PersistChain transfer;
-  if (!parseTransferPayload(clipboard, kind, transfer) || kind != "grade") {
-    app.setStatus("Clipboard does not contain a RawNode grade");
+  PersistGradeColor color;
+  if (!parseTransferPayload(clipboard, kind, transfer, &color)) {
+    app.setStatus("Clipboard does not contain RawNode data");
     return false;
   }
 
-  applyChain(app, transfer);
-  int unavailable = 0;
-  for (const Node &node : app.nodes)
-    if (!node.processor) ++unavailable;
-  if (unavailable > 0)
-    app.setStatus("Pasted full grade (" + std::to_string(unavailable) + " processor(s) unavailable)");
-  else
-    app.setStatus("Pasted full grade");
-  return true;
+  if (kind == "node") {
+    if (transfer.nodes.size() != 1) {
+      app.setStatus("Invalid RawNode node payload");
+      return false;
+    }
+    if (!appendPersistedNode(app, transfer.nodes.front(), app.selectedNode)) {
+      app.setStatus("Could not paste node");
+      return false;
+    }
+    if (Node *node = selectedNode(app); node && !node->processor)
+      app.setStatus("Pasted node (processor unavailable)");
+    else
+      app.setStatus("Pasted node");
+    return true;
+  }
+
+  if (kind == "grade") {
+    if (!applyGradeColor(app, color)) {
+      app.setStatus("Could not apply full-grade colour settings");
+      return false;
+    }
+    applyChain(app, transfer);
+    int unavailable = 0;
+    for (const Node &node : app.nodes)
+      if (!node.processor) ++unavailable;
+    if (unavailable > 0)
+      app.setStatus("Pasted full grade (" + std::to_string(unavailable) + " processor(s) unavailable)");
+    else
+      app.setStatus("Pasted full grade");
+    return true;
+  }
+
+  app.setStatus("Unsupported RawNode clipboard data");
+  return false;
 }
 
 static std::string ensurePresetExtension(std::string path) {
@@ -120,6 +119,7 @@ static bool saveNodePreset(App &app) {
 static bool saveGradePreset(App &app) {
   if (app.nodes.empty()) return false;
   const PersistChain preset = captureChain(app);
+  const PersistGradeColor color = captureGradeColor(app);
 
   auto dialog = pfd::save_file(
       "Save Full Grade Preset", "Grade.rawnodepreset",
@@ -127,7 +127,7 @@ static bool saveGradePreset(App &app) {
   std::string path = ensurePresetExtension(dialog.result());
   if (path.empty()) return false;
 
-  if (!savePresetFile(path, "grade", preset)) {
+  if (!savePresetFile(path, "grade", preset, &color)) {
     app.setStatus("Could not save full-grade preset");
     return false;
   }
@@ -144,7 +144,8 @@ static bool loadPreset(App &app) {
 
   std::string kind;
   PersistChain preset;
-  if (!loadPresetFile(paths[0], kind, preset)) {
+  PersistGradeColor color;
+  if (!loadPresetFile(paths[0], kind, preset, &color)) {
     app.setStatus("Could not read RawNode preset");
     return false;
   }
@@ -166,6 +167,10 @@ static bool loadPreset(App &app) {
   }
 
   if (kind == "grade") {
+    if (!applyGradeColor(app, color)) {
+      app.setStatus("Could not apply full-grade preset colour settings");
+      return false;
+    }
     applyChain(app, preset);
     int unavailable = 0;
     for (const Node &node : app.nodes)
@@ -251,20 +256,15 @@ void DrawUiFrame(App &app) {
       const bool canCopyNode = app.selectedNode >= 0 && app.selectedNode < (int)app.nodes.size();
       if (ImGui::MenuItem("Copy Node", copyShortcut, false, canCopyNode))
         copySelectedNode(app);
-      if (ImGui::MenuItem("Paste Node", pasteShortcut))
-        pasteNodeFromClipboard(app);
-      ImGui::Separator();
 #ifdef __APPLE__
       const char *copyGradeShortcut = "⌘+Shift+C";
-      const char *pasteGradeShortcut = "⌘+Shift+V";
 #else
       const char *copyGradeShortcut = "Ctrl+Shift+C";
-      const char *pasteGradeShortcut = "Ctrl+Shift+V";
 #endif
       if (ImGui::MenuItem("Copy Full Grade", copyGradeShortcut, false, !app.nodes.empty()))
         copyGrade(app);
-      if (ImGui::MenuItem("Paste Full Grade", pasteGradeShortcut))
-        pasteGradeFromClipboard(app);
+      if (ImGui::MenuItem("Paste", pasteShortcut))
+        pasteFromClipboard(app);
       ImGui::Separator();
       if (ImGui::BeginMenu("Presets")) {
         if (ImGui::MenuItem("Save Node Preset…", nullptr, false, canCopyNode))
@@ -315,17 +315,14 @@ void DrawUiFrame(App &app) {
     // With ConfigMacOSXBehaviors enabled, Dear ImGui maps ImGuiMod_Ctrl to
     // Command on macOS and to Control on Windows/Linux.
     const ImGuiKeyChord copyNodeChord = ImGuiMod_Ctrl | ImGuiKey_C;
-    const ImGuiKeyChord pasteNodeChord = ImGuiMod_Ctrl | ImGuiKey_V;
+    const ImGuiKeyChord pasteChord = ImGuiMod_Ctrl | ImGuiKey_V;
     const ImGuiKeyChord copyGradeChord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C;
-    const ImGuiKeyChord pasteGradeChord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V;
     if (ImGui::IsKeyChordPressed(copyGradeChord))
       copyGrade(app);
     else if (ImGui::IsKeyChordPressed(copyNodeChord))
       copySelectedNode(app);
-    if (ImGui::IsKeyChordPressed(pasteGradeChord))
-      pasteGradeFromClipboard(app);
-    else if (ImGui::IsKeyChordPressed(pasteNodeChord))
-      pasteNodeFromClipboard(app);
+    if (ImGui::IsKeyChordPressed(pasteChord))
+      pasteFromClipboard(app);
   }
 
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_LeftBracket) ||
