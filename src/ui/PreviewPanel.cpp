@@ -7,6 +7,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 void drawPreviewPanel(App &app) {
@@ -18,7 +19,9 @@ void drawPreviewPanel(App &app) {
   const ImVec2 canvasMax(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y);
   dl->AddRectFilled(canvasPos, canvasMax, ImGui::GetColorU32(ImGuiCol_WindowBg));
 
-  ImGui::InvisibleButton("##previewCanvas", canvasSize);
+  ImGui::InvisibleButton(
+      "##previewCanvas", canvasSize,
+      ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
   const bool canvasHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
   const bool active = ImGui::IsItemActive();
 
@@ -49,17 +52,10 @@ void drawPreviewPanel(App &app) {
 #endif
   if (canvasHovered) {
     float zoomFactor = 1.0f;
-#if defined(__APPLE__)
-    if (pinch != 0.0f) {
-      zoomFactor *= (1.0f + pinch);
-    } else {
-      constexpr float kPanScale = 10.0f;
-      app.previewPanX += ImGui::GetIO().MouseWheelH * kPanScale;
-      app.previewPanY += ImGui::GetIO().MouseWheel * kPanScale;
-    }
-#else
     const float wheel = ImGui::GetIO().MouseWheel;
-    if (wheel != 0.0f) zoomFactor *= (wheel > 0.0f ? 1.1f : 1.0f / 1.1f);
+    if (wheel != 0.0f) zoomFactor *= std::pow(1.1f, wheel);
+#if defined(__APPLE__)
+    if (pinch != 0.0f) zoomFactor *= std::max(0.01f, 1.0f + pinch);
 #endif
     if (zoomFactor != 1.0f) {
       const float oldZoom = app.previewZoom;
@@ -80,7 +76,9 @@ void drawPreviewPanel(App &app) {
       app.previewPanY = 0.0f;
     }
   }
-  if (active && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+  if (active &&
+      (ImGui::IsMouseDragging(ImGuiMouseButton_Left) ||
+       ImGui::IsMouseDragging(ImGuiMouseButton_Middle))) {
     app.previewPanX += ImGui::GetIO().MouseDelta.x;
     app.previewPanY += ImGui::GetIO().MouseDelta.y;
   }
