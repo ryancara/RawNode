@@ -8,6 +8,7 @@
 #include "ofx/OfxHost.h"
 #include "processors/CtlProcessor.h"
 #include "processors/NativeCstProcessor.h"
+#include "processors/NativeExposureProcessor.h"
 #include "processors/OfxProcessor.h"
 #include "persist/ProjectPersist.h"
 #include "persist/DocumentActions.h"
