@@ -47,4 +47,6 @@ inline bool operator!=(const ColorEncoding &a, const ColorEncoding &b) {
   return !(a == b);
 }
 
+bool colorEncodingFromIds(const std::string &gamutId, const std::string &transferId,
+                          ColorEncoding &encoding);
 std::string colorEncodingName(const ColorEncoding &encoding);
