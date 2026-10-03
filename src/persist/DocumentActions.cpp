@@ -70,6 +70,84 @@ static bool legacyRawEncodingFromName(const std::string &name, ColorEncoding &en
   return false;
 }
 
+PersistGradeColor captureGradeColor(const App &app) {
+  PersistGradeColor color;
+  std::lock_guard<std::mutex> lock(app.colorMutex);
+  if (app.inputIsRaw) {
+    color.rawColorSpace = rgbGamutId(app.inputEncoding.gamut);
+    color.rawGamma = transferFunctionId(app.inputEncoding.gamma);
+  }
+  color.outputColorSpace = rgbGamutId(app.outputEncoding.gamut);
+  color.outputGamma = transferFunctionId(app.outputEncoding.gamma);
+  return color;
+}
+
+static bool reloadCurrentRawEncoding(App &app, const ColorEncoding &requested,
+                                     bool updateSessionDefault, bool persistAfter) {
+  ColorEncoding current;
+  bool currentIsRaw = false;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    currentIsRaw = app.inputIsRaw;
+    current = currentIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
+    if (updateSessionDefault) app.rawWorkingEncoding = requested;
+  }
+
+  if (!currentIsRaw) return true;
+  if (current == requested) return true;
+
+  waitRenderIdle(app);
+  Image img;
+  ColorEncoding detectedEncoding;
+  bool decodedRaw = false;
+  if (!loadImage(app.path, img, detectedEncoding, decodedRaw, requested) || !decodedRaw)
+    return false;
+
+  app.full = std::move(img);
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.inputEncoding = detectedEncoding;
+    app.inputIsRaw = true;
+  }
+  rebuildPreview(app);
+  if (persistAfter) {
+    saveCurrentInputSidecar(app);
+    persistWorkspace(app);
+  }
+  return true;
+}
+
+bool applyGradeColor(App &app, const PersistGradeColor &color) {
+  ColorEncoding output;
+  if (!color.outputColorSpace.empty() || !color.outputGamma.empty()) {
+    if (color.outputColorSpace.empty() || color.outputGamma.empty() ||
+        !persistedColorEncoding(color.outputColorSpace, color.outputGamma, output))
+      return false;
+  }
+
+  ColorEncoding raw;
+  const bool hasRaw = !color.rawColorSpace.empty() || !color.rawGamma.empty();
+  if (hasRaw) {
+    if (color.rawColorSpace.empty() || color.rawGamma.empty() ||
+        !persistedColorEncoding(color.rawColorSpace, color.rawGamma, raw))
+      return false;
+
+    bool currentIsRaw = false;
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      currentIsRaw = app.inputIsRaw;
+    }
+    if (currentIsRaw && !reloadCurrentRawEncoding(app, raw, false, false))
+      return false;
+  }
+
+  if (!color.outputColorSpace.empty()) {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.outputEncoding = output;
+  }
+  return true;
+}
+
 PersistGui captureGui(const App &app) {
   PersistGui g;
   {
@@ -355,38 +433,10 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
 
 void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
   const ColorEncoding requested{gamut, gamma};
-  ColorEncoding current;
-  bool currentIsRaw = false;
-  {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    currentIsRaw = app.inputIsRaw;
-    current = currentIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
-    // An explicit UI choice also becomes the session default for new RAWs.
-    app.rawWorkingEncoding = requested;
-  }
-  if (current == requested) return;
-
-  // For raster images this is simply the preference for the next RAW.
-  if (!currentIsRaw) return;
-
-  waitRenderIdle(app);
-  Image img;
-  ColorEncoding detectedEncoding;
-  bool decodedRaw = false;
-  if (!loadImage(app.path, img, detectedEncoding, decodedRaw, requested) || !decodedRaw) {
+  if (!reloadCurrentRawEncoding(app, requested, true, true)) {
     app.setStatus("Could not reload RAW in " + colorEncodingName(requested));
     return;
   }
-
-  app.full = std::move(img);
-  {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    app.inputEncoding = detectedEncoding;
-    app.inputIsRaw = true;
-  }
-  rebuildPreview(app);
-  saveCurrentInputSidecar(app);
-  persistWorkspace(app);
   app.setStatus("RAW working encoding: " + colorEncodingName(requested));
 }
 
