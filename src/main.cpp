@@ -457,7 +457,7 @@ static int selfTest() {
     chain.nodes.push_back(node);
 
     const ColorEncoding rawEncoding{RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate};
-    if (!saveInputSidecar(source.string(), ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear}, gui, chain, &rawEncoding))
+    if (!saveInputSidecar(source.string(), gui, chain, &rawEncoding))
       return fail("sidecar v2 save");
 
     PersistSidecar loaded;
@@ -505,7 +505,7 @@ static int selfTest() {
     if (!writeTinyTiff(protectedImage, false)) return fail("protected sidecar image write");
     PersistChain emptyChain;
     const ColorEncoding protectedRaw{RgbGamut::Rec2020, TransferFunction::Linear};
-    if (!saveInputSidecar(protectedImage.string(), ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear}, gui, emptyChain, &protectedRaw))
+    if (!saveInputSidecar(protectedImage.string(), gui, emptyChain, &protectedRaw))
       return fail("protected sidecar initial save");
     const std::string protectedSidecar = inputSidecarPath(protectedImage.string());
     std::string protectedJson;
@@ -569,7 +569,7 @@ static int selfTest() {
     oldPerImageGui.outputIndex = 0;
     oldPerImageGui.outputColorSpace = "rec709";
     oldPerImageGui.outputGamma = "srgb";
-    if (!saveInputSidecar(defaultImage.string(), ColorEncoding{RgbGamut::Rec709, TransferFunction::Linear}, oldPerImageGui, PersistChain{}, nullptr))
+    if (!saveInputSidecar(defaultImage.string(), oldPerImageGui, PersistChain{}, nullptr))
       return fail("RAW default owner sidecar write");
     const std::string defaultSidecar = inputSidecarPath(defaultImage.string());
     std::string defaultJson;
