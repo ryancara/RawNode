@@ -334,11 +334,7 @@ void DrawUiFrame(App &app) {
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_Backslash))
     app.showFilmstrip = !app.showFilmstrip;
-#ifdef __APPLE__
-  if (ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiMod_Shift | ImGuiKey_O)) {
-#else
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_O)) {
-#endif
     auto f = pfd::select_folder("Open workspace folder");
     auto r = f.result();
     if (!r.empty()) app.pendingWorkspaceDir = r;
