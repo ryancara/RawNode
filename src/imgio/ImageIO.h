@@ -28,12 +28,6 @@ bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncod
                bool &decodedRaw,
                ColorEncoding rawWorkingEncoding = {RgbGamut::Rec2020, TransferFunction::Linear});
 
-// Compatibility overloads for old tests/call sites. New code should use the
-// ColorEncoding + decodedRaw overload above.
-bool loadImage(const std::string &path, Image &out, ColorSpace &detected,
-               RgbGamut rawGamut = RgbGamut::Rec2020,
-               TransferFunction rawGamma = TransferFunction::Linear);
-bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace rawWorkingSpace);
 
 // maxEdge 0 = full size; otherwise downsamples so longest edge <= maxEdge.
 bool makePreview(const Image &src, int maxEdge, Image &out);
@@ -43,17 +37,14 @@ bool makePreview(const Image &src, int maxEdge, Image &out);
 bool writeImage(const Image &img, const std::string &path,
                 ColorEncoding encoding = {RgbGamut::Rec709, TransferFunction::SRGB},
                 int jpegQuality = 92);
-bool writeImage(const Image &img, const std::string &path, ColorSpace space, int jpegQuality = 92);
 
 // Top-down 8-bit RGBA for display.
 void toDisplayRGBA8(const Image &img, ColorEncoding encoding, std::vector<unsigned char> &out);
-void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out);
 void toDisplayRGBA8(const Image &img, RgbGamut gamut, TransferFunction gamma,
                     std::vector<unsigned char> &out);
 
 // ICC helpers.
 bool profileBytes(ColorEncoding encoding, std::vector<uint8_t> &out);
-bool profileBytes(ColorSpace cs, std::vector<uint8_t> &out);
 
 // Small filmstrip preview (downscaled source, sRGB 8-bit RGBA).
 bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w, int &h);
