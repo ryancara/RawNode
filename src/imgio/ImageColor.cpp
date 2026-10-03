@@ -231,133 +231,62 @@ bool extractJpgIcc(const std::string &path, std::vector<uint8_t> &icc) {
   return !icc.empty();
 }
 
-static bool profilePrimaries(cmsHPROFILE p, cmsCIExyYTRIPLE &prim, cmsCIExyY &wp) {
-  const cmsCIEXYZ *w = (const cmsCIEXYZ *)cmsReadTag(p, cmsSigMediaWhitePointTag);
-  const cmsCIEXYZ *r = (const cmsCIEXYZ *)cmsReadTag(p, cmsSigRedColorantTag);
-  const cmsCIEXYZ *g = (const cmsCIEXYZ *)cmsReadTag(p, cmsSigGreenColorantTag);
-  const cmsCIEXYZ *b = (const cmsCIEXYZ *)cmsReadTag(p, cmsSigBlueColorantTag);
-  if (!w || !r || !g || !b) return false;
-  cmsXYZ2xyY(&wp, w);
-  cmsXYZ2xyY(&prim.Red, r);
-  cmsXYZ2xyY(&prim.Green, g);
-  cmsXYZ2xyY(&prim.Blue, b);
-  return true;
-}
-
-static bool profileLooksLinear(cmsHPROFILE p) {
-  const cmsToneCurve *trc = (const cmsToneCurve *)cmsReadTag(p, cmsSigRedTRCTag);
-  if (!trc) return false;
-  const cmsFloat32Number out = cmsEvalToneCurveFloat((cmsToneCurve *)trc, 0.5f);
-  return std::fabs((double)out - 0.5) < 0.05;
-}
-
-static double primDist2(const cmsCIExyYTRIPLE &a, const cmsCIExyYTRIPLE &b) {
-  const auto d = [](const cmsCIExyY &x, const cmsCIExyY &y) {
-    const double dx = x.x - y.x, dy = x.y - y.y;
-    return dx * dx + dy * dy;
-  };
-  return d(a.Red, b.Red) + d(a.Green, b.Green) + d(a.Blue, b.Blue);
-}
-
-static TransferFunction inferTransferFunction(cmsHPROFILE p) {
-  const cmsToneCurve *trc = (const cmsToneCurve *)cmsReadTag(p, cmsSigRedTRCTag);
-  if (!trc) return TransferFunction::SRGB;
-
-  constexpr double samples[] = {0.18, 0.5, 0.8};
-  double bestError = 1e30;
-  TransferFunction best = TransferFunction::SRGB;
-  for (int i = 0; i < transferFunctionCount(); ++i) {
-    const TransferFunction tf = transferFunctionDefinition(i).value;
-    // Scene-log transfer functions can exceed the ICC TRC's practical range;
-    // RawNode-generated profiles identify those explicitly in the description.
-    if (tf == TransferFunction::DaVinciIntermediate) continue;
-
-    double error = 0.0;
-    for (double encoded : samples) {
-      const double actual = cmsEvalToneCurveFloat((cmsToneCurve *)trc, (cmsFloat32Number)encoded);
-      const double expected = decodeTransfer(encoded, tf);
-      const double d = actual - expected;
-      error += d * d;
-    }
-    if (error < bestError) {
-      bestError = error;
-      best = tf;
-    }
-  }
-  return best;
-}
-
-ColorEncoding classifyIccEncoding(const std::vector<uint8_t> &icc) {
-  if (icc.empty()) return {RgbGamut::Rec709, TransferFunction::SRGB};
-  cmsHPROFILE p = cmsOpenProfileFromMem(icc.data(), (cmsUInt32Number)icc.size());
-  if (!p) return {RgbGamut::Rec709, TransferFunction::SRGB};
+bool rawNodeIccEncoding(const std::vector<uint8_t> &icc, ColorEncoding &encoding) {
+  if (icc.empty()) return false;
+  cmsHPROFILE profile = cmsOpenProfileFromMem(icc.data(), (cmsUInt32Number)icc.size());
+  if (!profile) return false;
 
   char desc[256] = {};
-  cmsGetProfileInfoASCII(p, cmsInfoDescription, "en", "US", desc, sizeof desc);
-  const std::string description = desc;
-  const std::string d = lowerCopy(description.c_str());
+  cmsGetProfileInfoASCII(profile, cmsInfoDescription, "en", "US", desc, sizeof desc);
+  const std::string description = lowerCopy(desc);
 
-  // RawNode exports write an exact, machine-readable pair:
-  // "RawNode <gamut-id> / <transfer-id>". Parse both tokens exactly so a
-  // transfer ID such as "rec709-camera" can never be mistaken for the Rec.709
-  // gamut.
-  if (d.rfind("rawnode ", 0) == 0) {
-    const std::string payload = d.substr(8);
+  bool ok = false;
+  if (description.rfind("rawnode ", 0) == 0) {
+    const std::string payload = description.substr(8);
     const size_t sep = payload.find(" / ");
     if (sep != std::string::npos && payload.find(" / ", sep + 3) == std::string::npos) {
       const std::string gamutId = payload.substr(0, sep);
       const std::string transferId = payload.substr(sep + 3);
-      ColorEncoding encoding;
-      if (colorEncodingFromIds(gamutId, transferId, encoding)) {
-        cmsCloseProfile(p);
-        return encoding;
-      }
+      ok = colorEncodingFromIds(gamutId, transferId, encoding);
     }
   }
 
-  const TransferFunction inferredTf = inferTransferFunction(p);
+  cmsCloseProfile(profile);
+  return ok;
+}
 
-  // For third-party ICC profiles prefer measured colourants over free-form
-  // profile descriptions. Descriptions are human text and are not a reliable
-  // machine-readable colour-space identifier (e.g. ProPhoto is not Rec.2020).
-  cmsCIExyYTRIPLE prim{};
-  cmsCIExyY wp{};
-  if (profilePrimaries(p, prim, wp)) {
-    double best = 1e30;
-    RgbGamut gamut = RgbGamut::Rec709;
-    for (int i = 0; i < rgbGamutCount(); ++i) {
-      const auto &g = rgbGamutDefinition(i);
-      const cmsCIExyYTRIPLE known = {
-          {g.redX, g.redY, 1.0},
-          {g.greenX, g.greenY, 1.0},
-          {g.blueX, g.blueY, 1.0},
-      };
-      const double dist = primDist2(prim, known);
-      if (dist < best) {
-        best = dist;
-        gamut = g.value;
-      }
-    }
-    cmsCloseProfile(p);
-    return {gamut, inferredTf};
+bool convertIccToLinearRec2020(Image &img, const std::vector<uint8_t> &icc) {
+  if (icc.empty() || img.w <= 0 || img.h <= 0 || img.px.empty()) return false;
+
+  cmsHPROFILE source = cmsOpenProfileFromMem(icc.data(), (cmsUInt32Number)icc.size());
+  if (!source) return false;
+  if (cmsGetColorSpace(source) != cmsSigRgbData) {
+    cmsCloseProfile(source);
+    return false;
   }
 
-  // Exact-name fallback only when colourants are unavailable.
-  RgbGamut fallback = RgbGamut::Rec709;
-  if (d == "acescg" || d == "aces ap1" || d == "ap1")
-    fallback = RgbGamut::ACES_AP1;
-  else if (d == "aces2065-1" || d == "aces ap0" || d == "ap0")
-    fallback = RgbGamut::ACES_AP0;
-  else if (d == "davinci wide gamut" || d == "dwg")
-    fallback = RgbGamut::DaVinciWideGamut;
-  else if (d == "display p3" || d == "display-p3")
-    fallback = RgbGamut::DisplayP3;
-  else if (d == "rec.2020" || d == "rec2020" || d == "rec-2020" ||
-           d == "bt.2020" || d == "bt2020")
-    fallback = RgbGamut::Rec2020;
+  cmsHPROFILE target = makeProfile({RgbGamut::Rec2020, TransferFunction::Linear});
+  if (!target) {
+    cmsCloseProfile(source);
+    return false;
+  }
 
-  cmsCloseProfile(p);
-  return {fallback, inferredTf};
+  cmsHTRANSFORM transform =
+      cmsCreateTransform(source, TYPE_RGBA_FLT,
+                         target, TYPE_RGBA_FLT,
+                         INTENT_RELATIVE_COLORIMETRIC,
+                         cmsFLAGS_NOCACHE | cmsFLAGS_COPY_ALPHA);
+  cmsCloseProfile(target);
+  cmsCloseProfile(source);
+  if (!transform) return false;
+
+  std::vector<float> converted(img.px.size());
+  cmsDoTransform(transform, img.px.data(), converted.data(),
+                 (cmsUInt32Number)((size_t)img.w * img.h));
+  cmsDeleteTransform(transform);
+
+  img.px.swap(converted);
+  return true;
 }
 
 static void linearRec709ToDisplayRGBA8(const Image &img, std::vector<unsigned char> &out) {
