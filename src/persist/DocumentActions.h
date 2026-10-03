@@ -5,6 +5,8 @@
 
 PersistGui captureGui(const App &app);
 void applyGui(App &app, const PersistGui &g);
+PersistGradeColor captureGradeColor(const App &app);
+bool applyGradeColor(App &app, const PersistGradeColor &color);
 void saveCurrentInputSidecar(App &app);
 void persistWorkspace(App &app);
 void openWorkspace(App &app, const std::string &dir);
