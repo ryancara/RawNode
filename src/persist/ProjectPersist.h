@@ -88,6 +88,9 @@ bool parseJsonStringValue(const std::string &raw, std::string &out);
 
 // Versioned processor-transfer payload used by copy/paste and presets.
 // kind is currently "node" or "grade"; the graph itself stays Sidecar V2-shaped.
+// Additive optional fields may remain within a version only when older readers
+// can safely ignore them. Any field that changes the meaning of existing data
+// or must not be ignored requires a format-version bump.
 std::string serializeTransferPayload(const std::string &kind, const PersistChain &chain,
                                      const PersistGradeColor *color = nullptr);
 bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain,
