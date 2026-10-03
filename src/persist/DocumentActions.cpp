@@ -16,6 +16,33 @@
 
 namespace fs = std::filesystem;
 
+static bool persistedColorEncoding(const std::string &gamutId,
+                                   const std::string &transferId,
+                                   ColorEncoding &encoding) {
+  if (colorEncodingFromIds(gamutId, transferId, encoding)) return true;
+
+  // Persistence-only migration for development builds that briefly wrote
+  // display names instead of stable IDs. Runtime colour APIs remain IDs-only.
+  RgbGamut gamut;
+  if (gamutId == "Rec.709") gamut = RgbGamut::Rec709;
+  else if (gamutId == "Rec.2020") gamut = RgbGamut::Rec2020;
+  else if (gamutId == "Display P3") gamut = RgbGamut::DisplayP3;
+  else if (gamutId == "ACES AP0" || gamutId == "ACES2065-1" || gamutId == "AP0") gamut = RgbGamut::ACES_AP0;
+  else if (gamutId == "ACES AP1" || gamutId == "ACEScg" || gamutId == "AP1") gamut = RgbGamut::ACES_AP1;
+  else if (gamutId == "DaVinci Wide Gamut") gamut = RgbGamut::DaVinciWideGamut;
+  else return false;
+
+  TransferFunction gamma;
+  if (transferId == "Linear") gamma = TransferFunction::Linear;
+  else if (transferId == "sRGB") gamma = TransferFunction::SRGB;
+  else if (transferId == "Rec.709 (camera)" || transferId == "Rec.709") gamma = TransferFunction::Rec709;
+  else if (transferId == "DaVinci Intermediate") gamma = TransferFunction::DaVinciIntermediate;
+  else return false;
+
+  encoding = {gamut, gamma};
+  return true;
+}
+
 static ColorEncoding legacyOutputEncoding(int index) {
   switch (std::clamp(index, 0, 4)) {
     case 0: return {RgbGamut::Rec709, TransferFunction::SRGB};
@@ -41,6 +68,84 @@ static bool legacyRawEncodingFromName(const std::string &name, ColorEncoding &en
     return true;
   }
   return false;
+}
+
+PersistGradeColor captureGradeColor(const App &app) {
+  PersistGradeColor color;
+  std::lock_guard<std::mutex> lock(app.colorMutex);
+  if (app.inputIsRaw) {
+    color.rawColorSpace = rgbGamutId(app.inputEncoding.gamut);
+    color.rawGamma = transferFunctionId(app.inputEncoding.gamma);
+  }
+  color.outputColorSpace = rgbGamutId(app.outputEncoding.gamut);
+  color.outputGamma = transferFunctionId(app.outputEncoding.gamma);
+  return color;
+}
+
+static bool reloadCurrentRawEncoding(App &app, const ColorEncoding &requested,
+                                     bool updateSessionDefault, bool persistAfter) {
+  ColorEncoding current;
+  bool currentIsRaw = false;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    currentIsRaw = app.inputIsRaw;
+    current = currentIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
+    if (updateSessionDefault) app.rawWorkingEncoding = requested;
+  }
+
+  if (!currentIsRaw) return true;
+  if (current == requested) return true;
+
+  waitRenderIdle(app);
+  Image img;
+  ColorEncoding detectedEncoding;
+  bool decodedRaw = false;
+  if (!loadImage(app.path, img, detectedEncoding, decodedRaw, requested) || !decodedRaw)
+    return false;
+
+  app.full = std::move(img);
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.inputEncoding = detectedEncoding;
+    app.inputIsRaw = true;
+  }
+  rebuildPreview(app);
+  if (persistAfter) {
+    saveCurrentInputSidecar(app);
+    persistWorkspace(app);
+  }
+  return true;
+}
+
+bool applyGradeColor(App &app, const PersistGradeColor &color) {
+  ColorEncoding output;
+  if (!color.outputColorSpace.empty() || !color.outputGamma.empty()) {
+    if (color.outputColorSpace.empty() || color.outputGamma.empty() ||
+        !persistedColorEncoding(color.outputColorSpace, color.outputGamma, output))
+      return false;
+  }
+
+  ColorEncoding raw;
+  const bool hasRaw = !color.rawColorSpace.empty() || !color.rawGamma.empty();
+  if (hasRaw) {
+    if (color.rawColorSpace.empty() || color.rawGamma.empty() ||
+        !persistedColorEncoding(color.rawColorSpace, color.rawGamma, raw))
+      return false;
+
+    bool currentIsRaw = false;
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      currentIsRaw = app.inputIsRaw;
+    }
+    if (currentIsRaw && !reloadCurrentRawEncoding(app, raw, false, false))
+      return false;
+  }
+
+  if (!color.outputColorSpace.empty()) {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.outputEncoding = output;
+  }
+  return true;
 }
 
 PersistGui captureGui(const App &app) {
@@ -69,7 +174,7 @@ void applyGui(App &app, const PersistGui &g) {
   ColorEncoding output = legacyOutputEncoding(g.legacyOutputIndex);
   ColorEncoding persistedOutput;
   if (!g.outputColorSpace.empty() && !g.outputGamma.empty() &&
-      colorEncodingFromIds(g.outputColorSpace, g.outputGamma, persistedOutput))
+      persistedColorEncoding(g.outputColorSpace, g.outputGamma, persistedOutput))
     output = persistedOutput;
   {
     std::lock_guard<std::mutex> lock(app.colorMutex);
@@ -92,7 +197,7 @@ void applyGui(App &app, const PersistGui &g) {
 static void applyWorkspaceSessionDefaults(App &app, const PersistGui &g) {
   ColorEncoding rawDefault;
   if (!g.rawDefaultColorSpace.empty() && !g.rawDefaultGamma.empty() &&
-      colorEncodingFromIds(g.rawDefaultColorSpace, g.rawDefaultGamma, rawDefault)) {
+      persistedColorEncoding(g.rawDefaultColorSpace, g.rawDefaultGamma, rawDefault)) {
     std::lock_guard<std::mutex> lock(app.colorMutex);
     app.rawWorkingEncoding = rawDefault;
   }
@@ -131,7 +236,7 @@ static bool hasUnknownEncodingPair(const std::string &gamutId, const std::string
   if (gamutId.empty() && transferId.empty()) return false;
   if (gamutId.empty() || transferId.empty()) return true;
   ColorEncoding encoding;
-  return !colorEncodingFromIds(gamutId, transferId, encoding);
+  return !persistedColorEncoding(gamutId, transferId, encoding);
 }
 
 static bool sidecarHasUnknownColourEncoding(const PersistSidecar &sc) {
@@ -255,7 +360,7 @@ static ColorEncoding rawWorkingEncodingForOpen(const App &app, const std::string
     if (!sc.rawColorSpace.empty() || !sc.rawGamma.empty()) {
       ColorEncoding stored;
       if (!sc.rawColorSpace.empty() && !sc.rawGamma.empty() &&
-          colorEncodingFromIds(sc.rawColorSpace, sc.rawGamma, stored))
+          persistedColorEncoding(sc.rawColorSpace, sc.rawGamma, stored))
         return stored;
 
       // Unknown future explicit encoding. Decode with the historical safe
@@ -328,38 +433,10 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
 
 void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
   const ColorEncoding requested{gamut, gamma};
-  ColorEncoding current;
-  bool currentIsRaw = false;
-  {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    currentIsRaw = app.inputIsRaw;
-    current = currentIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
-    // An explicit UI choice also becomes the session default for new RAWs.
-    app.rawWorkingEncoding = requested;
-  }
-  if (current == requested) return;
-
-  // For raster images this is simply the preference for the next RAW.
-  if (!currentIsRaw) return;
-
-  waitRenderIdle(app);
-  Image img;
-  ColorEncoding detectedEncoding;
-  bool decodedRaw = false;
-  if (!loadImage(app.path, img, detectedEncoding, decodedRaw, requested) || !decodedRaw) {
+  if (!reloadCurrentRawEncoding(app, requested, true, true)) {
     app.setStatus("Could not reload RAW in " + colorEncodingName(requested));
     return;
   }
-
-  app.full = std::move(img);
-  {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    app.inputEncoding = detectedEncoding;
-    app.inputIsRaw = true;
-  }
-  rebuildPreview(app);
-  saveCurrentInputSidecar(app);
-  persistWorkspace(app);
   app.setStatus("RAW working encoding: " + colorEncodingName(requested));
 }
 

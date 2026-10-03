@@ -45,6 +45,9 @@ bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex) {
   ImGui::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+#if defined(__APPLE__)
+  io.ConfigMacOSXBehaviors = true;
+#endif
   io.IniFilename = gIniPath.c_str();
 
   // Rasterize fonts at framebuffer DPI so Retina text stays sharp.

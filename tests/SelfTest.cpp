@@ -577,17 +577,28 @@ int runSelfTests() {
         !hasUnknownProcessorChoiceIds(futureChoiceApp))
       return fail("future CST choice preservation");
 
-    // Stable-ID choices must be strings. A development-era numeric value is
-    // treated as unknown and preserved rather than silently replaced.
+    // Development builds briefly wrote stable choices numerically. Known
+    // numeric values migrate to the current stable ID; invalid values remain
+    // protected as unknown future/development data.
     PersistChain numericChoice = cstSaved;
-    numericChoice.nodes[0].paramsJson["output_gamma"] = "0";
+    numericChoice.nodes[0].paramsJson["output_gamma"] = "3";
     App numericChoiceApp;
     applyChain(numericChoiceApp, numericChoice);
     const PersistChain numericChoiceSaved = captureChain(numericChoiceApp);
-    if (!hasUnknownProcessorChoiceIds(numericChoiceApp) ||
+    if (hasUnknownProcessorChoiceIds(numericChoiceApp) ||
         numericChoiceSaved.nodes.empty() ||
-        numericChoiceSaved.nodes[0].paramsJson.at("output_gamma") != "0")
-      return fail("numeric stable choice protection");
+        numericChoiceSaved.nodes[0].paramsJson.at("output_gamma") != "\"davinci-intermediate\"")
+      return fail("numeric stable choice migration");
+
+    PersistChain invalidNumericChoice = cstSaved;
+    invalidNumericChoice.nodes[0].paramsJson["output_gamma"] = "99";
+    App invalidNumericChoiceApp;
+    applyChain(invalidNumericChoiceApp, invalidNumericChoice);
+    const PersistChain invalidNumericChoiceSaved = captureChain(invalidNumericChoiceApp);
+    if (!hasUnknownProcessorChoiceIds(invalidNumericChoiceApp) ||
+        invalidNumericChoiceSaved.nodes.empty() ||
+        invalidNumericChoiceSaved.nodes[0].paramsJson.at("output_gamma") != "99")
+      return fail("invalid numeric stable choice protection");
 
     printf("ok  Native CST processor\n");
   }
@@ -675,21 +686,45 @@ int runSelfTests() {
       return fail("full grade copy setup");
     sourceGrade.nodes[0].enabled = false;
     sourceGrade.selectedNode = 1;
+    {
+      std::lock_guard<std::mutex> lock(sourceGrade.colorMutex);
+      sourceGrade.outputEncoding = {RgbGamut::DisplayP3, TransferFunction::Rec709};
+    }
 
     const PersistChain sourceChain = captureChain(sourceGrade);
-    const std::string payload = serializeTransferPayload("grade", sourceChain);
+    PersistGradeColor sourceColor = captureGradeColor(sourceGrade);
+    // Exercise RAW colour fields in the envelope even though this synthetic
+    // source app has no decoded RAW image attached.
+    sourceColor.rawColorSpace = "davinci-wide-gamut";
+    sourceColor.rawGamma = "davinci-intermediate";
+    const std::string payload = serializeTransferPayload("grade", sourceChain, &sourceColor);
     std::string kind;
     PersistChain decoded;
-    if (!parseTransferPayload(payload, kind, decoded) ||
+    PersistGradeColor decodedColor;
+    if (!parseTransferPayload(payload, kind, decoded, &decodedColor) ||
         kind != "grade" || decoded.nodes.size() != 2 ||
-        decoded.selectedNodeId != sourceGrade.nodes[1].id)
+        decoded.selectedNodeId != sourceGrade.nodes[1].id ||
+        decodedColor.rawColorSpace != "davinci-wide-gamut" ||
+        decodedColor.rawGamma != "davinci-intermediate" ||
+        decodedColor.outputColorSpace != "display-p3" ||
+        decodedColor.outputGamma != "rec709-camera")
       return fail("full grade transfer payload");
 
     App destinationGrade;
     if (!addNativeExposureNode(destinationGrade) ||
         !destinationGrade.nodes[0].processor->setParameterValue("exposure", 4.0))
       return fail("full grade destination setup");
+    if (!applyGradeColor(destinationGrade, decodedColor))
+      return fail("full grade colour apply");
     applyChain(destinationGrade, decoded);
+
+    ColorEncoding pastedOutput;
+    {
+      std::lock_guard<std::mutex> lock(destinationGrade.colorMutex);
+      pastedOutput = destinationGrade.outputEncoding;
+    }
+    if (pastedOutput != ColorEncoding{RgbGamut::DisplayP3, TransferFunction::Rec709})
+      return fail("full grade output colour restore");
 
     if (destinationGrade.nodes.size() != 2 || destinationGrade.selectedNode != 1 ||
         destinationGrade.nodes[0].id != sourceGrade.nodes[0].id ||
@@ -770,18 +805,35 @@ int runSelfTests() {
     }
     if (!presetExposure) return fail("node preset parameter");
 
+    {
+      std::lock_guard<std::mutex> lock(presetSource.colorMutex);
+      presetSource.outputEncoding = {RgbGamut::ACES_AP1, TransferFunction::Linear};
+    }
     const PersistChain gradeState = captureChain(presetSource);
-    if (!savePresetFile(gradePresetPath.string(), "grade", gradeState))
+    const PersistGradeColor gradeColor = captureGradeColor(presetSource);
+    if (!savePresetFile(gradePresetPath.string(), "grade", gradeState, &gradeColor))
       return fail("grade preset save");
     PersistChain loadedGradePreset;
-    if (!loadPresetFile(gradePresetPath.string(), kind, loadedGradePreset) ||
-        kind != "grade" || loadedGradePreset.nodes.size() != 2)
+    PersistGradeColor loadedGradeColor;
+    if (!loadPresetFile(gradePresetPath.string(), kind, loadedGradePreset, &loadedGradeColor) ||
+        kind != "grade" || loadedGradePreset.nodes.size() != 2 ||
+        loadedGradeColor.outputColorSpace != "aces-ap1" ||
+        loadedGradeColor.outputGamma != "linear")
       return fail("grade preset load");
 
     App gradePresetTarget;
     if (!addNativeExposureNode(gradePresetTarget))
       return fail("grade preset target setup");
+    if (!applyGradeColor(gradePresetTarget, loadedGradeColor))
+      return fail("grade preset colour apply");
     applyChain(gradePresetTarget, loadedGradePreset);
+    ColorEncoding presetOutput;
+    {
+      std::lock_guard<std::mutex> lock(gradePresetTarget.colorMutex);
+      presetOutput = gradePresetTarget.outputEncoding;
+    }
+    if (presetOutput != ColorEncoding{RgbGamut::ACES_AP1, TransferFunction::Linear})
+      return fail("grade preset output colour restore");
     if (gradePresetTarget.nodes.size() != 2 ||
         !gradePresetTarget.nodes[0].processor ||
         !gradePresetTarget.nodes[1].processor ||
@@ -806,6 +858,68 @@ int runSelfTests() {
     fs::remove(gradePresetPath);
     fs::remove(futurePresetPath);
     printf("ok  Node and full-grade presets\n");
+  }
+
+  {
+    // Real document switching must save image A before opening B, then restore
+    // A's document colour/output state and node chain when returning to it.
+    const fs::path imageA = fs::temp_directory_path() / "rawnode-selftest-switch-a.tif";
+    const fs::path imageB = fs::temp_directory_path() / "rawnode-selftest-switch-b.tif";
+    if (!writeTinyTiff(imageA, false) || !writeTinyTiff(imageB, false))
+      return fail("document switch image write");
+
+    App switched;
+    openPath(switched, imageA.string(), true);
+    {
+      std::lock_guard<std::mutex> lock(switched.colorMutex);
+      switched.outputEncoding = {RgbGamut::DisplayP3, TransferFunction::SRGB};
+    }
+    if (!addNativeExposureNode(switched) ||
+        !switched.nodes[0].processor ||
+        !switched.nodes[0].processor->setParameterValue("exposure", 1.5))
+      return fail("document switch edit setup");
+    switched.nodes[0].enabled = false;
+
+    openPath(switched, imageB.string(), true);
+
+    PersistSidecar savedA;
+    const std::string sidecarA = inputSidecarPath(imageA.string());
+    if (!loadSidecarFile(sidecarA, savedA) ||
+        savedA.gui.outputColorSpace != rgbGamutId(RgbGamut::DisplayP3) ||
+        savedA.gui.outputGamma != transferFunctionId(TransferFunction::SRGB) ||
+        savedA.chain.nodes.size() != 1 ||
+        savedA.chain.nodes[0].identifier != NativeExposureProcessor::kIdentifier ||
+        savedA.chain.nodes[0].enabled ||
+        savedA.chain.nodes[0].paramsJson.at("exposure") != "1.5")
+      return fail("document switch sidecar save");
+
+    openPath(switched, imageA.string(), true);
+    ColorEncoding restoredOutput;
+    {
+      std::lock_guard<std::mutex> lock(switched.colorMutex);
+      restoredOutput = switched.outputEncoding;
+    }
+    if (restoredOutput != ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB} ||
+        switched.nodes.size() != 1 ||
+        switched.nodes[0].enabled ||
+        !switched.nodes[0].processor ||
+        switched.nodes[0].processor->identifier() != NativeExposureProcessor::kIdentifier)
+      return fail("document switch sidecar restore");
+
+    bool restoredExposure = false;
+    for (const ProcessorParameter &param : switched.nodes[0].processor->parameters()) {
+      if (param.id == "exposure") {
+        const double *value = std::get_if<double>(&param.value);
+        restoredExposure = value && *value == 1.5;
+      }
+    }
+    if (!restoredExposure) return fail("document switch node parameter restore");
+
+    fs::remove(inputSidecarPath(imageA.string()));
+    fs::remove(inputSidecarPath(imageB.string()));
+    fs::remove(imageA);
+    fs::remove(imageB);
+    printf("ok  Document switch sidecar persistence\n");
   }
 
   {
@@ -870,6 +984,35 @@ int runSelfTests() {
       return fail("sidecar v2 missing processor preservation");
 
     fs::remove(sidecar);
+
+    // Development builds briefly wrote colour display names instead of
+    // stable IDs. They should load as known values and normalise on next save.
+    const fs::path legacyNamesImage =
+        fs::temp_directory_path() / "rawnode-selftest-legacy-colour-names.tif";
+    if (!writeTinyTiff(legacyNamesImage, false))
+      return fail("legacy colour names image write");
+    PersistGui legacyNamesGui;
+    legacyNamesGui.outputColorSpace = "Display P3";
+    legacyNamesGui.outputGamma = "sRGB";
+    if (!saveInputSidecar(legacyNamesImage.string(), legacyNamesGui, PersistChain{}, nullptr))
+      return fail("legacy colour names sidecar initial save");
+    App legacyNamesApp;
+    openPath(legacyNamesApp, legacyNamesImage.string(), true);
+    {
+      std::lock_guard<std::mutex> lock(legacyNamesApp.colorMutex);
+      if (legacyNamesApp.outputEncoding != ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB})
+        return fail("legacy colour names migration");
+    }
+    if (!legacyNamesApp.sidecarWriteBlockedPath.empty())
+      return fail("legacy colour names write protection");
+    saveCurrentInputSidecar(legacyNamesApp);
+    PersistSidecar normalisedNames;
+    if (!loadSidecarFile(inputSidecarPath(legacyNamesImage.string()), normalisedNames) ||
+        normalisedNames.gui.outputColorSpace != "display-p3" ||
+        normalisedNames.gui.outputGamma != "srgb")
+      return fail("legacy colour names normalisation");
+    fs::remove(inputSidecarPath(legacyNamesImage.string()));
+    fs::remove(legacyNamesImage);
 
     // Unknown future colour identifiers must be readable but write-protected,
     // rather than silently replaced by this build's fallback.

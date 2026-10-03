@@ -114,6 +114,10 @@ void drawLeftPanel(App &app) {
   ImGui::Separator();
   const std::string status = app.getStatus();
   ImGui::TextWrapped("%s", status.c_str());
+  if (!app.path.empty() && app.sidecarWriteBlockedPath == app.path)
+    ImGui::TextWrapped("Sidecar is read-only — changes to this photo will not be saved.");
+  if (app.workspaceWriteBlocked)
+    ImGui::TextWrapped("Workspace metadata is read-only — workspace changes will not be saved.");
   ImGui::Separator();
 
   ImGui::TextUnformatted("Processing Nodes");

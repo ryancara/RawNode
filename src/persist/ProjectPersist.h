@@ -46,6 +46,14 @@ struct PersistChain {
   std::vector<PersistNode> nodes;
 };
 
+struct PersistGradeColor {
+  // Stable colour IDs. RAW fields are empty when the copied source is not RAW.
+  std::string rawColorSpace;
+  std::string rawGamma;
+  std::string outputColorSpace;
+  std::string outputGamma;
+};
+
 struct PersistSidecar {
   std::string format;
   int version = 0;
@@ -80,13 +88,20 @@ bool parseJsonStringValue(const std::string &raw, std::string &out);
 
 // Versioned processor-transfer payload used by copy/paste and presets.
 // kind is currently "node" or "grade"; the graph itself stays Sidecar V2-shaped.
-std::string serializeTransferPayload(const std::string &kind, const PersistChain &chain);
-bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain);
+// Additive optional fields may remain within a version only when older readers
+// can safely ignore them. Any field that changes the meaning of existing data
+// or must not be ignored requires a format-version bump.
+std::string serializeTransferPayload(const std::string &kind, const PersistChain &chain,
+                                     const PersistGradeColor *color = nullptr);
+bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain,
+                          PersistGradeColor *color = nullptr);
 
 // Portable node/full-grade presets use the same graph representation as
 // transfer payloads, with an independent file-format version.
-bool savePresetFile(const std::string &path, const std::string &kind, const PersistChain &chain);
-bool loadPresetFile(const std::string &path, std::string &kind, PersistChain &chain);
+bool savePresetFile(const std::string &path, const std::string &kind, const PersistChain &chain,
+                    const PersistGradeColor *color = nullptr);
+bool loadPresetFile(const std::string &path, std::string &kind, PersistChain &chain,
+                    PersistGradeColor *color = nullptr);
 
 
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);

@@ -420,7 +420,8 @@ bool readAllText(const std::string &path, std::string &out) {
 }
 
 static bool parseGraphEnvelope(const std::string &json, const char *expectedFormat,
-                               std::string &kind, PersistChain &chain) {
+                               std::string &kind, PersistChain &chain,
+                               PersistGradeColor *color) {
   std::string format;
   int version = 0;
   if (!extractStringField(json, "format", format) || format != expectedFormat ||
@@ -429,19 +430,34 @@ static bool parseGraphEnvelope(const std::string &json, const char *expectedForm
       (kind != "node" && kind != "grade"))
     return false;
 
+  if (color) {
+    *color = PersistGradeColor{};
+    if (kind == "grade") {
+      std::string colorObj;
+      if (extractObject(json, "color", colorObj)) {
+        extractStringField(colorObj, "rawColorSpace", color->rawColorSpace);
+        extractStringField(colorObj, "rawGamma", color->rawGamma);
+        extractStringField(colorObj, "outputColorSpace", color->outputColorSpace);
+        extractStringField(colorObj, "outputGamma", color->outputGamma);
+      }
+    }
+  }
+
   std::string graphObj;
   if (!extractObject(json, "graph", graphObj)) return false;
   return loadGraphV2FromJson(graphObj, chain);
 }
 
-bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain) {
-  return parseGraphEnvelope(json, "rawnode-transfer", kind, chain);
+bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain,
+                          PersistGradeColor *color) {
+  return parseGraphEnvelope(json, "rawnode-transfer", kind, chain, color);
 }
 
-bool loadPresetFile(const std::string &path, std::string &kind, PersistChain &chain) {
+bool loadPresetFile(const std::string &path, std::string &kind, PersistChain &chain,
+                    PersistGradeColor *color) {
   std::string json;
   if (!readAllText(path, json)) return false;
-  return parseGraphEnvelope(json, "rawnode-preset", kind, chain);
+  return parseGraphEnvelope(json, "rawnode-preset", kind, chain, color);
 }
 
 bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std::string &activeImageRel) {
