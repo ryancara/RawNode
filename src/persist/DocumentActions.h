@@ -10,5 +10,4 @@ void persistWorkspace(App &app);
 void openWorkspace(App &app, const std::string &dir);
 void openPath(App &app, const std::string &path, bool applySidecar = true);
 void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma);
-void setRawWorkingSpace(App &app, ColorSpace space);  // legacy linear wrapper
 void doExport(App &app);
