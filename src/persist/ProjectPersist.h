@@ -8,8 +8,8 @@
 
 
 struct PersistGui {
-  // outputIndex is retained only for migration from older V2/workspace JSON.
-  int outputIndex = 0;
+  // Read-only migration value for older V2/workspace JSON.
+  int legacyOutputIndex = 0;
   std::string outputColorSpace;
   std::string outputGamma;
   std::string rawDefaultColorSpace;
@@ -53,7 +53,7 @@ struct PersistSidecar {
   std::string kind;
   std::string sourcePath;
   // Read-only migration field for PR #16-era combined RAW working-space names.
-  std::string rawWorkingSpace;
+  std::string legacyRawWorkingSpace;
   std::string rawColorSpace;
   std::string rawGamma;
   std::string exportedAt;
