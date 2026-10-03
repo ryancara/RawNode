@@ -29,7 +29,6 @@ bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncod
                bool &decodedRaw,
                ColorEncoding rawWorkingEncoding = {RgbGamut::Rec2020, TransferFunction::Linear});
 
-
 // maxEdge 0 = full size; otherwise downsamples so longest edge <= maxEdge.
 bool makePreview(const Image &src, int maxEdge, Image &out);
 
@@ -41,8 +40,6 @@ bool writeImage(const Image &img, const std::string &path,
 
 // Top-down 8-bit RGBA for display.
 void toDisplayRGBA8(const Image &img, ColorEncoding encoding, std::vector<unsigned char> &out);
-void toDisplayRGBA8(const Image &img, RgbGamut gamut, TransferFunction gamma,
-                    std::vector<unsigned char> &out);
 
 // ICC helpers.
 bool profileBytes(ColorEncoding encoding, std::vector<uint8_t> &out);
