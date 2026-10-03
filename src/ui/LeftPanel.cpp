@@ -3,6 +3,8 @@
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
 #include "NodeGraph.h"
+#include "color/LinearColorTransform.h"
+#include "color/TransferFunction.h"
 #include "RenderPipeline.h"
 #include "ofx/OfxHost.h"  // gPlugins: external plugin discovery is still OFX-specific.
 #include "ui/Widgets.h"
@@ -14,6 +16,7 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <vector>
 
 static bool icontains(const std::string &hay, const std::string &needle) {
   if (needle.empty()) return true;
@@ -38,14 +41,69 @@ void drawLeftPanel(App &app) {
   ImGui::SameLine();
   if (ImGui::Button("Export")) doExport(app);
 
-  ImGui::Text("Input: %s", app.path.empty() ? "—" : colorSpaceName(app.inputSpace));
-  const ColorSpace shownRawSpace =
-      (!app.path.empty() && isRawImagePath(app.path)) ? app.inputSpace : app.rawWorkingSpace;
-  int rawSpaceIndex = rawWorkingSpaceIndex(shownRawSpace);
-  if (ImGui::Combo("RAW working space", &rawSpaceIndex, kRawWorkingSpaces, kRawWorkingSpaceCount))
-    setRawWorkingSpace(app, rawWorkingSpace(rawSpaceIndex));
-  ImGui::Combo("Output tag", &app.outputIndex, kOutputSpaces, kOutputSpaceCount);
-  if (ImGui::IsItemDeactivatedAfterEdit() || ImGui::IsItemEdited()) scheduleDisplayRecolor(app);
+  ColorEncoding inputEncoding;
+  ColorEncoding rawDefaultEncoding;
+  ColorEncoding outputEncoding;
+  bool inputIsRaw = false;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    inputEncoding = app.inputEncoding;
+    rawDefaultEncoding = app.rawWorkingEncoding;
+    outputEncoding = app.outputEncoding;
+    inputIsRaw = app.inputIsRaw;
+  }
+
+  if (app.path.empty())
+    ImGui::TextUnformatted("Input: —");
+  else
+    ImGui::Text("Input: %s", colorEncodingName(inputEncoding).c_str());
+
+  const bool currentIsRaw = !app.path.empty() && inputIsRaw;
+  const ColorEncoding rawShown = currentIsRaw ? inputEncoding : rawDefaultEncoding;
+
+  std::vector<const char *> gamutItems;
+  gamutItems.reserve((size_t)rgbGamutCount());
+  for (int i = 0; i < rgbGamutCount(); ++i)
+    gamutItems.push_back(rgbGamutDefinition(i).name);
+
+  std::vector<const char *> gammaItems;
+  gammaItems.reserve((size_t)transferFunctionCount());
+  for (int i = 0; i < transferFunctionCount(); ++i)
+    gammaItems.push_back(transferFunctionDefinition(i).name);
+
+  int rawGamutIndex = std::max(0, rgbGamutIndex(rawShown.gamut));
+  if (ImGui::Combo("RAW colour space", &rawGamutIndex, gamutItems.data(), (int)gamutItems.size())) {
+    setRawWorkingEncoding(app, rgbGamutDefinition(rawGamutIndex).value, rawShown.gamma);
+  }
+
+  int rawGammaIndex = std::max(0, transferFunctionIndex(rawShown.gamma));
+  if (ImGui::Combo("RAW gamma", &rawGammaIndex, gammaItems.data(), (int)gammaItems.size())) {
+    ColorEncoding currentRaw;
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      currentRaw = app.inputIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
+    }
+    setRawWorkingEncoding(app, currentRaw.gamut, transferFunctionDefinition(rawGammaIndex).value);
+  }
+
+  int outputGamutIndex = std::max(0, rgbGamutIndex(outputEncoding.gamut));
+  if (ImGui::Combo("Output colour space", &outputGamutIndex, gamutItems.data(), (int)gamutItems.size())) {
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      app.outputEncoding.gamut = rgbGamutDefinition(outputGamutIndex).value;
+    }
+    scheduleDisplayRecolor(app);
+  }
+
+  int outputGammaIndex = std::max(0, transferFunctionIndex(outputEncoding.gamma));
+  if (ImGui::Combo("Output gamma", &outputGammaIndex, gammaItems.data(), (int)gammaItems.size())) {
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      app.outputEncoding.gamma = transferFunctionDefinition(outputGammaIndex).value;
+    }
+    scheduleDisplayRecolor(app);
+  }
+
   {
     const char *items[kPreviewResCount];
     for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
@@ -69,10 +127,29 @@ void drawLeftPanel(App &app) {
     const std::string q = app.pluginFilter;
     int shown = 0;
 
+    bool showedNativeHeader = false;
+    const auto nativeHeader = [&]() {
+      if (!showedNativeHeader) {
+        ImGui::SeparatorText("Native");
+        showedNativeHeader = true;
+      }
+    };
+
     if (q.empty() || icontains("Exposure", q) || icontains("Native", q)) {
-      ImGui::SeparatorText("Native");
+      nativeHeader();
       if (ImGui::Selectable("Exposure")) {
         addNativeExposureNode(app);
+        app.pluginFilter[0] = '\0';
+        ImGui::CloseCurrentPopup();
+      }
+      ++shown;
+    }
+
+    if (q.empty() || icontains("CST", q) || icontains("Colour Space Transform", q) ||
+        icontains("Color Space Transform", q) || icontains("Native", q)) {
+      nativeHeader();
+      if (ImGui::Selectable("CST")) {
+        addNativeCstNode(app);
         app.pluginFilter[0] = '\0';
         ImGui::CloseCurrentPopup();
       }

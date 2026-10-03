@@ -2,6 +2,8 @@
 #include "persist/ProjectPersistPriv.h"
 
 #include "imgio/ImageIO.h"
+#include "color/LinearColorTransform.h"
+#include "color/TransferFunction.h"
 
 #include <algorithm>
 #include <cctype>
@@ -44,12 +46,17 @@ std::string jsonStringValue(const std::string &value) {
   return std::string("\"") + jsonEscape(value) + "\"";
 }
 
-void appendGuiJson(std::ostringstream &o, const PersistGui &g) {
+void appendGuiJson(std::ostringstream &o, const PersistGui &g, bool includeSessionDefaults) {
   // Kept in V2 for behaviour compatibility. Essential edit reconstruction
   // lives in graph/document fields; layout state may move fully to workspace state later.
   o << "\"gui\":{"
-    << "\"outputIndex\":" << g.outputIndex << ","
-    << "\"exportFormat\":" << g.exportFormat << ","
+    << "\"outputColorSpace\":\"" << jsonEscape(g.outputColorSpace) << "\","
+    << "\"outputGamma\":\"" << jsonEscape(g.outputGamma) << "\",";
+  if (includeSessionDefaults) {
+    o << "\"rawDefaultColorSpace\":\"" << jsonEscape(g.rawDefaultColorSpace) << "\","
+      << "\"rawDefaultGamma\":\"" << jsonEscape(g.rawDefaultGamma) << "\",";
+  }
+  o << "\"exportFormat\":" << g.exportFormat << ","
     << "\"jpegQuality\":" << g.jpegQuality << ","
     << "\"previewRes\":" << g.previewRes << ","
     << "\"themeIndex\":" << g.themeIndex << ","
@@ -121,9 +128,8 @@ bool isSupportedImagePath(const std::string &path) {
   std::string e = fs::path(path).extension().string();
   for (char &c : e) c = (char)tolower((unsigned char)c);
   if (e == ".exr" || e == ".tif" || e == ".tiff" || e == ".png" || e == ".jpg" || e == ".jpeg") return true;
-  if (e == ".cr2" || e == ".cr3" || e == ".nef" || e == ".arw" || e == ".dng" || e == ".raf" || e == ".orf" ||
-      e == ".rw2" || e == ".pef" || e == ".srw" || e == ".raw")
-    return true;
+  for (const std::string &rawExt : rawImageExtensions())
+    if (e == rawExt) return true;
   return false;
 }
 
@@ -136,8 +142,10 @@ bool isHostMetadataPath(const std::string &path) {
 }
 
 std::vector<std::string> openImageDialogFilters() {
-  return {"Images",
-          "*.exr *.tif *.tiff *.png *.jpg *.jpeg *.cr2 *.cr3 *.nef *.arw *.dng *.raf *.orf *.rw2 *.pef *.srw *.raw"};
+  std::string patterns = "*.exr *.tif *.tiff *.png *.jpg *.jpeg";
+  for (const std::string &ext : rawImageExtensions())
+    patterns += " *" + ext;
+  return {"Images", patterns};
 }
 
 std::vector<std::string> listWorkspaceImages(const std::string &workspaceDir) {
@@ -176,7 +184,7 @@ bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui
     << "\"format\":\"ofxrawhost-workspace\","
     << "\"version\":1,"
     << "\"activeImage\":\"" << jsonEscape(activeImageRel) << "\",";
-  appendGuiJson(o, gui);
+  appendGuiJson(o, gui, true);
   o << '}';
   return writeFile(workspaceProjectPath(workspaceDir), o.str());
 }
@@ -197,50 +205,44 @@ static std::string iso8601Now() {
   return buf;
 }
 
-static ColorSpace persistedWorkingSpace(ColorSpace inputSpace) {
-  switch (inputSpace) {
-    case ColorSpace::sRGB: return ColorSpace::LinearRec709;
-    case ColorSpace::DisplayP3: return ColorSpace::LinearRec2020;
-    case ColorSpace::LinearRec709:
-    case ColorSpace::LinearRec2020:
-    case ColorSpace::ACES2065_1:
-      return inputSpace;
-  }
-  return ColorSpace::LinearRec709;
-}
+static void appendSidecarHeader(std::ostringstream &o, const std::string &kind,
+                                const std::string &sourcePath,
+                                const ColorEncoding *rawEncoding) {
+  const bool raw = rawEncoding != nullptr;
 
-static void appendSidecarHeader(std::ostringstream &o, const std::string &kind, const std::string &sourcePath,
-                                ColorSpace inputSpace) {
   o << '{'
     << "\"format\":\"rawnode-sidecar\","
     << "\"version\":2,"
     << "\"kind\":\"" << jsonEscape(kind) << "\","
-    << "\"source\":\"" << jsonEscape(sourcePath) << "\","
-    << "\"inputColorSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\","
-    << "\"workingSpace\":\"" << jsonEscape(colorSpaceName(persistedWorkingSpace(inputSpace))) << "\",";
-  if (isRawImagePath(sourcePath))
-    o << "\"raw\":{\"workingSpace\":\"" << jsonEscape(colorSpaceName(inputSpace)) << "\"},";
-  else
+    << "\"source\":\"" << jsonEscape(sourcePath) << "\",";
+
+  if (raw) {
+    o << "\"raw\":{"
+      << "\"colorSpace\":\"" << jsonEscape(rgbGamutId(rawEncoding->gamut)) << "\","
+      << "\"gamma\":\"" << jsonEscape(transferFunctionId(rawEncoding->gamma)) << "\"},";
+  } else {
     o << "\"raw\":{},";
+  }
 }
 
-bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui,
-                      const PersistChain &chain) {
+bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,
+                      const PersistChain &chain, const ColorEncoding *rawEncoding) {
   std::ostringstream o;
-  appendSidecarHeader(o, "input", fs::path(imagePath).filename().string(), inputSpace);
-  appendGuiJson(o, gui);
+  appendSidecarHeader(o, "input", fs::path(imagePath).filename().string(), rawEncoding);
+  appendGuiJson(o, gui, false);
   o << ',';
   appendChainJson(o, chain);
   o << '}';
   return writeFile(inputSidecarPath(imagePath), o.str());
 }
 
-bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace inputSpace,
-                       const PersistGui &gui, const PersistChain &chain) {
+bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath,
+                       const PersistGui &gui, const PersistChain &chain,
+                       const ColorEncoding *rawEncoding) {
   std::ostringstream o;
-  appendSidecarHeader(o, "export", sourceImagePath, inputSpace);
+  appendSidecarHeader(o, "export", sourceImagePath, rawEncoding);
   o << "\"exportedAt\":\"" << iso8601Now() << "\",";
-  appendGuiJson(o, gui);
+  appendGuiJson(o, gui, false);
   o << ',';
   appendChainJson(o, chain);
   o << '}';

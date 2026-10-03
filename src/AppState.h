@@ -73,32 +73,6 @@ struct FilmstripEntry {
   int thumbLru = 0;
 };
 
-inline constexpr const char *kOutputSpaces[] = {
-    "sRGB", "Display P3", "Linear Rec.709", "Linear Rec.2020", "ACES2065-1"};
-inline constexpr int kOutputSpaceCount = 5;
-
-inline constexpr const char *kRawWorkingSpaces[] = {
-    "Linear Rec.709", "Linear Rec.2020", "ACES2065-1 (AP0)"};
-inline constexpr int kRawWorkingSpaceCount = 3;
-
-inline ColorSpace rawWorkingSpace(int index) {
-  switch (std::clamp(index, 0, kRawWorkingSpaceCount - 1)) {
-    case 0: return ColorSpace::LinearRec709;
-    case 1: return ColorSpace::LinearRec2020;
-    case 2: return ColorSpace::ACES2065_1;
-  }
-  return ColorSpace::LinearRec2020;
-}
-
-inline int rawWorkingSpaceIndex(ColorSpace cs) {
-  switch (cs) {
-    case ColorSpace::LinearRec709: return 0;
-    case ColorSpace::ACES2065_1: return 2;
-    case ColorSpace::LinearRec2020:
-    default: return 1;
-  }
-}
-
 // Long-edge caps for 16:9 frames; 0 = no downscale.
 inline constexpr struct {
   const char *label;
@@ -111,28 +85,6 @@ inline constexpr struct {
 };
 inline constexpr int kPreviewResCount = 4;
 
-inline ColorSpace outputSpace(int index) {
-  index = std::clamp(index, 0, kOutputSpaceCount - 1);
-  return static_cast<ColorSpace>(index);
-}
-
-// Working buffers are scene-linear (stbi_loadf / LibRaw). Gamma tags (sRGB, Display P3)
-// describe the *file*; for CMS display of unprocessed source use the linear counterpart.
-inline ColorSpace linearWorkingSpace(ColorSpace fileOrTag) {
-  switch (fileOrTag) {
-    case ColorSpace::sRGB:
-      return ColorSpace::LinearRec709;
-    case ColorSpace::DisplayP3:
-      // No linear-P3 tag yet; Rec.2020 is the closest wider linear space we have.
-      return ColorSpace::LinearRec2020;
-    case ColorSpace::LinearRec709:
-    case ColorSpace::LinearRec2020:
-    case ColorSpace::ACES2065_1:
-      return fileOrTag;
-  }
-  return ColorSpace::LinearRec709;
-}
-
 struct App {
   GLFWwindow *window = nullptr;
   unsigned int tex = 0;
@@ -144,12 +96,24 @@ struct App {
   // automatic image switching. Reopening after the file is fixed/removed
   // clears this protection.
   std::string sidecarWriteBlockedPath;
-  ColorSpace inputSpace = ColorSpace::LinearRec2020;
+  // Colour state is read by the render worker and written by the UI/document
+  // thread. Guard snapshots/updates so gamut+gamma pairs remain coherent.
+  mutable std::mutex colorMutex;
+
+  // Canonical colour state. inputEncoding describes the pixels actually in
+  // memory, independent of the file's original tag. inputIsRaw is determined
+  // by the decoder that successfully opened the current source.
+  ColorEncoding inputEncoding{RgbGamut::Rec2020, TransferFunction::Linear};
+  bool inputIsRaw = false;
+
   // Session/default preference for RAWs that do not yet have an explicit
   // per-image setting. Sidecars may override the current image without changing
   // this default; an explicit UI change updates both the image and the default.
-  ColorSpace rawWorkingSpace = ColorSpace::LinearRec2020;
-  int outputIndex = 0;
+  ColorEncoding rawWorkingEncoding{RgbGamut::Rec2020, TransferFunction::Linear};
+
+  // Explicit output tag. It is never inferred from processors or automatically
+  // changed by the CST.
+  ColorEncoding outputEncoding{RgbGamut::Rec709, TransferFunction::SRGB};
   int exportFormat = 1;  // JPEG
   int jpegQuality = 92;
   int previewRes = 1;  // 1080p
@@ -168,6 +132,9 @@ struct App {
   int selectedNode = -1;
 
   std::string workspaceDir;
+  // Protect a workspace file containing future colour IDs this build cannot
+  // interpret, just as we protect forward-versioned per-image sidecars.
+  bool workspaceWriteBlocked = false;
   std::vector<FilmstripEntry> filmstrip;
   int filmstripIndex = -1;
   bool showFilmstrip = true;

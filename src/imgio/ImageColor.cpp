@@ -1,5 +1,7 @@
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
+#include "color/LinearColorTransform.h"
+#include "color/TransferFunction.h"
 #include "perf.h"
 
 #include <lcms2.h>
@@ -15,89 +17,55 @@
 #include <string>
 #include <vector>
 
-const char *colorSpaceName(ColorSpace cs) {
-  switch (cs) {
-    case ColorSpace::sRGB: return "sRGB";
-    case ColorSpace::DisplayP3: return "Display P3";
-    case ColorSpace::LinearRec709: return "Linear Rec.709";
-    case ColorSpace::LinearRec2020: return "Linear Rec.2020";
-    case ColorSpace::ACES2065_1: return "ACES2065-1";
-  }
-  return "sRGB";
-}
-
-bool colorSpaceFromName(const std::string &name, ColorSpace &cs) {
-  for (ColorSpace candidate : {ColorSpace::sRGB, ColorSpace::DisplayP3, ColorSpace::LinearRec709,
-                               ColorSpace::LinearRec2020, ColorSpace::ACES2065_1}) {
-    if (name == colorSpaceName(candidate)) {
-      cs = candidate;
-      return true;
-    }
-  }
-  if (name == "ACES2065-1 (AP0)" || name == "AP0") {
-    cs = ColorSpace::ACES2065_1;
-    return true;
-  }
-  return false;
-}
-
 static cmsToneCurve *srgbCurve() {
   // Same parametric curve cmsCreate_sRGBProfile uses.
   cmsFloat64Number params[5] = {2.4, 1.0 / 1.055, 0.055 / 1.055, 1.0 / 12.92, 0.04045};
   return cmsBuildParametricToneCurve(nullptr, 4, params);
 }
 
-static cmsHPROFILE makeProfile(ColorSpace cs) {
-  const cmsCIExyY d65 = {0.3127, 0.3290, 1.0};
-  const cmsCIExyY d60 = {0.32168, 0.33767, 1.0};
-  switch (cs) {
-    case ColorSpace::sRGB:
-      return cmsCreate_sRGBProfile();
-    case ColorSpace::DisplayP3: {
-      cmsCIExyYTRIPLE p3 = {{0.680, 0.320, 1.0}, {0.265, 0.690, 1.0}, {0.150, 0.060, 1.0}};
-      cmsToneCurve *trc = srgbCurve();
-      cmsToneCurve *curves[3] = {trc, trc, trc};
-      cmsHPROFILE p = cmsCreateRGBProfile(&d65, &p3, curves);
-      cmsFreeToneCurve(trc);
-      return p;
-    }
-    case ColorSpace::LinearRec709: {
-      cmsCIExyYTRIPLE r709 = {{0.640, 0.330, 1.0}, {0.300, 0.600, 1.0}, {0.150, 0.060, 1.0}};
-      cmsToneCurve *lin = cmsBuildGamma(nullptr, 1.0);
-      cmsToneCurve *curves[3] = {lin, lin, lin};
-      cmsHPROFILE p = cmsCreateRGBProfile(&d65, &r709, curves);
-      cmsFreeToneCurve(lin);
-      return p;
-    }
-    case ColorSpace::LinearRec2020: {
-      cmsCIExyYTRIPLE r2020 = {{0.708, 0.292, 1.0}, {0.170, 0.797, 1.0}, {0.131, 0.046, 1.0}};
-      cmsToneCurve *lin = cmsBuildGamma(nullptr, 1.0);
-      cmsToneCurve *curves[3] = {lin, lin, lin};
-      cmsHPROFILE p = cmsCreateRGBProfile(&d65, &r2020, curves);
-      cmsFreeToneCurve(lin);
-      return p;
-    }
-    case ColorSpace::ACES2065_1: {
-      // ACES2065-1 / AP0 primaries and D60 white from SMPTE ST 2065-1.
-      cmsCIExyYTRIPLE ap0 = {{0.73470, 0.26530, 1.0}, {0.00000, 1.00000, 1.0}, {0.00010, -0.07700, 1.0}};
-      cmsToneCurve *lin = cmsBuildGamma(nullptr, 1.0);
-      cmsToneCurve *curves[3] = {lin, lin, lin};
-      cmsHPROFILE p = cmsCreateRGBProfile(&d60, &ap0, curves);
-      cmsFreeToneCurve(lin);
-      return p;
-    }
+static cmsToneCurve *toneCurve(TransferFunction tf) {
+  if (tf == TransferFunction::Linear) return cmsBuildGamma(nullptr, 1.0);
+  if (tf == TransferFunction::SRGB) return srgbCurve();
+
+  // lcms has no native DaVinci Intermediate or exact BT.709-camera curve type.
+  // Build their decode TRCs from the same TransferFunction implementation used
+  // by the CST, so ICC metadata and RawNode maths share one definition.
+  constexpr int kSamples = 4096;
+  std::array<cmsFloat32Number, kSamples> samples{};
+  for (int i = 0; i < kSamples; ++i) {
+    const double encoded = (double)i / (kSamples - 1);
+    double linear = decodeTransfer(encoded, tf);
+    if (!std::isfinite(linear)) linear = 0.0;
+    samples[(size_t)i] = (cmsFloat32Number)linear;
   }
-  return cmsCreate_sRGBProfile();
+  return cmsBuildTabulatedToneCurveFloat(nullptr, kSamples, samples.data());
 }
 
-// Cache for deterministic ICC profiles, serialized bytes, and CMS transforms.
-// Profiles are recreated from scratch on every call without this cache, which is
-// expensive (lcms2 profile building + CMS transform linking) and called per-frame.
-static cmsHPROFILE cachedProfile(ColorSpace cs) {
-  static std::array<cmsHPROFILE, 5> profiles{};
-  const int idx = (int)cs;
-  if (!profiles[idx]) profiles[idx] = makeProfile(cs);
-  return profiles[idx];
+static cmsHPROFILE makeProfile(ColorEncoding encoding) {
+  const auto &def = rgbGamutDefinition(encoding.gamut);
+  const cmsCIExyY white = {def.whiteX, def.whiteY, 1.0};
+  const cmsCIExyYTRIPLE primaries = {
+      {def.redX, def.redY, 1.0},
+      {def.greenX, def.greenY, 1.0},
+      {def.blueX, def.blueY, 1.0},
+  };
+
+  cmsToneCurve *trc = toneCurve(encoding.gamma);
+  if (!trc) return nullptr;
+  cmsToneCurve *curves[3] = {trc, trc, trc};
+  cmsHPROFILE profile = cmsCreateRGBProfile(&white, &primaries, curves);
+  cmsFreeToneCurve(trc);
+  if (!profile) return nullptr;
+
+  const std::string description =
+      std::string("RawNode ") + rgbGamutId(encoding.gamut) + " / " + transferFunctionId(encoding.gamma);
+  cmsMLU *mlu = cmsMLUalloc(nullptr, 1);
+  if (mlu) {
+    cmsMLUsetASCII(mlu, "en", "US", description.c_str());
+    cmsWriteTag(profile, cmsSigProfileDescriptionTag, mlu);
+    cmsMLUfree(mlu);
+  }
+  return profile;
 }
 
 static cmsHPROFILE srgbProfile() {
@@ -105,44 +73,39 @@ static cmsHPROFILE srgbProfile() {
   return p;
 }
 
-static const std::vector<uint8_t> &cachedIccBytes(ColorSpace cs) {
-  static std::array<std::vector<uint8_t>, 5> bytes{};
-  static std::array<bool, 5> tried{};
-  const int idx = (int)cs;
-  if (tried[idx]) return bytes[idx];
-  tried[idx] = true;
-  cmsHPROFILE p = cachedProfile(cs);
-  if (!p) return bytes[idx];
+static cmsHTRANSFORM linearRec709DisplayTransform() {
+  static cmsHTRANSFORM transform = [] {
+    cmsHPROFILE src = makeProfile({RgbGamut::Rec709, TransferFunction::Linear});
+    cmsHPROFILE dst = srgbProfile();
+    if (!src || !dst) {
+      if (src) cmsCloseProfile(src);
+      return (cmsHTRANSFORM)nullptr;
+    }
+    cmsHTRANSFORM result =
+        cmsCreateTransform(src, TYPE_RGBA_FLT, dst, TYPE_RGBA_8,
+                           INTENT_RELATIVE_COLORIMETRIC,
+                           cmsFLAGS_NOCACHE | cmsFLAGS_COPY_ALPHA);
+    cmsCloseProfile(src);
+    return result;
+  }();
+  return transform;
+}
+
+bool profileBytes(ColorEncoding encoding, std::vector<uint8_t> &out) {
+  out.clear();
+  cmsHPROFILE p = makeProfile(encoding);
+  if (!p) return false;
+
   cmsUInt32Number n = 0;
-  if (cmsSaveProfileToMem(p, nullptr, &n) && n > 0) {
-    bytes[idx].resize(n);
-    if (cmsSaveProfileToMem(p, bytes[idx].data(), &n))
-      bytes[idx].resize(n);
-    else
-      bytes[idx].clear();
+  bool ok = cmsSaveProfileToMem(p, nullptr, &n) && n > 0;
+  if (ok) {
+    out.resize(n);
+    ok = cmsSaveProfileToMem(p, out.data(), &n) != 0;
+    if (ok) out.resize(n);
   }
-  return bytes[idx];
-}
-
-static cmsHTRANSFORM cachedTransform(ColorSpace cs) {
-  static std::array<cmsHTRANSFORM, 5> transforms{};
-  static std::array<bool, 5> tried{};
-  const int idx = (int)cs;
-  if (tried[idx]) return transforms[idx];
-  tried[idx] = true;
-  cmsHPROFILE src = cachedProfile(cs);
-  cmsHPROFILE dst = srgbProfile();
-  if (src && dst)
-    transforms[idx] = cmsCreateTransform(src, TYPE_RGBA_FLT, dst, TYPE_RGBA_8, INTENT_RELATIVE_COLORIMETRIC,
-                                         cmsFLAGS_NOCACHE | cmsFLAGS_COPY_ALPHA);
-  return transforms[idx];
-}
-
-bool profileBytes(ColorSpace cs, std::vector<uint8_t> &out) {
-  const auto &icc = cachedIccBytes(cs);
-  if (icc.empty()) return false;
-  out = icc;
-  return true;
+  cmsCloseProfile(p);
+  if (!ok) out.clear();
+  return ok;
 }
 
 static std::string lowerCopy(const char *s) {
@@ -296,92 +259,113 @@ static double primDist2(const cmsCIExyYTRIPLE &a, const cmsCIExyYTRIPLE &b) {
   return d(a.Red, b.Red) + d(a.Green, b.Green) + d(a.Blue, b.Blue);
 }
 
-ColorSpace classifyIcc(const std::vector<uint8_t> &icc) {
-  if (icc.empty()) return ColorSpace::sRGB;
+static TransferFunction inferTransferFunction(cmsHPROFILE p) {
+  const cmsToneCurve *trc = (const cmsToneCurve *)cmsReadTag(p, cmsSigRedTRCTag);
+  if (!trc) return TransferFunction::SRGB;
+
+  constexpr double samples[] = {0.18, 0.5, 0.8};
+  double bestError = 1e30;
+  TransferFunction best = TransferFunction::SRGB;
+  for (int i = 0; i < transferFunctionCount(); ++i) {
+    const TransferFunction tf = transferFunctionDefinition(i).value;
+    // Scene-log transfer functions can exceed the ICC TRC's practical range;
+    // RawNode-generated profiles identify those explicitly in the description.
+    if (tf == TransferFunction::DaVinciIntermediate) continue;
+
+    double error = 0.0;
+    for (double encoded : samples) {
+      const double actual = cmsEvalToneCurveFloat((cmsToneCurve *)trc, (cmsFloat32Number)encoded);
+      const double expected = decodeTransfer(encoded, tf);
+      const double d = actual - expected;
+      error += d * d;
+    }
+    if (error < bestError) {
+      bestError = error;
+      best = tf;
+    }
+  }
+  return best;
+}
+
+ColorEncoding classifyIccEncoding(const std::vector<uint8_t> &icc) {
+  if (icc.empty()) return {RgbGamut::Rec709, TransferFunction::SRGB};
   cmsHPROFILE p = cmsOpenProfileFromMem(icc.data(), (cmsUInt32Number)icc.size());
-  if (!p) return ColorSpace::sRGB;
+  if (!p) return {RgbGamut::Rec709, TransferFunction::SRGB};
 
   char desc[256] = {};
   cmsGetProfileInfoASCII(p, cmsInfoDescription, "en", "US", desc, sizeof desc);
-  const std::string d = lowerCopy(desc);
-  ColorSpace fromDesc = ColorSpace::sRGB;
-  bool haveDesc = false;
-  if (d.find("prophoto") != std::string::npos || d.find("rec2020") != std::string::npos ||
-      d.find("rec-2020") != std::string::npos || d.find("rec.2020") != std::string::npos ||
-      d.find("bt.2020") != std::string::npos || d.find("bt2020") != std::string::npos) {
-    fromDesc = ColorSpace::LinearRec2020;
-    haveDesc = true;
-  } else if (d.find("display p3") != std::string::npos || d.find("display-p3") != std::string::npos ||
-             (d.find("p3") != std::string::npos && d.find("dci") == std::string::npos)) {
-    fromDesc = ColorSpace::DisplayP3;
-    haveDesc = true;
-  } else if (d.find("rec709") != std::string::npos || d.find("rec-709") != std::string::npos ||
-             d.find("rec.709") != std::string::npos || d.find("bt.709") != std::string::npos ||
-             d.find("bt709") != std::string::npos) {
-    fromDesc = profileLooksLinear(p) ? ColorSpace::LinearRec709 : ColorSpace::sRGB;
-    haveDesc = true;
-  } else if (d.find("srgb") != std::string::npos) {
-    fromDesc = ColorSpace::sRGB;
-    haveDesc = true;
-  }
-  if (haveDesc) {
-    // Wide-gamut linear names (ProPhoto) already mapped to Rec.2020.
-    if (fromDesc == ColorSpace::DisplayP3 && profileLooksLinear(p)) {
-      // Linear P3 is rare; keep Display P3 tag (plugin list has no Linear P3).
-    }
-    cmsCloseProfile(p);
-    return fromDesc;
-  }
+  const std::string description = desc;
+  const std::string d = lowerCopy(description.c_str());
 
-  cmsCIExyYTRIPLE prim{};
-  cmsCIExyY wp{};
-  if (!profilePrimaries(p, prim, wp)) {
-    cmsCloseProfile(p);
-    return ColorSpace::sRGB;
-  }
-  const bool linear = profileLooksLinear(p);
-  const cmsCIExyYTRIPLE known[4] = {
-      {{0.640, 0.330, 1.0}, {0.300, 0.600, 1.0}, {0.150, 0.060, 1.0}},  // sRGB / 709
-      {{0.680, 0.320, 1.0}, {0.265, 0.690, 1.0}, {0.150, 0.060, 1.0}},  // P3
-      {{0.640, 0.330, 1.0}, {0.300, 0.600, 1.0}, {0.150, 0.060, 1.0}},  // Linear Rec.709
-      {{0.708, 0.292, 1.0}, {0.170, 0.797, 1.0}, {0.131, 0.046, 1.0}},  // Linear Rec.2020
-  };
-  const ColorSpace spaces[4] = {ColorSpace::sRGB, ColorSpace::DisplayP3, ColorSpace::LinearRec709,
-                                ColorSpace::LinearRec2020};
-  double best = 1e9;
-  ColorSpace pick = ColorSpace::sRGB;
-  for (int i = 0; i < 4; ++i) {
-    // Skip gamma spaces when TRC is linear, and linear spaces when TRC is not.
-    if (linear && (spaces[i] == ColorSpace::sRGB || spaces[i] == ColorSpace::DisplayP3)) continue;
-    if (!linear && (spaces[i] == ColorSpace::LinearRec709 || spaces[i] == ColorSpace::LinearRec2020)) continue;
-    const double dist = primDist2(prim, known[i]);
-    if (dist < best) {
-      best = dist;
-      pick = spaces[i];
-    }
-  }
-  // If filters removed every candidate, fall back to unconstrained nearest.
-  if (best >= 1e9) {
-    for (int i = 0; i < 4; ++i) {
-      const double dist = primDist2(prim, known[i]);
-      if (dist < best) {
-        best = dist;
-        pick = spaces[i];
+  // RawNode exports write an exact, machine-readable pair:
+  // "RawNode <gamut-id> / <transfer-id>". Parse both tokens exactly so a
+  // transfer ID such as "rec709-camera" can never be mistaken for the Rec.709
+  // gamut.
+  if (d.rfind("rawnode ", 0) == 0) {
+    const std::string payload = d.substr(8);
+    const size_t sep = payload.find(" / ");
+    if (sep != std::string::npos && payload.find(" / ", sep + 3) == std::string::npos) {
+      const std::string gamutId = payload.substr(0, sep);
+      const std::string transferId = payload.substr(sep + 3);
+      ColorEncoding encoding;
+      if (colorEncodingFromIds(gamutId, transferId, encoding)) {
+        cmsCloseProfile(p);
+        return encoding;
       }
     }
-    if (linear && pick == ColorSpace::sRGB) pick = ColorSpace::LinearRec709;
-    if (linear && pick == ColorSpace::DisplayP3) pick = ColorSpace::LinearRec2020;
   }
+
+  const TransferFunction inferredTf = inferTransferFunction(p);
+
+  // For third-party ICC profiles prefer measured colourants over free-form
+  // profile descriptions. Descriptions are human text and are not a reliable
+  // machine-readable colour-space identifier (e.g. ProPhoto is not Rec.2020).
+  cmsCIExyYTRIPLE prim{};
+  cmsCIExyY wp{};
+  if (profilePrimaries(p, prim, wp)) {
+    double best = 1e30;
+    RgbGamut gamut = RgbGamut::Rec709;
+    for (int i = 0; i < rgbGamutCount(); ++i) {
+      const auto &g = rgbGamutDefinition(i);
+      const cmsCIExyYTRIPLE known = {
+          {g.redX, g.redY, 1.0},
+          {g.greenX, g.greenY, 1.0},
+          {g.blueX, g.blueY, 1.0},
+      };
+      const double dist = primDist2(prim, known);
+      if (dist < best) {
+        best = dist;
+        gamut = g.value;
+      }
+    }
+    cmsCloseProfile(p);
+    return {gamut, inferredTf};
+  }
+
+  // Exact-name fallback only when colourants are unavailable.
+  RgbGamut fallback = RgbGamut::Rec709;
+  if (d == "acescg" || d == "aces ap1" || d == "ap1")
+    fallback = RgbGamut::ACES_AP1;
+  else if (d == "aces2065-1" || d == "aces ap0" || d == "ap0")
+    fallback = RgbGamut::ACES_AP0;
+  else if (d == "davinci wide gamut" || d == "dwg")
+    fallback = RgbGamut::DaVinciWideGamut;
+  else if (d == "display p3" || d == "display-p3")
+    fallback = RgbGamut::DisplayP3;
+  else if (d == "rec.2020" || d == "rec2020" || d == "rec-2020" ||
+           d == "bt.2020" || d == "bt2020")
+    fallback = RgbGamut::Rec2020;
+
   cmsCloseProfile(p);
-  return pick;
+  return {fallback, inferredTf};
 }
 
-void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out) {
+static void linearRec709ToDisplayRGBA8(const Image &img, std::vector<unsigned char> &out) {
   PerfScope _ps("toDisplayRGBA8");
   out.assign((size_t)img.w * img.h * 4, 0);
   if (img.w <= 0 || img.h <= 0) return;
 
-  cmsHTRANSFORM xform = cachedTransform(space);
+  cmsHTRANSFORM xform = linearRec709DisplayTransform();
   const int rowFloats = img.w * 4;
   if (xform) {
     for (int y = 0; y < img.h; ++y) {
@@ -389,12 +373,52 @@ void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned cha
       unsigned char *dst = out.data() + (size_t)y * rowFloats;
       cmsDoTransform(xform, src, dst, (cmsUInt32Number)img.w);
     }
-  } else {
-    for (int y = 0; y < img.h; ++y) {
-      const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
-      unsigned char *dst = out.data() + (size_t)y * rowFloats;
-      for (int i = 0; i < rowFloats; ++i)
-        dst[i] = (unsigned char)std::lround(std::clamp(src[i], 0.0f, 1.0f) * 255.0f);
+    return;
+  }
+
+  for (int y = 0; y < img.h; ++y) {
+    const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
+    unsigned char *dst = out.data() + (size_t)y * rowFloats;
+    for (int x = 0; x < img.w; ++x) {
+      for (int channel = 0; channel < 3; ++channel) {
+        const double encoded = encodeTransfer(src[channel], TransferFunction::SRGB);
+        const double clamped = std::clamp(encoded, 0.0, 1.0);
+        dst[channel] = (unsigned char)std::lround(clamped * 255.0);
+      }
+      const double alpha = std::clamp((double)src[3], 0.0, 1.0);
+      dst[3] = (unsigned char)std::lround(alpha * 255.0);
+      src += 4;
+      dst += 4;
     }
   }
+}
+
+void toDisplayRGBA8(const Image &img, ColorEncoding encoding,
+                    std::vector<unsigned char> &out) {
+  if (img.w <= 0 || img.h <= 0 || img.px.empty()) {
+    out.clear();
+    return;
+  }
+
+  double toRec709[3][3] = {};
+  if (!linearColorTransformMatrix(encoding.gamut, RgbGamut::Rec709, toRec709)) {
+    out.clear();
+    return;
+  }
+
+  Image rec709 = img;
+  for (size_t i = 0; i + 3 < rec709.px.size(); i += 4) {
+    const float linear[3] = {
+        (float)decodeTransfer(img.px[i + 0], encoding.gamma),
+        (float)decodeTransfer(img.px[i + 1], encoding.gamma),
+        (float)decodeTransfer(img.px[i + 2], encoding.gamma),
+    };
+    float converted[3] = {};
+    applyLinearColorMatrix(toRec709, linear, converted);
+    rec709.px[i + 0] = std::isfinite(converted[0]) ? converted[0] : 0.0f;
+    rec709.px[i + 1] = std::isfinite(converted[1]) ? converted[1] : 0.0f;
+    rec709.px[i + 2] = std::isfinite(converted[2]) ? converted[2] : 0.0f;
+  }
+
+  linearRec709ToDisplayRGBA8(rec709, out);
 }

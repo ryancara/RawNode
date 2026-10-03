@@ -2,12 +2,15 @@
 
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
+#include "color/LinearColorTransform.h"
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
 #include "ofx/OfxHost.h"
 #include "processors/CtlProcessor.h"
+#include "processors/NativeCstProcessor.h"
 #include "processors/OfxProcessor.h"
 #include "persist/ProjectPersist.h"
+#include "persist/DocumentActions.h"
 #include "UI.h"
 
 #include <tiffio.h>
@@ -56,18 +59,59 @@ static bool writeTinyTiff(const fs::path &p, bool halfFloat) {
   return ok;
 }
 
+static bool writeGray16Tiff(const fs::path &p, uint16_t value) {
+  TIFF *tif = TIFFOpen(p.c_str(), "w");
+  if (!tif) return false;
+  TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, 1);
+  TIFFSetField(tif, TIFFTAG_IMAGELENGTH, 1);
+  TIFFSetField(tif, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField(tif, TIFFTAG_BITSPERSAMPLE, 16);
+  TIFFSetField(tif, TIFFTAG_SAMPLEFORMAT, SAMPLEFORMAT_UINT);
+  TIFFSetField(tif, TIFFTAG_ORIENTATION, ORIENTATION_TOPLEFT);
+  TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+  TIFFSetField(tif, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
+  uint16_t row[3] = {value, value, value};
+  const bool ok = TIFFWriteScanline(tif, row, 0, 0) >= 0;
+  TIFFClose(tif);
+  return ok;
+}
+
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 static int selfTest() {
   for (bool half : {false, true}) {
     const fs::path p = fs::temp_directory_path() / (half ? "ofxrawhost-selftest-half.tif" : "ofxrawhost-selftest.tif");
     if (!writeTinyTiff(p, half)) return fail(half ? "tiff write half" : "tiff write");
     Image img;
-    ColorSpace cs = ColorSpace::sRGB;
-    if (!loadImage(p.string(), img, cs) || img.w != 2 || img.h != 2) return fail(half ? "tiff load half" : "tiff load");
+    ColorEncoding encoding;
+    bool decodedRaw = true;
+    if (!loadImage(p.string(), img, encoding, decodedRaw) || decodedRaw || img.w != 2 || img.h != 2)
+      return fail(half ? "tiff load half" : "tiff load");
     if (img.px[(size_t)1 * 2 * 4 + 0] < 0.9f) return fail(half ? "tiff pixels half" : "tiff pixels");
-    // Untagged float TIFF → Rec.2020; untagged 16-bit int → sRGB.
-    if (half && cs != ColorSpace::LinearRec2020) return fail("tiff half colorspace");
-    if (!half && cs != ColorSpace::sRGB) return fail("tiff uint colorspace");
+    // Processing buffers are linear: untagged float TIFF → Linear Rec.2020;
+    // untagged 16-bit integer TIFF → sRGB decoded to Linear Rec.709.
+    const ColorEncoding expected = half
+        ? ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear}
+        : ColorEncoding{RgbGamut::Rec709, TransferFunction::Linear};
+    if (encoding != expected) return fail(half ? "tiff half colorspace" : "tiff uint colorspace");
+    fs::remove(p);
+  }
+
+  {
+    // Integer raster samples must actually be decoded to the linear encoding
+    // reported by the canonical loader.
+    const fs::path p = fs::temp_directory_path() / "rawnode-selftest-gray16.tif";
+    if (!writeGray16Tiff(p, 32768)) return fail("gray16 tiff write");
+    Image img;
+    ColorEncoding encoding;
+    bool decodedRaw = true;
+    if (!loadImage(p.string(), img, encoding, decodedRaw) || decodedRaw ||
+        encoding != ColorEncoding{RgbGamut::Rec709, TransferFunction::Linear})
+      return fail("gray16 canonical encoding");
+    const double encoded = 32768.0 / 65535.0;
+    const double want = decodeTransfer(encoded, TransferFunction::SRGB);
+    if (img.px.size() < 4 || std::fabs(img.px[0] - want) > 2e-5 ||
+        std::fabs(img.px[1] - want) > 2e-5 || std::fabs(img.px[2] - want) > 2e-5)
+      return fail("gray16 sRGB linearisation");
     fs::remove(p);
   }
 
@@ -86,9 +130,21 @@ static int selfTest() {
     }
     fclose(f);
     Image img;
-    ColorSpace cs = ColorSpace::LinearRec2020;
-    if (!loadImage(p.string(), img, cs) || cs != ColorSpace::sRGB) return fail("png colorspace");
+    ColorEncoding encoding;
+    bool decodedRaw = true;
+    if (!loadImage(p.string(), img, encoding, decodedRaw) || decodedRaw ||
+        encoding != ColorEncoding{RgbGamut::Rec709, TransferFunction::Linear})
+      return fail("png colorspace");
     fs::remove(p);
+  }
+
+  {
+    // Workspace/open-dialog extension hints include formats that LibRaw can
+    // decode even though they were missing from the first PR #17 allow-list.
+    for (const char *ext : {".nrw", ".erf", ".3fr", ".crw", ".iiq", ".mrw", ".x3f", ".srf", ".rwl"}) {
+      if (!isSupportedImagePath(std::string("camera") + ext))
+        return fail("expanded RAW extension support");
+    }
   }
 
   {
@@ -113,23 +169,268 @@ static int selfTest() {
         {0.0f, 0.0f, 1.0f, 0.0f},
     };
     float working[3][4] = {};
-    if (!makeCameraToWorkingMatrix(identityCamera, ColorSpace::LinearRec2020, working) ||
+    if (!makeCameraToWorkingMatrix(identityCamera, RgbGamut::Rec2020, working) ||
         std::fabs(working[0][0] - 0.627403896f) > 1e-6f ||
         std::fabs(working[1][1] - 0.919540395f) > 1e-6f ||
         std::fabs(working[2][2] - 0.895595253f) > 1e-6f)
       return fail("RAW Linear Rec.2020 matrix");
 
-    if (!makeCameraToWorkingMatrix(identityCamera, ColorSpace::ACES2065_1, working) ||
+    if (!makeCameraToWorkingMatrix(identityCamera, RgbGamut::ACES_AP0, working) ||
         std::fabs(working[0][0] - 0.439632982f) > 1e-6f ||
         std::fabs(working[1][1] - 0.813439429f) > 1e-6f ||
         std::fabs(working[2][2] - 0.870912276f) > 1e-6f)
       return fail("RAW ACES2065-1 matrix");
 
+    if (!makeCameraToWorkingMatrix(identityCamera, RgbGamut::ACES_AP1, working) ||
+        std::fabs(working[0][0] - 0.613097402f) > 1e-6f ||
+        std::fabs(working[1][1] - 0.916353879f) > 1e-6f ||
+        std::fabs(working[2][2] - 0.869814634f) > 1e-6f)
+      return fail("RAW ACES AP1 registry matrix");
+
+    if (!makeCameraToWorkingMatrix(identityCamera, RgbGamut::DaVinciWideGamut, working) ||
+        std::fabs(working[0][0] - 0.562767456f) > 1e-6f ||
+        std::fabs(working[1][1] - 0.749577346f) > 1e-6f ||
+        std::fabs(working[2][2] - 0.743332108f) > 1e-6f)
+      return fail("RAW DWG registry matrix");
+
+    if (!makeCameraToWorkingMatrix(identityCamera, RgbGamut::DisplayP3, working) ||
+        std::fabs(working[0][0] - 0.822461969f) > 1e-6f ||
+        std::fabs(working[1][1] - 0.966805801f) > 1e-6f ||
+        std::fabs(working[2][2] - 0.910519929f) > 1e-6f)
+      return fail("RAW Display P3 registry matrix");
+
+    // A white-point adaptation must keep neutral white neutral.
+    for (RgbGamut target : {RgbGamut::ACES_AP0, RgbGamut::ACES_AP1}) {
+      double m[3][3] = {};
+      if (!linearColorTransformMatrix(RgbGamut::Rec709, target, m))
+        return fail("Bradford white transform setup");
+      for (int row = 0; row < 3; ++row) {
+        const double white = m[row][0] + m[row][1] + m[row][2];
+        if (std::fabs(white - 1.0) > 2e-6)
+          return fail("Bradford white neutrality");
+      }
+    }
+
     // AP0 must have a usable linear ICC interpretation for preview/output-tag
     // colour management, despite its imaginary primaries.
     std::vector<uint8_t> ap0Icc;
-    if (!profileBytes(ColorSpace::ACES2065_1, ap0Icc) || ap0Icc.empty())
+    if (!profileBytes(ColorEncoding{RgbGamut::ACES_AP0, TransferFunction::Linear}, ap0Icc) || ap0Icc.empty())
       return fail("ACES2065-1 ICC profile");
+  }
+
+  {
+    // Native CST: gamut and transfer function are explicit, independent
+    // controls. Verify colour maths, float range, alpha, and Sidecar V2.
+    App cstApp;
+    if (!addNativeCstNode(cstApp) || cstApp.nodes.size() != 1 || !cstApp.nodes[0].processor ||
+        cstApp.nodes[0].processor->backend() != ProcessorBackend::Native ||
+        cstApp.nodes[0].processor->identifier() != NativeCstProcessor::kIdentifier)
+      return fail("native CST processor creation");
+
+    const auto cstParams = cstApp.nodes[0].processor->parameters();
+    if (cstParams.size() != 4 ||
+        cstParams[0].id != "input_space" || cstParams[0].choices.size() != 6 ||
+        cstParams[1].id != "input_gamma" || cstParams[1].choices.size() != 4 ||
+        cstParams[2].id != "output_space" || cstParams[2].choices.size() != 6 ||
+        cstParams[3].id != "output_gamma" || cstParams[3].choices.size() != 4)
+      return fail("native CST parameters");
+
+    Processor &cst = *cstApp.nodes[0].processor;
+    if (!cst.setParameterValue("input_space", 0) ||
+        !cst.setParameterValue("input_gamma", 0) ||
+        !cst.setParameterValue("output_space", 1) ||
+        !cst.setParameterValue("output_gamma", 0) ||
+        cst.setParameterValue("output_space", 9) ||
+        cst.setParameterValue("output_gamma", 9))
+      return fail("native CST parameter validation");
+
+    Image cstIn;
+    cstIn.w = 2;
+    cstIn.h = 1;
+    cstIn.px = {
+        1.0f, 0.0f, 0.0f, 0.25f,
+        -0.2f, 0.5f, 1.4f, 0.75f,
+    };
+    Image cstOut;
+    if (!renderChain(cstApp, cstIn, cstOut, 0).ok || cstOut.px.size() != cstIn.px.size())
+      return fail("native CST render");
+
+    if (std::fabs(cstOut.px[0] - 0.627403896f) > 1e-6f ||
+        std::fabs(cstOut.px[1] - 0.069097289f) > 1e-6f ||
+        std::fabs(cstOut.px[2] - 0.016391439f) > 1e-6f ||
+        cstOut.px[3] != 0.25f)
+      return fail("native CST Rec.709 to Rec.2020");
+
+    // The second pixel deliberately contains a negative and a >1 component.
+    if (std::fabs(cstOut.px[4] - 0.09979903f) > 1e-6f ||
+        std::fabs(cstOut.px[5] - 0.46185798f) > 1e-6f ||
+        std::fabs(cstOut.px[6] - 1.29456172f) > 1e-6f ||
+        cstOut.px[7] != 0.75f)
+      return fail("native CST float range/alpha");
+
+    const PersistChain cstSaved = captureChain(cstApp);
+    if (cstSaved.nodes.size() != 1 || cstSaved.nodes[0].backend != "native" ||
+        cstSaved.nodes[0].identifier != NativeCstProcessor::kIdentifier ||
+        cstSaved.nodes[0].paramsJson.at("input_space") != "\"rec709\"" ||
+        cstSaved.nodes[0].paramsJson.at("input_gamma") != "\"linear\"" ||
+        cstSaved.nodes[0].paramsJson.at("output_space") != "\"rec2020\"" ||
+        cstSaved.nodes[0].paramsJson.at("output_gamma") != "\"linear\"")
+      return fail("native CST persistence capture");
+
+    App cstRestored;
+    applyChain(cstRestored, cstSaved);
+    if (cstRestored.nodes.size() != 1 || !cstRestored.nodes[0].processor ||
+        cstRestored.nodes[0].processor->identifier() != NativeCstProcessor::kIdentifier)
+      return fail("native CST persistence restore");
+
+    Image cstRestoredOut;
+    if (!renderChain(cstRestored, cstIn, cstRestoredOut, 0).ok || cstRestoredOut.px != cstOut.px)
+      return fail("native CST restored render");
+
+    Processor &restoredCst = *cstRestored.nodes[0].processor;
+
+    // Every added gamut must round-trip through Rec.709 in linear light.
+    for (int targetSpace : {2, 3, 4, 5}) {  // AP0, AP1, DWG, Display P3
+      if (!restoredCst.setParameterValue("input_space", 0) ||
+          !restoredCst.setParameterValue("input_gamma", 0) ||
+          !restoredCst.setParameterValue("output_space", targetSpace) ||
+          !restoredCst.setParameterValue("output_gamma", 0))
+        return fail("native CST gamut round-trip setup");
+      Image wide;
+      if (!renderChain(cstRestored, cstIn, wide, 0).ok) return fail("native CST gamut forward render");
+
+      if (!restoredCst.setParameterValue("input_space", targetSpace) ||
+          !restoredCst.setParameterValue("output_space", 0))
+        return fail("native CST gamut inverse setup");
+      Image roundTrip;
+      if (!renderChain(cstRestored, wide, roundTrip, 0).ok) return fail("native CST gamut inverse render");
+
+      for (size_t i = 0; i < cstIn.px.size(); ++i) {
+        if (i % 4 == 3) {
+          if (roundTrip.px[i] != cstIn.px[i]) return fail("native CST gamut round-trip alpha");
+        } else if (std::fabs(roundTrip.px[i] - cstIn.px[i]) > 3e-6f) {
+          return fail("native CST gamut round trip");
+        }
+      }
+    }
+
+    // Transfer functions are independent of gamut. Use an identity Rec.709
+    // gamut transform to check their published 18% grey mappings and inverse.
+    Image grey;
+    grey.w = 1;
+    grey.h = 1;
+    grey.px = {0.18f, 0.18f, 0.18f, 0.6f};
+    const float expected18[] = {
+        0.18f,
+        0.46135613f,  // sRGB
+        0.40884811f,  // exact Rec.709 camera OETF
+        0.33604327f,  // DaVinci Intermediate
+    };
+    for (int gamma = 0; gamma < 4; ++gamma) {
+      if (!restoredCst.setParameterValue("input_space", 0) ||
+          !restoredCst.setParameterValue("output_space", 0) ||
+          !restoredCst.setParameterValue("input_gamma", 0) ||
+          !restoredCst.setParameterValue("output_gamma", gamma))
+        return fail("native CST gamma forward setup");
+
+      Image encoded;
+      if (!renderChain(cstRestored, grey, encoded, 0).ok) return fail("native CST gamma forward render");
+      for (int channel = 0; channel < 3; ++channel)
+        if (std::fabs(encoded.px[(size_t)channel] - expected18[gamma]) > 2e-6f)
+          return fail("native CST gamma 18 percent mapping");
+      if (encoded.px[3] != grey.px[3]) return fail("native CST gamma alpha");
+
+      if (!restoredCst.setParameterValue("input_gamma", gamma) ||
+          !restoredCst.setParameterValue("output_gamma", 0))
+        return fail("native CST gamma inverse setup");
+      Image decoded;
+      if (!renderChain(cstRestored, encoded, decoded, 0).ok) return fail("native CST gamma inverse render");
+      for (int channel = 0; channel < 3; ++channel)
+        if (std::fabs(decoded.px[(size_t)channel] - 0.18f) > 2e-6f)
+          return fail("native CST gamma round trip");
+    }
+
+    // Blackmagic's published DI mapping explicitly includes negative linear
+    // values; preserve that behaviour rather than clamping at zero.
+    Image negative;
+    negative.w = 1;
+    negative.h = 1;
+    negative.px = {-0.01f, -0.01f, -0.01f, 1.0f};
+    if (!restoredCst.setParameterValue("input_gamma", 0) ||
+        !restoredCst.setParameterValue("output_gamma", 3))
+      return fail("native CST DI negative setup");
+    Image negativeDi;
+    if (!renderChain(cstRestored, negative, negativeDi, 0).ok ||
+        std::fabs(negativeDi.px[0] - (-0.10444269f)) > 2e-6f)
+      return fail("native CST DI negative mapping");
+
+    // A bad upstream pixel is local data, not a frame-level render failure.
+    Image badPixel;
+    badPixel.w = 2;
+    badPixel.h = 1;
+    badPixel.px = {
+        std::numeric_limits<float>::quiet_NaN(), 0.2f, 0.3f, 1.0f,
+        0.2f, 0.3f, 0.4f, 0.5f,
+    };
+    if (!restoredCst.setParameterValue("input_space", (int)RgbGamut::Rec709) ||
+        !restoredCst.setParameterValue("output_space", (int)RgbGamut::Rec2020) ||
+        !restoredCst.setParameterValue("input_gamma", (int)TransferFunction::Linear) ||
+        !restoredCst.setParameterValue("output_gamma", (int)TransferFunction::Linear))
+      return fail("native CST non-finite setup");
+    Image badOut;
+    if (!renderChain(cstRestored, badPixel, badOut, 0).ok ||
+        !std::isnan(badOut.px[0]) || !std::isnan(badOut.px[1]) || !std::isnan(badOut.px[2]) ||
+        badOut.px[3] != 1.0f || !std::isfinite(badOut.px[4]))
+      return fail("native CST non-finite pixel handling");
+
+    Image hugeDi;
+    hugeDi.w = 1;
+    hugeDi.h = 1;
+    hugeDi.px = {20.0f, 20.0f, 20.0f, 0.4f};
+    if (!restoredCst.setParameterValue("input_space", (int)RgbGamut::Rec709) ||
+        !restoredCst.setParameterValue("output_space", (int)RgbGamut::Rec709) ||
+        !restoredCst.setParameterValue("input_gamma", (int)TransferFunction::DaVinciIntermediate) ||
+        !restoredCst.setParameterValue("output_gamma", (int)TransferFunction::Linear))
+      return fail("native CST DI overflow setup");
+    Image hugeOut;
+    if (!renderChain(cstRestored, hugeDi, hugeOut, 0).ok ||
+        !std::isfinite(hugeOut.px[0]) || hugeOut.px[0] <= 1.0f ||
+        hugeOut.px[3] != hugeDi.px[3])
+      return fail("native CST DI overflow handling");
+
+    // Exact Rec.709 constants make the OETF and inverse continuous and
+    // monotonic at the breakpoint.
+    constexpr double k709Beta = 0.018053968510807;
+    const double encodedCut = encodeTransfer(k709Beta, TransferFunction::Rec709);
+    if (std::fabs(encodedCut - 4.5 * k709Beta) > 1e-12 ||
+        std::fabs(decodeTransfer(encodedCut, TransferFunction::Rec709) - k709Beta) > 1e-12 ||
+        decodeTransfer(encodedCut + 1e-7, TransferFunction::Rec709) <
+            decodeTransfer(encodedCut - 1e-7, TransferFunction::Rec709))
+      return fail("Rec.709 exact breakpoint");
+
+    PersistChain futureChoice = cstSaved;
+    futureChoice.nodes[0].paramsJson["output_gamma"] = "\"future-transfer\"";
+    App futureChoiceApp;
+    applyChain(futureChoiceApp, futureChoice);
+    const PersistChain futureChoiceSaved = captureChain(futureChoiceApp);
+    if (futureChoiceSaved.nodes.empty() ||
+        futureChoiceSaved.nodes[0].paramsJson.at("output_gamma") != "\"future-transfer\"" ||
+        !hasUnknownProcessorChoiceIds(futureChoiceApp))
+      return fail("future CST choice preservation");
+
+    // Stable-ID choices must be strings. A development-era numeric value is
+    // treated as unknown and preserved rather than silently replaced.
+    PersistChain numericChoice = cstSaved;
+    numericChoice.nodes[0].paramsJson["output_gamma"] = "0";
+    App numericChoiceApp;
+    applyChain(numericChoiceApp, numericChoice);
+    const PersistChain numericChoiceSaved = captureChain(numericChoiceApp);
+    if (!hasUnknownProcessorChoiceIds(numericChoiceApp) ||
+        numericChoiceSaved.nodes.empty() ||
+        numericChoiceSaved.nodes[0].paramsJson.at("output_gamma") != "0")
+      return fail("numeric stable choice protection");
+
+    printf("ok  Native CST processor\n");
   }
 
   {
@@ -152,14 +453,18 @@ static int selfTest() {
     node.paramsJson["unicodeText"] = "\"Caf\\u00e9 \\ud83c\\udf9e\"";
     chain.nodes.push_back(node);
 
-    if (!saveInputSidecar(source.string(), ColorSpace::LinearRec2020, gui, chain))
+    const ColorEncoding rawEncoding{RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate};
+    if (!saveInputSidecar(source.string(), gui, chain, &rawEncoding))
       return fail("sidecar v2 save");
 
     PersistSidecar loaded;
     const std::string sidecar = inputSidecarPath(source.string());
     if (!loadSidecarFile(sidecar, loaded)) return fail("sidecar v2 load");
     if (loaded.format != "rawnode-sidecar" || loaded.version != 2) return fail("sidecar v2 version");
-    if (loaded.rawWorkingSpace != "Linear Rec.2020") return fail("sidecar v2 RAW working space");
+    if (!loaded.legacyRawWorkingSpace.empty() ||
+        loaded.rawColorSpace != "davinci-wide-gamut" ||
+        loaded.rawGamma != "davinci-intermediate")
+      return fail("sidecar v2 RAW encoding");
     if (loaded.chain.selectedNodeId != "node-future" || loaded.chain.nodes.size() != 1)
       return fail("sidecar v2 node identity");
     const PersistNode &loadedNode = loaded.chain.nodes[0];
@@ -190,6 +495,103 @@ static int selfTest() {
       return fail("sidecar v2 missing processor preservation");
 
     fs::remove(sidecar);
+
+    // Unknown future colour identifiers must be readable but write-protected,
+    // rather than silently replaced by this build's fallback.
+    const fs::path protectedImage = fs::temp_directory_path() / "rawnode-selftest-protected.tif";
+    if (!writeTinyTiff(protectedImage, false)) return fail("protected sidecar image write");
+    PersistChain emptyChain;
+    const ColorEncoding protectedRaw{RgbGamut::Rec2020, TransferFunction::Linear};
+    if (!saveInputSidecar(protectedImage.string(), gui, emptyChain, &protectedRaw))
+      return fail("protected sidecar initial save");
+    const std::string protectedSidecar = inputSidecarPath(protectedImage.string());
+    std::string protectedJson;
+    {
+      std::ifstream in(protectedSidecar, std::ios::binary);
+      protectedJson.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    const std::string knownGamma = "\"gamma\":\"linear\"";
+    const size_t gammaPos = protectedJson.find(knownGamma);
+    if (gammaPos == std::string::npos) return fail("protected sidecar gamma locate");
+    protectedJson.replace(gammaPos, knownGamma.size(), "\"gamma\":\"Gamma 2.4\"");
+    {
+      std::ofstream out(protectedSidecar, std::ios::binary | std::ios::trunc);
+      out << protectedJson;
+      if (!out.good()) return fail("protected sidecar rewrite");
+    }
+    App protectedApp;
+    openPath(protectedApp, protectedImage.string(), true);
+    if (protectedApp.sidecarWriteBlockedPath != protectedImage.string())
+      return fail("unknown colour sidecar write protection");
+    saveCurrentInputSidecar(protectedApp);
+    std::string protectedAfter;
+    {
+      std::ifstream in(protectedSidecar, std::ios::binary);
+      protectedAfter.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    if (protectedAfter.find("\"gamma\":\"Gamma 2.4\"") == std::string::npos)
+      return fail("unknown colour sidecar preservation");
+    fs::remove(protectedSidecar);
+    fs::remove(protectedImage);
+
+    // RawNode-generated ICC descriptions carry stable encoding IDs so
+    // wide-gamut exports round-trip through the canonical raster loader.
+    Image tagged;
+    tagged.w = 1;
+    tagged.h = 1;
+    tagged.px = {0.18f, 0.18f, 0.18f, 1.0f};
+    for (ColorEncoding exportEncoding : {
+             ColorEncoding{RgbGamut::ACES_AP1, TransferFunction::Linear},
+             ColorEncoding{RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate},
+             ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB},
+             ColorEncoding{RgbGamut::Rec2020, TransferFunction::Rec709}}) {
+      const fs::path taggedPath =
+          fs::temp_directory_path() / (std::string("rawnode-selftest-tagged-") + rgbGamutId(exportEncoding.gamut) + ".png");
+      if (!writeImage(tagged, taggedPath.string(), exportEncoding))
+        return fail("ICC tagged export");
+      Image reloaded;
+      ColorEncoding reloadedEncoding;
+      bool raw = true;
+      if (!loadImage(taggedPath.string(), reloaded, reloadedEncoding, raw) || raw ||
+          reloadedEncoding.gamut != exportEncoding.gamut ||
+          reloadedEncoding.gamma != TransferFunction::Linear)
+        return fail("ICC encoding round trip");
+      fs::remove(taggedPath);
+    }
+
+    // Per-image sidecars must not mutate the RAW session/workspace default.
+    const fs::path defaultImage = fs::temp_directory_path() / "rawnode-selftest-default-owner.tif";
+    if (!writeTinyTiff(defaultImage, false)) return fail("RAW default owner image write");
+    PersistGui oldPerImageGui;
+    oldPerImageGui.outputColorSpace = "rec709";
+    oldPerImageGui.outputGamma = "srgb";
+    if (!saveInputSidecar(defaultImage.string(), oldPerImageGui, PersistChain{}, nullptr))
+      return fail("RAW default owner sidecar write");
+    const std::string defaultSidecar = inputSidecarPath(defaultImage.string());
+    std::string defaultJson;
+    {
+      std::ifstream in(defaultSidecar, std::ios::binary);
+      defaultJson.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    }
+    const std::string outputGammaField = "\"outputGamma\":\"srgb\",";
+    const size_t outputGammaPos = defaultJson.find(outputGammaField);
+    if (outputGammaPos == std::string::npos) return fail("RAW default owner JSON locate");
+    defaultJson.insert(outputGammaPos + outputGammaField.size(),
+                       "\"rawDefaultColorSpace\":\"rec709\",\"rawDefaultGamma\":\"linear\",");
+    {
+      std::ofstream out(defaultSidecar, std::ios::binary | std::ios::trunc);
+      out << defaultJson;
+      if (!out.good()) return fail("RAW default owner JSON rewrite");
+    }
+    App defaultOwner;
+    defaultOwner.rawWorkingEncoding =
+        {RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate};
+    openPath(defaultOwner, defaultImage.string(), true);
+    if (defaultOwner.rawWorkingEncoding !=
+        ColorEncoding{RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate})
+      return fail("per-image sidecar changed RAW default");
+    fs::remove(inputSidecarPath(defaultImage.string()));
+    fs::remove(defaultImage);
 
     // V1 remains readable and is normalised into the generic persistence model.
     const fs::path legacy = fs::temp_directory_path() / "rawnode-selftest-v1.ofxrawhost.json";

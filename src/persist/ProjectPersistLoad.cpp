@@ -280,7 +280,11 @@ bool extractBoolField(const std::string &json, const char *key, bool &out) {
 }
 
 void loadGuiFromJson(const std::string &guiObj, PersistGui &g) {
-  extractIntField(guiObj, "outputIndex", g.outputIndex);
+  extractIntField(guiObj, "outputIndex", g.legacyOutputIndex);
+  extractStringField(guiObj, "outputColorSpace", g.outputColorSpace);
+  extractStringField(guiObj, "outputGamma", g.outputGamma);
+  extractStringField(guiObj, "rawDefaultColorSpace", g.rawDefaultColorSpace);
+  extractStringField(guiObj, "rawDefaultGamma", g.rawDefaultGamma);
   extractIntField(guiObj, "exportFormat", g.exportFormat);
   extractIntField(guiObj, "jpegQuality", g.jpegQuality);
   extractIntField(guiObj, "previewRes", g.previewRes);
@@ -432,7 +436,6 @@ bool loadSidecarFile(const std::string &path, PersistSidecar &out) {
   extractStringField(json, "format", out.format);
   extractIntField(json, "version", out.version);
   extractStringField(json, "kind", out.kind);
-  extractStringField(json, "inputColorSpace", out.inputColorSpace);
   extractStringField(json, "exportedAt", out.exportedAt);
 
   // Never rewrite a future RawNode schema as V2. The caller can use the
@@ -444,10 +447,12 @@ bool loadSidecarFile(const std::string &path, PersistSidecar &out) {
 
   if (out.format == "rawnode-sidecar") {
     extractStringField(json, "source", out.sourcePath);
-    extractStringField(json, "workingSpace", out.workingSpace);
     std::string rawObj;
-    if (extractObject(json, "raw", rawObj))
-      extractStringField(rawObj, "workingSpace", out.rawWorkingSpace);
+    if (extractObject(json, "raw", rawObj)) {
+      extractStringField(rawObj, "workingSpace", out.legacyRawWorkingSpace);
+      extractStringField(rawObj, "colorSpace", out.rawColorSpace);
+      extractStringField(rawObj, "gamma", out.rawGamma);
+    }
     std::string graphObj;
     if (!extractObject(json, "graph", graphObj)) return false;
     return loadGraphV2FromJson(graphObj, out.chain);

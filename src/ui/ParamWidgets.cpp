@@ -126,8 +126,7 @@ static bool paramEditButton(double &value, bool asInt, double lo, double hi) {
 }
 
 static void finishParameterChange(App &app, bool changed) {
-  if (!changed) return;
-  scheduleRender(app);
+  if (changed) scheduleRender(app);
 }
 
 static void drawParam(App &app, Node &node, ProcessorParameter param) {

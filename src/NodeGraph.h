@@ -8,9 +8,11 @@ std::string nodeDisplayName(const Node &node);
 void clearNodes(App &app);
 bool addNode(App &app, int pluginIndex);  // OFX plugin
 bool addNativeExposureNode(App &app);
+bool addNativeCstNode(App &app);
 bool addCtlNode(App &app, const std::string &path);
 void destroyNode(App &app, int index);
 void moveNode(App &app, int from, int to);
 
 PersistChain captureChain(const App &app);
 void applyChain(App &app, const PersistChain &chain);
+bool hasUnknownProcessorChoiceIds(const App &app);

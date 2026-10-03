@@ -1,13 +1,18 @@
 #pragma once
 
+#include "color/ColorEncoding.h"
+
 #include <map>
 #include <string>
 #include <vector>
 
-enum class ColorSpace;
-
 struct PersistGui {
-  int outputIndex = 0;
+  // Read-only migration value for older V2/workspace JSON.
+  int legacyOutputIndex = 0;
+  std::string outputColorSpace;
+  std::string outputGamma;
+  std::string rawDefaultColorSpace;
+  std::string rawDefaultGamma;
   int exportFormat = 1;
   int jpegQuality = 92;
   int previewRes = 1;
@@ -46,11 +51,10 @@ struct PersistSidecar {
   int version = 0;
   std::string kind;
   std::string sourcePath;
-  std::string inputColorSpace;
-  std::string workingSpace;
-  // Added within Sidecar V2 as an optional, backwards-compatible RAW setting.
-  // Empty means the sidecar predates selectable RAW working spaces.
-  std::string rawWorkingSpace;
+  // Read-only migration field for PR #16-era combined RAW working-space names.
+  std::string legacyRawWorkingSpace;
+  std::string rawColorSpace;
+  std::string rawGamma;
   std::string exportedAt;
   PersistGui gui;
   PersistChain chain;
@@ -75,8 +79,10 @@ std::string jsonStringValue(const std::string &value);
 bool parseJsonStringValue(const std::string &raw, std::string &out);
 
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);
-bool saveInputSidecar(const std::string &imagePath, ColorSpace inputSpace, const PersistGui &gui, const PersistChain &chain);
-bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath, ColorSpace inputSpace,
-                       const PersistGui &gui, const PersistChain &chain);
+bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,
+                      const PersistChain &chain, const ColorEncoding *rawEncoding = nullptr);
+bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath,
+                       const PersistGui &gui, const PersistChain &chain,
+                       const ColorEncoding *rawEncoding = nullptr);
 
 std::string relativeToWorkspace(const std::string &workspaceDir, const std::string &absPath);

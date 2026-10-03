@@ -28,13 +28,13 @@ The current V2 shape is:
   "version": 2,
   "kind": "input",
   "source": "DSC_0001.NEF",
-  "inputColorSpace": "Linear Rec.2020",
-  "workingSpace": "Linear Rec.2020",
   "raw": {
-    "workingSpace": "Linear Rec.2020"
+    "colorSpace": "rec2020",
+    "gamma": "linear"
   },
   "gui": {
-    "outputIndex": 0,
+    "outputColorSpace": "rec709",
+    "outputGamma": "srgb",
     "exportFormat": 1,
     "jpegQuality": 92,
     "previewRes": 1,
@@ -64,14 +64,33 @@ The current V2 shape is:
 }
 ```
 
-### RAW working space
+### RAW working encoding
 
-For RAW inputs, new Sidecar V2 files store the selected initial working space in `raw.workingSpace`.
-Current choices are Linear Rec.709, Linear Rec.2020, and ACES2065-1.
+RAW colour space (primaries/gamut) and gamma/transfer function are persisted independently:
 
-The field is additive within V2. Older V2 and V1 sidecars do not contain it; RawNode treats those RAW edits as Linear Rec.709 so projects created before the selectable working-space feature retain the colour-boundary behaviour introduced in PR #15.
+- `raw.colorSpace`
+- `raw.gamma`
 
-The top-level `inputColorSpace` / `workingSpace` fields remain descriptive. `raw.workingSpace` is the explicit RAW-decode choice used when reconstructing the image.
+Current colour-space choices are Rec.709, Rec.2020, Display P3, ACES AP0, ACES AP1, and DaVinci Wide Gamut. Current gamma choices are Linear, sRGB, Rec.709 (camera), and DaVinci Intermediate.
+
+New writes use stable IDs such as `rec2020`, `aces-ap1`, `display-p3`, `linear`, and `davinci-intermediate` rather than UI list positions or display labels. Historical display names and aliases remain accepted when reading older sidecars.
+
+`raw.workingSpace` is a read-only migration field for older PR #16-era sidecars. New files write only the independent stable IDs. Older V2 sidecars that contain only `raw.workingSpace` map the three historical choices to Rec.709 + Linear, Rec.2020 + Linear, or ACES AP0 + Linear. V2/V1 RAW sidecars that predate selectable RAW working space still reopen as Rec.709 + Linear, preserving their historical colour-boundary behaviour.
+
+Legacy combined top-level colour strings may still be present in older development sidecars, but current files do not write or depend on them.
+
+If an explicit RAW colour-space or gamma ID is present but is not recognised by the current build, RawNode may use a safe fallback for display/decoding but write-protects the sidecar so the unknown value is not destroyed.
+
+### Output encoding
+
+The Output tag is represented by an independent colour-space + gamma pair:
+
+- `gui.outputColorSpace`
+- `gui.outputGamma`
+
+These fields use the same stable IDs and shared colour registry as RAW and the native CST. The legacy numeric `gui.outputIndex` is accepted only when reading older Sidecar V2/workspace files and is not written by current builds.
+
+RAW session defaults are **not** per-image edit state. They are stored only in the optional workspace file as `gui.rawDefaultColorSpace` and `gui.rawDefaultGamma`. Per-image sidecars neither write nor apply those fields. Development sidecars that already contain recognised values are ignored; unknown future values are protected from destructive rewrite.
 
 ### Serial order and future graph connections
 
@@ -127,15 +146,17 @@ Loaded parameter JSON is retained on the node even when the installed processor 
 When saving again:
 
 1. preserved unknown parameter values are copied forward;
-2. parameters known to the live processor overwrite their corresponding saved values.
+2. parameters known to the live processor overwrite their corresponding saved values;
+3. choice parameters that expose stable choice IDs are saved by ID rather than menu position;
+4. if a newer build wrote a choice ID that the current build does not recognise, the opaque saved ID is preserved instead of being replaced by the current fallback/default.
 
-This lets removed, future, or currently unsupported parameter values survive a round trip where possible.
+This lets removed, future, or currently unsupported parameter values survive a round trip where possible. Processors that provide stable choice IDs persist those IDs; backends without them retain their existing numeric choice persistence.
 
 RawNode does not yet guarantee preservation of every unknown top-level or unknown node-level metadata field. That can be expanded additively if future schema versions require it.
 
 ## RAW state
 
-The V2 schema includes a `raw` object. It is currently empty because RawNode does not yet expose adjustable RAW-development settings separately from the inherited LibRaw path.
+The V2 `raw` object stores the initial RAW colour encoding through `colorSpace` and `gamma`. Older combined `workingSpace` values are accepted only during migration.
 
 Future RAW decoder/developer settings should be added here without changing the graph node model.
 
@@ -167,13 +188,21 @@ export-name.rawnode.json
 
 The export sidecar also records the source path and export timestamp.
 
+RawNode ICC profiles include stable colour-encoding IDs so supported wide-gamut exports can be identified on re-import. DaVinci Intermediate is scene-referred and can map encoded values to linear values above 1.0, which a conventional matrix/TRC ICC profile cannot fully represent. RawNode therefore warns on DI export that external ICC-managed applications may clip highlights.
+
 ## Invalid and newer sidecars
 
 If a V2 sidecar exists but cannot be parsed safely, RawNode clears the inherited on-screen chain for that image and blocks automatic sidecar writes to the file. This prevents edits from the previously viewed image from overwriting a damaged sidecar.
 
 A `rawnode-sidecar` with a version newer than this build understands is handled the same way. RawNode does not reinterpret or downgrade future schema versions.
 
-The write protection clears when the sidecar is fixed/removed and the image is reopened.
+Recognised V2 sidecars containing an unknown future RAW or Output colour-space/gamma ID are also protected from overwrite. Unknown stable processor choice IDs (for example a future CST gamma) use the same rule.
+
+A protected sidecar remains read-only for that session. The protection clears after the unsupported data is fixed or the sidecar is removed and the image is reopened.
+
+### Older-build compatibility
+
+Sidecars written by this version contain independent colour-space/gamma IDs that PR #16 and earlier builds do not understand. Those older builds can fall back to their historical Rec.709/Linear interpretation and may overwrite newer colour settings if they save the file. Avoid editing newly written sidecars with an older RawNode build.
 
 ## Versioning
 

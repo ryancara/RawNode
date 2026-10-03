@@ -2,6 +2,8 @@
 
 #include "ui/Filmstrip.h"
 #include "imgio/ImageIO.h"
+#include "color/LinearColorTransform.h"
+#include "color/TransferFunction.h"
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
 #include "ui/Themes.h"
@@ -14,9 +16,42 @@
 
 namespace fs = std::filesystem;
 
+static ColorEncoding legacyOutputEncoding(int index) {
+  switch (std::clamp(index, 0, 4)) {
+    case 0: return {RgbGamut::Rec709, TransferFunction::SRGB};
+    case 1: return {RgbGamut::DisplayP3, TransferFunction::SRGB};
+    case 2: return {RgbGamut::Rec709, TransferFunction::Linear};
+    case 3: return {RgbGamut::Rec2020, TransferFunction::Linear};
+    case 4: return {RgbGamut::ACES_AP0, TransferFunction::Linear};
+  }
+  return {RgbGamut::Rec709, TransferFunction::SRGB};
+}
+
+static bool legacyRawEncodingFromName(const std::string &name, ColorEncoding &encoding) {
+  if (name == "Linear Rec.709") {
+    encoding = {RgbGamut::Rec709, TransferFunction::Linear};
+    return true;
+  }
+  if (name == "Linear Rec.2020") {
+    encoding = {RgbGamut::Rec2020, TransferFunction::Linear};
+    return true;
+  }
+  if (name == "ACES2065-1" || name == "ACES2065-1 (AP0)" || name == "AP0") {
+    encoding = {RgbGamut::ACES_AP0, TransferFunction::Linear};
+    return true;
+  }
+  return false;
+}
+
 PersistGui captureGui(const App &app) {
   PersistGui g;
-  g.outputIndex = app.outputIndex;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    g.outputColorSpace = rgbGamutId(app.outputEncoding.gamut);
+    g.outputGamma = transferFunctionId(app.outputEncoding.gamma);
+    g.rawDefaultColorSpace = rgbGamutId(app.rawWorkingEncoding.gamut);
+    g.rawDefaultGamma = transferFunctionId(app.rawWorkingEncoding.gamma);
+  }
   g.exportFormat = app.exportFormat;
   g.jpegQuality = app.jpegQuality;
   g.previewRes = app.previewRes;
@@ -31,7 +66,16 @@ PersistGui captureGui(const App &app) {
 }
 
 void applyGui(App &app, const PersistGui &g) {
-  app.outputIndex = std::clamp(g.outputIndex, 0, kOutputSpaceCount - 1);
+  ColorEncoding output = legacyOutputEncoding(g.legacyOutputIndex);
+  ColorEncoding persistedOutput;
+  if (!g.outputColorSpace.empty() && !g.outputGamma.empty() &&
+      colorEncodingFromIds(g.outputColorSpace, g.outputGamma, persistedOutput))
+    output = persistedOutput;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.outputEncoding = output;
+  }
+
   app.exportFormat = std::clamp(g.exportFormat, 0, 1);
   app.jpegQuality = std::clamp(g.jpegQuality, 1, 100);
   app.previewRes = std::clamp(g.previewRes, 0, kPreviewResCount - 1);
@@ -45,17 +89,58 @@ void applyGui(App &app, const PersistGui &g) {
   app.themeApplyPending = true;
 }
 
+static void applyWorkspaceSessionDefaults(App &app, const PersistGui &g) {
+  ColorEncoding rawDefault;
+  if (!g.rawDefaultColorSpace.empty() && !g.rawDefaultGamma.empty() &&
+      colorEncodingFromIds(g.rawDefaultColorSpace, g.rawDefaultGamma, rawDefault)) {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.rawWorkingEncoding = rawDefault;
+  }
+}
+
+static PersistGui captureSidecarGui(const App &app) {
+  PersistGui g = captureGui(app);
+  // RAW session defaults belong to workspace/app state, not to one image.
+  g.rawDefaultColorSpace.clear();
+  g.rawDefaultGamma.clear();
+  return g;
+}
+
 void saveCurrentInputSidecar(App &app) {
   if (app.path.empty()) return;
   if (app.sidecarWriteBlockedPath == app.path) return;
-  saveInputSidecar(app.path, app.inputSpace, captureGui(app), captureChain(app));
+  ColorEncoding inputEncoding;
+  bool inputIsRaw = false;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    inputEncoding = app.inputEncoding;
+    inputIsRaw = app.inputIsRaw;
+  }
+  saveInputSidecar(app.path, captureSidecarGui(app), captureChain(app),
+                   inputIsRaw ? &inputEncoding : nullptr);
 }
 
 void persistWorkspace(App &app) {
-  if (app.workspaceDir.empty()) return;
+  if (app.workspaceDir.empty() || app.workspaceWriteBlocked) return;
   const std::string active =
       app.path.empty() ? std::string() : relativeToWorkspace(app.workspaceDir, app.path);
   saveWorkspaceProject(app.workspaceDir, captureGui(app), active);
+}
+
+static bool hasUnknownEncodingPair(const std::string &gamutId, const std::string &transferId) {
+  if (gamutId.empty() && transferId.empty()) return false;
+  if (gamutId.empty() || transferId.empty()) return true;
+  ColorEncoding encoding;
+  return !colorEncodingFromIds(gamutId, transferId, encoding);
+}
+
+static bool sidecarHasUnknownColourEncoding(const PersistSidecar &sc) {
+  if (hasUnknownEncodingPair(sc.rawColorSpace, sc.rawGamma)) return true;
+  if (hasUnknownEncodingPair(sc.gui.outputColorSpace, sc.gui.outputGamma)) return true;
+
+  // Older development builds accidentally wrote the RAW session default into
+  // per-image sidecars. Ignore recognised values, but protect unknown values.
+  return hasUnknownEncodingPair(sc.gui.rawDefaultColorSpace, sc.gui.rawDefaultGamma);
 }
 
 static void loadSidecarForPath(App &app, const std::string &imagePath) {
@@ -64,8 +149,6 @@ static void loadSidecarForPath(App &app, const std::string &imagePath) {
   const std::string v1Path = legacyInputSidecarPath(imagePath);
   std::error_code ec;
 
-  // A successful retry, a removed sidecar, or moving to another image clears
-  // any previous write protection for this document.
   app.sidecarWriteBlockedPath.clear();
 
   if (fs::is_regular_file(v2Path, ec)) {
@@ -73,7 +156,7 @@ static void loadSidecarForPath(App &app, const std::string &imagePath) {
       clearNodes(app);
       app.sidecarWriteBlockedPath = imagePath;
       if (sc.format == "rawnode-sidecar" && sc.version > 2) {
-        app.setStatus("This image uses a newer RawNode sidecar version; edits are not being overwritten.");
+        app.setStatus("This image uses a newer RawNode sidecar version; changes will not be saved.");
       } else {
         app.setStatus("Could not read RawNode sidecar; the existing file is protected from overwrite.");
       }
@@ -87,14 +170,30 @@ static void loadSidecarForPath(App &app, const std::string &imagePath) {
       return;
     }
   } else {
-    // A new image with no sidecar starts with a clean processing chain.
-    // Never inherit the previously opened image's nodes into this document.
     clearNodes(app);
     return;
   }
 
   applyGui(app, sc.gui);
   applyChain(app, sc.chain);
+
+  // Unknown future colour identifiers must never be silently replaced by this
+  // build's fallback values on the next automatic save.
+  if (sidecarHasUnknownColourEncoding(sc)) {
+    app.sidecarWriteBlockedPath = imagePath;
+    app.setStatus("This sidecar contains colour settings this version of RawNode does not recognise; changes will not be saved.");
+    return;
+  }
+
+  if (hasUnknownProcessorChoiceIds(app)) {
+    app.sidecarWriteBlockedPath = imagePath;
+    app.setStatus("This sidecar contains processor settings this version of RawNode does not recognise; changes will not be saved.");
+  }
+}
+
+static bool workspaceHasUnknownColourEncoding(const PersistGui &g) {
+  return hasUnknownEncodingPair(g.outputColorSpace, g.outputGamma) ||
+         hasUnknownEncodingPair(g.rawDefaultColorSpace, g.rawDefaultGamma);
 }
 
 void openWorkspace(App &app, const std::string &dir) {
@@ -106,11 +205,19 @@ void openWorkspace(App &app, const std::string &dir) {
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
   app.workspaceDir = fs::weakly_canonical(fs::path(dir), ec).string();
+  app.workspaceWriteBlocked = false;
   if (!ImGuiBackend_SetWorkspaceIni(app.workspaceDir)) app.layoutApplyPending = true;
   refreshFilmstrip(app);
   PersistGui wg;
   std::string activeRel;
-  if (loadWorkspaceProject(app.workspaceDir, wg, activeRel)) applyGui(app, wg);
+  if (loadWorkspaceProject(app.workspaceDir, wg, activeRel)) {
+    if (workspaceHasUnknownColourEncoding(wg)) {
+      app.workspaceWriteBlocked = true;
+      app.setStatus("This workspace contains colour settings this version of RawNode does not recognise; the workspace file is protected from overwrite.");
+    }
+    applyGui(app, wg);
+    applyWorkspaceSessionDefaults(app, wg);
+  }
   std::string toOpen;
   if (!activeRel.empty()) {
     fs::path p = fs::path(app.workspaceDir) / activeRel;
@@ -121,31 +228,54 @@ void openWorkspace(App &app, const std::string &dir) {
     openPath(app, toOpen, true);
   else
     app.setStatus("Workspace: " + fs::path(app.workspaceDir).filename().string() + " (no images)");
+
+  if (app.workspaceWriteBlocked)
+    app.setStatus("This workspace contains colour settings this version of RawNode does not recognise; the workspace file is protected from overwrite.");
   persistWorkspace(app);
 }
 
-static ColorSpace rawWorkingSpaceForOpen(const App &app, const std::string &path, bool applySidecar) {
-  if (!isRawImagePath(path)) return app.rawWorkingSpace;
-
-  // New images use the current/session preference. Existing sidecars created
-  // before this feature have no raw.workingSpace field; those intentionally
-  // reopen as Linear Rec.709 so previously saved edits retain PR #15 semantics.
-  ColorSpace requested = app.rawWorkingSpace;
-  if (!applySidecar) return requested;
+static ColorEncoding rawWorkingEncodingForOpen(const App &app, const std::string &path,
+                                               bool applySidecar) {
+  ColorEncoding session;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    session = app.rawWorkingEncoding;
+  }
+  if (!applySidecar) return session;
 
   std::error_code ec;
   const std::string v2Path = inputSidecarPath(path);
   const std::string v1Path = legacyInputSidecarPath(path);
   PersistSidecar sc;
+
   if (fs::is_regular_file(v2Path, ec)) {
-    if (!loadSidecarFile(v2Path, sc)) return ColorSpace::LinearRec709;
-    ColorSpace stored;
-    if (!sc.rawWorkingSpace.empty() && colorSpaceFromName(sc.rawWorkingSpace, stored) && isRawWorkingSpace(stored))
+    if (!loadSidecarFile(v2Path, sc))
+      return {RgbGamut::Rec709, TransferFunction::Linear};
+
+    if (!sc.rawColorSpace.empty() || !sc.rawGamma.empty()) {
+      ColorEncoding stored;
+      if (!sc.rawColorSpace.empty() && !sc.rawGamma.empty() &&
+          colorEncodingFromIds(sc.rawColorSpace, sc.rawGamma, stored))
+        return stored;
+
+      // Unknown future explicit encoding. Decode with the historical safe
+      // fallback; loadSidecarForPath will write-protect the sidecar.
+      return {RgbGamut::Rec709, TransferFunction::Linear};
+    }
+
+    ColorEncoding stored;
+    if (!sc.legacyRawWorkingSpace.empty() &&
+        legacyRawEncodingFromName(sc.legacyRawWorkingSpace, stored))
       return stored;
-    return ColorSpace::LinearRec709;
+
+    // V2 sidecar predating selectable RAW working space.
+    return {RgbGamut::Rec709, TransferFunction::Linear};
   }
-  if (fs::is_regular_file(v1Path, ec)) return ColorSpace::LinearRec709;
-  return requested;
+
+  if (fs::is_regular_file(v1Path, ec))
+    return {RgbGamut::Rec709, TransferFunction::Linear};
+
+  return session;
 }
 
 void openPath(App &app, const std::string &path, bool applySidecar) {
@@ -155,20 +285,28 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
   }
   if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
 
-  const ColorSpace requestedRawSpace = rawWorkingSpaceForOpen(app, path, applySidecar);
+  const ColorEncoding requestedRaw = rawWorkingEncodingForOpen(app, path, applySidecar);
   Image img;
-  ColorSpace detected = ColorSpace::LinearRec2020;
-  if (!loadImage(path, img, detected, requestedRawSpace)) {
+  ColorEncoding detectedEncoding;
+  bool decodedRaw = false;
+  if (!loadImage(path, img, detectedEncoding, decodedRaw, requestedRaw)) {
     app.setStatus("Could not decode " + fs::path(path).filename().string());
     return;
   }
+
   app.path = path;
   app.full = std::move(img);
-  app.inputSpace = detected;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.inputEncoding = detectedEncoding;
+    app.inputIsRaw = decodedRaw;
+  }
   app.previewZoom = 1.0f;
   app.previewPanX = 0.0f;
   app.previewPanY = 0.0f;
-  app.setStatus("Loaded " + fs::path(path).filename().string() + " (" + colorSpaceName(detected) + ")");
+  app.setStatus("Loaded " + fs::path(path).filename().string() + " (" +
+                colorEncodingName(detectedEncoding) + ")");
+
   app.filmstripIndex = -1;
   for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
     std::error_code ec;
@@ -177,44 +315,52 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
       break;
     }
   }
+
   if (applySidecar) {
     loadSidecarForPath(app, path);
   } else {
     app.sidecarWriteBlockedPath.clear();
   }
+
   rebuildPreview(app);
   persistWorkspace(app);
 }
 
-void setRawWorkingSpace(App &app, ColorSpace space) {
-  if (!isRawWorkingSpace(space)) return;
-  const bool currentIsRaw = !app.path.empty() && isRawImagePath(app.path);
-  const ColorSpace currentSpace = currentIsRaw ? app.inputSpace : app.rawWorkingSpace;
-  if (currentSpace == space) {
-    app.rawWorkingSpace = space;
-    return;
+void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
+  const ColorEncoding requested{gamut, gamma};
+  ColorEncoding current;
+  bool currentIsRaw = false;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    currentIsRaw = app.inputIsRaw;
+    current = currentIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
+    // An explicit UI choice also becomes the session default for new RAWs.
+    app.rawWorkingEncoding = requested;
   }
-
-  // An explicit UI choice also becomes the session default for new RAWs.
-  app.rawWorkingSpace = space;
+  if (current == requested) return;
 
   // For raster images this is simply the preference for the next RAW.
   if (!currentIsRaw) return;
 
   waitRenderIdle(app);
   Image img;
-  ColorSpace detected = space;
-  if (!loadImage(app.path, img, detected, space)) {
-    app.setStatus("Could not reload RAW in " + std::string(colorSpaceName(space)));
+  ColorEncoding detectedEncoding;
+  bool decodedRaw = false;
+  if (!loadImage(app.path, img, detectedEncoding, decodedRaw, requested) || !decodedRaw) {
+    app.setStatus("Could not reload RAW in " + colorEncodingName(requested));
     return;
   }
 
   app.full = std::move(img);
-  app.inputSpace = detected;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.inputEncoding = detectedEncoding;
+    app.inputIsRaw = true;
+  }
   rebuildPreview(app);
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
-  app.setStatus("RAW working space: " + std::string(colorSpaceName(detected)));
+  app.setStatus("RAW working encoding: " + colorEncodingName(requested));
 }
 
 void doExport(App &app) {
@@ -231,10 +377,17 @@ void doExport(App &app) {
   waitRenderIdle(app);
   const int pw = app.preview.w, ph = app.preview.h;
   Image src = app.full;
-  const ColorSpace space = outputSpace(app.outputIndex);
-  const ColorSpace inSpace = app.inputSpace;
+  ColorEncoding space;
+  bool sourceUsesRawEncoding = false;
+  ColorEncoding sourceRawEncoding;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    space = app.outputEncoding;
+    sourceUsesRawEncoding = app.inputIsRaw;
+    sourceRawEncoding = app.inputEncoding;
+  }
   const int jpegQuality = app.jpegQuality;
-  const PersistGui persistGui = captureGui(app);
+  const PersistGui persistGui = captureSidecarGui(app);
   const PersistChain persistChain = captureChain(app);
   const std::string sourcePath = app.path;
   bool bypassedMissingProcessor = false;
@@ -244,8 +397,8 @@ void doExport(App &app) {
       break;
     }
   }
-  std::thread([&, src, outPath, pw, ph, space, jpegQuality, persistGui, persistChain, sourcePath, inSpace,
-               bypassedMissingProcessor]() mutable {
+  std::thread([&, src, outPath, pw, ph, space, jpegQuality, persistGui, persistChain, sourcePath,
+               sourceUsesRawEncoding, sourceRawEncoding, bypassedMissingProcessor]() mutable {
     for (auto &n : app.nodes)
       if (n.processor) n.processor->setRenderSize(src.w, src.h);
     Image out;
@@ -253,10 +406,17 @@ void doExport(App &app) {
     for (auto &n : app.nodes)
       if (n.processor) n.processor->setRenderSize(pw, ph);
     bool ok = result.ok && writeImage(out, outPath, space, jpegQuality);
-    if (ok) saveExportSidecar(outPath, sourcePath, inSpace, persistGui, persistChain);
-    app.setStatus(ok ? "Exported " + fs::path(outPath).filename().string() + " (" + std::to_string(src.w) + "×" +
-                            std::to_string(src.h) + ")" +
-                            (bypassedMissingProcessor ? " — missing processors were bypassed" : "")
-                      : "Export failed" + (result.message.empty() ? std::string() : ": " + result.message));
+    if (ok) saveExportSidecar(outPath, sourcePath, persistGui, persistChain,
+                              sourceUsesRawEncoding ? &sourceRawEncoding : nullptr);
+    if (ok) {
+      std::string status = "Exported " + fs::path(outPath).filename().string() + " (" +
+                           std::to_string(src.w) + "×" + std::to_string(src.h) + ")";
+      if (bypassedMissingProcessor) status += " — missing processors were bypassed";
+      if (space.gamma == TransferFunction::DaVinciIntermediate)
+        status += " — warning: ICC cannot fully represent DaVinci Intermediate scene values above 1.0; external apps may clip highlights";
+      app.setStatus(status);
+    } else {
+      app.setStatus("Export failed" + (result.message.empty() ? std::string() : ": " + result.message));
+    }
   }).detach();
 }

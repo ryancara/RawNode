@@ -108,7 +108,7 @@ interpreter are fetched automatically by CMake.
 brew install cmake libraw libtiff little-cms2 openexr
 
 # Debian/Ubuntu
-sudo apt install cmake pkg-config libraw-dev libtiff-dev liblcms2-dev libopenexr-dev libgl1-mesa-dev xorg-dev
+sudo apt install cmake pkg-config libraw-dev libtiff-dev liblcms2-dev libopenexr-dev libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
 
 git clone --recursive https://github.com/aaronmurniadi/ofxrawhost.git
 cd ofxrawhost

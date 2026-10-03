@@ -1,4 +1,6 @@
 #include "imgio/ImageIO.h"
+#include "color/LinearColorTransform.h"
+#include "color/TransferFunction.h"
 #include "imgio/ImageIOPriv.h"
 #include "perf.h"
 
@@ -61,47 +63,25 @@ void applyCameraMatrix(const float camera[4], int channels, const float matrix[3
   }
 }
 
-bool isRawWorkingSpace(ColorSpace cs) {
-  return cs == ColorSpace::LinearRec709 || cs == ColorSpace::LinearRec2020 || cs == ColorSpace::ACES2065_1;
+const std::vector<std::string> &rawImageExtensions() {
+  static const std::vector<std::string> extensions = {
+      ".3fr", ".arw", ".cr2", ".cr3", ".crw", ".dcr", ".dng", ".erf", ".iiq", ".kdc",
+      ".mef", ".mos", ".mrw", ".nef", ".nrw", ".orf", ".pef", ".raf", ".raw", ".rwl",
+      ".rw2", ".sr2", ".srf", ".srw", ".x3f"};
+  return extensions;
 }
 
 bool isRawImagePath(const std::string &path) {
   std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
-  return e == ".cr2" || e == ".cr3" || e == ".nef" || e == ".arw" || e == ".dng" ||
-         e == ".raf" || e == ".orf" || e == ".rw2" || e == ".pef" || e == ".srw" ||
-         e == ".raw";
+  for (char &ch : e) ch = (char)tolower((unsigned char)ch);
+  for (const std::string &rawExt : rawImageExtensions())
+    if (e == rawExt) return true;
+  return false;
 }
 
-bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], ColorSpace target, float out[3][4]) {
-  // Linear Rec.709/sRGB D65 -> Linear Rec.2020 D65.
-  static constexpr double kRec709ToRec2020[3][3] = {
-      {0.627403895934699, 0.329283038377883, 0.043313065687418},
-      {0.069097289358232, 0.919540395075459, 0.011362315566309},
-      {0.016391438875150, 0.088013307877226, 0.895595253247624},
-  };
-
-  // Linear Rec.709/sRGB D65 -> ACES2065-1/AP0 D60. This is the inverse
-  // of the AP0 -> Linear Rec.709 matrix used by the ACES/OCIO reference
-  // configuration and therefore includes the D65 <-> D60 adaptation.
-  static constexpr double kRec709ToAces2065[3][3] = {
-      {0.439632981919492, 0.382988698151554, 0.177378319928956},
-      {0.089776442958842, 0.813439428748978, 0.096784128292177},
-      {0.017541170383173, 0.111546553302387, 0.870912276314442},
-  };
-
-  double identity[3][3] = {
-      {1.0, 0.0, 0.0},
-      {0.0, 1.0, 0.0},
-      {0.0, 0.0, 1.0},
-  };
-  const double (*workingFromRec709)[3] = nullptr;
-  switch (target) {
-    case ColorSpace::LinearRec709: workingFromRec709 = identity; break;
-    case ColorSpace::LinearRec2020: workingFromRec709 = kRec709ToRec2020; break;
-    case ColorSpace::ACES2065_1: workingFromRec709 = kRec709ToAces2065; break;
-    default: return false;
-  }
+bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], RgbGamut target, float out[3][4]) {
+  double workingFromRec709[3][3] = {};
+  if (!linearColorTransformMatrix(RgbGamut::Rec709, target, workingFromRec709)) return false;
 
   for (int row = 0; row < 3; ++row) {
     for (int c = 0; c < 4; ++c) {
@@ -113,7 +93,7 @@ bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], ColorSpace targ
   return true;
 }
 
-static bool loadRaw(const std::string &path, Image &out, ColorSpace workingSpace) {
+static bool loadRaw(const std::string &path, Image &out, RgbGamut workingGamut, TransferFunction workingGamma) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
   LibRaw raw;
   if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
@@ -150,7 +130,7 @@ static bool loadRaw(const std::string &path, Image &out, ColorSpace workingSpace
     for (int c = 0; c < 3; ++c) cameraToRec709[c][c] = 1.0f;
 
   float cameraToWorking[3][4] = {};
-  if (!makeCameraToWorkingMatrix(cameraToRec709, workingSpace, cameraToWorking)) return false;
+  if (!makeCameraToWorkingMatrix(cameraToRec709, workingGamut, cameraToWorking)) return false;
 
   libraw_processed_image_t *img = raw.dcraw_make_mem_image();
   if (!img || img->type != LIBRAW_IMAGE_BITMAP || img->colors < 3 || img->colors > 4) {
@@ -171,9 +151,9 @@ static bool loadRaw(const std::string &path, Image &out, ColorSpace workingSpace
     // Deliberately do not clamp here. The old LibRaw output-colour stage used
     // unsigned 16-bit storage and clipped matrix-created negatives/highlights.
     // Applying the matrix in RawNode float preserves those values.
-    dst[0] = rgb[0];
-    dst[1] = rgb[1];
-    dst[2] = rgb[2];
+    dst[0] = (float)encodeTransfer(rgb[0], workingGamma);
+    dst[1] = (float)encodeTransfer(rgb[1], workingGamma);
+    dst[2] = (float)encodeTransfer(rgb[2], workingGamma);
     dst[3] = 1.0f;
   };
 
@@ -371,11 +351,51 @@ static bool loadTiff(const std::string &path, Image &out, std::vector<uint8_t> &
   return ok;
 }
 
-static bool loadStb(const std::string &path, Image &out) {
+static bool loadStbEncoded(const std::string &path, Image &out) {
   int w = 0, h = 0, n = 0;
-  float *data = stbi_loadf(path.c_str(), &w, &h, &n, 4);
+  out = {};
+
+  if (stbi_is_16_bit(path.c_str())) {
+    stbi_us *data = stbi_load_16(path.c_str(), &w, &h, &n, 4);
+    if (!data) return false;
+    out.w = w;
+    out.h = h;
+    out.px.resize((size_t)w * h * 4);
+    constexpr float scale = 1.0f / 65535.0f;
+    for (int y = 0; y < h; ++y) {
+      const stbi_us *src = data + (size_t)y * w * 4;
+      float *dst = out.px.data() + (size_t)(h - 1 - y) * w * 4;
+      for (int x = 0; x < w; ++x) {
+        dst[0] = src[0] * scale;
+        dst[1] = src[1] * scale;
+        dst[2] = src[2] * scale;
+        dst[3] = src[3] * scale;
+        src += 4;
+        dst += 4;
+      }
+    }
+    stbi_image_free(data);
+    return true;
+  }
+
+  unsigned char *data = stbi_load(path.c_str(), &w, &h, &n, 4);
   if (!data) return false;
-  fromRGBAFloatTopDown(data, w, h, out);
+  out.w = w;
+  out.h = h;
+  out.px.resize((size_t)w * h * 4);
+  constexpr float scale = 1.0f / 255.0f;
+  for (int y = 0; y < h; ++y) {
+    const unsigned char *src = data + (size_t)y * w * 4;
+    float *dst = out.px.data() + (size_t)(h - 1 - y) * w * 4;
+    for (int x = 0; x < w; ++x) {
+      dst[0] = src[0] * scale;
+      dst[1] = src[1] * scale;
+      dst[2] = src[2] * scale;
+      dst[3] = src[3] * scale;
+      src += 4;
+      dst += 4;
+    }
+  }
   stbi_image_free(data);
   return true;
 }
@@ -500,39 +520,71 @@ bool makePreview(const Image &src, int maxEdge, Image &out) {
   return true;
 }
 
-bool loadImage(const std::string &path, Image &out, ColorSpace &detected, ColorSpace rawWorkingSpace) {
+static ColorEncoding linearizeRasterBuffer(Image &img, ColorEncoding sourceEncoding) {
+  if (sourceEncoding.gamma != TransferFunction::Linear) {
+    for (size_t i = 0; i + 3 < img.px.size(); i += 4) {
+      img.px[i + 0] = (float)decodeTransfer(img.px[i + 0], sourceEncoding.gamma);
+      img.px[i + 1] = (float)decodeTransfer(img.px[i + 1], sourceEncoding.gamma);
+      img.px[i + 2] = (float)decodeTransfer(img.px[i + 2], sourceEncoding.gamma);
+    }
+  }
+  sourceEncoding.gamma = TransferFunction::Linear;
+  return sourceEncoding;
+}
+
+bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncoding,
+               bool &decodedRaw, ColorEncoding rawWorkingEncoding) {
   PerfScope _ps("loadImage");
   out = {};
-  detected = ColorSpace::sRGB;
+  decodedRaw = false;
+  detectedEncoding = {RgbGamut::Rec709, TransferFunction::Linear};
+
   std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
+  for (char &ch : e) ch = (char)tolower((unsigned char)ch);
+
+  const auto tryRaw = [&]() {
+    if (!loadRaw(path, out, rawWorkingEncoding.gamut, rawWorkingEncoding.gamma)) return false;
+    decodedRaw = true;
+    detectedEncoding = rawWorkingEncoding;
+    return true;
+  };
 
   if (e == ".exr") {
     if (!loadExr(path, out)) return false;
-    detected = ColorSpace::LinearRec2020;
+    detectedEncoding = {RgbGamut::Rec2020, TransferFunction::Linear};
     return true;
   }
+
   if (e == ".tif" || e == ".tiff") {
     std::vector<uint8_t> icc;
     bool isFloat = false;
-    if (!loadTiff(path, out, icc, isFloat)) return false;
-    detected = !icc.empty() ? classifyIcc(icc) : (isFloat ? ColorSpace::LinearRec2020 : ColorSpace::sRGB);
-    return true;
+    if (loadTiff(path, out, icc, isFloat)) {
+      const ColorEncoding sourceEncoding =
+          !icc.empty() ? classifyIccEncoding(icc)
+                       : (isFloat ? ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear}
+                                  : ColorEncoding{RgbGamut::Rec709, TransferFunction::SRGB});
+      detectedEncoding = linearizeRasterBuffer(out, sourceEncoding);
+      return true;
+    }
+    // Some camera RAW formats are TIFF-based. If libtiff cannot decode the
+    // source as an ordinary raster, still give LibRaw the normal fallback.
+  } else {
+    std::vector<uint8_t> icc;
+    if (e == ".png") extractPngIcc(path, icc);
+    else if (e == ".jpg" || e == ".jpeg") extractJpgIcc(path, icc);
+
+    if (loadStbEncoded(path, out)) {
+      const ColorEncoding sourceEncoding =
+          !icc.empty() ? classifyIccEncoding(icc)
+                       : ColorEncoding{RgbGamut::Rec709, TransferFunction::SRGB};
+      detectedEncoding = linearizeRasterBuffer(out, sourceEncoding);
+      return true;
+    }
   }
 
-  std::vector<uint8_t> icc;
-  if (e == ".png") extractPngIcc(path, icc);
-  else if (e == ".jpg" || e == ".jpeg") extractJpgIcc(path, icc);
-
-  if (loadStb(path, out)) {
-    detected = !icc.empty() ? classifyIcc(icc) : ColorSpace::sRGB;
-    return true;
-  }
-  if (isRawWorkingSpace(rawWorkingSpace) && loadRaw(path, out, rawWorkingSpace)) {
-    detected = rawWorkingSpace;
-    return true;
-  }
-  return false;
+  // LibRaw is the final decoder fallback regardless of filename extension.
+  // The successful decoder, not an extension allow-list, determines RAW state.
+  return tryRaw();
 }
 
 bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w, int &h) {
@@ -540,7 +592,12 @@ bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigne
   std::string e = fs::path(path).extension().string();
   for (char &c : e) c = (char)tolower((unsigned char)c);
 
-  if (isRawImagePath(path)) return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
-  if (e == ".png" || e == ".jpg" || e == ".jpeg") return loadStbThumbRGBA(path, maxEdge, rgba, w, h);
-  return false;
+  if (e == ".png" || e == ".jpg" || e == ".jpeg")
+    return loadStbThumbRGBA(path, maxEdge, rgba, w, h);
+
+  if (e == ".tif" || e == ".tiff" || e == ".exr") return false;
+
+  // Unknown extensions still get a LibRaw probe so valid RAW files renamed to
+  // .bin (or with no extension) remain supported.
+  return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
 }

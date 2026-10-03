@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdint>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -30,6 +31,10 @@ static void toTopDown8(const Image &img, std::vector<unsigned char> &out) {
     unsigned char *dst = out.data() + (size_t)y * img.w * 4;
     for (int x = 0; x < img.w; ++x) {
       for (int c = 0; c < 4; ++c) {
+        if (!std::isfinite(src[c])) {
+          dst[c] = 0;
+          continue;
+        }
         const float v = src[c] * 255.0f + 0.5f;
         dst[c] = v < 0.0f ? 0 : (v > 255.0f ? 255 : (unsigned char)v);
       }
@@ -180,15 +185,16 @@ static bool writeJpgWithIcc(const Image &img, const std::string &path, const std
   return ok;
 }
 
-bool writeImage(const Image &img, const std::string &path, ColorSpace space, int jpegQuality) {
+bool writeImage(const Image &img, const std::string &path, ColorEncoding encoding, int jpegQuality) {
   if (img.w <= 0 || img.h <= 0) return false;
   std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
+  for (char &ch : e) ch = (char)tolower((unsigned char)ch);
 
   std::vector<uint8_t> icc;
-  if (!profileBytes(space, icc)) return false;
+  if (!profileBytes(encoding, icc)) return false;
 
   if (e == ".png") return writePngWithIcc(img, path, icc);
   if (e == ".jpg" || e == ".jpeg") return writeJpgWithIcc(img, path, icc, jpegQuality);
   return false;
 }
+

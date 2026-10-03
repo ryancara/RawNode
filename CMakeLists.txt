@@ -100,10 +100,14 @@ add_executable(OfxRawHost
   src/imgio/ImageLoad.cpp
   src/imgio/ImageColor.cpp
   src/imgio/ImageWrite.cpp
+  src/color/ColorEncoding.cpp
+  src/color/LinearColorTransform.cpp
+  src/color/TransferFunction.cpp
   src/UI.cpp
   src/NodeGraph.cpp
   src/processors/OfxProcessor.cpp
   src/processors/NativeExposureProcessor.cpp
+  src/processors/NativeCstProcessor.cpp
   src/processors/CtlProcessor.cpp
   src/RenderPipeline.cpp
   src/persist/DocumentActions.cpp
@@ -125,6 +129,8 @@ add_executable(OfxRawHost
 
 if(APPLE)
   target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m src/ofx/OfxMetal.mm)
+else()
+  target_sources(OfxRawHost PRIVATE src/ofx/OfxMetalStub.cpp)
 endif()
 
 # Link-time optimization (cross-TU inlining, dead-code elimination).

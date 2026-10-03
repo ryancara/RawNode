@@ -9,5 +9,5 @@ void saveCurrentInputSidecar(App &app);
 void persistWorkspace(App &app);
 void openWorkspace(App &app, const std::string &dir);
 void openPath(App &app, const std::string &path, bool applySidecar = true);
-void setRawWorkingSpace(App &app, ColorSpace space);
+void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma);
 void doExport(App &app);

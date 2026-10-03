@@ -4,8 +4,10 @@
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
 #include "processors/NativeExposureProcessor.h"
+#include "processors/NativeCstProcessor.h"
 #include "processors/CtlProcessor.h"
 
+#include <algorithm>
 #include <cctype>
 #include <cstdlib>
 #include <limits>
@@ -89,10 +91,26 @@ static std::string paramValueJson(const ProcessorParameter &param) {
       const bool *value = std::get_if<bool>(&param.value);
       return value && *value ? "true" : "false";
     }
-    case ParameterType::Integer:
-    case ParameterType::Choice: {
+    case ParameterType::Integer: {
       const int *value = std::get_if<int>(&param.value);
       return std::to_string(value ? *value : 0);
+    }
+    case ParameterType::Choice: {
+      const int *value = std::get_if<int>(&param.value);
+      const int selected = value ? *value : 0;
+      if (param.choiceIds.size() == param.choices.size() && !param.choiceIds.empty()) {
+        size_t index = (size_t)selected;
+        if (param.choiceValues.size() == param.choices.size()) {
+          index = param.choiceIds.size();
+          for (size_t i = 0; i < param.choiceValues.size(); ++i)
+            if (param.choiceValues[i] == selected) {
+              index = i;
+              break;
+            }
+        }
+        if (index < param.choiceIds.size()) return jsonStringValue(param.choiceIds[index]);
+      }
+      return std::to_string(selected);
     }
     case ParameterType::Vector: {
       const auto *value = std::get_if<std::vector<double>>(&param.value);
@@ -137,9 +155,27 @@ static void applyParamValueJson(Processor &processor, const ProcessorParameter &
       processor.setParameterValue(param.id, value == "true" || value == "1", false);
       return;
     case ParameterType::Integer:
-    case ParameterType::Choice:
       processor.setParameterValue(param.id, (int)std::strtol(value.c_str(), nullptr, 10), false);
       return;
+    case ParameterType::Choice: {
+      if (param.choiceIds.size() == param.choices.size() && !param.choiceIds.empty()) {
+        std::string id;
+        if (!parseJsonStringValue(value, id)) return;
+        for (size_t i = 0; i < param.choiceIds.size(); ++i) {
+          if (param.choiceIds[i] != id) continue;
+          const int selected =
+              param.choiceValues.size() == param.choices.size() ? param.choiceValues[i] : (int)i;
+          processor.setParameterValue(param.id, selected, false);
+          return;
+        }
+        return;
+      }
+
+      // Backends without stable IDs retain their historical numeric choice
+      // persistence.
+      processor.setParameterValue(param.id, (int)std::strtol(value.c_str(), nullptr, 10), false);
+      return;
+    }
     case ParameterType::Double:
       processor.setParameterValue(param.id, std::strtod(value.c_str(), nullptr), false);
       return;
@@ -174,6 +210,7 @@ void destroyNode(App &app, int index) {
   else if (app.selectedNode > index)
     --app.selectedNode;
   app.paramFilter[0] = '\0';
+
   scheduleRender(app);
 }
 
@@ -222,6 +259,11 @@ bool addNativeExposureNode(App &app) {
   return appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
 }
 
+bool addNativeCstNode(App &app) {
+  waitRenderIdle(app);
+  return appendProcessorNode(app, std::make_unique<NativeCstProcessor>());
+}
+
 bool addCtlNode(App &app, const std::string &path) {
   waitRenderIdle(app);
   std::string error;
@@ -262,6 +304,20 @@ PersistChain captureChain(const App &app) {
 
       for (const ProcessorParameter &param : node.processor->parameters()) {
         if (param.secret || !param.persistValue || !persistedParameterType(param.type)) continue;
+
+        // If a newer build wrote a stable choice ID that this build does not
+        // recognise, keep the opaque original value instead of replacing it
+        // with this build's fallback/default selection on save.
+        if (param.type == ParameterType::Choice && !param.choiceIds.empty()) {
+          auto preserved = node.preservedParamsJson.find(param.id);
+          if (preserved != node.preservedParamsJson.end()) {
+            std::string preservedId;
+            if (!parseJsonStringValue(trimParamJson(preserved->second), preservedId) ||
+                std::find(param.choiceIds.begin(), param.choiceIds.end(), preservedId) == param.choiceIds.end())
+              continue;
+          }
+        }
+
         persisted.paramsJson[param.id] = paramValueJson(param);
       }
     } else {
@@ -273,6 +329,27 @@ PersistChain captureChain(const App &app) {
     chain.nodes.push_back(std::move(persisted));
   }
   return chain;
+}
+
+static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParameter &param) {
+  if (param.type != ParameterType::Choice || param.choiceIds.empty()) return false;
+  const auto it = node.preservedParamsJson.find(param.id);
+  if (it == node.preservedParamsJson.end()) return false;
+
+  // Stable-ID choices must be persisted as strings. Any other JSON type belongs
+  // to an unsupported/development-era format and is protected from overwrite.
+  std::string id;
+  if (!parseJsonStringValue(trimParamJson(it->second), id)) return true;
+  return std::find(param.choiceIds.begin(), param.choiceIds.end(), id) == param.choiceIds.end();
+}
+
+bool hasUnknownProcessorChoiceIds(const App &app) {
+  for (const Node &node : app.nodes) {
+    if (!node.processor) continue;
+    for (const ProcessorParameter &param : node.processor->parameters())
+      if (parameterHasUnknownChoiceId(node, param)) return true;
+  }
+  return false;
 }
 
 void applyChain(App &app, const PersistChain &chain) {
@@ -287,6 +364,8 @@ void applyChain(App &app, const PersistChain &chain) {
       created = pluginIndex >= 0 && addNode(app, pluginIndex);
     } else if (backend == "native" && persisted.identifier == NativeExposureProcessor::kIdentifier) {
       created = addNativeExposureNode(app);
+    } else if (backend == "native" && persisted.identifier == NativeCstProcessor::kIdentifier) {
+      created = addNativeCstNode(app);
     } else if (backend == "ctl") {
       created = addCtlNode(app, persisted.identifier);
     }
