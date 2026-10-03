@@ -54,6 +54,40 @@ static bool pasteNodeFromClipboard(App &app) {
   return true;
 }
 
+static bool copyGrade(App &app) {
+  if (app.nodes.empty()) return false;
+  const PersistChain transfer = captureChain(app);
+  const std::string payload = serializeTransferPayload("grade", transfer);
+  ImGui::SetClipboardText(payload.c_str());
+  app.setStatus("Copied full grade");
+  return true;
+}
+
+static bool pasteGradeFromClipboard(App &app) {
+  const char *clipboard = ImGui::GetClipboardText();
+  if (!clipboard || !*clipboard) {
+    app.setStatus("Clipboard does not contain a RawNode grade");
+    return false;
+  }
+
+  std::string kind;
+  PersistChain transfer;
+  if (!parseTransferPayload(clipboard, kind, transfer) || kind != "grade") {
+    app.setStatus("Clipboard does not contain a RawNode grade");
+    return false;
+  }
+
+  applyChain(app, transfer);
+  int unavailable = 0;
+  for (const Node &node : app.nodes)
+    if (!node.processor) ++unavailable;
+  if (unavailable > 0)
+    app.setStatus("Pasted full grade (" + std::to_string(unavailable) + " processor(s) unavailable)");
+  else
+    app.setStatus("Pasted full grade");
+  return true;
+}
+
 static void openUrl(const std::string &url) {
 #if defined(_WIN32)
   std::string cmd = "start \"\" \"" + url + "\"";
@@ -126,6 +160,18 @@ void DrawUiFrame(App &app) {
         copySelectedNode(app);
       if (ImGui::MenuItem("Paste Node", pasteShortcut))
         pasteNodeFromClipboard(app);
+      ImGui::Separator();
+#ifdef __APPLE__
+      const char *copyGradeShortcut = "⌘+Shift+C";
+      const char *pasteGradeShortcut = "⌘+Shift+V";
+#else
+      const char *copyGradeShortcut = "Ctrl+Shift+C";
+      const char *pasteGradeShortcut = "Ctrl+Shift+V";
+#endif
+      if (ImGui::MenuItem("Copy Full Grade", copyGradeShortcut, false, !app.nodes.empty()))
+        copyGrade(app);
+      if (ImGui::MenuItem("Paste Full Grade", pasteGradeShortcut))
+        pasteGradeFromClipboard(app);
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
@@ -165,13 +211,21 @@ void DrawUiFrame(App &app) {
 #ifdef __APPLE__
     const ImGuiKeyChord copyNodeChord = ImGuiMod_Super | ImGuiKey_C;
     const ImGuiKeyChord pasteNodeChord = ImGuiMod_Super | ImGuiKey_V;
+    const ImGuiKeyChord copyGradeChord = ImGuiMod_Super | ImGuiMod_Shift | ImGuiKey_C;
+    const ImGuiKeyChord pasteGradeChord = ImGuiMod_Super | ImGuiMod_Shift | ImGuiKey_V;
 #else
     const ImGuiKeyChord copyNodeChord = ImGuiMod_Ctrl | ImGuiKey_C;
     const ImGuiKeyChord pasteNodeChord = ImGuiMod_Ctrl | ImGuiKey_V;
+    const ImGuiKeyChord copyGradeChord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C;
+    const ImGuiKeyChord pasteGradeChord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_V;
 #endif
-    if (ImGui::IsKeyChordPressed(copyNodeChord))
+    if (ImGui::IsKeyChordPressed(copyGradeChord))
+      copyGrade(app);
+    else if (ImGui::IsKeyChordPressed(copyNodeChord))
       copySelectedNode(app);
-    if (ImGui::IsKeyChordPressed(pasteNodeChord))
+    if (ImGui::IsKeyChordPressed(pasteGradeChord))
+      pasteGradeFromClipboard(app);
+    else if (ImGui::IsKeyChordPressed(pasteNodeChord))
       pasteNodeFromClipboard(app);
   }
 
