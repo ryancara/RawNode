@@ -665,6 +665,63 @@ int runSelfTests() {
   }
 
   {
+    // Full-grade transfer uses the same versioned payload but replaces the
+    // destination chain as one coherent serial grade.
+    App sourceGrade;
+    if (!addNativeExposureNode(sourceGrade) || !addNativeCstNode(sourceGrade) ||
+        sourceGrade.nodes.size() != 2 ||
+        !sourceGrade.nodes[0].processor->setParameterValue("exposure", -1.25) ||
+        !sourceGrade.nodes[1].processor->setParameterValue("output_space", 5))
+      return fail("full grade copy setup");
+    sourceGrade.nodes[0].enabled = false;
+    sourceGrade.selectedNode = 1;
+
+    const PersistChain sourceChain = captureChain(sourceGrade);
+    const std::string payload = serializeTransferPayload("grade", sourceChain);
+    std::string kind;
+    PersistChain decoded;
+    if (!parseTransferPayload(payload, kind, decoded) ||
+        kind != "grade" || decoded.nodes.size() != 2 ||
+        decoded.selectedNodeId != sourceGrade.nodes[1].id)
+      return fail("full grade transfer payload");
+
+    App destinationGrade;
+    if (!addNativeExposureNode(destinationGrade) ||
+        !destinationGrade.nodes[0].processor->setParameterValue("exposure", 4.0))
+      return fail("full grade destination setup");
+    applyChain(destinationGrade, decoded);
+
+    if (destinationGrade.nodes.size() != 2 || destinationGrade.selectedNode != 1 ||
+        destinationGrade.nodes[0].id != sourceGrade.nodes[0].id ||
+        destinationGrade.nodes[1].id != sourceGrade.nodes[1].id ||
+        destinationGrade.nodes[0].enabled ||
+        !destinationGrade.nodes[0].processor ||
+        !destinationGrade.nodes[1].processor ||
+        destinationGrade.nodes[0].processor->identifier() != NativeExposureProcessor::kIdentifier ||
+        destinationGrade.nodes[1].processor->identifier() != NativeCstProcessor::kIdentifier)
+      return fail("full grade paste restore");
+
+    bool exposureRestored = false;
+    for (const ProcessorParameter &param : destinationGrade.nodes[0].processor->parameters()) {
+      if (param.id == "exposure") {
+        const double *value = std::get_if<double>(&param.value);
+        exposureRestored = value && *value == -1.25;
+      }
+    }
+    bool cstRestored = false;
+    for (const ProcessorParameter &param : destinationGrade.nodes[1].processor->parameters()) {
+      if (param.id == "output_space") {
+        const int *value = std::get_if<int>(&param.value);
+        cstRestored = value && *value == 5;
+      }
+    }
+    if (!exposureRestored || !cstRestored)
+      return fail("full grade pasted parameters");
+
+    printf("ok  Full grade copy/paste transfer\n");
+  }
+
+  {
     // Sidecar V2 round-trip: IDs/backend identity and opaque future parameter
     // JSON must survive even when this build cannot interpret the processor.
     const fs::path source = fs::temp_directory_path() / "rawnode-selftest-source.nef";
