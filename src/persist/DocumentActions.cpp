@@ -171,14 +171,12 @@ static void loadSidecarForPath(App &app, const std::string &imagePath) {
   std::error_code ec;
 
   app.sidecarWriteBlockedPath.clear();
-  app.sidecarBlockedByUnknownProcessorChoice = false;
 
   if (fs::is_regular_file(v2Path, ec)) {
     if (!loadSidecarFile(v2Path, sc)) {
       clearNodes(app);
       app.sidecarWriteBlockedPath = imagePath;
-      app.sidecarBlockedByUnknownProcessorChoice = false;
-      if (sc.format == "rawnode-sidecar" && sc.version > 2) {
+          if (sc.format == "rawnode-sidecar" && sc.version > 2) {
         app.setStatus("This image uses a newer RawNode sidecar version; edits are not being overwritten.");
       } else {
         app.setStatus("Could not read RawNode sidecar; the existing file is protected from overwrite.");
@@ -189,8 +187,7 @@ static void loadSidecarForPath(App &app, const std::string &imagePath) {
     if (!loadSidecarFile(v1Path, sc)) {
       clearNodes(app);
       app.sidecarWriteBlockedPath = imagePath;
-      app.sidecarBlockedByUnknownProcessorChoice = false;
-      app.setStatus("Could not read legacy sidecar; the existing file is protected from overwrite.");
+          app.setStatus("Could not read legacy sidecar; the existing file is protected from overwrite.");
       return;
     }
   } else {
@@ -205,15 +202,13 @@ static void loadSidecarForPath(App &app, const std::string &imagePath) {
   // build's fallback values on the next automatic save.
   if (sidecarHasUnknownColourEncoding(sc)) {
     app.sidecarWriteBlockedPath = imagePath;
-    app.sidecarBlockedByUnknownProcessorChoice = false;
-    app.setStatus("This sidecar contains colour settings this version of RawNode does not recognise; edits are not being overwritten.");
+      app.setStatus("This sidecar contains colour settings this version of RawNode does not recognise; edits are not being overwritten.");
     return;
   }
 
   if (hasUnknownProcessorChoiceIds(app)) {
     app.sidecarWriteBlockedPath = imagePath;
-    app.sidecarBlockedByUnknownProcessorChoice = true;
-    app.setStatus("This sidecar contains processor choices this version of RawNode does not recognise. They are not being applied, and the sidecar is protected until you replace them.");
+    app.setStatus("This sidecar contains processor settings this version of RawNode does not recognise; edits are read-only to protect the file.");
   }
 }
 
@@ -364,8 +359,7 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
     loadSidecarForPath(app, path);
   } else {
     app.sidecarWriteBlockedPath.clear();
-    app.sidecarBlockedByUnknownProcessorChoice = false;
-  }
+    }
 
   rebuildPreview(app);
   persistWorkspace(app);
