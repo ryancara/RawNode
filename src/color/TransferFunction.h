@@ -21,12 +21,7 @@ const TransferFunctionDefinition &transferFunctionDefinition(TransferFunction tf
 int transferFunctionIndex(TransferFunction tf);
 const char *transferFunctionId(TransferFunction tf);
 const char *transferFunctionName(TransferFunction tf);
-bool transferFunctionFromIdOrName(const std::string &name, TransferFunction &tf);
-
-// Backwards-compatible name parser for PR #17 sidecars and older call sites.
-inline bool transferFunctionFromName(const std::string &name, TransferFunction &tf) {
-  return transferFunctionFromIdOrName(name, tf);
-}
+bool transferFunctionFromId(const std::string &id, TransferFunction &tf);
 
 // Convert one channel between encoded and scene-linear light. The piecewise
 // definitions intentionally keep negative values finite where their published
