@@ -38,6 +38,12 @@ void waitRenderIdle(App &app) {
   app.renderIdleCv.wait(lock, [&] { return !app.renderBusy && !app.exportBusy; });
 }
 
+void stopRenderWorker(App &app) {
+  std::lock_guard<std::mutex> lock(app.renderMutex);
+  app.quit = true;
+  app.renderCv.notify_one();
+}
+
 void beginRenderMutation(App &app) {
   waitRenderIdle(app);
   std::lock_guard<std::mutex> lock(app.renderMutex);
@@ -58,10 +64,8 @@ void beginFullResolutionRender(App &app) {
 }
 
 void endFullResolutionRender(App &app) {
-  {
-    std::lock_guard<std::mutex> lock(app.renderMutex);
-    app.exportBusy = false;
-  }
+  std::lock_guard<std::mutex> lock(app.renderMutex);
+  app.exportBusy = false;
   app.renderIdleCv.notify_all();
   app.renderCv.notify_one();
 }
