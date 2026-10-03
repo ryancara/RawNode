@@ -68,61 +68,27 @@ static cmsHPROFILE makeProfile(ColorEncoding encoding) {
   return profile;
 }
 
-static cmsHPROFILE makeProfile(ColorSpace cs) {
-  return makeProfile(legacyColorSpaceEncoding(cs));
-}
-
-// Cache legacy profiles/transforms used by ICC classification/display fallback.
-static cmsHPROFILE cachedProfile(ColorSpace cs) {
-  static std::array<cmsHPROFILE, 5> profiles{};
-  const int idx = (int)cs;
-  if (!profiles[idx]) profiles[idx] = makeProfile(cs);
-  return profiles[idx];
-}
-
 static cmsHPROFILE srgbProfile() {
   static cmsHPROFILE p = cmsCreate_sRGBProfile();
   return p;
 }
 
-static const std::vector<uint8_t> &cachedIccBytes(ColorSpace cs) {
-  static std::array<std::vector<uint8_t>, 5> bytes{};
-  static std::array<bool, 5> tried{};
-  const int idx = (int)cs;
-  if (tried[idx]) return bytes[idx];
-  tried[idx] = true;
-  cmsHPROFILE p = cachedProfile(cs);
-  if (!p) return bytes[idx];
-  cmsUInt32Number n = 0;
-  if (cmsSaveProfileToMem(p, nullptr, &n) && n > 0) {
-    bytes[idx].resize(n);
-    if (cmsSaveProfileToMem(p, bytes[idx].data(), &n))
-      bytes[idx].resize(n);
-    else
-      bytes[idx].clear();
-  }
-  return bytes[idx];
-}
-
-static cmsHTRANSFORM cachedTransform(ColorSpace cs) {
-  static std::array<cmsHTRANSFORM, 5> transforms{};
-  static std::array<bool, 5> tried{};
-  const int idx = (int)cs;
-  if (tried[idx]) return transforms[idx];
-  tried[idx] = true;
-  cmsHPROFILE src = cachedProfile(cs);
-  cmsHPROFILE dst = srgbProfile();
-  if (src && dst)
-    transforms[idx] = cmsCreateTransform(src, TYPE_RGBA_FLT, dst, TYPE_RGBA_8, INTENT_RELATIVE_COLORIMETRIC,
-                                         cmsFLAGS_NOCACHE | cmsFLAGS_COPY_ALPHA);
-  return transforms[idx];
-}
-
-bool profileBytes(ColorSpace cs, std::vector<uint8_t> &out) {
-  const auto &icc = cachedIccBytes(cs);
-  if (icc.empty()) return false;
-  out = icc;
-  return true;
+static cmsHTRANSFORM linearRec709DisplayTransform() {
+  static cmsHTRANSFORM transform = [] {
+    cmsHPROFILE src = makeProfile({RgbGamut::Rec709, TransferFunction::Linear});
+    cmsHPROFILE dst = srgbProfile();
+    if (!src || !dst) {
+      if (src) cmsCloseProfile(src);
+      return (cmsHTRANSFORM)nullptr;
+    }
+    cmsHTRANSFORM result =
+        cmsCreateTransform(src, TYPE_RGBA_FLT, dst, TYPE_RGBA_8,
+                           INTENT_RELATIVE_COLORIMETRIC,
+                           cmsFLAGS_NOCACHE | cmsFLAGS_COPY_ALPHA);
+    cmsCloseProfile(src);
+    return result;
+  }();
+  return transform;
 }
 
 bool profileBytes(ColorEncoding encoding, std::vector<uint8_t> &out) {
@@ -396,18 +362,12 @@ ColorEncoding classifyIccEncoding(const std::vector<uint8_t> &icc) {
   return {fallback, inferredTf};
 }
 
-ColorSpace classifyIcc(const std::vector<uint8_t> &icc) {
-  ColorSpace legacy = ColorSpace::sRGB;
-  if (legacyColorSpaceFromEncoding(classifyIccEncoding(icc), legacy)) return legacy;
-  return ColorSpace::LinearRec2020;
-}
-
-void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned char> &out) {
+static void linearRec709ToDisplayRGBA8(const Image &img, std::vector<unsigned char> &out) {
   PerfScope _ps("toDisplayRGBA8");
   out.assign((size_t)img.w * img.h * 4, 0);
   if (img.w <= 0 || img.h <= 0) return;
 
-  cmsHTRANSFORM xform = cachedTransform(space);
+  cmsHTRANSFORM xform = linearRec709DisplayTransform();
   const int rowFloats = img.w * 4;
   if (xform) {
     for (int y = 0; y < img.h; ++y) {
@@ -415,12 +375,22 @@ void toDisplayRGBA8(const Image &img, ColorSpace space, std::vector<unsigned cha
       unsigned char *dst = out.data() + (size_t)y * rowFloats;
       cmsDoTransform(xform, src, dst, (cmsUInt32Number)img.w);
     }
-  } else {
-    for (int y = 0; y < img.h; ++y) {
-      const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
-      unsigned char *dst = out.data() + (size_t)y * rowFloats;
-      for (int i = 0; i < rowFloats; ++i)
-        dst[i] = (unsigned char)std::lround(std::clamp(src[i], 0.0f, 1.0f) * 255.0f);
+    return;
+  }
+
+  for (int y = 0; y < img.h; ++y) {
+    const float *src = img.px.data() + (size_t)(img.h - 1 - y) * rowFloats;
+    unsigned char *dst = out.data() + (size_t)y * rowFloats;
+    for (int x = 0; x < img.w; ++x) {
+      for (int channel = 0; channel < 3; ++channel) {
+        const double encoded = encodeTransfer(src[channel], TransferFunction::SRGB);
+        const double clamped = std::clamp(encoded, 0.0, 1.0);
+        dst[channel] = (unsigned char)std::lround(clamped * 255.0);
+      }
+      const double alpha = std::clamp((double)src[3], 0.0, 1.0);
+      dst[3] = (unsigned char)std::lround(alpha * 255.0);
+      src += 4;
+      dst += 4;
     }
   }
 }
@@ -457,5 +427,5 @@ void toDisplayRGBA8(const Image &img, RgbGamut gamut, TransferFunction gamma,
     rec709.px[i + 2] = std::isfinite(converted[2]) ? converted[2] : 0.0f;
   }
 
-  toDisplayRGBA8(rec709, ColorSpace::LinearRec709, out);
+  linearRec709ToDisplayRGBA8(rec709, out);
 }
