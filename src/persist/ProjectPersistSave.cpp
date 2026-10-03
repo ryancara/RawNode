@@ -209,15 +209,13 @@ static void appendSidecarHeader(std::ostringstream &o, const std::string &kind,
                                 const std::string &sourcePath, ColorEncoding inputEncoding,
                                 const ColorEncoding *rawEncoding) {
   const bool raw = rawEncoding != nullptr;
-  const std::string inputName = colorEncodingName(inputEncoding);
+  (void)inputEncoding;
 
   o << '{'
     << "\"format\":\"rawnode-sidecar\","
     << "\"version\":2,"
     << "\"kind\":\"" << jsonEscape(kind) << "\","
-    << "\"source\":\"" << jsonEscape(sourcePath) << "\","
-    << "\"inputColorSpace\":\"" << jsonEscape(inputName) << "\","
-    << "\"workingSpace\":\"" << jsonEscape(inputName) << "\",";
+    << "\"source\":\"" << jsonEscape(sourcePath) << "\",";
 
   if (raw) {
     o << "\"raw\":{"
