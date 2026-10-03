@@ -55,7 +55,7 @@ class Processor {
   virtual bool activateParameter(const std::string &id) = 0;
 
   // Allows backends to update any size-dependent state before rendering.
-  // The current app calls this from the UI thread before preview/export renders.
+  // The app calls this only while it has exclusive render ownership.
   virtual void setRenderSize(int width, int height) = 0;
 
   // Input/output are bottom-up float RGBA in whatever colour space the chain
