@@ -285,50 +285,124 @@ void moveNode(App &app, int from, int to) {
   scheduleRender(app);
 }
 
+static PersistNode capturePersistedNode(const Node &node) {
+  PersistNode persisted;
+  persisted.id = node.id;
+  persisted.enabled = node.enabled;
+  persisted.groupOpen = node.groupOpen;
+  persisted.paramsJson = node.preservedParamsJson;
+
+  if (node.processor) {
+    persisted.backend = processorBackendName(node.processor->backend());
+    persisted.identifier = node.processor->identifier();
+    persisted.label = node.processor->displayName();
+
+    for (const ProcessorParameter &param : node.processor->parameters()) {
+      if (param.secret || !param.persistValue || !persistedParameterType(param.type)) continue;
+
+      // If a newer build wrote a stable choice ID that this build does not
+      // recognise, keep the opaque original value instead of replacing it
+      // with this build's fallback/default selection on save or copy.
+      if (param.type == ParameterType::Choice && !param.choiceIds.empty()) {
+        auto preserved = node.preservedParamsJson.find(param.id);
+        if (preserved != node.preservedParamsJson.end()) {
+          std::string preservedId;
+          if (!parseJsonStringValue(trimParamJson(preserved->second), preservedId) ||
+              std::find(param.choiceIds.begin(), param.choiceIds.end(), preservedId) == param.choiceIds.end())
+            continue;
+        }
+      }
+
+      persisted.paramsJson[param.id] = paramValueJson(param);
+    }
+  } else {
+    persisted.backend = node.storedBackend.empty() ? "unknown" : node.storedBackend;
+    persisted.identifier = node.storedIdentifier;
+    persisted.label = node.storedLabel;
+  }
+
+  return persisted;
+}
+
+bool captureNode(const App &app, int index, PersistNode &out) {
+  if (index < 0 || index >= (int)app.nodes.size()) return false;
+  out = capturePersistedNode(app.nodes[index]);
+  return true;
+}
+
 PersistChain captureChain(const App &app) {
   PersistChain chain;
   if (app.selectedNode >= 0 && app.selectedNode < (int)app.nodes.size())
     chain.selectedNodeId = app.nodes[app.selectedNode].id;
 
-  for (const Node &node : app.nodes) {
-    PersistNode persisted;
-    persisted.id = node.id;
-    persisted.enabled = node.enabled;
-    persisted.groupOpen = node.groupOpen;
-    persisted.paramsJson = node.preservedParamsJson;
+  chain.nodes.reserve(app.nodes.size());
+  for (const Node &node : app.nodes)
+    chain.nodes.push_back(capturePersistedNode(node));
+  return chain;
+}
+
+bool appendPersistedNode(App &app, const PersistNode &persisted, int insertAfter) {
+  const int oldCount = (int)app.nodes.size();
+  const int targetIndex =
+      insertAfter >= 0 && insertAfter < oldCount ? insertAfter + 1 : oldCount;
+  const std::string backend = persisted.backend.empty() ? "ofx" : persisted.backend;
+  bool created = false;
+
+  if (backend == "ofx") {
+    const int pluginIndex = findPluginIndex(persisted.identifier, persisted.label);
+    created = pluginIndex >= 0 && addNode(app, pluginIndex);
+  } else if (backend == "native" && persisted.identifier == NativeExposureProcessor::kIdentifier) {
+    created = addNativeExposureNode(app);
+  } else if (backend == "native" && persisted.identifier == NativeCstProcessor::kIdentifier) {
+    created = addNativeCstNode(app);
+  } else if (backend == "ctl") {
+    created = addCtlNode(app, persisted.identifier);
+  }
+
+  if (created) {
+    Node &node = app.nodes.back();
+    node.enabled = persisted.enabled;
+    node.groupOpen = persisted.groupOpen;
+    node.storedBackend = backend;
+    node.storedIdentifier = persisted.identifier;
+    node.storedLabel = persisted.label;
+    node.preservedParamsJson = persisted.paramsJson;
 
     if (node.processor) {
-      persisted.backend = processorBackendName(node.processor->backend());
-      persisted.identifier = node.processor->identifier();
-      persisted.label = node.processor->displayName();
-
-      for (const ProcessorParameter &param : node.processor->parameters()) {
-        if (param.secret || !param.persistValue || !persistedParameterType(param.type)) continue;
-
-        // If a newer build wrote a stable choice ID that this build does not
-        // recognise, keep the opaque original value instead of replacing it
-        // with this build's fallback/default selection on save.
-        if (param.type == ParameterType::Choice && !param.choiceIds.empty()) {
-          auto preserved = node.preservedParamsJson.find(param.id);
-          if (preserved != node.preservedParamsJson.end()) {
-            std::string preservedId;
-            if (!parseJsonStringValue(trimParamJson(preserved->second), preservedId) ||
-                std::find(param.choiceIds.begin(), param.choiceIds.end(), preservedId) == param.choiceIds.end())
-              continue;
-          }
-        }
-
-        persisted.paramsJson[param.id] = paramValueJson(param);
+      const auto params = node.processor->parameters();
+      for (const ProcessorParameter &param : params) {
+        auto it = persisted.paramsJson.find(param.id);
+        if (it != persisted.paramsJson.end())
+          applyParamValueJson(*node.processor, param, it->second);
       }
-    } else {
-      persisted.backend = node.storedBackend.empty() ? "unknown" : node.storedBackend;
-      persisted.identifier = node.storedIdentifier;
-      persisted.label = node.storedLabel;
     }
 
-    chain.nodes.push_back(std::move(persisted));
+    if (targetIndex != oldCount)
+      moveNode(app, oldCount, targetIndex);
+    else
+      app.selectedNode = oldCount;
+    app.paramFilter[0] = '\0';
+    scheduleRender(app);
+    return true;
   }
-  return chain;
+
+  // Unavailable processors are pasted as the same non-destructive placeholder
+  // used by Sidecar V2 restore. A copied node is still useful even if another
+  // machine does not currently have its plugin/script installed.
+  waitRenderIdle(app);
+  Node node;
+  node.id = makeNodeId(app);
+  node.enabled = persisted.enabled;
+  node.storedBackend = backend;
+  node.storedIdentifier = persisted.identifier;
+  node.storedLabel = persisted.label;
+  node.preservedParamsJson = persisted.paramsJson;
+  node.groupOpen = persisted.groupOpen;
+  app.nodes.insert(app.nodes.begin() + targetIndex, std::move(node));
+  app.selectedNode = targetIndex;
+  app.paramFilter[0] = '\0';
+  scheduleRender(app);
+  return true;
 }
 
 static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParameter &param) {
