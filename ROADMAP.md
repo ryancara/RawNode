@@ -29,10 +29,12 @@ The current codebase is a clean base for feature development. New work should re
 RawNode now supports:
 
 - copying and pasting a single processor node through a versioned system-clipboard payload;
-- copying and pasting the complete serial processing chain between images;
+- copying and pasting the complete serial processing chain between images, including RAW working and Output colour space/gamma;
 - portable `.rawnodepreset` files for both single nodes and full grades.
 
-All three features reuse the same `PersistNode` / `PersistChain` representation as Sidecar V2. RAW working settings and Output tagging remain document settings and are intentionally not part of copied grades or presets.
+All three features reuse the same `PersistNode` / `PersistChain` representation as Sidecar V2. Full-grade transfers and presets additionally carry the colour-pipeline settings required to reproduce the grade.
+
+A follow-up editing workflow should add filmstrip multi-selection and allow a copied full grade or full-grade preset to be applied to all selected photos in one action.
 
 ## DCTL compatibility
 
