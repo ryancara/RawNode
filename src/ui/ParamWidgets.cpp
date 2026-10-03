@@ -125,13 +125,8 @@ static bool paramEditButton(double &value, bool asInt, double lo, double hi) {
   return commit;
 }
 
-static void finishParameterChange(App &app, Node &node, const ProcessorParameter &param, bool changed) {
-  if (!changed) return;
-
-  // A deliberate user edit supersedes any opaque preserved value for this
-  // parameter, including an unknown future stable choice ID.
-  markParameterEdited(app, node, param.id);
-  scheduleRender(app);
+static void finishParameterChange(App &app, bool changed) {
+  if (changed) scheduleRender(app);
 }
 
 static void drawParam(App &app, Node &node, ProcessorParameter param) {
@@ -216,7 +211,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       }
       if (!param.enabled) ImGui::EndDisabled();
       ImGui::PopID();
-      finishParameterChange(app, node, param, changed);
+      finishParameterChange(app, changed);
       return;
     }
 
@@ -356,7 +351,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
 
   if (!param.enabled) ImGui::EndDisabled();
   ImGui::PopID();
-  finishParameterChange(app, node, param, changed);
+  finishParameterChange(app, changed);
 }
 
 static bool icontains(const std::string &haystack, const std::string &needle) {
