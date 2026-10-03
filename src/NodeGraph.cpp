@@ -209,12 +209,6 @@ void destroyNode(App &app, int index) {
     --app.selectedNode;
   app.paramFilter[0] = '\0';
 
-  if (app.sidecarBlockedByUnknownProcessorChoice && !hasUnknownProcessorChoiceIds(app)) {
-    app.sidecarBlockedByUnknownProcessorChoice = false;
-    if (app.sidecarWriteBlockedPath == app.path) app.sidecarWriteBlockedPath.clear();
-    app.setStatus("Unsupported processor choice removed; sidecar writes are enabled again.");
-  }
-
   scheduleRender(app);
 }
 
@@ -352,15 +346,6 @@ bool hasUnknownProcessorChoiceIds(const App &app) {
       if (parameterHasUnknownChoiceId(node, param)) return true;
   }
   return false;
-}
-
-void markParameterEdited(App &app, Node &node, const std::string &parameterId) {
-  node.preservedParamsJson.erase(parameterId);
-  if (app.sidecarBlockedByUnknownProcessorChoice && !hasUnknownProcessorChoiceIds(app)) {
-    app.sidecarBlockedByUnknownProcessorChoice = false;
-    if (app.sidecarWriteBlockedPath == app.path) app.sidecarWriteBlockedPath.clear();
-    app.setStatus("Unknown processor choice replaced; sidecar writes are enabled again.");
-  }
 }
 
 void applyChain(App &app, const PersistChain &chain) {
