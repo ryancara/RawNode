@@ -657,16 +657,14 @@ int runSelfTests() {
     while (!entered.load() && std::chrono::steady_clock::now() < deadline)
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     if (!entered.load()) {
-      renderLifetime.quit = true;
-      renderLifetime.renderCv.notify_one();
+      stopRenderWorker(renderLifetime);
       renderLifetime.renderThread.join();
       return fail("render lifetime worker entry");
     }
 
     waitRenderIdle(renderLifetime);
     if (!completed.load()) {
-      renderLifetime.quit = true;
-      renderLifetime.renderCv.notify_one();
+      stopRenderWorker(renderLifetime);
       renderLifetime.renderThread.join();
       return fail("waitRenderIdle returned during active render");
     }
@@ -693,14 +691,12 @@ int runSelfTests() {
     waitRenderIdle(renderLifetime);
     releaseExport.join();
     if (!exportReleased.load()) {
-      renderLifetime.quit = true;
-      renderLifetime.renderCv.notify_one();
+      stopRenderWorker(renderLifetime);
       renderLifetime.renderThread.join();
       return fail("waitRenderIdle returned during export");
     }
 
-    renderLifetime.quit = true;
-    renderLifetime.renderCv.notify_one();
+    stopRenderWorker(renderLifetime);
     renderLifetime.renderThread.join();
     printf("ok  Render lifetime synchronization\n");
   }
