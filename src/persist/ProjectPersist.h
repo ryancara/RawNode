@@ -6,7 +6,6 @@
 #include <string>
 #include <vector>
 
-
 struct PersistGui {
   // Read-only migration value for older V2/workspace JSON.
   int legacyOutputIndex = 0;
@@ -85,6 +84,5 @@ bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,
 bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath,
                        const PersistGui &gui, const PersistChain &chain,
                        const ColorEncoding *rawEncoding = nullptr);
-
 
 std::string relativeToWorkspace(const std::string &workspaceDir, const std::string &absPath);
