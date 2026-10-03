@@ -12,6 +12,7 @@
 #include <GLFW/glfw3.h>
 
 #include <cstdlib>
+#include <filesystem>
 
 static bool copySelectedNode(App &app) {
   PersistNode node;
@@ -86,6 +87,98 @@ static bool pasteGradeFromClipboard(App &app) {
   else
     app.setStatus("Pasted full grade");
   return true;
+}
+
+static std::string ensurePresetExtension(std::string path) {
+  if (!path.empty() && std::filesystem::path(path).extension().empty())
+    path += ".rawnodepreset";
+  return path;
+}
+
+static bool saveNodePreset(App &app) {
+  PersistNode node;
+  if (!captureNode(app, app.selectedNode, node)) return false;
+
+  PersistChain preset;
+  preset.selectedNodeId = node.id;
+  preset.nodes.push_back(std::move(node));
+
+  auto dialog = pfd::save_file(
+      "Save Node Preset", "Node.rawnodepreset",
+      {"RawNode preset", "*.rawnodepreset"});
+  std::string path = ensurePresetExtension(dialog.result());
+  if (path.empty()) return false;
+
+  if (!savePresetFile(path, "node", preset)) {
+    app.setStatus("Could not save node preset");
+    return false;
+  }
+  app.setStatus("Saved node preset: " + std::filesystem::path(path).filename().string());
+  return true;
+}
+
+static bool saveGradePreset(App &app) {
+  if (app.nodes.empty()) return false;
+  const PersistChain preset = captureChain(app);
+
+  auto dialog = pfd::save_file(
+      "Save Full Grade Preset", "Grade.rawnodepreset",
+      {"RawNode preset", "*.rawnodepreset"});
+  std::string path = ensurePresetExtension(dialog.result());
+  if (path.empty()) return false;
+
+  if (!savePresetFile(path, "grade", preset)) {
+    app.setStatus("Could not save full-grade preset");
+    return false;
+  }
+  app.setStatus("Saved full-grade preset: " + std::filesystem::path(path).filename().string());
+  return true;
+}
+
+static bool loadPreset(App &app) {
+  auto dialog = pfd::open_file(
+      "Load RawNode Preset", "",
+      {"RawNode preset", "*.rawnodepreset"});
+  const auto paths = dialog.result();
+  if (paths.empty()) return false;
+
+  std::string kind;
+  PersistChain preset;
+  if (!loadPresetFile(paths[0], kind, preset)) {
+    app.setStatus("Could not read RawNode preset");
+    return false;
+  }
+
+  if (kind == "node") {
+    if (preset.nodes.size() != 1) {
+      app.setStatus("Invalid node preset");
+      return false;
+    }
+    if (!appendPersistedNode(app, preset.nodes.front(), app.selectedNode)) {
+      app.setStatus("Could not apply node preset");
+      return false;
+    }
+    if (Node *node = selectedNode(app); node && !node->processor)
+      app.setStatus("Loaded node preset (processor unavailable)");
+    else
+      app.setStatus("Loaded node preset");
+    return true;
+  }
+
+  if (kind == "grade") {
+    applyChain(app, preset);
+    int unavailable = 0;
+    for (const Node &node : app.nodes)
+      if (!node.processor) ++unavailable;
+    if (unavailable > 0)
+      app.setStatus("Loaded full-grade preset (" + std::to_string(unavailable) + " processor(s) unavailable)");
+    else
+      app.setStatus("Loaded full-grade preset");
+    return true;
+  }
+
+  app.setStatus("Unsupported RawNode preset");
+  return false;
 }
 
 static void openUrl(const std::string &url) {
@@ -172,6 +265,17 @@ void DrawUiFrame(App &app) {
         copyGrade(app);
       if (ImGui::MenuItem("Paste Full Grade", pasteGradeShortcut))
         pasteGradeFromClipboard(app);
+      ImGui::Separator();
+      if (ImGui::BeginMenu("Presets")) {
+        if (ImGui::MenuItem("Save Node Preset…", nullptr, false, canCopyNode))
+          saveNodePreset(app);
+        if (ImGui::MenuItem("Save Full Grade Preset…", nullptr, false, !app.nodes.empty()))
+          saveGradePreset(app);
+        ImGui::Separator();
+        if (ImGui::MenuItem("Load Preset…"))
+          loadPreset(app);
+        ImGui::EndMenu();
+      }
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
