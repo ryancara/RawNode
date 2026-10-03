@@ -48,19 +48,3 @@ inline bool operator!=(const ColorEncoding &a, const ColorEncoding &b) {
 }
 
 std::string colorEncodingName(const ColorEncoding &encoding);
-
-// Legacy five-value colour tags are retained only as compatibility presets for
-// old sidecars and APIs. Active colour state uses ColorEncoding everywhere.
-enum class ColorSpace {
-  sRGB = 0,
-  DisplayP3,
-  LinearRec709,
-  LinearRec2020,
-  ACES2065_1,
-};
-
-const char *colorSpaceName(ColorSpace cs);
-bool colorSpaceFromName(const std::string &name, ColorSpace &cs);
-ColorEncoding legacyColorSpaceEncoding(ColorSpace cs);
-bool legacyColorSpaceFromEncoding(const ColorEncoding &encoding, ColorSpace &cs);
-bool isRawWorkingSpace(ColorSpace cs);
