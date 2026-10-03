@@ -532,6 +532,28 @@ static ColorEncoding linearizeRasterBuffer(Image &img, ColorEncoding sourceEncod
   return sourceEncoding;
 }
 
+static ColorEncoding prepareRasterBuffer(Image &img, const std::vector<uint8_t> &icc,
+                                         ColorEncoding untaggedEncoding) {
+  if (icc.empty()) return linearizeRasterBuffer(img, untaggedEncoding);
+
+  // RawNode-authored profiles contain exact stable IDs, so preserve their
+  // gamut and only linearise the transfer function. This keeps our own export
+  // round-trips exact and avoids an unnecessary colour-space conversion.
+  ColorEncoding rawNodeEncoding;
+  if (rawNodeIccEncoding(icc, rawNodeEncoding))
+    return linearizeRasterBuffer(img, rawNodeEncoding);
+
+  // Arbitrary valid RGB ICC profiles are colour-managed by lcms into one
+  // canonical raster working encoding. RawNode does not guess or relabel the
+  // source as the nearest registered gamut.
+  if (convertIccToLinearRec2020(img, icc))
+    return {RgbGamut::Rec2020, TransferFunction::Linear};
+
+  // A malformed or unsupported embedded profile should not make the image
+  // unloadable. Fall back to the same assumption used for an untagged file.
+  return linearizeRasterBuffer(img, untaggedEncoding);
+}
+
 bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncoding,
                bool &decodedRaw, ColorEncoding rawWorkingEncoding) {
   PerfScope _ps("loadImage");
@@ -559,11 +581,10 @@ bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncod
     std::vector<uint8_t> icc;
     bool isFloat = false;
     if (loadTiff(path, out, icc, isFloat)) {
-      const ColorEncoding sourceEncoding =
-          !icc.empty() ? classifyIccEncoding(icc)
-                       : (isFloat ? ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear}
-                                  : ColorEncoding{RgbGamut::Rec709, TransferFunction::SRGB});
-      detectedEncoding = linearizeRasterBuffer(out, sourceEncoding);
+      const ColorEncoding untaggedEncoding =
+          isFloat ? ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear}
+                  : ColorEncoding{RgbGamut::Rec709, TransferFunction::SRGB};
+      detectedEncoding = prepareRasterBuffer(out, icc, untaggedEncoding);
       return true;
     }
     // Some camera RAW formats are TIFF-based. If libtiff cannot decode the
@@ -574,10 +595,8 @@ bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncod
     else if (e == ".jpg" || e == ".jpeg") extractJpgIcc(path, icc);
 
     if (loadStbEncoded(path, out)) {
-      const ColorEncoding sourceEncoding =
-          !icc.empty() ? classifyIccEncoding(icc)
-                       : ColorEncoding{RgbGamut::Rec709, TransferFunction::SRGB};
-      detectedEncoding = linearizeRasterBuffer(out, sourceEncoding);
+      detectedEncoding = prepareRasterBuffer(
+          out, icc, {RgbGamut::Rec709, TransferFunction::SRGB});
       return true;
     }
   }
