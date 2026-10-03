@@ -50,7 +50,6 @@ void appendGuiJson(std::ostringstream &o, const PersistGui &g, bool includeSessi
   // Kept in V2 for behaviour compatibility. Essential edit reconstruction
   // lives in graph/document fields; layout state may move fully to workspace state later.
   o << "\"gui\":{"
-    << "\"outputIndex\":" << g.outputIndex << ","
     << "\"outputColorSpace\":\"" << jsonEscape(g.outputColorSpace) << "\","
     << "\"outputGamma\":\"" << jsonEscape(g.outputGamma) << "\",";
   if (includeSessionDefaults) {
@@ -224,7 +223,6 @@ static void appendSidecarHeader(std::ostringstream &o, const std::string &kind,
 
   if (raw) {
     o << "\"raw\":{"
-      << "\"workingSpace\":\"" << jsonEscape(colorEncodingName(*rawEncoding)) << "\","
       << "\"colorSpace\":\"" << jsonEscape(rgbGamutId(rawEncoding->gamut)) << "\","
       << "\"gamma\":\"" << jsonEscape(transferFunctionId(rawEncoding->gamma)) << "\"},";
   } else {
