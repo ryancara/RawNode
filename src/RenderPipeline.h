@@ -4,6 +4,7 @@
 #include "processors/Processor.h"
 
 void waitRenderIdle(App &app);
+void stopRenderWorker(App &app);
 void beginRenderMutation(App &app);
 void endRenderMutation(App &app);
 void beginFullResolutionRender(App &app);
