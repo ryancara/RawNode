@@ -66,13 +66,11 @@ PersistGui captureGui(const App &app) {
 }
 
 void applyGui(App &app, const PersistGui &g) {
-  RgbGamut gamut;
-  TransferFunction gamma;
   ColorEncoding output = legacyOutputEncoding(g.outputIndex);
+  ColorEncoding persistedOutput;
   if (!g.outputColorSpace.empty() && !g.outputGamma.empty() &&
-      rgbGamutFromIdOrName(g.outputColorSpace, gamut) &&
-      transferFunctionFromIdOrName(g.outputGamma, gamma))
-    output = {gamut, gamma};
+      colorEncodingFromIds(g.outputColorSpace, g.outputGamma, persistedOutput))
+    output = persistedOutput;
   {
     std::lock_guard<std::mutex> lock(app.colorMutex);
     app.outputEncoding = output;
@@ -92,13 +90,11 @@ void applyGui(App &app, const PersistGui &g) {
 }
 
 static void applyWorkspaceSessionDefaults(App &app, const PersistGui &g) {
-  RgbGamut rawGamut;
-  TransferFunction rawGamma;
+  ColorEncoding rawDefault;
   if (!g.rawDefaultColorSpace.empty() && !g.rawDefaultGamma.empty() &&
-      rgbGamutFromIdOrName(g.rawDefaultColorSpace, rawGamut) &&
-      transferFunctionFromIdOrName(g.rawDefaultGamma, rawGamma)) {
+      colorEncodingFromIds(g.rawDefaultColorSpace, g.rawDefaultGamma, rawDefault)) {
     std::lock_guard<std::mutex> lock(app.colorMutex);
-    app.rawWorkingEncoding = {rawGamut, rawGamma};
+    app.rawWorkingEncoding = rawDefault;
   }
 }
 
@@ -131,37 +127,20 @@ void persistWorkspace(App &app) {
   saveWorkspaceProject(app.workspaceDir, captureGui(app), active);
 }
 
-static bool sidecarHasUnknownColourEncoding(const PersistSidecar &sc) {
-  if (!sc.rawColorSpace.empty() || !sc.rawGamma.empty()) {
-    RgbGamut gamut;
-    TransferFunction gamma;
-    if (sc.rawColorSpace.empty() || sc.rawGamma.empty() ||
-        !rgbGamutFromIdOrName(sc.rawColorSpace, gamut) ||
-        !transferFunctionFromIdOrName(sc.rawGamma, gamma))
-      return true;
-  }
+static bool hasUnknownEncodingPair(const std::string &gamutId, const std::string &transferId) {
+  if (gamutId.empty() && transferId.empty()) return false;
+  if (gamutId.empty() || transferId.empty()) return true;
+  ColorEncoding encoding;
+  return !colorEncodingFromIds(gamutId, transferId, encoding);
+}
 
-  if (!sc.gui.outputColorSpace.empty() || !sc.gui.outputGamma.empty()) {
-    RgbGamut gamut;
-    TransferFunction gamma;
-    if (sc.gui.outputColorSpace.empty() || sc.gui.outputGamma.empty() ||
-        !rgbGamutFromIdOrName(sc.gui.outputColorSpace, gamut) ||
-        !transferFunctionFromIdOrName(sc.gui.outputGamma, gamma))
-      return true;
-  }
+static bool sidecarHasUnknownColourEncoding(const PersistSidecar &sc) {
+  if (hasUnknownEncodingPair(sc.rawColorSpace, sc.rawGamma)) return true;
+  if (hasUnknownEncodingPair(sc.gui.outputColorSpace, sc.gui.outputGamma)) return true;
 
   // Older development builds accidentally wrote the RAW session default into
-  // per-image sidecars. Ignore recognised values, but do not destroy an
-  // unknown future value if one is present.
-  if (!sc.gui.rawDefaultColorSpace.empty() || !sc.gui.rawDefaultGamma.empty()) {
-    RgbGamut gamut;
-    TransferFunction gamma;
-    if (sc.gui.rawDefaultColorSpace.empty() || sc.gui.rawDefaultGamma.empty() ||
-        !rgbGamutFromIdOrName(sc.gui.rawDefaultColorSpace, gamut) ||
-        !transferFunctionFromIdOrName(sc.gui.rawDefaultGamma, gamma))
-      return true;
-  }
-  return false;
+  // per-image sidecars. Ignore recognised values, but protect unknown values.
+  return hasUnknownEncodingPair(sc.gui.rawDefaultColorSpace, sc.gui.rawDefaultGamma);
 }
 
 static void loadSidecarForPath(App &app, const std::string &imagePath) {
@@ -213,24 +192,8 @@ static void loadSidecarForPath(App &app, const std::string &imagePath) {
 }
 
 static bool workspaceHasUnknownColourEncoding(const PersistGui &g) {
-  RgbGamut gamut;
-  TransferFunction gamma;
-
-  if (!g.outputColorSpace.empty() || !g.outputGamma.empty()) {
-    if (g.outputColorSpace.empty() || g.outputGamma.empty() ||
-        !rgbGamutFromIdOrName(g.outputColorSpace, gamut) ||
-        !transferFunctionFromIdOrName(g.outputGamma, gamma))
-      return true;
-  }
-
-  if (!g.rawDefaultColorSpace.empty() || !g.rawDefaultGamma.empty()) {
-    if (g.rawDefaultColorSpace.empty() || g.rawDefaultGamma.empty() ||
-        !rgbGamutFromIdOrName(g.rawDefaultColorSpace, gamut) ||
-        !transferFunctionFromIdOrName(g.rawDefaultGamma, gamma))
-      return true;
-  }
-
-  return false;
+  return hasUnknownEncodingPair(g.outputColorSpace, g.outputGamma) ||
+         hasUnknownEncodingPair(g.rawDefaultColorSpace, g.rawDefaultGamma);
 }
 
 void openWorkspace(App &app, const std::string &dir) {
@@ -290,12 +253,10 @@ static ColorEncoding rawWorkingEncodingForOpen(const App &app, const std::string
       return {RgbGamut::Rec709, TransferFunction::Linear};
 
     if (!sc.rawColorSpace.empty() || !sc.rawGamma.empty()) {
-      RgbGamut gamut;
-      TransferFunction gamma;
+      ColorEncoding stored;
       if (!sc.rawColorSpace.empty() && !sc.rawGamma.empty() &&
-          rgbGamutFromIdOrName(sc.rawColorSpace, gamut) &&
-          transferFunctionFromIdOrName(sc.rawGamma, gamma))
-        return {gamut, gamma};
+          colorEncodingFromIds(sc.rawColorSpace, sc.rawGamma, stored))
+        return stored;
 
       // Unknown future explicit encoding. Decode with the historical safe
       // fallback; loadSidecarForPath will write-protect the sidecar.
