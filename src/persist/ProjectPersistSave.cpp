@@ -100,6 +100,17 @@ void appendChainJson(std::ostringstream &o, const PersistChain &chain) {
   o << "]}";
 }
 
+std::string serializeTransferPayload(const std::string &kind, const PersistChain &chain) {
+  std::ostringstream o;
+  o << '{'
+    << "\"format\":\"rawnode-transfer\","
+    << "\"version\":1,"
+    << "\"kind\":\"" << jsonEscape(kind) << "\",";
+  appendChainJson(o, chain);
+  o << '}';
+  return o.str();
+}
+
 bool writeFile(const fs::path &path, const std::string &body) {
   std::error_code ec;
   fs::create_directories(path.parent_path(), ec);

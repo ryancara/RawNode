@@ -419,6 +419,19 @@ bool readAllText(const std::string &path, std::string &out) {
   return true;
 }
 
+bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain) {
+  std::string format;
+  int version = 0;
+  if (!extractStringField(json, "format", format) || format != "rawnode-transfer" ||
+      !extractIntField(json, "version", version) || version != 1 ||
+      !extractStringField(json, "kind", kind))
+    return false;
+
+  std::string graphObj;
+  if (!extractObject(json, "graph", graphObj)) return false;
+  return loadGraphV2FromJson(graphObj, chain);
+}
+
 bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std::string &activeImageRel) {
   std::string json;
   if (!readAllText(workspaceProjectPath(workspaceDir), json)) return false;

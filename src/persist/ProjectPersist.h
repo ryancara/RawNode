@@ -78,6 +78,12 @@ bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui
 std::string jsonStringValue(const std::string &value);
 bool parseJsonStringValue(const std::string &raw, std::string &out);
 
+// Versioned processor-transfer payload used by copy/paste and presets.
+// kind is currently "node" or "grade"; the graph itself stays Sidecar V2-shaped.
+std::string serializeTransferPayload(const std::string &kind, const PersistChain &chain);
+bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain);
+
+
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);
 bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,
                       const PersistChain &chain, const ColorEncoding *rawEncoding = nullptr);

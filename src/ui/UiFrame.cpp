@@ -2,6 +2,7 @@
 
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
+#include "NodeGraph.h"
 #include "ui/Themes.h"
 #include "ui/DockLayout.h"
 
@@ -11,6 +12,47 @@
 #include <GLFW/glfw3.h>
 
 #include <cstdlib>
+
+static bool copySelectedNode(App &app) {
+  PersistNode node;
+  if (!captureNode(app, app.selectedNode, node)) return false;
+
+  PersistChain transfer;
+  transfer.selectedNodeId = node.id;
+  transfer.nodes.push_back(std::move(node));
+  const std::string payload = serializeTransferPayload("node", transfer);
+  ImGui::SetClipboardText(payload.c_str());
+  app.setStatus("Copied node");
+  return true;
+}
+
+static bool pasteNodeFromClipboard(App &app) {
+  const char *clipboard = ImGui::GetClipboardText();
+  if (!clipboard || !*clipboard) {
+    app.setStatus("Clipboard does not contain a RawNode node");
+    return false;
+  }
+
+  std::string kind;
+  PersistChain transfer;
+  if (!parseTransferPayload(clipboard, kind, transfer) ||
+      kind != "node" || transfer.nodes.size() != 1) {
+    app.setStatus("Clipboard does not contain a RawNode node");
+    return false;
+  }
+
+  const int insertAfter = app.selectedNode;
+  if (!appendPersistedNode(app, transfer.nodes.front(), insertAfter)) {
+    app.setStatus("Could not paste node");
+    return false;
+  }
+
+  if (Node *node = selectedNode(app); node && !node->processor)
+    app.setStatus("Pasted node (processor unavailable)");
+  else
+    app.setStatus("Pasted node");
+  return true;
+}
 
 static void openUrl(const std::string &url) {
 #if defined(_WIN32)
@@ -71,6 +113,21 @@ void DrawUiFrame(App &app) {
 #endif
       ImGui::EndMenu();
     }
+    if (ImGui::BeginMenu("Edit")) {
+#ifdef __APPLE__
+      const char *copyShortcut = "⌘+C";
+      const char *pasteShortcut = "⌘+V";
+#else
+      const char *copyShortcut = "Ctrl+C";
+      const char *pasteShortcut = "Ctrl+V";
+#endif
+      const bool canCopyNode = app.selectedNode >= 0 && app.selectedNode < (int)app.nodes.size();
+      if (ImGui::MenuItem("Copy Node", copyShortcut, false, canCopyNode))
+        copySelectedNode(app);
+      if (ImGui::MenuItem("Paste Node", pasteShortcut))
+        pasteNodeFromClipboard(app);
+      ImGui::EndMenu();
+    }
     if (ImGui::BeginMenu("View")) {
 #ifdef __APPLE__
       ImGui::MenuItem("Left panel", "⌘+[", &app.showLeft);
@@ -102,6 +159,20 @@ void DrawUiFrame(App &app) {
       ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
+  }
+
+  if (!ImGui::GetIO().WantTextInput) {
+#ifdef __APPLE__
+    const ImGuiKeyChord copyNodeChord = ImGuiMod_Super | ImGuiKey_C;
+    const ImGuiKeyChord pasteNodeChord = ImGuiMod_Super | ImGuiKey_V;
+#else
+    const ImGuiKeyChord copyNodeChord = ImGuiMod_Ctrl | ImGuiKey_C;
+    const ImGuiKeyChord pasteNodeChord = ImGuiMod_Ctrl | ImGuiKey_V;
+#endif
+    if (ImGui::IsKeyChordPressed(copyNodeChord))
+      copySelectedNode(app);
+    if (ImGui::IsKeyChordPressed(pasteNodeChord))
+      pasteNodeFromClipboard(app);
   }
 
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_LeftBracket) ||
