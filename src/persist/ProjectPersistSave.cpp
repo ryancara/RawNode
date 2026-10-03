@@ -125,12 +125,7 @@ std::string exportSidecarPath(const std::string &exportPath) {
 
 bool isSupportedImagePath(const std::string &path) {
   if (isHostMetadataPath(path)) return false;
-  std::string e = fs::path(path).extension().string();
-  for (char &c : e) c = (char)tolower((unsigned char)c);
-  if (e == ".exr" || e == ".tif" || e == ".tiff" || e == ".png" || e == ".jpg" || e == ".jpeg") return true;
-  for (const std::string &rawExt : rawImageExtensions())
-    if (e == rawExt) return true;
-  return false;
+  return isRasterImagePath(path) || isRawImagePath(path);
 }
 
 bool isHostMetadataPath(const std::string &path) {
@@ -142,9 +137,15 @@ bool isHostMetadataPath(const std::string &path) {
 }
 
 std::vector<std::string> openImageDialogFilters() {
-  std::string patterns = "*.exr *.tif *.tiff *.png *.jpg *.jpeg";
-  for (const std::string &ext : rawImageExtensions())
-    patterns += " *" + ext;
+  std::string patterns;
+  const auto appendPatterns = [&](const std::vector<std::string> &extensions) {
+    for (const std::string &ext : extensions) {
+      if (!patterns.empty()) patterns += ' ';
+      patterns += "*" + ext;
+    }
+  };
+  appendPatterns(rasterImageExtensions());
+  appendPatterns(rawImageExtensions());
   return {"Images", patterns};
 }
 
