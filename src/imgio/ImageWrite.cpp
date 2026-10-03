@@ -198,6 +198,3 @@ bool writeImage(const Image &img, const std::string &path, ColorEncoding encodin
   return false;
 }
 
-bool writeImage(const Image &img, const std::string &path, ColorSpace space, int jpegQuality) {
-  return writeImage(img, path, legacyColorSpaceEncoding(space), jpegQuality);
-}
