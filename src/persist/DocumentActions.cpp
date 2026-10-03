@@ -417,13 +417,11 @@ void doExport(App &app) {
   const int pw = app.preview.w, ph = app.preview.h;
   Image src = app.full;
   ColorEncoding space;
-  ColorEncoding inSpace;
   bool sourceUsesRawEncoding = false;
   ColorEncoding sourceRawEncoding;
   {
     std::lock_guard<std::mutex> lock(app.colorMutex);
     space = app.outputEncoding;
-    inSpace = app.inputEncoding;
     sourceUsesRawEncoding = app.inputIsRaw;
     sourceRawEncoding = app.inputEncoding;
   }
@@ -438,7 +436,7 @@ void doExport(App &app) {
       break;
     }
   }
-  std::thread([&, src, outPath, pw, ph, space, jpegQuality, persistGui, persistChain, sourcePath, inSpace,
+  std::thread([&, src, outPath, pw, ph, space, jpegQuality, persistGui, persistChain, sourcePath,
                sourceUsesRawEncoding, sourceRawEncoding, bypassedMissingProcessor]() mutable {
     for (auto &n : app.nodes)
       if (n.processor) n.processor->setRenderSize(src.w, src.h);
