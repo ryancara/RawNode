@@ -150,7 +150,7 @@ When saving again:
 3. choice parameters that expose stable choice IDs are saved by ID rather than menu position;
 4. if a newer build wrote a choice ID that the current build does not recognise, the opaque saved ID is preserved instead of being replaced by the current fallback/default.
 
-This lets removed, future, or currently unsupported parameter values survive a round trip where possible. Early PR #17 CST sidecars that stored numeric choice positions are still accepted for compatibility.
+This lets removed, future, or currently unsupported parameter values survive a round trip where possible. Processors that provide stable choice IDs persist those IDs; backends without them retain their existing numeric choice persistence.
 
 RawNode does not yet guarantee preservation of every unknown top-level or unknown node-level metadata field. That can be expanded additively if future schema versions require it.
 
