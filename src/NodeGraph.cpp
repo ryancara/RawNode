@@ -19,6 +19,12 @@
 // across sessions; the counter only supplies fresh IDs for newly added nodes.
 static unsigned long long gNextNodeId = 1;
 
+struct RenderMutationScope {
+  App &app;
+  explicit RenderMutationScope(App &target) : app(target) { beginRenderMutation(app); }
+  ~RenderMutationScope() { endRenderMutation(app); }
+};
+
 static bool nodeIdExists(const App &app, const std::string &id, int skipIndex = -1) {
   if (id.empty()) return false;
   for (int i = 0; i < (int)app.nodes.size(); ++i) {
@@ -383,6 +389,7 @@ PersistChain captureChain(const App &app) {
 }
 
 bool appendPersistedNode(App &app, const PersistNode &persisted, int insertAfter) {
+  RenderMutationScope renderMutation(app);
   const int oldCount = (int)app.nodes.size();
   const int targetIndex =
       insertAfter >= 0 && insertAfter < oldCount ? insertAfter + 1 : oldCount;
@@ -471,6 +478,7 @@ bool hasUnknownProcessorChoiceIds(const App &app) {
 }
 
 void applyChain(App &app, const PersistChain &chain) {
+  RenderMutationScope renderMutation(app);
   clearNodes(app);
 
   for (const PersistNode &persisted : chain.nodes) {
