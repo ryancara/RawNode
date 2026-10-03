@@ -148,10 +148,3 @@ bool linearColorTransformMatrix(RgbGamut source, RgbGamut target, double out[3][
   return true;
 }
 
-bool linearColorTransformMatrix(ColorSpace source, ColorSpace target, double out[3][3]) {
-  const ColorEncoding src = legacyColorSpaceEncoding(source);
-  const ColorEncoding dst = legacyColorSpaceEncoding(target);
-  if (src.gamma != TransferFunction::Linear || dst.gamma != TransferFunction::Linear)
-    return false;
-  return linearColorTransformMatrix(src.gamut, dst.gamut, out);
-}
