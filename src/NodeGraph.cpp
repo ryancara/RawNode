@@ -158,9 +158,9 @@ static void applyParamValueJson(Processor &processor, const ProcessorParameter &
       processor.setParameterValue(param.id, (int)std::strtol(value.c_str(), nullptr, 10), false);
       return;
     case ParameterType::Choice: {
-      std::string id;
-      if (param.choiceIds.size() == param.choices.size() &&
-          parseJsonStringValue(value, id)) {
+      if (param.choiceIds.size() == param.choices.size() && !param.choiceIds.empty()) {
+        std::string id;
+        if (!parseJsonStringValue(value, id)) return;
         for (size_t i = 0; i < param.choiceIds.size(); ++i) {
           if (param.choiceIds[i] != id) continue;
           const int selected =
@@ -170,7 +170,9 @@ static void applyParamValueJson(Processor &processor, const ProcessorParameter &
         }
         return;
       }
-      // Backwards compatibility with sidecars that persisted menu positions.
+
+      // Backends without stable IDs retain their historical numeric choice
+      // persistence.
       processor.setParameterValue(param.id, (int)std::strtol(value.c_str(), nullptr, 10), false);
       return;
     }
