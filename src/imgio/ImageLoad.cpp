@@ -312,27 +312,6 @@ static bool loadTiffRgba(TIFF *tif, uint32_t w, uint32_t h, Image &out) {
   return true;
 }
 
-static bool tiffLooksRaw(const std::string &path) {
-  TIFF *tif = TIFFOpen(path.c_str(), "r");
-  if (!tif) return false;
-
-  // Camera RAW containers often put a small rendered preview in the first IFD
-  // and the CFA/mosaic data in a later one. Scan every directory before deciding
-  // this is an ordinary TIFF raster.
-  bool raw = false;
-  do {
-    uint16_t photometric = PHOTOMETRIC_MINISBLACK;
-    TIFFGetFieldDefaulted(tif, TIFFTAG_PHOTOMETRIC, &photometric);
-    if (photometric == 32803) {  // TIFF/EP PHOTOMETRIC_CFA
-      raw = true;
-      break;
-    }
-  } while (TIFFReadDirectory(tif));
-
-  TIFFClose(tif);
-  return raw;
-}
-
 static bool loadTiff(const std::string &path, Image &out, std::vector<uint8_t> &icc, bool &isFloat) {
   icc.clear();
   isFloat = false;
@@ -577,8 +556,6 @@ bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncod
   }
 
   if (e == ".tif" || e == ".tiff") {
-    if (tiffLooksRaw(path) && tryRaw()) return true;
-
     std::vector<uint8_t> icc;
     bool isFloat = false;
     if (loadTiff(path, out, icc, isFloat)) {
@@ -618,11 +595,7 @@ bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigne
   if (e == ".png" || e == ".jpg" || e == ".jpeg")
     return loadStbThumbRGBA(path, maxEdge, rgba, w, h);
 
-  if (e == ".tif" || e == ".tiff") {
-    if (!tiffLooksRaw(path)) return false;
-    return loadRawEmbeddedThumbRGBA(path, maxEdge, rgba, w, h);
-  }
-  if (e == ".exr") return false;
+  if (e == ".tif" || e == ".tiff" || e == ".exr") return false;
 
   // Unknown extensions still get a LibRaw probe so valid RAW files renamed to
   // .bin (or with no extension) remain supported.
