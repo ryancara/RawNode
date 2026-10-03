@@ -17,19 +17,36 @@
 namespace fs = std::filesystem;
 
 static ColorEncoding legacyOutputEncoding(int index) {
-  return legacyColorSpaceEncoding((ColorSpace)std::clamp(index, 0, 4));
+  switch (std::clamp(index, 0, 4)) {
+    case 0: return {RgbGamut::Rec709, TransferFunction::SRGB};
+    case 1: return {RgbGamut::DisplayP3, TransferFunction::SRGB};
+    case 2: return {RgbGamut::Rec709, TransferFunction::Linear};
+    case 3: return {RgbGamut::Rec2020, TransferFunction::Linear};
+    case 4: return {RgbGamut::ACES_AP0, TransferFunction::Linear};
+  }
+  return {RgbGamut::Rec709, TransferFunction::SRGB};
 }
 
-static int legacyOutputIndex(const ColorEncoding &encoding) {
-  ColorSpace legacy;
-  return legacyColorSpaceFromEncoding(encoding, legacy) ? (int)legacy : 0;
+static bool legacyRawEncodingFromName(const std::string &name, ColorEncoding &encoding) {
+  if (name == "Linear Rec.709") {
+    encoding = {RgbGamut::Rec709, TransferFunction::Linear};
+    return true;
+  }
+  if (name == "Linear Rec.2020") {
+    encoding = {RgbGamut::Rec2020, TransferFunction::Linear};
+    return true;
+  }
+  if (name == "ACES2065-1" || name == "ACES2065-1 (AP0)" || name == "AP0") {
+    encoding = {RgbGamut::ACES_AP0, TransferFunction::Linear};
+    return true;
+  }
+  return false;
 }
 
 PersistGui captureGui(const App &app) {
   PersistGui g;
   {
     std::lock_guard<std::mutex> lock(app.colorMutex);
-    g.outputIndex = legacyOutputIndex(app.outputEncoding);
     g.outputColorSpace = rgbGamutId(app.outputEncoding.gamut);
     g.outputGamma = transferFunctionId(app.outputEncoding.gamma);
     g.rawDefaultColorSpace = rgbGamutId(app.rawWorkingEncoding.gamut);
@@ -290,11 +307,10 @@ static ColorEncoding rawWorkingEncodingForOpen(const App &app, const std::string
       return {RgbGamut::Rec709, TransferFunction::Linear};
     }
 
-    ColorSpace stored;
+    ColorEncoding stored;
     if (!sc.rawWorkingSpace.empty() &&
-        colorSpaceFromName(sc.rawWorkingSpace, stored) &&
-        isRawWorkingSpace(stored))
-      return legacyColorSpaceEncoding(stored);
+        legacyRawEncodingFromName(sc.rawWorkingSpace, stored))
+      return stored;
 
     // V2 sidecar predating selectable RAW working space.
     return {RgbGamut::Rec709, TransferFunction::Linear};
@@ -390,12 +406,6 @@ void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
   app.setStatus("RAW working encoding: " + colorEncodingName(requested));
-}
-
-void setRawWorkingSpace(App &app, ColorSpace space) {
-  if (!isRawWorkingSpace(space)) return;
-  const ColorEncoding encoding = legacyColorSpaceEncoding(space);
-  setRawWorkingEncoding(app, encoding.gamut, encoding.gamma);
 }
 
 void doExport(App &app) {
