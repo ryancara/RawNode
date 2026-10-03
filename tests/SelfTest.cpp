@@ -686,21 +686,45 @@ int runSelfTests() {
       return fail("full grade copy setup");
     sourceGrade.nodes[0].enabled = false;
     sourceGrade.selectedNode = 1;
+    {
+      std::lock_guard<std::mutex> lock(sourceGrade.colorMutex);
+      sourceGrade.outputEncoding = {RgbGamut::DisplayP3, TransferFunction::Rec709};
+    }
 
     const PersistChain sourceChain = captureChain(sourceGrade);
-    const std::string payload = serializeTransferPayload("grade", sourceChain);
+    PersistGradeColor sourceColor = captureGradeColor(sourceGrade);
+    // Exercise RAW colour fields in the envelope even though this synthetic
+    // source app has no decoded RAW image attached.
+    sourceColor.rawColorSpace = "davinci-wide-gamut";
+    sourceColor.rawGamma = "davinci-intermediate";
+    const std::string payload = serializeTransferPayload("grade", sourceChain, &sourceColor);
     std::string kind;
     PersistChain decoded;
-    if (!parseTransferPayload(payload, kind, decoded) ||
+    PersistGradeColor decodedColor;
+    if (!parseTransferPayload(payload, kind, decoded, &decodedColor) ||
         kind != "grade" || decoded.nodes.size() != 2 ||
-        decoded.selectedNodeId != sourceGrade.nodes[1].id)
+        decoded.selectedNodeId != sourceGrade.nodes[1].id ||
+        decodedColor.rawColorSpace != "davinci-wide-gamut" ||
+        decodedColor.rawGamma != "davinci-intermediate" ||
+        decodedColor.outputColorSpace != "display-p3" ||
+        decodedColor.outputGamma != "rec709-camera")
       return fail("full grade transfer payload");
 
     App destinationGrade;
     if (!addNativeExposureNode(destinationGrade) ||
         !destinationGrade.nodes[0].processor->setParameterValue("exposure", 4.0))
       return fail("full grade destination setup");
+    if (!applyGradeColor(destinationGrade, decodedColor))
+      return fail("full grade colour apply");
     applyChain(destinationGrade, decoded);
+
+    ColorEncoding pastedOutput;
+    {
+      std::lock_guard<std::mutex> lock(destinationGrade.colorMutex);
+      pastedOutput = destinationGrade.outputEncoding;
+    }
+    if (pastedOutput != ColorEncoding{RgbGamut::DisplayP3, TransferFunction::Rec709})
+      return fail("full grade output colour restore");
 
     if (destinationGrade.nodes.size() != 2 || destinationGrade.selectedNode != 1 ||
         destinationGrade.nodes[0].id != sourceGrade.nodes[0].id ||
@@ -781,18 +805,35 @@ int runSelfTests() {
     }
     if (!presetExposure) return fail("node preset parameter");
 
+    {
+      std::lock_guard<std::mutex> lock(presetSource.colorMutex);
+      presetSource.outputEncoding = {RgbGamut::ACES_AP1, TransferFunction::Linear};
+    }
     const PersistChain gradeState = captureChain(presetSource);
-    if (!savePresetFile(gradePresetPath.string(), "grade", gradeState))
+    const PersistGradeColor gradeColor = captureGradeColor(presetSource);
+    if (!savePresetFile(gradePresetPath.string(), "grade", gradeState, &gradeColor))
       return fail("grade preset save");
     PersistChain loadedGradePreset;
-    if (!loadPresetFile(gradePresetPath.string(), kind, loadedGradePreset) ||
-        kind != "grade" || loadedGradePreset.nodes.size() != 2)
+    PersistGradeColor loadedGradeColor;
+    if (!loadPresetFile(gradePresetPath.string(), kind, loadedGradePreset, &loadedGradeColor) ||
+        kind != "grade" || loadedGradePreset.nodes.size() != 2 ||
+        loadedGradeColor.outputColorSpace != "aces-ap1" ||
+        loadedGradeColor.outputGamma != "linear")
       return fail("grade preset load");
 
     App gradePresetTarget;
     if (!addNativeExposureNode(gradePresetTarget))
       return fail("grade preset target setup");
+    if (!applyGradeColor(gradePresetTarget, loadedGradeColor))
+      return fail("grade preset colour apply");
     applyChain(gradePresetTarget, loadedGradePreset);
+    ColorEncoding presetOutput;
+    {
+      std::lock_guard<std::mutex> lock(gradePresetTarget.colorMutex);
+      presetOutput = gradePresetTarget.outputEncoding;
+    }
+    if (presetOutput != ColorEncoding{RgbGamut::ACES_AP1, TransferFunction::Linear})
+      return fail("grade preset output colour restore");
     if (gradePresetTarget.nodes.size() != 2 ||
         !gradePresetTarget.nodes[0].processor ||
         !gradePresetTarget.nodes[1].processor ||
