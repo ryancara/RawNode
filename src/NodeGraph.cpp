@@ -312,7 +312,7 @@ PersistChain captureChain(const App &app) {
           auto preserved = node.preservedParamsJson.find(param.id);
           if (preserved != node.preservedParamsJson.end()) {
             std::string preservedId;
-            if (parseJsonStringValue(preserved->second, preservedId) &&
+            if (!parseJsonStringValue(trimParamJson(preserved->second), preservedId) ||
                 std::find(param.choiceIds.begin(), param.choiceIds.end(), preservedId) == param.choiceIds.end())
               continue;
           }
