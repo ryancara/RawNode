@@ -120,7 +120,7 @@ void saveCurrentInputSidecar(App &app) {
     inputEncoding = app.inputEncoding;
     inputIsRaw = app.inputIsRaw;
   }
-  saveInputSidecar(app.path, inputEncoding, captureSidecarGui(app), captureChain(app),
+  saveInputSidecar(app.path, captureSidecarGui(app), captureChain(app),
                    inputIsRaw ? &inputEncoding : nullptr);
 }
 
@@ -447,7 +447,7 @@ void doExport(App &app) {
     for (auto &n : app.nodes)
       if (n.processor) n.processor->setRenderSize(pw, ph);
     bool ok = result.ok && writeImage(out, outPath, space, jpegQuality);
-    if (ok) saveExportSidecar(outPath, sourcePath, inSpace, persistGui, persistChain,
+    if (ok) saveExportSidecar(outPath, sourcePath, persistGui, persistChain,
                               sourceUsesRawEncoding ? &sourceRawEncoding : nullptr);
     if (ok) {
       std::string status = "Exported " + fs::path(outPath).filename().string() + " (" +
