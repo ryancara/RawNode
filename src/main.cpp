@@ -418,6 +418,18 @@ static int selfTest() {
         !hasUnknownProcessorChoiceIds(futureChoiceApp))
       return fail("future CST choice preservation");
 
+    // Stable-ID choices must be strings. A development-era numeric value is
+    // treated as unknown and preserved rather than silently replaced.
+    PersistChain numericChoice = cstSaved;
+    numericChoice.nodes[0].paramsJson["output_gamma"] = "0";
+    App numericChoiceApp;
+    applyChain(numericChoiceApp, numericChoice);
+    const PersistChain numericChoiceSaved = captureChain(numericChoiceApp);
+    if (!hasUnknownProcessorChoiceIds(numericChoiceApp) ||
+        numericChoiceSaved.nodes.empty() ||
+        numericChoiceSaved.nodes[0].paramsJson.at("output_gamma") != "0")
+      return fail("numeric stable choice protection");
+
     printf("ok  Native CST processor\n");
   }
 
@@ -581,7 +593,7 @@ static int selfTest() {
     fs::remove(inputSidecarPath(defaultImage.string()));
     fs::remove(defaultImage);
 
-        // V1 remains readable and is normalised into the generic persistence model.
+    // V1 remains readable and is normalised into the generic persistence model.
     const fs::path legacy = fs::temp_directory_path() / "rawnode-selftest-v1.ofxrawhost.json";
     static const char kV1[] =
         "{\"format\":\"ofxrawhost-sidecar\",\"version\":1,\"kind\":\"input\","
