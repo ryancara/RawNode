@@ -722,6 +722,93 @@ int runSelfTests() {
   }
 
   {
+    // Presets use their own versioned file envelope but retain the exact same
+    // PersistChain/PersistNode representation as clipboard transfer and Sidecar V2.
+    const fs::path nodePresetPath =
+        fs::temp_directory_path() / "rawnode-selftest-node.rawnodepreset";
+    const fs::path gradePresetPath =
+        fs::temp_directory_path() / "rawnode-selftest-grade.rawnodepreset";
+    const fs::path futurePresetPath =
+        fs::temp_directory_path() / "rawnode-selftest-future.rawnodepreset";
+
+    App presetSource;
+    if (!addNativeExposureNode(presetSource) || !addNativeCstNode(presetSource) ||
+        !presetSource.nodes[0].processor->setParameterValue("exposure", 1.75) ||
+        !presetSource.nodes[1].processor->setParameterValue("output_gamma", 3))
+      return fail("preset source setup");
+    presetSource.nodes[0].enabled = false;
+    presetSource.selectedNode = 0;
+
+    PersistNode nodeState;
+    if (!captureNode(presetSource, 0, nodeState))
+      return fail("node preset capture");
+    PersistChain nodePreset;
+    nodePreset.selectedNodeId = nodeState.id;
+    nodePreset.nodes.push_back(nodeState);
+    if (!savePresetFile(nodePresetPath.string(), "node", nodePreset))
+      return fail("node preset save");
+
+    std::string kind;
+    PersistChain loadedNodePreset;
+    if (!loadPresetFile(nodePresetPath.string(), kind, loadedNodePreset) ||
+        kind != "node" || loadedNodePreset.nodes.size() != 1 ||
+        loadedNodePreset.nodes[0].identifier != NativeExposureProcessor::kIdentifier ||
+        loadedNodePreset.nodes[0].enabled ||
+        loadedNodePreset.nodes[0].paramsJson.at("exposure") != "1.75")
+      return fail("node preset load");
+
+    App nodePresetTarget;
+    if (!appendPersistedNode(nodePresetTarget, loadedNodePreset.nodes[0]) ||
+        nodePresetTarget.nodes.size() != 1 || !nodePresetTarget.nodes[0].processor)
+      return fail("node preset apply");
+    bool presetExposure = false;
+    for (const ProcessorParameter &param : nodePresetTarget.nodes[0].processor->parameters()) {
+      if (param.id == "exposure") {
+        const double *value = std::get_if<double>(&param.value);
+        presetExposure = value && *value == 1.75;
+      }
+    }
+    if (!presetExposure) return fail("node preset parameter");
+
+    const PersistChain gradeState = captureChain(presetSource);
+    if (!savePresetFile(gradePresetPath.string(), "grade", gradeState))
+      return fail("grade preset save");
+    PersistChain loadedGradePreset;
+    if (!loadPresetFile(gradePresetPath.string(), kind, loadedGradePreset) ||
+        kind != "grade" || loadedGradePreset.nodes.size() != 2)
+      return fail("grade preset load");
+
+    App gradePresetTarget;
+    if (!addNativeExposureNode(gradePresetTarget))
+      return fail("grade preset target setup");
+    applyChain(gradePresetTarget, loadedGradePreset);
+    if (gradePresetTarget.nodes.size() != 2 ||
+        !gradePresetTarget.nodes[0].processor ||
+        !gradePresetTarget.nodes[1].processor ||
+        gradePresetTarget.nodes[0].processor->identifier() != NativeExposureProcessor::kIdentifier ||
+        gradePresetTarget.nodes[1].processor->identifier() != NativeCstProcessor::kIdentifier)
+      return fail("grade preset apply");
+
+    {
+      std::ofstream future(futurePresetPath.string(), std::ios::binary);
+      future << "{\"format\":\"rawnode-preset\",\"version\":2,\"kind\":\"grade\","
+                "\"graph\":{\"selectedNodeId\":\"\",\"nodes\":[]}}";
+      if (!future.good()) return fail("future preset write");
+    }
+    PersistChain rejected;
+    if (loadPresetFile(futurePresetPath.string(), kind, rejected))
+      return fail("future preset version rejection");
+
+    if (savePresetFile(nodePresetPath.string(), "unknown", nodePreset))
+      return fail("invalid preset kind save");
+
+    fs::remove(nodePresetPath);
+    fs::remove(gradePresetPath);
+    fs::remove(futurePresetPath);
+    printf("ok  Node and full-grade presets\n");
+  }
+
+  {
     // Sidecar V2 round-trip: IDs/backend identity and opaque future parameter
     // JSON must survive even when this build cannot interpret the processor.
     const fs::path source = fs::temp_directory_path() / "rawnode-selftest-source.nef";
