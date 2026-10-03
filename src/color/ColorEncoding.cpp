@@ -73,6 +73,17 @@ bool rgbGamutFromIdOrName(const std::string &name, RgbGamut &gamut) {
   return false;
 }
 
+bool colorEncodingFromIds(const std::string &gamutId, const std::string &transferId,
+                          ColorEncoding &encoding) {
+  RgbGamut gamut;
+  TransferFunction gamma;
+  if (!rgbGamutFromIdOrName(gamutId, gamut) ||
+      !transferFunctionFromIdOrName(transferId, gamma))
+    return false;
+  encoding = {gamut, gamma};
+  return true;
+}
+
 std::string colorEncodingName(const ColorEncoding &encoding) {
   if (encoding.gamma == TransferFunction::Linear) {
     switch (encoding.gamut) {
