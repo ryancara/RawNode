@@ -82,6 +82,9 @@ int runApp(const std::string &optionalPath) {
   app.thumbCv.notify_one();
   if (app.renderThread.joinable()) app.renderThread.join();
   if (app.thumbThread.joinable()) app.thumbThread.join();
+  // Detached full-resolution export may still be using processor instances.
+  // Do not persist/destroy the graph until it has released them.
+  waitRenderIdle(app);
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
   clearNodes(app);

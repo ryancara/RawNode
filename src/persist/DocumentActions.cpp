@@ -451,7 +451,7 @@ void doExport(App &app) {
   if (fs::path(outPath).extension().empty()) outPath += exts[app.exportFormat];
 
   app.setStatus("Exporting full resolution...");
-  waitRenderIdle(app);
+  beginFullResolutionRender(app);
   const int pw = app.preview.w, ph = app.preview.h;
   Image src = app.full;
   ColorEncoding space;
@@ -495,5 +495,6 @@ void doExport(App &app) {
     } else {
       app.setStatus("Export failed" + (result.message.empty() ? std::string() : ": " + result.message));
     }
+    endFullResolutionRender(app);
   }).detach();
 }
