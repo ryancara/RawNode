@@ -32,9 +32,38 @@ static void showSourcePreview(App &app) {
 }
 
 void waitRenderIdle(App &app) {
-  ++gLatestGen;
   std::unique_lock<std::mutex> lock(app.renderMutex);
+  ++gLatestGen;
   app.renderPending = false;
+  app.renderIdleCv.wait(lock, [&] { return !app.renderBusy && !app.exportBusy; });
+}
+
+void beginRenderMutation(App &app) {
+  waitRenderIdle(app);
+  std::lock_guard<std::mutex> lock(app.renderMutex);
+  ++app.renderMutationDepth;
+}
+
+void endRenderMutation(App &app) {
+  std::lock_guard<std::mutex> lock(app.renderMutex);
+  if (app.renderMutationDepth > 0) --app.renderMutationDepth;
+  if (app.renderMutationDepth == 0 && app.renderPending)
+    app.renderCv.notify_one();
+}
+
+void beginFullResolutionRender(App &app) {
+  waitRenderIdle(app);
+  std::lock_guard<std::mutex> lock(app.renderMutex);
+  app.exportBusy = true;
+}
+
+void endFullResolutionRender(App &app) {
+  {
+    std::lock_guard<std::mutex> lock(app.renderMutex);
+    app.exportBusy = false;
+  }
+  app.renderIdleCv.notify_all();
+  app.renderCv.notify_one();
 }
 
 void scheduleRender(App &app) {
@@ -42,8 +71,7 @@ void scheduleRender(App &app) {
     showSourcePreview(app);
     return;
   }
-  for (auto &n : app.nodes)
-    if (n.processor) n.processor->setRenderSize(app.preview.w, app.preview.h);
+  std::lock_guard<std::mutex> lock(app.renderMutex);
   ++gLatestGen;
   app.renderPending = true;
   app.renderCv.notify_one();
@@ -51,6 +79,7 @@ void scheduleRender(App &app) {
 
 void rebuildPreview(App &app) {
   if (app.full.px.empty()) return;
+  waitRenderIdle(app);
   const int maxEdge = kPreviewRes[std::clamp(app.previewRes, 0, kPreviewResCount - 1)].maxEdge;
   ColorEncoding inputEncoding;
   {
@@ -115,8 +144,8 @@ void uploadTexture(App &app, const Image &img) {
 }
 
 void scheduleDisplayRecolor(App &app) {
-  ++gLatestGen;
   std::lock_guard<std::mutex> lock(app.renderMutex);
+  ++gLatestGen;
   app.displayRecolorPending = true;
   app.renderPending = true;
   app.renderCv.notify_one();
@@ -162,16 +191,45 @@ ProcessorResult renderChain(App &app, const Image &src, Image &out, int gen) {
 }
 
 void renderWorker(App *app) {
+  struct BusyGuard {
+    App *app = nullptr;
+    ~BusyGuard() {
+      if (!app) return;
+      {
+        std::lock_guard<std::mutex> lock(app->renderMutex);
+        app->renderBusy = false;
+      }
+      app->renderIdleCv.notify_all();
+    }
+  };
+
   while (!app->quit) {
     bool recolorOnly = false;
+    int gen = 0;
+    int pw = 0, ph = 0;
     {
       std::unique_lock<std::mutex> lock(app->renderMutex);
-      app->renderCv.wait(lock, [&] { return app->quit || app->renderPending.load(); });
+      app->renderCv.wait(lock, [&] {
+        return app->quit ||
+               (app->renderPending.load() && !app->exportBusy && app->renderMutationDepth == 0);
+      });
       if (app->quit) break;
+
       recolorOnly = app->displayRecolorPending;
       app->displayRecolorPending = false;
       app->renderPending = false;
+      app->renderBusy = true;
+
+      if (!recolorOnly) {
+        // Assign the generation while holding renderMutex so waitRenderIdle()
+        // cannot cancel a render and then have the worker overtake that cancel.
+        gen = ++gLatestGen;
+        pw = app->preview.w;
+        ph = app->preview.h;
+      }
     }
+    BusyGuard busy{app};
+
     if (recolorOnly) {
       Image img;
       {
@@ -195,10 +253,14 @@ void renderWorker(App *app) {
       app->displayDirty = true;
       continue;
     }
+
     if (app->nodes.empty() || app->preview.px.empty()) continue;
-    const int gen = ++gLatestGen;
-    const int pw = app->preview.w;
-    const int ph = app->preview.h;
+
+    // Size-dependent processor state is mutated only while this worker owns
+    // renderBusy, so graph-changing UI actions cannot free or reconfigure it.
+    for (auto &n : app->nodes)
+      if (n.processor) n.processor->setRenderSize(pw, ph);
+
     app->setStatus("Rendering...");
     Image out;
     const ProcessorResult result = renderChain(*app, app->preview, out, gen);
