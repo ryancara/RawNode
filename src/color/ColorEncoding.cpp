@@ -4,8 +4,7 @@
 
 namespace {
 
-// Registry order is presentation order, not enum order. Enum values 0..4 remain
-// frozen for compatibility with numeric CST sidecars from early PR #17 builds.
+// Registry order controls presentation only. Persisted files use stable IDs.
 constexpr std::array<RgbGamutDefinition, 6> kGamuts = {{
     {RgbGamut::Rec709, "rec709", "Rec.709",
      0.640, 0.330, 0.300, 0.600, 0.150, 0.060, 0.3127, 0.3290},
@@ -45,30 +44,12 @@ int rgbGamutIndex(RgbGamut gamut) {
 const char *rgbGamutId(RgbGamut gamut) { return rgbGamutDefinition(gamut).id; }
 const char *rgbGamutName(RgbGamut gamut) { return rgbGamutDefinition(gamut).name; }
 
-bool rgbGamutFromIdOrName(const std::string &name, RgbGamut &gamut) {
+bool rgbGamutFromId(const std::string &id, RgbGamut &gamut) {
   for (const auto &def : kGamuts) {
-    if (name == def.id || name == def.name) {
+    if (id == def.id) {
       gamut = def.value;
       return true;
     }
-  }
-
-  // PR #16/#17 and common aliases.
-  if (name == "Rec.709 / sRGB") {
-    gamut = RgbGamut::Rec709;
-    return true;
-  }
-  if (name == "ACES2065-1" || name == "ACES2065-1 (AP0)" || name == "AP0") {
-    gamut = RgbGamut::ACES_AP0;
-    return true;
-  }
-  if (name == "ACEScg" || name == "AP1") {
-    gamut = RgbGamut::ACES_AP1;
-    return true;
-  }
-  if (name == "DWG") {
-    gamut = RgbGamut::DaVinciWideGamut;
-    return true;
   }
   return false;
 }
@@ -77,8 +58,8 @@ bool colorEncodingFromIds(const std::string &gamutId, const std::string &transfe
                           ColorEncoding &encoding) {
   RgbGamut gamut;
   TransferFunction gamma;
-  if (!rgbGamutFromIdOrName(gamutId, gamut) ||
-      !transferFunctionFromIdOrName(transferId, gamma))
+  if (!rgbGamutFromId(gamutId, gamut) ||
+      !transferFunctionFromId(transferId, gamma))
     return false;
   encoding = {gamut, gamma};
   return true;
