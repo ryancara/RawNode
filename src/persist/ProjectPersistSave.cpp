@@ -206,10 +206,9 @@ static std::string iso8601Now() {
 }
 
 static void appendSidecarHeader(std::ostringstream &o, const std::string &kind,
-                                const std::string &sourcePath, ColorEncoding inputEncoding,
+                                const std::string &sourcePath,
                                 const ColorEncoding *rawEncoding) {
   const bool raw = rawEncoding != nullptr;
-  (void)inputEncoding;
 
   o << '{'
     << "\"format\":\"rawnode-sidecar\","
@@ -226,10 +225,10 @@ static void appendSidecarHeader(std::ostringstream &o, const std::string &kind,
   }
 }
 
-bool saveInputSidecar(const std::string &imagePath, ColorEncoding inputEncoding, const PersistGui &gui,
+bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,
                       const PersistChain &chain, const ColorEncoding *rawEncoding) {
   std::ostringstream o;
-  appendSidecarHeader(o, "input", fs::path(imagePath).filename().string(), inputEncoding, rawEncoding);
+  appendSidecarHeader(o, "input", fs::path(imagePath).filename().string(), rawEncoding);
   appendGuiJson(o, gui, false);
   o << ',';
   appendChainJson(o, chain);
@@ -238,10 +237,10 @@ bool saveInputSidecar(const std::string &imagePath, ColorEncoding inputEncoding,
 }
 
 bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath,
-                       ColorEncoding inputEncoding, const PersistGui &gui,
-                       const PersistChain &chain, const ColorEncoding *rawEncoding) {
+                       const PersistGui &gui, const PersistChain &chain,
+                       const ColorEncoding *rawEncoding) {
   std::ostringstream o;
-  appendSidecarHeader(o, "export", sourceImagePath, inputEncoding, rawEncoding);
+  appendSidecarHeader(o, "export", sourceImagePath, rawEncoding);
   o << "\"exportedAt\":\"" << iso8601Now() << "\",";
   appendGuiJson(o, gui, false);
   o << ',';
