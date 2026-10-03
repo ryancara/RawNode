@@ -159,8 +159,15 @@ struct App {
 
   std::mutex renderMutex;
   std::condition_variable renderCv;
+  std::condition_variable renderIdleCv;
   std::atomic<bool> quit{false};
   std::atomic<bool> renderPending{false};
+  // Guarded by renderMutex. renderBusy covers the preview worker, exportBusy
+  // covers the detached full-resolution export worker, and mutationDepth keeps
+  // the preview worker asleep while a chain is being reconstructed.
+  bool renderBusy = false;
+  bool exportBusy = false;
+  int renderMutationDepth = 0;
   std::thread renderThread;
   Image display;  // latest rendered (bottom-up float), guarded by displayMutex
   std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
