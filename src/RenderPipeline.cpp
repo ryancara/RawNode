@@ -39,6 +39,9 @@ void waitRenderIdle(App &app) {
   app.renderPending = false;
   app.displayRecolorPending = false;
   app.renderIdleCv.wait(lock, [&] { return !app.renderBusy && !app.exportBusy; });
+  // Export completion may have restored a preview while we were waiting.
+  // Do not let that request survive an explicit idle/cancellation barrier.
+  app.renderPending = false;
 }
 
 void stopRenderWorker(App &app) {
@@ -69,6 +72,10 @@ void beginFullResolutionRender(App &app) {
 void endFullResolutionRender(App &app) {
   std::lock_guard<std::mutex> lock(app.renderMutex);
   app.exportBusy = false;
+  // Export startup cancels queued/in-flight previews. Restore processor work
+  // through the existing preview queue, atomically with releasing ownership.
+  // The worker still honours the mutation and shutdown gates.
+  app.renderPending = true;
   app.renderIdleCv.notify_all();
   app.renderCv.notify_one();
 }
