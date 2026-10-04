@@ -58,6 +58,120 @@ class SlowSelfTestProcessor final : public Processor {
   std::atomic<bool> &completed_;
 };
 
+// A barrier makes queue ordering deterministic without timing a slow render.
+class SchedulingSelfTestProcessor final : public Processor {
+ public:
+  std::mutex mutex;
+  std::condition_variable cv;
+  int calls = 0;
+  bool release = false;
+
+  ProcessorBackend backend() const override { return ProcessorBackend::Native; }
+  std::string identifier() const override { return "org.rawnode.selftest.scheduling"; }
+  std::string displayName() const override { return "Self-test Scheduling"; }
+  std::vector<ProcessorParameter> parameters() const override { return {}; }
+  bool setParameterValue(const std::string &, const ParameterValue &, bool) override { return false; }
+  bool resetParameter(const std::string &, bool) override { return false; }
+  bool activateParameter(const std::string &) override { return false; }
+  void setRenderSize(int, int) override {}
+
+  ProcessorResult render(const Image &input, Image &output, int) override {
+    std::unique_lock<std::mutex> lock(mutex);
+    ++calls;
+    cv.notify_all();
+    cv.wait(lock, [&] { return release; });
+    output = input;
+    // Different results let the test distinguish the latest required render
+    // from both the stale display and a superseded in-flight render.
+    for (size_t i = 0; i < output.px.size(); ++i)
+      if (i % 4 != 3) output.px[i] = 0.25f * calls;
+    return ProcessorResult::success();
+  }
+};
+
+static bool testRenderScheduling(bool busy, bool recolorFirst, bool queueFull = true) {
+  App app;
+  app.preview.w = app.preview.h = 1;
+  app.preview.px = {0.18f, 0.18f, 0.18f, 1.0f};
+  app.display = app.preview;
+  app.display.px = {0.05f, 0.05f, 0.05f, 1.0f};
+  auto processor = std::make_unique<SchedulingSelfTestProcessor>();
+  auto *probe = processor.get();
+  Node node;
+  node.processor = std::move(processor);
+  app.nodes.push_back(std::move(node));
+
+  // Always release the barrier and join before destroying the graph, including
+  // on a failed assertion or timeout.
+  struct WorkerGuard {
+    App &app;
+    SchedulingSelfTestProcessor &probe;
+    ~WorkerGuard() {
+      {
+        std::lock_guard<std::mutex> lock(probe.mutex);
+        probe.release = true;
+      }
+      probe.cv.notify_all();
+      stopRenderWorker(app);
+      if (app.renderThread.joinable()) app.renderThread.join();
+    }
+  } guard{app, *probe};
+
+  if (busy) {
+    app.renderThread = std::thread(renderWorker, &app);
+    scheduleRender(app);
+    std::unique_lock<std::mutex> lock(probe->mutex);
+    if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 1; }))
+      return false;
+  } else {
+    // Exercise waking the worker after PR #32's mutation gate opens as well.
+    beginRenderMutation(app);
+    app.renderThread = std::thread(renderWorker, &app);
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.outputEncoding = {RgbGamut::Rec709, TransferFunction::Linear};
+  }
+  bool generationUnchanged = true;
+  auto recolor = [&] {
+    const int before = gLatestGen.load();
+    scheduleDisplayRecolor(app);
+    generationUnchanged = generationUnchanged && gLatestGen.load() == before;
+  };
+  if (recolorFirst) recolor();
+  if (queueFull) scheduleRender(app);
+  if (!recolorFirst) recolor();
+  const int requiredGen = gLatestGen.load();
+
+  {
+    std::lock_guard<std::mutex> lock(probe->mutex);
+    probe->release = true;
+  }
+  probe->cv.notify_all();
+  if (!busy) endRenderMutation(app);
+
+  {
+    std::unique_lock<std::mutex> lock(app.renderMutex);
+    // Unlike waitRenderIdle(), this observes completion without cancelling it.
+    if (!app.renderIdleCv.wait_for(lock, std::chrono::seconds(2), [&] {
+          return !app.renderBusy && !app.renderPending && !app.displayRecolorPending;
+        })) return false;
+  }
+  const int expectedCalls = busy && queueFull ? 2 : 1;
+  {
+    std::lock_guard<std::mutex> lock(probe->mutex);
+    if (probe->calls != expectedCalls) return false;
+  }
+  Image expected = app.preview;
+  expected.px = {0.25f * expectedCalls, 0.25f * expectedCalls, 0.25f * expectedCalls, 1.0f};
+  std::vector<unsigned char> expectedRGBA;
+  toDisplayRGBA8(expected, app.outputEncoding, expectedRGBA);
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  return generationUnchanged && app.display.px == expected.px &&
+         app.displayRGBA == expectedRGBA && app.displayDirty && app.displayGen >= requiredGen;
+}
+
 static int fail(const char *msg) {
   fprintf(stderr, "selftest FAILED: %s\n", msg);
   return 1;
@@ -699,6 +813,23 @@ int runSelfTests() {
     stopRenderWorker(renderLifetime);
     renderLifetime.renderThread.join();
     printf("ok  Render lifetime synchronization\n");
+  }
+
+  {
+    const bool recolorThenFull = testRenderScheduling(false, true);
+    const bool fullThenRecolor = testRenderScheduling(false, false);
+    const bool busyRecolorThenFull = testRenderScheduling(true, true);
+    const bool busyFullThenRecolor = testRenderScheduling(true, false);
+    const bool activeRenderRecolor = testRenderScheduling(true, false, false);
+    if (!recolorThenFull || !fullThenRecolor || !busyRecolorThenFull ||
+        !busyFullThenRecolor || !activeRenderRecolor) {
+      fprintf(stderr, "scheduling cases: recolor/full=%d full/recolor=%d busy recolor/full=%d "
+                      "busy full/recolor=%d active recolor=%d\n",
+              recolorThenFull, fullThenRecolor, busyRecolorThenFull,
+              busyFullThenRecolor, activeRenderRecolor);
+      return fail("preview render/recolor scheduling");
+    }
+    printf("ok  Preview render/recolor scheduling (5 cases)\n");
   }
 
   {
