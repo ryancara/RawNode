@@ -236,7 +236,6 @@ void renderWorker(App *app) {
 
   while (!app->quit) {
     bool recolorOnly = false;
-    bool recolorRequested = false;
     int gen = 0;
     int pw = 0, ph = 0;
     {
@@ -248,9 +247,8 @@ void renderWorker(App *app) {
       });
       if (app->quit) break;
 
-      // Full renders take priority; retain the recolour for a failed render.
-      recolorRequested = app->displayRecolorPending;
-      recolorOnly = !app->renderPending.load() && recolorRequested;
+      // Full renders take priority over queued recolours.
+      recolorOnly = !app->renderPending.load() && app->displayRecolorPending;
       app->displayRecolorPending = false;
       app->renderPending = false;
       app->renderBusy = true;
@@ -297,9 +295,10 @@ void renderWorker(App *app) {
       app->displayGen = gen;
       app->setStatus(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
     } else {
-      // Finish the consumed recolour under this BusyGuard, never by requeueing:
-      // waitRenderIdle() may already have cancelled pending work.
-      if (recolorRequested) recolorDisplay(*app);
+      // Keep the last good image in the current output encoding, even if a
+      // recolour was consumed by superseded work or cancelled before this render.
+      // Do this under BusyGuard, never by requeueing cancelled work.
+      recolorDisplay(*app);
       app->setStatus("Render failed" + (result.message.empty() ? std::string() : ": " + result.message));
     }
   }
