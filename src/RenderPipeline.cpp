@@ -35,6 +35,7 @@ void waitRenderIdle(App &app) {
   std::unique_lock<std::mutex> lock(app.renderMutex);
   ++gLatestGen;
   app.renderPending = false;
+  app.displayRecolorPending = false;
   app.renderIdleCv.wait(lock, [&] { return !app.renderBusy && !app.exportBusy; });
 }
 
@@ -53,7 +54,7 @@ void beginRenderMutation(App &app) {
 void endRenderMutation(App &app) {
   std::lock_guard<std::mutex> lock(app.renderMutex);
   if (app.renderMutationDepth > 0) --app.renderMutationDepth;
-  if (app.renderMutationDepth == 0 && app.renderPending)
+  if (app.renderMutationDepth == 0 && (app.renderPending || app.displayRecolorPending))
     app.renderCv.notify_one();
 }
 
@@ -149,9 +150,9 @@ void uploadTexture(App &app, const Image &img) {
 
 void scheduleDisplayRecolor(App &app) {
   std::lock_guard<std::mutex> lock(app.renderMutex);
-  ++gLatestGen;
+  // Recolour changes only the display transform; it must not cancel or queue
+  // processor-chain work. A pending full render already uses the latest tag.
   app.displayRecolorPending = true;
-  app.renderPending = true;
   app.renderCv.notify_one();
 }
 
@@ -215,11 +216,13 @@ void renderWorker(App *app) {
       std::unique_lock<std::mutex> lock(app->renderMutex);
       app->renderCv.wait(lock, [&] {
         return app->quit ||
-               (app->renderPending.load() && !app->exportBusy && app->renderMutationDepth == 0);
+               ((app->renderPending.load() || app->displayRecolorPending) &&
+                !app->exportBusy && app->renderMutationDepth == 0);
       });
       if (app->quit) break;
 
-      recolorOnly = app->displayRecolorPending;
+      // Full renders take priority and also satisfy any queued recolour.
+      recolorOnly = !app->renderPending.load() && app->displayRecolorPending;
       app->displayRecolorPending = false;
       app->renderPending = false;
       app->renderBusy = true;

@@ -161,7 +161,7 @@ struct App {
   std::condition_variable renderCv;
   std::condition_variable renderIdleCv;
   std::atomic<bool> quit{false};
-  std::atomic<bool> renderPending{false};
+  std::atomic<bool> renderPending{false};  // processor-chain work only
   // Guarded by renderMutex. renderBusy covers the preview worker, exportBusy
   // covers the detached full-resolution export worker, and mutationDepth keeps
   // the preview worker asleep while a chain is being reconstructed.
@@ -174,7 +174,7 @@ struct App {
   std::mutex displayMutex;
   bool displayDirty = false;
   int displayGen = 0;
-  bool displayRecolorPending = false;
+  bool displayRecolorPending = false;  // guarded by renderMutex; display-only work
 
   std::mutex statusMutex;
   void setStatus(const std::string &s) {
