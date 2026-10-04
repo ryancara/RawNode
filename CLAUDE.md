@@ -12,6 +12,35 @@ adjustments and a more capable node graph.
 macOS is currently the primary development platform, but the architecture should
 remain cross-platform for macOS, Windows and Linux.
 
+## Project documentation
+
+The repository is the durable source of project context. Do not rely on chat
+history for important architectural knowledge.
+
+Before broad architecture or product work, read `docs/PROJECT_CONTEXT.md`.
+Also read `docs/ARCHITECTURE.md` and `docs/DECISIONS.md` once those files
+exist and are relevant to the task.
+
+Document responsibilities:
+
+- `docs/PROJECT_CONTEXT.md` — project goals, current state, priorities and
+  current development phase.
+- `docs/ARCHITECTURE.md` — authoritative technical architecture.
+- `docs/DECISIONS.md` — significant durable decisions and their rationale.
+- `CLAUDE.md` — Claude Code working and review instructions.
+- Git history and pull requests — implementation history.
+
+When work results in a significant architectural, product, workflow or roadmap
+decision, identify whether the project documentation needs updating before the
+work is considered complete.
+
+Do not turn `PROJECT_CONTEXT.md` into a changelog. Update it when information a
+future project session needs has materially changed. Implementation history
+belongs in Git and pull requests.
+
+For implementation PRs, update architecture/decision documentation only when the
+PR actually changes the documented architecture or settles a durable decision.
+
 ## Claude's role
 
 Claude Code is primarily used as an independent reviewer for RawNode.
