@@ -91,9 +91,12 @@ Document responsibilities are:
 
 - `docs/PROJECT_CONTEXT.md` — fast onboarding, product direction, current state,
   priorities, current development phase and near-term roadmap.
+- `docs/ARCHITECTURE_AUDIT.md` — evidence, proposed staged refactor plan and
+  unresolved architecture questions from the RawNode <-> vkdt audit. It is not
+  approved architecture by itself.
 - `docs/ARCHITECTURE.md` — authoritative technical architecture once the
-  current architecture audit establishes it.
-- `docs/DECISIONS.md` — significant durable design decisions and the reasons
+  reviewed target architecture is approved.
+- `docs/DECISIONS.md` — significant approved design decisions and the reasons
   behind them.
 - `CLAUDE.md` — Claude Code's persistent review/development instructions.
 - Git history and pull requests — implementation history and per-change detail.
@@ -102,8 +105,14 @@ Do not turn `PROJECT_CONTEXT.md` into a chronological diary. Do not copy every
 PR into it. Update it when the information a future project conversation needs
 has materially changed.
 
-`ARCHITECTURE.md` and `DECISIONS.md` are intentionally deferred until the
-vkdt architecture audit establishes the architecture we actually want to keep.
+`docs/ARCHITECTURE.md` and `docs/DECISIONS.md` remain intentionally deferred
+until the audit recommendations have been independently reviewed and Ryan +
+ChatGPT approve the architecture we actually want to keep.
+
+The audit also found older root-level `ARCHITECTURE.md` and `DECISIONS.md`
+material that is partly aspirational/stale. Do not treat those root files as the
+new authoritative architecture until this documentation ambiguity is explicitly
+resolved.
 
 ## Current capabilities and baseline
 
@@ -316,82 +325,122 @@ than layering more scheduler state onto the current design without need.
 
 ## Current development phase
 
-**Feature development is intentionally paused for a RawNode <-> vkdt architecture
-audit.**
+**The RawNode <-> vkdt architecture audit is complete. No architectural
+implementation has begun.**
 
-The audit should begin as investigation, not refactoring.
+The durable audit summary and proposed staged migration plan are in:
 
-Its purpose is to:
+    docs/ARCHITECTURE_AUDIT.md
 
-- map RawNode's current graph, renderer, ownership, invalidation, display,
-  export, mutation and cancellation architecture;
-- study how vkdt represents the equivalent concepts;
-- identify unnecessary or leaked complexity in RawNode;
-- decide which current mechanisms should be kept, hidden, collapsed, replaced
-  or deferred;
-- propose the smallest clean architecture that supports RawNode's goals;
-- establish a path toward masks/compositing/branching without multiplying
-  scheduler state.
+The audit's main conclusion is that RawNode should undergo a **staged
+architectural refactor before masks/compositing**, not a renderer rewrite.
 
-The audit should initially make **no production code changes**.
+It found the processor foundation and current small renderer broadly sound.
+The highest-value cleanup is to remove renderer sequencing obligations from
+ordinary UI/document code, clarify ownership/lifetime boundaries, own export
+execution more directly, and only then introduce explicit graph topology.
 
-Expected audit outputs include:
+The proposed sequence deliberately keeps the first refactor steps
+behaviour-preserving:
 
-- a current RawNode render/ownership map;
-- relevant vkdt equivalents with source references;
-- a keep/hide/collapse/delete/defer assessment of current machinery;
-- a proposed minimal graph/rendering API;
-- an invalidation model;
-- a graph mutation/lifetime model that hides renderer mechanics from features;
-- display and export sink semantics;
-- preparation for the alpha/compositing decision;
-- a small, behaviour-preserving migration plan.
-
-Ryan and ChatGPT should evaluate the audit before implementation begins. Claude
-should then adversarially review the proposed architecture before substantial
-refactoring.
-
-## Near-term sequence
-
-The intended sequence from the current baseline is:
-
-    Architecture audit
+    Independent Claude architecture review
           |
           v
-    Agree target architecture
+    Ryan + ChatGPT reconcile findings
           |
           v
-    Document ARCHITECTURE.md + DECISIONS.md
+    Approve target direction
           |
           v
-    Small behaviour-preserving refactor PRs
+    Resolve documentation/contracts
           |
           v
-    Sanitizer + independent review
+    Encapsulate existing renderer state
           |
           v
-    Clean architectural baseline
+    Centralize graph-edit transactions
           |
           v
-    Continue colour-management design
+    Make processed-result publication explicit
           |
           v
-    DCTL / LUT and other processor work
+    Own export lifecycle
           |
           v
-    Masks / compositing / branching graph
+    Decide evaluation/export consistency
+          |
+          v
+    Introduce explicit topology in linear mode
+          |
+          v
+    Sequential DAG evaluation
+          |
+          v
+    Versioned graph persistence
+          |
+          v
+    Approve alpha/compositing contract
+          |
+          v
+    Begin masks/compositing feature work
 
-Exact feature ordering after the architectural baseline can change. Do not treat
-this sequence as a rigid release schedule.
+The immediate next action is a **fresh Claude Code adversarial review of the
+audit and migration plan**. Claude should challenge whether the refactor is
+justified, whether the proposed ordering is minimal/safe, whether any
+abstractions are premature, and which open questions truly block
+implementation.
+
+Do not begin refactoring until Ryan + ChatGPT review Claude's findings.
+
+Important audit conclusions currently treated as proposals rather than approved
+decisions include:
+
+- keep current #32-#34 correctness guarantees;
+- hide renderer state behind one owner/coordinator before changing its policy;
+- centralize wait/mutate/reschedule sequencing behind graph operations;
+- avoid a revision-only scheduler model;
+- introduce explicit ports/topology before masks/compositing;
+- keep whole-graph rerendering initially;
+- defer per-node caches, parallel branches, tile/ROI scheduling and general job
+  systems;
+- investigate alpha/OFX/I/O behaviour before committing to a global alpha model.
+
+Exact implementation details can change after independent review.
+
+## Near-term roadmap
+
+The architecture audit deliberately separates cleanup required now from later
+feature work.
+
+Near term:
+
+- independently review the audit with Claude;
+- settle the small number of blocking architecture/product questions;
+- document approved architecture/decisions;
+- carry out small behaviour-preserving refactor PRs with sanitizer and focused
+  independent review;
+- establish a clean graph/execution baseline.
+
+After that baseline:
+
+- resume colour-management design;
+- continue DCTL/LUT and processor work;
+- establish the approved alpha/compositing contract;
+- add masks/compositing/branching incrementally.
+
+Do not introduce speculative caches, schedulers or broad optimisation
+infrastructure merely because a future DAG could use them.
 
 ## Starting a future project conversation
 
 A future ChatGPT or other project-planning session should first read:
 
 1. `docs/PROJECT_CONTEXT.md`;
-2. `docs/ARCHITECTURE.md`, once it exists;
-3. `docs/DECISIONS.md`, once it exists;
-4. relevant current pull requests/issues for the task at hand.
+2. `docs/ARCHITECTURE_AUDIT.md` while the staged refactor is being reviewed or
+   implemented;
+3. `docs/ARCHITECTURE.md`, once the reviewed architecture exists;
+4. `docs/DECISIONS.md`, once approved decisions have been recorded there;
+5. relevant current pull requests/issues for the task at hand.
 
 Then inspect current source where needed rather than assuming this summary
 contains implementation details.
