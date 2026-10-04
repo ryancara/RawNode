@@ -37,11 +37,13 @@ void waitRenderIdle(App &app) {
   std::unique_lock<std::mutex> lock(app.renderMutex);
   ++gLatestGen;
   app.renderPending = false;
+  app.renderQuietPending = false;
   app.displayRecolorPending = false;
   app.renderIdleCv.wait(lock, [&] { return !app.renderBusy && !app.exportBusy; });
   // Export completion may have restored a preview while we were waiting.
   // Do not let that request survive an explicit idle/cancellation barrier.
   app.renderPending = false;
+  app.renderQuietPending = false;
 }
 
 void stopRenderWorker(App &app) {
@@ -75,6 +77,8 @@ void endFullResolutionRender(App &app) {
   // Export startup cancels queued/in-flight previews. Restore processor work
   // through the existing preview queue, atomically with releasing ownership.
   // The worker still honours the mutation and shutdown gates.
+  // Preserve doExport's result unless an explicit edit already queued work.
+  if (!app.renderPending) app.renderQuietPending = true;
   app.renderPending = true;
   app.renderIdleCv.notify_all();
   app.renderCv.notify_one();
@@ -87,6 +91,7 @@ void scheduleRender(App &app) {
   }
   std::lock_guard<std::mutex> lock(app.renderMutex);
   ++gLatestGen;
+  app.renderQuietPending = false;
   app.renderPending = true;
   app.renderCv.notify_one();
 }
@@ -228,7 +233,7 @@ static void recolorDisplay(App &app) {
   app.displayDirty = true;
 }
 
-void renderWorker(App *app) {
+static void runRenderWorker(App *app, const std::function<void()> &onIdle) {
   struct BusyGuard {
     App *app = nullptr;
     ~BusyGuard() {
@@ -243,19 +248,24 @@ void renderWorker(App *app) {
 
   while (!app->quit) {
     bool recolorOnly = false;
+    bool quiet = false;
     int gen = 0;
     int pw = 0, ph = 0;
     {
       std::unique_lock<std::mutex> lock(app->renderMutex);
       app->renderCv.wait(lock, [&] {
-        return app->quit ||
-               ((app->renderPending.load() || app->displayRecolorPending) &&
-                !app->exportBusy && app->renderMutationDepth == 0);
+        const bool ready = app->quit ||
+                           ((app->renderPending.load() || app->displayRecolorPending) &&
+                            !app->exportBusy && app->renderMutationDepth == 0);
+        if (!ready && onIdle) onIdle();
+        return ready;
       });
       if (app->quit) break;
 
       // Full renders take priority over queued recolours.
       recolorOnly = !app->renderPending.load() && app->displayRecolorPending;
+      quiet = !recolorOnly && app->renderQuietPending;
+      app->renderQuietPending = false;
       app->displayRecolorPending = false;
       app->renderPending = false;
       app->renderBusy = true;
@@ -282,7 +292,7 @@ void renderWorker(App *app) {
     for (auto &n : app->nodes)
       if (n.processor) n.processor->setRenderSize(pw, ph);
 
-    app->setStatus("Rendering...");
+    if (!quiet) app->setStatus("Rendering...");
     Image out;
     const ProcessorResult result = renderChain(*app, app->preview, out, gen);
     if (gen != gLatestGen) continue;
@@ -300,7 +310,7 @@ void renderWorker(App *app) {
       app->displayRGBA = std::move(rgba);
       app->displayDirty = true;
       app->displayGen = gen;
-      app->setStatus(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
+      if (!quiet) app->setStatus(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
     } else {
       // Keep the last good image in the current output encoding, even if a
       // recolour was consumed by superseded work or cancelled before this render.
@@ -309,4 +319,12 @@ void renderWorker(App *app) {
       app->setStatus("Render failed" + (result.message.empty() ? std::string() : ": " + result.message));
     }
   }
+}
+
+void renderWorker(App *app) {
+  runRenderWorker(app, {});
+}
+
+void renderWorkerForSelfTest(App *app, const std::function<void()> &onIdle) {
+  runRenderWorker(app, onIdle);
 }

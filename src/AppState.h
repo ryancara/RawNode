@@ -162,6 +162,7 @@ struct App {
   std::condition_variable renderIdleCv;
   std::atomic<bool> quit{false};
   std::atomic<bool> renderPending{false};  // processor-chain work only
+  bool renderQuietPending = false;  // renderMutex; export-restored request preserves result status
   // Guarded by renderMutex. renderBusy covers the preview worker, exportBusy
   // covers the detached full-resolution export worker, and mutationDepth keeps
   // the preview worker asleep while a chain is being reconstructed.
