@@ -67,6 +67,10 @@ class SchedulingSelfTestProcessor final : public Processor {
   bool release = false;
   bool failRender = false;
   int failFromCall = 1;
+  bool preserveInput = false;
+  int width = 0, height = 0;
+  struct Call { int width, height, generation; };
+  std::vector<Call> history;
 
   ProcessorBackend backend() const override { return ProcessorBackend::Native; }
   std::string identifier() const override { return "org.rawnode.selftest.scheduling"; }
@@ -75,11 +79,16 @@ class SchedulingSelfTestProcessor final : public Processor {
   bool setParameterValue(const std::string &, const ParameterValue &, bool) override { return false; }
   bool resetParameter(const std::string &, bool) override { return false; }
   bool activateParameter(const std::string &) override { return false; }
-  void setRenderSize(int, int) override {}
+  void setRenderSize(int w, int h) override {
+    std::lock_guard<std::mutex> lock(mutex);
+    width = w;
+    height = h;
+  }
 
-  ProcessorResult render(const Image &input, Image &output, int) override {
+  ProcessorResult render(const Image &input, Image &output, int generation) override {
     std::unique_lock<std::mutex> lock(mutex);
     ++calls;
+    history.push_back({width, height, generation});
     cv.notify_all();
     cv.wait(lock, [&] { return release; });
     if (failRender && calls >= failFromCall)
@@ -88,7 +97,7 @@ class SchedulingSelfTestProcessor final : public Processor {
     // Different results let the test distinguish the latest required render
     // from both the stale display and a superseded in-flight render.
     for (size_t i = 0; i < output.px.size(); ++i)
-      if (i % 4 != 3) output.px[i] = 0.25f * calls;
+      if (!preserveInput && i % 4 != 3) output.px[i] = 0.25f * calls;
     return ProcessorResult::success();
   }
 };
@@ -336,6 +345,281 @@ static bool testFailedRenderWithoutPendingRecolor(bool cancelRecolor) {
   return probe->calls == (cancelRecolor ? 1 : 2) && app.display.px == lastGood.px &&
          app.displayGen == 17 && app.displayDirty && expectedRGBA != originalRGBA &&
          app.displayRGBA == expectedRGBA && app.getStatus() == "Render failed: Self-test render failure";
+}
+
+// Use the production export ownership API and a processor barrier, rather than
+// sleeps or a large image, to force cancellation before export acquires the graph.
+enum class ExportPreviewWork { None, Pending, Active };
+enum class ExportPreviewEnd { Resume, Cancel, Mutate, CancelDuring, MutateDuring, StopDuring, StopAfter };
+
+static bool testPreviewAfterExport(ExportPreviewWork work,
+                                   ExportPreviewEnd ending = ExportPreviewEnd::Resume) {
+  App app;
+  app.preview.w = app.preview.h = 1;
+  app.preview.px = {0.125f, 0.125f, 0.125f, 1.0f};
+  app.full.w = 2;
+  app.full.h = 1;
+  app.full.px = {0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f};
+  app.display = app.preview;  // Last good image predates the current exposure.
+  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  const auto oldRGBA = app.displayRGBA;
+  auto processor = std::make_unique<SchedulingSelfTestProcessor>();
+  auto *probe = processor.get();
+  probe->preserveInput = true;
+  probe->release = work != ExportPreviewWork::Active;
+  Node barrier;
+  barrier.processor = std::move(processor);
+  app.nodes.push_back(std::move(barrier));
+  auto exposure = std::make_unique<NativeExposureProcessor>();
+  auto *grade = exposure.get();
+  grade->setParameterValue("exposure", 1.0);
+  Node node;
+  node.processor = std::move(exposure);
+  app.nodes.push_back(std::move(node));
+  SchedulingWorkerGuard guard{app, *probe};
+
+  const bool gated = work != ExportPreviewWork::Active;
+  if (gated) beginRenderMutation(app);
+  app.renderThread = std::thread(renderWorker, &app);
+  if (work != ExportPreviewWork::None) scheduleRender(app);
+  if (!gated) {
+    {
+      std::unique_lock<std::mutex> lock(probe->mutex);
+      if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 1; }))
+        return false;
+    }
+    const int generation = gLatestGen.load();
+    std::thread acquireExport([&] { beginFullResolutionRender(app); });
+    // Observe waitRenderIdle's cancellation while the processor cannot exit.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (gLatestGen.load() == generation && std::chrono::steady_clock::now() < deadline)
+      std::this_thread::yield();
+    const bool cancelled = gLatestGen.load() != generation;
+    bool exclusive;
+    {
+      std::lock_guard<std::mutex> lock(app.renderMutex);
+      exclusive = app.renderBusy && !app.exportBusy;
+    }
+    {
+      std::lock_guard<std::mutex> lock(probe->mutex);
+      probe->release = true;
+    }
+    probe->cv.notify_all();
+    acquireExport.join();
+    if (!cancelled || !exclusive) {
+      endFullResolutionRender(app);
+      return false;
+    }
+  } else {
+    beginFullResolutionRender(app);
+  }
+
+  bool ownsGraph;
+  {
+    std::lock_guard<std::mutex> lock(app.renderMutex);
+    ownsGraph = app.exportBusy && !app.renderBusy && !app.renderPending;
+  }
+  // Follow doExport's size changes, uncancellable full render, and restoration.
+  for (auto &n : app.nodes) n.processor->setRenderSize(app.full.w, app.full.h);
+  Image exported;
+  const bool exportOk = renderChain(app, app.full, exported, 0).ok;
+  for (auto &n : app.nodes) n.processor->setRenderSize(app.preview.w, app.preview.h);
+  // A recolour arriving during export must not swallow the restored full render.
+  scheduleDisplayRecolor(app);
+  if (ending == ExportPreviewEnd::StopDuring) {
+    stopRenderWorker(app);
+    app.renderThread.join();
+  }
+  const bool waitDuring = ending == ExportPreviewEnd::CancelDuring ||
+                          ending == ExportPreviewEnd::MutateDuring;
+  bool cancellationStarted = true;
+  std::thread idleWaiter;
+  if (waitDuring) {
+    const int generation = gLatestGen.load();
+    idleWaiter = std::thread([&] {
+      if (ending == ExportPreviewEnd::MutateDuring) beginRenderMutation(app);
+      else waitRenderIdle(app);
+    });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (gLatestGen.load() == generation && std::chrono::steady_clock::now() < deadline)
+      std::this_thread::yield();
+    cancellationStarted = gLatestGen.load() != generation;
+  }
+  endFullResolutionRender(app);
+  if (idleWaiter.joinable()) idleWaiter.join();
+  if (!cancellationStarted) return false;
+  if (!ownsGraph || !exportOk || exported.w != 2 || exported.px[0] != 0.25f) return false;
+
+  if (gated) {
+    std::lock_guard<std::mutex> lock(app.renderMutex);
+    if (app.exportBusy || app.renderBusy || app.renderPending.load() != !waitDuring || app.renderQuietPending != !waitDuring) return false;
+  }
+  if (ending == ExportPreviewEnd::StopAfter) {
+    stopRenderWorker(app);
+    app.renderThread.join();
+  }
+  if (ending != ExportPreviewEnd::Resume) {
+    // Explicit cancellation must still clear the export-restored request.
+    if (!waitDuring) waitRenderIdle(app);
+    {
+      std::lock_guard<std::mutex> lock(app.renderMutex);
+      if (app.renderPending || app.renderQuietPending || app.displayRecolorPending || app.renderBusy) return false;
+    }
+    if (ending == ExportPreviewEnd::Mutate || ending == ExportPreviewEnd::MutateDuring) {
+      if (!waitDuring) beginRenderMutation(app);
+      // Replace a processor only after the export owner has released the graph.
+      app.nodes[1].processor = std::make_unique<NativeExposureProcessor>();
+      app.nodes[1].processor->setParameterValue("exposure", 2.0);
+      scheduleRender(app);
+      endRenderMutation(app);  // Nested gate must keep the replacement queued.
+      std::lock_guard<std::mutex> lock(app.renderMutex);
+      if (app.renderBusy || !app.renderPending || app.renderMutationDepth != 1) return false;
+    }
+  }
+  if (gated) endRenderMutation(app);
+  {
+    std::unique_lock<std::mutex> lock(app.renderMutex);
+    if (!app.renderIdleCv.wait_for(lock, std::chrono::seconds(2), [&] {
+          return !app.renderBusy && !app.renderPending && !app.displayRecolorPending;
+        })) return false;
+  }
+  stopRenderWorker(app);
+  if (app.renderThread.joinable()) app.renderThread.join();
+
+  const bool expectPreview = ending == ExportPreviewEnd::Resume || ending == ExportPreviewEnd::Mutate ||
+                             ending == ExportPreviewEnd::MutateDuring;
+  const int activeCalls = work == ExportPreviewWork::Active ? 1 : 0;
+  {
+    std::lock_guard<std::mutex> lock(probe->mutex);
+    if (probe->calls != activeCalls + 1 + (expectPreview ? 1 : 0)) return false;
+    const auto &fullCall = probe->history[activeCalls];
+    if (fullCall.width != 2 || fullCall.height != 1 || fullCall.generation != 0) return false;
+    if (expectPreview) {
+      const auto &previewCall = probe->history.back();
+      if (previewCall.width != 1 || previewCall.height != 1 || previewCall.generation == 0) return false;
+    }
+  }
+  Image expected = app.preview;
+  if (expectPreview) {
+    const float value = (ending == ExportPreviewEnd::Mutate || ending == ExportPreviewEnd::MutateDuring) ? 0.5f : 0.25f;
+    expected.px = {value, value, value, 1.0f};
+  }
+  std::vector<unsigned char> expectedRGBA;
+  toDisplayRGBA8(expected, app.outputEncoding, expectedRGBA);
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  return app.display.w == 1 && app.display.h == 1 && app.display.px == expected.px &&
+         app.displayRGBA == expectedRGBA && app.displayDirty == expectPreview &&
+         (expectPreview ? app.displayGen > 0 && app.displayRGBA != oldRGBA : app.displayGen == 0);
+}
+
+enum class ExportStatusPreview { Preserve, Fail, ExplicitEdit };
+
+static bool testExportPreviewStatus(const std::string &exportStatus,
+                                    ExportStatusPreview action = ExportStatusPreview::Preserve) {
+  App app;
+  app.preview.w = app.preview.h = 1;
+  app.preview.px = {0.125f, 0.125f, 0.125f, 1.0f};
+  app.full.w = 2;
+  app.full.h = 1;
+  app.full.px = {0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f};
+  app.display = app.preview;
+  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  auto processor = std::make_unique<SchedulingSelfTestProcessor>();
+  auto *probe = processor.get();
+  probe->preserveInput = probe->release = true;
+  Node barrier;
+  barrier.processor = std::move(processor);
+  app.nodes.push_back(std::move(barrier));
+  Node exposure;
+  exposure.processor = std::make_unique<NativeExposureProcessor>();
+  exposure.processor->setParameterValue("exposure", 1.0);
+  app.nodes.push_back(std::move(exposure));
+
+  // Keep observer captures alive until the worker is joined on every exit path.
+  std::mutex parkedMutex;
+  std::condition_variable parkedCv;
+  bool parked = false;
+  SchedulingWorkerGuard guard{app, *probe};
+  beginFullResolutionRender(app);
+  for (auto &n : app.nodes) n.processor->setRenderSize(app.full.w, app.full.h);
+  Image exported;
+  const bool exportOk = renderChain(app, app.full, exported, 0).ok;
+  for (auto &n : app.nodes) n.processor->setRenderSize(app.preview.w, app.preview.h);
+  {
+    std::lock_guard<std::mutex> lock(probe->mutex);
+    probe->release = false;  // Hold the restored preview to inspect its start status.
+    probe->failRender = action == ExportStatusPreview::Fail;
+    probe->failFromCall = 2;
+  }
+  app.renderThread = std::thread([&] {
+    renderWorkerForSelfTest(&app, [&] {
+      std::lock_guard<std::mutex> lock(parkedMutex);
+      parked = true;
+      parkedCv.notify_one();
+    });
+  });
+  bool observedPark;
+  {
+    std::unique_lock<std::mutex> lock(parkedMutex);
+    observedPark = parkedCv.wait_for(lock, std::chrono::seconds(2), [&] { return parked; });
+  }
+  bool idleDuringExport;
+  {
+    // The observer ran while holding renderMutex. Obtaining it now means the
+    // worker released it into renderCv.wait, rather than merely being started.
+    std::lock_guard<std::mutex> lock(app.renderMutex);
+    idleDuringExport = observedPark && app.exportBusy && !app.renderBusy &&
+                       !app.renderPending && !app.renderQuietPending && !app.displayRecolorPending;
+  }
+  app.setStatus(exportStatus);  // Same ordering as doExport, including error messages.
+  endFullResolutionRender(app);  // The only possible notification of renderCv here.
+  if (!idleDuringExport || !exportOk || exported.px[0] != 0.25f) return false;
+  {
+    std::unique_lock<std::mutex> lock(probe->mutex);
+    if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 2; }))
+      return false;
+  }
+  if (app.getStatus() != exportStatus) return false;  // No "Rendering..." overwrite.
+  {
+    std::lock_guard<std::mutex> lock(app.renderMutex);
+    if (!app.renderBusy || app.renderPending || app.renderQuietPending || app.displayRecolorPending)
+      return false;  // Quiet metadata was consumed with the request.
+  }
+  if (action == ExportStatusPreview::ExplicitEdit) {
+    app.nodes[1].processor->setParameterValue("exposure", 2.0);
+    scheduleRender(app);  // A later explicit request must report normal preview status.
+  }
+  {
+    std::lock_guard<std::mutex> lock(probe->mutex);
+    probe->release = true;
+  }
+  probe->cv.notify_all();
+  {
+    std::unique_lock<std::mutex> lock(app.renderMutex);
+    if (!app.renderIdleCv.wait_for(lock, std::chrono::seconds(2), [&] {
+          return !app.renderBusy && !app.renderPending && !app.displayRecolorPending;
+        })) return false;
+  }
+  stopRenderWorker(app);
+  app.renderThread.join();
+  {
+    std::lock_guard<std::mutex> lock(probe->mutex);
+    if (probe->calls != (action == ExportStatusPreview::ExplicitEdit ? 3 : 2)) return false;
+    if (probe->history.back().width != 1 || probe->history.back().generation == 0) return false;
+  }
+  const std::string expectedStatus = action == ExportStatusPreview::Fail
+      ? "Render failed: Self-test render failure"
+      : action == ExportStatusPreview::ExplicitEdit ? "1×1 preview" : exportStatus;
+  Image expected = app.preview;
+  const float value = action == ExportStatusPreview::Fail ? 0.125f
+                    : action == ExportStatusPreview::ExplicitEdit ? 0.5f : 0.25f;
+  expected.px = {value, value, value, 1.0f};
+  std::vector<unsigned char> expectedRGBA;
+  toDisplayRGBA8(expected, app.outputEncoding, expectedRGBA);
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  return app.getStatus() == expectedStatus && app.display.w == 1 && app.display.h == 1 &&
+         app.display.px == expected.px && app.displayRGBA == expectedRGBA && app.displayDirty &&
+         (action == ExportStatusPreview::Fail ? app.displayGen == 0 : app.displayGen > 0);
 }
 
 static int fail(const char *msg) {
@@ -1016,6 +1300,31 @@ int runSelfTests() {
     if (!testRecolorMutationGate(false))
       return fail("display-only outermost mutation wakeup");
     printf("ok  Display-only outermost mutation wakeup\n");
+  }
+
+  {
+    const std::string success = "Exported test.png (2×1)";
+    const std::string warnings = success + " — missing processors were bypassed"
+        " — warning: ICC cannot fully represent DaVinci Intermediate scene values above 1.0;"
+        " external apps may clip highlights";
+    const std::string failure = "Export failed: Could not write image";
+    if (!testExportPreviewStatus(success) || !testExportPreviewStatus(warnings) ||
+        !testExportPreviewStatus(failure) ||
+        !testExportPreviewStatus(success, ExportStatusPreview::Fail) ||
+        !testExportPreviewStatus(success, ExportStatusPreview::ExplicitEdit))
+      return fail("parked export preview wakeup/status preservation");
+    printf("ok  Parked export preview wakeup/status preservation (5 deterministic cases)\n");
+  }
+
+  {
+    for (auto work : {ExportPreviewWork::Active, ExportPreviewWork::Pending, ExportPreviewWork::None})
+      if (!testPreviewAfterExport(work)) return fail("preview restoration after export");
+    for (auto ending : {ExportPreviewEnd::Cancel, ExportPreviewEnd::Mutate,
+                        ExportPreviewEnd::CancelDuring, ExportPreviewEnd::MutateDuring,
+                        ExportPreviewEnd::StopDuring, ExportPreviewEnd::StopAfter})
+      if (!testPreviewAfterExport(ExportPreviewWork::Pending, ending))
+        return fail("preview after export cancellation/mutation/shutdown");
+    printf("ok  Preview restoration after export (9 deterministic cases)\n");
   }
 
   {

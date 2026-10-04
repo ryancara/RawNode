@@ -3,6 +3,8 @@
 #include "AppState.h"
 #include "processors/Processor.h"
 
+#include <functional>
+
 void waitRenderIdle(App &app);
 void stopRenderWorker(App &app);
 void beginRenderMutation(App &app);
@@ -16,3 +18,7 @@ void uploadTexture(App &app, const Image &img);
 void pumpDisplayUpload(App &app);
 ProcessorResult renderChain(App &app, const Image &src, Image &out, int gen);
 void renderWorker(App *app);
+// Test observer runs under renderMutex immediately before the idle wait releases
+// it. Reacquiring renderMutex after observing this callback proves worker parking.
+// The observer must not call rendering APIs or acquire renderMutex itself.
+void renderWorkerForSelfTest(App *app, const std::function<void()> &onIdle);
