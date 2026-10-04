@@ -31,6 +31,8 @@ static void showSourcePreview(App &app) {
   app.displayDirty = true;
 }
 
+// Cancels queued processor renders and display recolours, then waits for owners.
+// Callers needing a fresh preview afterward must explicitly schedule one.
 void waitRenderIdle(App &app) {
   std::unique_lock<std::mutex> lock(app.renderMutex);
   ++gLatestGen;
@@ -195,6 +197,30 @@ ProcessorResult renderChain(App &app, const Image &src, Image &out, int gen) {
   return ProcessorResult::success();
 }
 
+// Called only while the preview worker owns renderBusy.
+static void recolorDisplay(App &app) {
+  Image img;
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    if (app.display.px.empty()) return;
+    img = app.display;
+  }
+  std::vector<unsigned char> rgba;
+  if (app.nodes.empty())
+    sourceToDisplayRGBA8(app, img, rgba);
+  else {
+    ColorEncoding outputEncoding;
+    {
+      std::lock_guard<std::mutex> colorLock(app.colorMutex);
+      outputEncoding = app.outputEncoding;
+    }
+    toDisplayRGBA8(img, outputEncoding, rgba);
+  }
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  app.displayRGBA = std::move(rgba);
+  app.displayDirty = true;
+}
+
 void renderWorker(App *app) {
   struct BusyGuard {
     App *app = nullptr;
@@ -210,6 +236,7 @@ void renderWorker(App *app) {
 
   while (!app->quit) {
     bool recolorOnly = false;
+    bool recolorRequested = false;
     int gen = 0;
     int pw = 0, ph = 0;
     {
@@ -221,8 +248,9 @@ void renderWorker(App *app) {
       });
       if (app->quit) break;
 
-      // Full renders take priority and also satisfy any queued recolour.
-      recolorOnly = !app->renderPending.load() && app->displayRecolorPending;
+      // Full renders take priority; retain the recolour for a failed render.
+      recolorRequested = app->displayRecolorPending;
+      recolorOnly = !app->renderPending.load() && recolorRequested;
       app->displayRecolorPending = false;
       app->renderPending = false;
       app->renderBusy = true;
@@ -238,26 +266,7 @@ void renderWorker(App *app) {
     BusyGuard busy{app};
 
     if (recolorOnly) {
-      Image img;
-      {
-        std::lock_guard<std::mutex> lock(app->displayMutex);
-        if (app->display.px.empty()) continue;
-        img = app->display;
-      }
-      std::vector<unsigned char> rgba;
-      if (app->nodes.empty())
-        sourceToDisplayRGBA8(*app, img, rgba);
-      else {
-        ColorEncoding outputEncoding;
-        {
-          std::lock_guard<std::mutex> colorLock(app->colorMutex);
-          outputEncoding = app->outputEncoding;
-        }
-        toDisplayRGBA8(img, outputEncoding, rgba);
-      }
-      std::lock_guard<std::mutex> lock(app->displayMutex);
-      app->displayRGBA = std::move(rgba);
-      app->displayDirty = true;
+      recolorDisplay(*app);
       continue;
     }
 
@@ -288,6 +297,9 @@ void renderWorker(App *app) {
       app->displayGen = gen;
       app->setStatus(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
     } else {
+      // Finish the consumed recolour under this BusyGuard, never by requeueing:
+      // waitRenderIdle() may already have cancelled pending work.
+      if (recolorRequested) recolorDisplay(*app);
       app->setStatus("Render failed" + (result.message.empty() ? std::string() : ": " + result.message));
     }
   }

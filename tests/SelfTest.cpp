@@ -65,6 +65,7 @@ class SchedulingSelfTestProcessor final : public Processor {
   std::condition_variable cv;
   int calls = 0;
   bool release = false;
+  bool failRender = false;
 
   ProcessorBackend backend() const override { return ProcessorBackend::Native; }
   std::string identifier() const override { return "org.rawnode.selftest.scheduling"; }
@@ -80,6 +81,7 @@ class SchedulingSelfTestProcessor final : public Processor {
     ++calls;
     cv.notify_all();
     cv.wait(lock, [&] { return release; });
+    if (failRender) return ProcessorResult::failure(-2, "Self-test render failure");
     output = input;
     // Different results let the test distinguish the latest required render
     // from both the stale display and a superseded in-flight render.
@@ -89,33 +91,37 @@ class SchedulingSelfTestProcessor final : public Processor {
   }
 };
 
-static bool testRenderScheduling(bool busy, bool recolorFirst, bool queueFull = true) {
+// Always release the barrier and join before destroying the graph, including
+// on a failed assertion or timeout.
+struct SchedulingWorkerGuard {
+  App &app;
+  SchedulingSelfTestProcessor &probe;
+  ~SchedulingWorkerGuard() {
+    {
+      std::lock_guard<std::mutex> lock(probe.mutex);
+      probe.release = true;
+    }
+    probe.cv.notify_all();
+    stopRenderWorker(app);
+    if (app.renderThread.joinable()) app.renderThread.join();
+  }
+};
+
+static bool testRenderScheduling(bool busy, bool recolorFirst, bool queueFull = true, bool failRender = false) {
   App app;
   app.preview.w = app.preview.h = 1;
   app.preview.px = {0.18f, 0.18f, 0.18f, 1.0f};
   app.display = app.preview;
   app.display.px = {0.05f, 0.05f, 0.05f, 1.0f};
+  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
+  probe->failRender = failRender;
   Node node;
   node.processor = std::move(processor);
   app.nodes.push_back(std::move(node));
 
-  // Always release the barrier and join before destroying the graph, including
-  // on a failed assertion or timeout.
-  struct WorkerGuard {
-    App &app;
-    SchedulingSelfTestProcessor &probe;
-    ~WorkerGuard() {
-      {
-        std::lock_guard<std::mutex> lock(probe.mutex);
-        probe.release = true;
-      }
-      probe.cv.notify_all();
-      stopRenderWorker(app);
-      if (app.renderThread.joinable()) app.renderThread.join();
-    }
-  } guard{app, *probe};
+  SchedulingWorkerGuard guard{app, *probe};
 
   if (busy) {
     app.renderThread = std::thread(renderWorker, &app);
@@ -164,12 +170,91 @@ static bool testRenderScheduling(bool busy, bool recolorFirst, bool queueFull = 
     if (probe->calls != expectedCalls) return false;
   }
   Image expected = app.preview;
-  expected.px = {0.25f * expectedCalls, 0.25f * expectedCalls, 0.25f * expectedCalls, 1.0f};
+  expected.px = failRender ? std::vector<float>{0.05f, 0.05f, 0.05f, 1.0f}
+                           : std::vector<float>{0.25f * expectedCalls, 0.25f * expectedCalls,
+                                                0.25f * expectedCalls, 1.0f};
   std::vector<unsigned char> expectedRGBA;
   toDisplayRGBA8(expected, app.outputEncoding, expectedRGBA);
   std::lock_guard<std::mutex> lock(app.displayMutex);
   return generationUnchanged && app.display.px == expected.px &&
-         app.displayRGBA == expectedRGBA && app.displayDirty && app.displayGen >= requiredGen;
+         app.displayRGBA == expectedRGBA && app.displayDirty &&
+         (failRender ? app.displayGen == 0 && app.getStatus() == "Render failed: Self-test render failure"
+                     : app.displayGen >= requiredGen);
+}
+
+// Queue only display work behind a nested mutation gate. No processor work is
+// needed to drive either cancellation or the outermost-mutation wakeup.
+static bool testRecolorMutationGate(bool cancel) {
+  App app;
+  app.preview.w = app.preview.h = 1;
+  app.preview.px = {0.18f, 0.18f, 0.18f, 1.0f};
+  app.display = app.preview;
+  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  const auto originalRGBA = app.displayRGBA;
+  auto processor = std::make_unique<SchedulingSelfTestProcessor>();
+  auto *probe = processor.get();
+  probe->release = true;
+  Node node;
+  node.processor = std::move(processor);
+  app.nodes.push_back(std::move(node));
+  SchedulingWorkerGuard guard{app, *probe};
+  app.renderThread = std::thread(renderWorker, &app);
+  beginRenderMutation(app);
+  beginRenderMutation(app);
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.outputEncoding = {RgbGamut::Rec709, TransferFunction::Linear};
+  }
+  const int generation = gLatestGen.load();
+  scheduleDisplayRecolor(app);
+  {
+    std::unique_lock<std::mutex> lock(app.renderMutex);
+    // A condition-variable observation window catches early dispatch without
+    // sleeps. The mutation gate, rather than processor timing, holds the work.
+    if (app.renderIdleCv.wait_for(lock, std::chrono::milliseconds(50), [&] {
+          return app.renderBusy || !app.displayRecolorPending;
+        }) || app.renderPending || app.renderMutationDepth != 2) return false;
+  }
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    if (app.displayDirty || app.displayRGBA != originalRGBA) return false;
+  }
+  if (gLatestGen.load() != generation) return false;
+  if (cancel) {
+    waitRenderIdle(app);
+    std::lock_guard<std::mutex> lock(app.renderMutex);
+    if (app.displayRecolorPending || app.renderPending || app.renderBusy ||
+        app.renderMutationDepth != 2 || gLatestGen.load() != generation + 1) return false;
+  }
+  endRenderMutation(app);
+  {
+    std::unique_lock<std::mutex> lock(app.renderMutex);
+    if (app.renderIdleCv.wait_for(lock, std::chrono::milliseconds(50), [&] {
+          return app.renderBusy || (!cancel && !app.displayRecolorPending);
+        }) || app.renderMutationDepth != 1) return false;
+  }
+  endRenderMutation(app);
+  if (cancel) app.renderCv.notify_one();  // Give the idle worker a wake after cancellation.
+  {
+    std::unique_lock<std::mutex> lock(app.renderMutex);
+    if (cancel) {
+      // After reopening the gate and waking the idle worker, cancelled work
+      // must not dirty or alter the cached display.
+      if (app.renderIdleCv.wait_for(lock, std::chrono::milliseconds(50), [&] {
+            return app.renderBusy;
+          })) return false;
+    } else if (!app.renderIdleCv.wait_for(lock, std::chrono::seconds(2), [&] {
+                 return !app.renderBusy && !app.displayRecolorPending;
+               })) return false;
+  }
+  stopRenderWorker(app);
+  app.renderThread.join();
+  std::vector<unsigned char> expectedRGBA;
+  toDisplayRGBA8(app.display, app.outputEncoding, expectedRGBA);
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  return probe->calls == 0 && app.display.px == app.preview.px && app.displayGen == 0 &&
+         app.displayDirty == !cancel && app.displayRGBA == (cancel ? originalRGBA : expectedRGBA) &&
+         gLatestGen.load() == generation + (cancel ? 1 : 0);
 }
 
 static int fail(const char *msg) {
@@ -830,6 +915,19 @@ int runSelfTests() {
       return fail("preview render/recolor scheduling");
     }
     printf("ok  Preview render/recolor scheduling (5 cases)\n");
+  }
+
+  {
+    if (!testRenderScheduling(false, true, true, true) ||
+        !testRenderScheduling(false, false, true, true))
+      return fail("failed full render must recolour cached display");
+    printf("ok  Failed full render recolour fallback (both queue orders)\n");
+    if (!testRecolorMutationGate(true))
+      return fail("waitRenderIdle cancels queued display recolour");
+    printf("ok  Queued display recolour cancellation\n");
+    if (!testRecolorMutationGate(false))
+      return fail("display-only outermost mutation wakeup");
+    printf("ok  Display-only outermost mutation wakeup\n");
   }
 
   {
