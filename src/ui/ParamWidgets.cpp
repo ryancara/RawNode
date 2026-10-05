@@ -135,7 +135,18 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
   const std::string label = param.label.empty() ? param.id : param.label;
   const std::string idLabel = label + "##" + param.id;
   ImGui::PushID(param.id.c_str());
-  if (!param.enabled) ImGui::BeginDisabled();
+  const bool editable = parameterEditingAllowed(app);
+  ImGui::BeginDisabled(!param.enabled || !editable);
+
+  // Disabled ImGui items can still report a pending edit on deactivation.
+  // Guard every processor mutation independently of the widget return value.
+  // Export cannot start mid-call on the same UI/control thread; it may only
+  // finish, in which case these controls become editable on their next draw.
+  auto setValue = [&](const ParameterValue &value) {
+    return editable && node.processor->setParameterValue(param.id, value);
+  };
+  auto reset = [&] { return editable && node.processor->resetParameter(param.id); };
+  auto activate = [&] { return editable && node.processor->activateParameter(param.id); };
 
   const float btn = ImGui::GetFrameHeight();
   const float gap = ImGui::GetStyle().ItemInnerSpacing.x;
@@ -163,17 +174,17 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     auto commitNumeric = [&](double v) {
       if (asInt) {
         const int iv = (int)std::lround(v);
-        if (node.processor->setParameterValue(param.id, iv)) {
+        if (setValue(iv)) {
           param.value = iv;
           changed = true;
         }
-      } else if (node.processor->setParameterValue(param.id, v)) {
+      } else if (setValue(v)) {
         param.value = v;
         changed = true;
       }
     };
 
-    if (paramResetButton() && node.processor->resetParameter(param.id)) {
+    if (paramResetButton() && reset()) {
       param.value = param.defaultValue;
       changed = true;
       if (asInt) {
@@ -209,7 +220,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       } else if (!ImGui::IsItemActive()) {
         pendingEdits.erase(editId);
       }
-      if (!param.enabled) ImGui::EndDisabled();
+      ImGui::EndDisabled();
       ImGui::PopID();
       finishParameterChange(app, changed);
       return;
@@ -254,19 +265,19 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     bool value = false;
     if (const bool *v = std::get_if<bool>(&param.value)) value = *v;
 
-    if (paramResetButton() && node.processor->resetParameter(param.id)) {
+    if (paramResetButton() && reset()) {
       if (const bool *v = std::get_if<bool>(&param.defaultValue)) value = *v;
       changed = true;
     }
 
     ImGui::SameLine(0, gap);
-    if (ImGui::Checkbox(idLabel.c_str(), &value) && node.processor->setParameterValue(param.id, value)) changed = true;
+    if (ImGui::Checkbox(idLabel.c_str(), &value) && setValue(value)) changed = true;
 
   } else if (param.type == ParameterType::Choice) {
     int currentValue = 0;
     if (const int *v = std::get_if<int>(&param.value)) currentValue = *v;
 
-    if (paramResetButton() && node.processor->resetParameter(param.id)) {
+    if (paramResetButton() && reset()) {
       if (const int *v = std::get_if<int>(&param.defaultValue)) currentValue = *v;
       changed = true;
     }
@@ -290,11 +301,11 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     ImGui::SetNextItemWidth(valueWidth());
     if (!items.empty() && ImGui::Combo(idLabel.c_str(), &currentIndex, items.data(), (int)items.size())) {
       const int value = explicitValues ? param.choiceValues[(size_t)currentIndex] : currentIndex;
-      if (node.processor->setParameterValue(param.id, value)) changed = true;
+      if (setValue(value)) changed = true;
     }
 
   } else if (param.type == ParameterType::PushButton) {
-    if (ImGui::Button(idLabel.c_str()) && node.processor->activateParameter(param.id)) changed = true;
+    if (ImGui::Button(idLabel.c_str()) && activate()) changed = true;
 
   } else if (param.type == ParameterType::String) {
     std::string value;
@@ -303,7 +314,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     if (param.readOnly) {
       ImGui::Text("%s: %s", label.c_str(), value.c_str());
     } else {
-      if (paramResetButton() && node.processor->resetParameter(param.id)) {
+      if (paramResetButton() && reset()) {
         if (const std::string *v = std::get_if<std::string>(&param.defaultValue)) value = *v;
         changed = true;
       }
@@ -312,8 +323,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       char buf[512];
       std::snprintf(buf, sizeof buf, "%s", value.c_str());
       ImGui::SetNextItemWidth(valueWidth());
-      if (ImGui::InputText(idLabel.c_str(), buf, sizeof buf) &&
-          node.processor->setParameterValue(param.id, std::string(buf)))
+      if (ImGui::InputText(idLabel.c_str(), buf, sizeof buf) && setValue(std::string(buf)))
         changed = true;
     }
 
@@ -322,7 +332,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     if (const auto *v = std::get_if<std::vector<double>>(&param.value)) values = *v;
 
     const float rowW = ImGui::CalcItemWidth();
-    if (paramResetButton() && node.processor->resetParameter(param.id)) {
+    if (paramResetButton() && reset()) {
       if (const auto *v = std::get_if<std::vector<double>>(&param.defaultValue)) values = *v;
       changed = true;
     }
@@ -335,21 +345,21 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       double typed = values[i];
       if (paramEditButton(typed, param.vectorIsInteger, -1e7, 1e7)) {
         values[i] = param.vectorIsInteger ? std::round(typed) : typed;
-        if (node.processor->setParameterValue(param.id, values)) changed = true;
+        if (setValue(values)) changed = true;
       }
       ImGui::SameLine(0, gap);
       ImGui::SetNextItemWidth(std::max(40.0f, rowW - btn - gap));
       float fv = (float)values[i];
       if (ImGui::DragFloat("##v", &fv, param.vectorIsInteger ? 1.0f : 0.01f)) {
         values[i] = param.vectorIsInteger ? std::round(fv) : fv;
-        if (node.processor->setParameterValue(param.id, values)) changed = true;
+        if (setValue(values)) changed = true;
       }
       ImGui::PopID();
     }
     ImGui::Unindent();
   }
 
-  if (!param.enabled) ImGui::EndDisabled();
+  ImGui::EndDisabled();
   ImGui::PopID();
   finishParameterChange(app, changed);
 }

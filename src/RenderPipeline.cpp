@@ -84,6 +84,11 @@ void endFullResolutionRender(App &app) {
   app.renderCv.notify_one();
 }
 
+bool parameterEditingAllowed(App &app) {
+  std::lock_guard<std::mutex> lock(app.renderMutex);
+  return !app.exportBusy;
+}
+
 void scheduleRender(App &app) {
   if (app.nodes.empty() || app.preview.px.empty()) {
     showSourcePreview(app);
