@@ -870,6 +870,438 @@ static bool testExportThreadLifecycle(bool stopDuring) {
          });
 }
 
+static void graphPreviewSource(App &app) {
+  app.preview.w = app.preview.h = 1;
+  app.preview.px = {0.125f, 0.125f, 0.125f, 0.75f};
+  app.full = app.preview;
+  app.display = app.preview;
+  app.display.px = {0.01f, 0.01f, 0.01f, 0.75f};  // Stale last-good image.
+}
+
+struct PreviewWorkerGuard {
+  App &app;
+  ~PreviewWorkerGuard() {
+    stopRenderWorker(app);
+    if (app.renderThread.joinable()) app.renderThread.join();
+  }
+};
+
+// With no worker running, each cancellation and processor request advances
+// gLatestGen once. This checks sequencing independently of the resulting pixels:
+// an inner wait/request cannot hide behind queue coalescing.
+static bool finishGraphPreview(App &app, int before, float expected, bool quiet = false,
+                               int width = 1, int height = 1) {
+  if (gLatestGen.load() != before + 2 || !app.renderPending ||
+      app.renderQuietPending != quiet || app.renderMutationDepth != 0) return false;
+  const std::string status = app.getStatus();
+  PreviewWorkerGuard guard{app};
+  app.renderThread = std::thread(renderWorker, &app);
+  {
+    std::unique_lock<std::mutex> lock(app.renderMutex);
+    if (!app.renderIdleCv.wait_for(lock, std::chrono::seconds(2), [&] {
+          return !app.renderBusy && !app.renderPending && !app.displayRecolorPending;
+        })) return false;
+  }
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  if (app.display.w != width || app.display.h != height ||
+      app.display.px.size() != (size_t)width * height * 4 ||
+      !app.displayDirty || app.displayGen <= before) return false;
+  for (size_t i = 0; i < app.display.px.size(); i += 4) {
+    if (std::fabs(app.display.px[i + 3] - 0.75f) > 2e-6f) return false;
+    for (int c = 0; c < 3; ++c)
+      if (std::fabs(app.display.px[i + c] - expected) > 2e-6f) return false;
+  }
+  std::vector<unsigned char> rgba;
+  toDisplayRGBA8(app.display, app.outputEncoding, rgba);
+  const std::string normalStatus = std::to_string(width) + "×" + std::to_string(height) + " preview";
+  return app.displayRGBA == rgba && app.getStatus() == (quiet ? status : normalStatus);
+}
+
+enum class GraphEditCase { AddExposure, AddCst, Remove, Reorder, Disable, Enable,
+                           Append, AppendMissing, Replace, ReplaceMissing, ReplaceEmpty, Clear, RemoveLast };
+
+static bool testGraphEditTransaction(GraphEditCase edit) {
+  App app;
+  graphPreviewSource(app);
+  PersistNode exposure;
+  exposure.id = "exposure";
+  exposure.backend = "native";
+  exposure.identifier = NativeExposureProcessor::kIdentifier;
+  exposure.paramsJson["exposure"] = "1";
+  exposure.enabled = edit != GraphEditCase::Enable;
+  PersistNode cst;
+  cst.id = "cst";
+  cst.backend = "native";
+  cst.identifier = NativeCstProcessor::kIdentifier;
+  cst.paramsJson["output_gamma"] = "\"srgb\"";
+  PersistChain initial;
+  initial.nodes = {exposure, cst};
+  initial.selectedNodeId = "cst";
+  if (edit != GraphEditCase::ReplaceEmpty) applyChain(app, initial);
+  const int before = gLatestGen.load();
+  float expected = (float)encodeTransfer(0.25, TransferFunction::SRGB);
+  switch (edit) {
+    case GraphEditCase::AddExposure:
+      if (!addNativeExposureNode(app) || app.nodes.size() != 3 || app.selectedNode != 2) return false;
+      break;
+    case GraphEditCase::AddCst:
+      if (!addNativeCstNode(app) || app.nodes.size() != 3) return false;
+      break;
+    case GraphEditCase::Remove:
+      destroyNode(app, 1);
+      if (app.nodes.size() != 1 || app.nodes[0].id != "exposure") return false;
+      expected = 0.25f;
+      break;
+    case GraphEditCase::Reorder:
+      moveNode(app, 1, 0);
+      if (app.nodes[0].id != "cst" || app.nodes[1].id != "exposure" || app.selectedNode != 0) return false;
+      expected = 2.0f * (float)encodeTransfer(0.125, TransferFunction::SRGB);
+      break;
+    case GraphEditCase::Disable:
+      setNodeEnabled(app, 0, false);
+      if (app.nodes[0].enabled) return false;
+      expected = (float)encodeTransfer(0.125, TransferFunction::SRGB);
+      break;
+    case GraphEditCase::Enable:
+      setNodeEnabled(app, 0, true);
+      if (!app.nodes[0].enabled) return false;
+      break;
+    case GraphEditCase::Append:
+    case GraphEditCase::AppendMissing: {
+      PersistNode pasted = exposure;
+      pasted.paramsJson["exposure"] = "3";
+      pasted.paramsJson["unknown"] = "{\"curve\":[0,1]}";
+      pasted.groupOpen["group"] = true;
+      if (edit == GraphEditCase::AppendMissing) {
+        pasted.backend = "dctl";
+        pasted.identifier = "missing.dctl";
+        pasted.enabled = false;
+      }
+      if (!appendPersistedNode(app, pasted, 0) || app.nodes.size() != 3 ||
+          app.selectedNode != 1 || app.nodes[1].id == exposure.id || app.nodes[2].id != "cst" ||
+          captureChain(app).nodes[1].paramsJson.at("unknown") != pasted.paramsJson.at("unknown") ||
+          !app.nodes[1].groupOpen.at("group")) return false;
+      if (edit == GraphEditCase::AppendMissing) {
+        if (app.nodes[1].processor || app.nodes[1].enabled) return false;
+      } else {
+        if (!app.nodes[1].processor) return false;
+        expected = (float)encodeTransfer(2.0, TransferFunction::SRGB);
+      }
+      break;
+    }
+    case GraphEditCase::Replace:
+    case GraphEditCase::ReplaceMissing:
+    case GraphEditCase::ReplaceEmpty: {
+      PersistChain replacement;
+      for (int i = 0; i < 10; ++i) {
+        PersistNode node = exposure;
+        node.id = "restored-" + std::to_string(i);
+        node.paramsJson["exposure"] = "0.25";
+        if (edit == GraphEditCase::ReplaceMissing && i == 5) {
+          node.backend = "ofx";
+          node.identifier = "org.rawnode.unavailable";
+          node.paramsJson["future"] = "[1,2,3]";
+        }
+        replacement.nodes.push_back(node);
+      }
+      replacement.selectedNodeId = "restored-5";
+      applyChain(app, replacement);
+      if (app.nodes.size() != 10 || app.selectedNode != 5) return false;
+      for (int i = 0; i < 10; ++i)
+        if (app.nodes[i].id != replacement.nodes[i].id) return false;
+      if (edit == GraphEditCase::ReplaceMissing &&
+          (app.nodes[5].processor || captureChain(app).nodes[5].paramsJson.at("future") != "[1,2,3]"))
+        return false;
+      expected = 0.125f * std::exp2(edit == GraphEditCase::ReplaceMissing ? 2.25f : 2.5f);
+      break;
+    }
+    case GraphEditCase::RemoveLast:
+      destroyNode(app, 1);
+      // The last removal must show the unprocessed source without processor work.
+      [[fallthrough]];
+    case GraphEditCase::Clear: {
+      // Cancel setup work first: this edit must refresh the source even when
+      // no pending/active work was interrupted by its own transaction.
+      waitRenderIdle(app);
+      if (app.renderPending || app.renderBusy || app.displayRecolorPending) return false;
+      app.displayDirty = false;
+      const int lastBefore = gLatestGen.load();
+      if (edit == GraphEditCase::RemoveLast) destroyNode(app, 0);
+      else clearNodes(app);
+      std::vector<unsigned char> sourceRGBA;
+      toDisplayRGBA8(app.preview, app.inputEncoding, sourceRGBA);
+      return app.nodes.empty() && app.selectedNode == -1 && !app.renderPending &&
+             app.renderMutationDepth == 0 && gLatestGen.load() == lastBefore + 1 &&
+             app.displayDirty && app.display.px == app.preview.px && app.displayRGBA == sourceRGBA;
+    }
+  }
+  return finishGraphPreview(app, before, expected);
+}
+
+static bool testIdlePreviewRebuild() {
+  App app;
+  graphPreviewSource(app);
+  app.full.w = 2560;
+  app.full.h = 2;
+  app.full.px.resize((size_t)app.full.w * app.full.h * 4);
+  for (size_t i = 0; i < app.full.px.size(); i += 4) {
+    for (int c = 0; c < 3; ++c) app.full.px[i + c] = 0.125f;
+    app.full.px[i + 3] = 0.75f;
+  }
+  app.preview = app.full;
+  app.previewRes = 3;
+  if (!addNativeExposureNode(app) ||
+      !app.nodes[0].processor->setParameterValue("exposure", 1.0)) return false;
+  waitRenderIdle(app);
+  if (app.renderPending || app.renderBusy || app.displayRecolorPending) return false;
+  app.previewRes = 0;  // Production 720p selection: cap the long edge at 1280.
+  const int before = gLatestGen.load();
+  rebuildPreview(app);
+  if (app.full.w != 2560 || app.full.h != 2 || app.preview.w != 1280 || app.preview.h != 1)
+    return false;
+  return finishGraphPreview(app, before, 0.25f, false, 1280, 1);
+}
+
+static bool testGraphEditNoops() {
+  App empty;
+  graphPreviewSource(empty);
+  const int beforeEmpty = gLatestGen.load();
+  clearNodes(empty);
+  applyChain(empty, {});
+  if (gLatestGen.load() != beforeEmpty || empty.renderPending || empty.displayDirty) return false;
+  App app;
+  graphPreviewSource(app);
+  if (!addNativeExposureNode(app)) return false;
+  const int before = gLatestGen.load();
+  moveNode(app, 0, 0);
+  moveNode(app, 0, 3);
+  destroyNode(app, -1);
+  setNodeEnabled(app, 0, true);
+  setNodeEnabled(app, 2, false);
+  if (addNode(app, -1)) return false;
+  return gLatestGen.load() == before && app.renderPending && !app.renderQuietPending &&
+         app.nodes.size() == 1 && app.nodes[0].enabled;
+}
+
+// A real OFX createInstance failure through the production adapter. The fixture
+// owns its descriptor and does not add to the known plugin-loading leak.
+struct FailingOfxFixture {
+  OfxPlugin plugin{};
+  int index = (int)gPlugins.size();
+  FailingOfxFixture() {
+    plugin.pluginIdentifier = "org.rawnode.selftest.failed-create";
+    plugin.mainEntry = [](const char *action, const void *, OfxPropertySetHandle, OfxPropertySetHandle) {
+      return std::strcmp(action, kOfxActionCreateInstance) == 0 ? kOfxStatFailed : kOfxStatReplyDefault;
+    };
+    PluginEntry entry{};
+    entry.plugin = &plugin;
+    entry.descriptor = std::make_unique<Effect>();
+    gPlugins.push_back(std::move(entry));
+  }
+  ~FailingOfxFixture() { gPlugins.pop_back(); }
+};
+
+enum class FailedDocumentEdit { Ofx, Ctl, RawMissing, RawReplacedByRaster, GradeRaw };
+
+static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true,
+                                   bool recolorOnly = false) {
+  ExportTestFiles files;
+  FailingOfxFixture ofx;
+  App app;
+  graphPreviewSource(app);
+  if (!addNativeExposureNode(app) ||
+      !app.nodes[0].processor->setParameterValue("exposure", 1.0)) return false;
+  if (!pending || recolorOnly) {
+    waitRenderIdle(app);
+    // Idle failure starts with a valid cached preview and must retain it.
+    app.display = app.preview;
+    for (int i = 0; i < 3; ++i) app.display.px[i] = 0.25f;
+    toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  }
+  if (recolorOnly) {
+    scheduleDisplayRecolor(app);
+    if (app.renderPending || app.renderBusy || !app.displayRecolorPending) return false;
+  }
+  app.path = (files.dir / "missing.nef").string();
+  app.inputIsRaw = true;
+  app.inputEncoding = {RgbGamut::Rec709, TransferFunction::Linear};
+  app.rawWorkingEncoding = {RgbGamut::Rec2020, TransferFunction::Linear};
+  const Image oldFull = app.full, oldPreview = app.preview;
+  const Image oldDisplay = app.display;
+  const auto oldRGBA = app.displayRGBA;
+  const ColorEncoding oldInput = app.inputEncoding, oldDefault = app.rawWorkingEncoding;
+  const ColorEncoding oldOutput = app.outputEncoding;
+  const std::string oldId = app.nodes[0].id;
+  const ColorEncoding requested{RgbGamut::ACES_AP1, TransferFunction::Linear};
+  if (edit == FailedDocumentEdit::RawReplacedByRaster) {
+    app.path = files.output();
+    if (!writeImage(app.full, app.path, app.outputEncoding)) return false;
+  }
+  const int before = gLatestGen.load();
+  std::string error;
+  switch (edit) {
+    case FailedDocumentEdit::Ofx:
+      if (addNode(app, ofx.index)) return false;
+      error = "Plugin failed to create an instance";
+      break;
+    case FailedDocumentEdit::Ctl:
+      if (addCtlNode(app, (files.dir / "missing.ctl").string())) return false;
+      error = app.getStatus();
+      if (error.find("Could not load CTL:") != 0) return false;
+      break;
+    case FailedDocumentEdit::GradeRaw: {
+      PersistGradeColor color;
+      color.rawColorSpace = rgbGamutId(requested.gamut);
+      color.rawGamma = transferFunctionId(requested.gamma);
+      color.outputColorSpace = "display-p3";
+      color.outputGamma = "srgb";
+      if (applyGradeColor(app, color)) return false;
+      error = "Could not reload RAW in " + colorEncodingName(requested);
+      break;
+    }
+    case FailedDocumentEdit::RawMissing:
+    case FailedDocumentEdit::RawReplacedByRaster:
+      setRawWorkingEncoding(app, requested.gamut, requested.gamma);
+      error = "Could not reload RAW in " + colorEncodingName(requested);
+      break;
+  }
+  if (app.getStatus() != error || app.nodes.size() != 1 || app.nodes[0].id != oldId ||
+      app.full.w != oldFull.w || app.full.h != oldFull.h || app.full.px != oldFull.px ||
+      app.preview.w != oldPreview.w || app.preview.h != oldPreview.h || app.preview.px != oldPreview.px ||
+      app.inputEncoding != oldInput || !app.inputIsRaw || app.rawWorkingEncoding != oldDefault ||
+      app.outputEncoding != oldOutput || fs::exists(inputSidecarPath(app.path))) return false;
+  if (app.displayRecolorPending) return false;
+  if (!pending && !recolorOnly)
+    return gLatestGen.load() == before + 1 && !app.renderPending &&
+           !app.renderQuietPending && app.renderMutationDepth == 0 &&
+           app.display.px == oldDisplay.px && app.displayRGBA == oldRGBA;
+  return finishGraphPreview(app, before, 0.25f, true);
+}
+
+static bool testUnavailableProcessorRestore(bool append, bool ctl) {
+  ExportTestFiles files;
+  FailingOfxFixture ofx;
+  App app;
+  graphPreviewSource(app);
+  if (!addNativeExposureNode(app) || !addNativeCstNode(app) ||
+      !app.nodes[0].processor->setParameterValue("exposure", 1.0)) return false;
+  PersistNode missing;
+  missing.id = "failed-processor";
+  missing.backend = ctl ? "ctl" : "ofx";
+  missing.identifier = ctl ? (files.dir / "missing.ctl").string() : ofx.plugin.pluginIdentifier;
+  missing.label = "Unavailable";
+  missing.enabled = false;
+  missing.paramsJson["opaque"] = "{\"future\":true}";
+  missing.groupOpen["group"] = true;
+  PersistChain replacement = captureChain(app);
+  replacement.nodes.insert(replacement.nodes.begin() + 1, missing);
+  replacement.selectedNodeId = missing.id;
+  const int before = gLatestGen.load();
+  if (append) {
+    if (!appendPersistedNode(app, missing, 0)) return false;
+  } else {
+    applyChain(app, replacement);
+  }
+  if (app.nodes.size() != 3 || app.selectedNode != 1 || app.nodes[1].processor ||
+      app.nodes[1].enabled || (app.nodes[1].id == missing.id) == append ||
+      app.nodes[1].storedBackend != missing.backend ||
+      captureChain(app).nodes[1].paramsJson.at("opaque") != missing.paramsJson.at("opaque") ||
+      !app.nodes[1].groupOpen.at("group")) return false;
+  return finishGraphPreview(app, before, 0.25f);
+}
+
+enum class ActiveGraphEdit { Add, Remove, Reorder, Disable, FailCtl, AddOfx };
+
+static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginIndex = -1) {
+  ExportTestFiles files;
+  App app;
+  graphPreviewSource(app);
+  app.full.w = 2;
+  app.full.px.insert(app.full.px.end(), app.preview.px.begin(), app.preview.px.end());
+  auto processor = std::make_unique<SchedulingSelfTestProcessor>();
+  auto *probe = processor.get();
+  probe->preserveInput = true;
+  Node barrier;
+  barrier.id = "barrier";
+  barrier.processor = std::move(processor);
+  app.nodes.push_back(std::move(barrier));
+  if (!addNativeExposureNode(app) ||
+      !app.nodes[1].processor->setParameterValue("exposure", 1.0)) return false;
+  std::mutex observationMutex;
+  std::condition_variable observationCv;
+  bool observed = false;
+  app.renderMutationWaitForSelfTest = [&] {
+    std::lock_guard<std::mutex> lock(observationMutex);
+    observed = true;
+    observationCv.notify_one();
+  };
+  SchedulingWorkerGuard guard{app, *probe};
+  if (exporting && !startExport(app, files.output())) return false;
+  app.renderThread = std::thread(renderWorker, &app);
+  {
+    std::unique_lock<std::mutex> lock(probe->mutex);
+    if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 1; })) return false;
+  }
+  std::atomic<bool> finished{false};
+  bool operationOk = true;
+  // This thread stands in for the sole control thread. The test driver only
+  // observes and releases owners; it does not mutate the document concurrently.
+  std::thread control([&] {
+    switch (edit) {
+      case ActiveGraphEdit::Add: operationOk = addNativeExposureNode(app); break;
+      case ActiveGraphEdit::Remove: destroyNode(app, 1); break;
+      case ActiveGraphEdit::Reorder: moveNode(app, 1, 0); break;
+      case ActiveGraphEdit::Disable: setNodeEnabled(app, 1, false); break;
+      case ActiveGraphEdit::FailCtl:
+        operationOk = !addCtlNode(app, (files.dir / "missing.ctl").string());
+        break;
+      case ActiveGraphEdit::AddOfx: operationOk = addNode(app, pluginIndex); break;
+    }
+    finished = true;
+  });
+  bool waited;
+  {
+    std::unique_lock<std::mutex> lock(observationMutex);
+    waited = observationCv.wait_for(lock, std::chrono::seconds(2), [&] { return observed; });
+  }
+  if (waited) {
+    // The observer runs under renderMutex. Reacquiring it proves the control
+    // thread released it into the owner wait while the processor is held.
+    std::lock_guard<std::mutex> lock(app.renderMutex);
+    waited = !finished && app.renderMutationDepth == 1 &&
+             (exporting ? app.exportBusy && !app.renderBusy : app.renderBusy && !app.exportBusy) &&
+             app.nodes.size() == 2 && app.nodes[1].enabled;
+  }
+  {
+    std::lock_guard<std::mutex> lock(probe->mutex);
+    probe->release = true;
+  }
+  probe->cv.notify_all();
+  control.join();  // Always release and join, even when an assertion failed.
+  joinExport(app);
+  if (!waited || !operationOk) return false;
+  {
+    std::unique_lock<std::mutex> lock(app.renderMutex);
+    if (!app.renderIdleCv.wait_for(lock, std::chrono::seconds(2), [&] {
+          return !app.renderBusy && !app.renderPending && !app.displayRecolorPending;
+        }) || app.renderMutationDepth != 0) return false;
+  }
+  {
+    std::lock_guard<std::mutex> lock(probe->mutex);
+    if (probe->calls != 2) return false;  // Original owner, then one final preview.
+  }
+  if (exporting) {
+    PersistSidecar exported;
+    if (!loadSidecarFile(exportSidecarPath(files.output()), exported) ||
+        exported.chain.nodes.size() != 2 || !exported.chain.nodes[1].enabled) return false;
+  }
+  const float expected = edit == ActiveGraphEdit::Remove || edit == ActiveGraphEdit::Disable ? 0.125f : 0.25f;
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  return app.display.px.size() == 4 && app.display.px[0] == expected && app.displayDirty &&
+         (edit == ActiveGraphEdit::FailCtl ? app.getStatus().find("Could not load CTL:") == 0
+                                         : app.getStatus() == "1×1 preview");
+}
+
 static int fail(const char *msg) {
   fprintf(stderr, "selftest FAILED: %s\n", msg);
   return 1;
@@ -1443,6 +1875,49 @@ int runSelfTests() {
       return fail("invalid numeric stable choice protection");
 
     printf("ok  Native CST processor\n");
+  }
+
+  {
+    for (auto edit : {GraphEditCase::AddExposure, GraphEditCase::AddCst, GraphEditCase::Remove,
+                      GraphEditCase::Reorder, GraphEditCase::Disable, GraphEditCase::Enable,
+                      GraphEditCase::Append, GraphEditCase::AppendMissing, GraphEditCase::Replace,
+                      GraphEditCase::ReplaceMissing, GraphEditCase::ReplaceEmpty,
+                      GraphEditCase::Clear, GraphEditCase::RemoveLast}) {
+      if (!testGraphEditTransaction(edit)) {
+        fprintf(stderr, "graph transaction case: %d\n", (int)edit);
+        return fail("production graph transaction/request/result");
+      }
+    }
+    if (!testGraphEditNoops()) return fail("graph no-ops must retain work without requesting more");
+    if (!testIdlePreviewRebuild()) return fail("idle production preview-resolution rebuild/request/result");
+    printf("ok  Production graph transactions (13 edits, idle resolution rebuild, no-ops)\n");
+    for (auto edit : {FailedDocumentEdit::Ofx, FailedDocumentEdit::Ctl, FailedDocumentEdit::RawMissing,
+                      FailedDocumentEdit::RawReplacedByRaster, FailedDocumentEdit::GradeRaw}) {
+      for (bool pending : {false, true}) {
+        if (!testFailedDocumentEdit(edit, pending)) {
+          fprintf(stderr, "failed document edit: %d pending=%d\n", (int)edit, pending);
+          return fail("failed document edit state/quiet preview recovery/status");
+        }
+      }
+    }
+    if (!testFailedDocumentEdit(FailedDocumentEdit::Ofx, false, true))
+      return fail("failed document edit must quietly recover interrupted display-only work");
+    printf("ok  Failed OFX/CTL/RAW edits preserve state and recover quietly (11 cases)\n");
+    for (bool append : {false, true})
+      for (bool ctl : {false, true})
+        if (!testUnavailableProcessorRestore(append, ctl))
+          return fail("failed OFX/CTL restoration must retain placeholders in one transaction");
+    printf("ok  Failed OFX/CTL creation preserves restored placeholders (4 transactions)\n");
+    for (bool exporting : {false, true}) {
+      for (auto edit : {ActiveGraphEdit::Add, ActiveGraphEdit::Remove, ActiveGraphEdit::Reorder,
+                        ActiveGraphEdit::Disable, ActiveGraphEdit::FailCtl}) {
+        if (!testGraphEditWaits(exporting, edit)) {
+          fprintf(stderr, "active graph edit: %d exporting=%d\n", (int)edit, exporting);
+          return fail("production graph edits must drain active preview/export ownership");
+        }
+      }
+    }
+    printf("ok  Production graph edits drain active preview/export (10 barrier cases)\n");
   }
 
   {
@@ -2219,6 +2694,14 @@ int runSelfTests() {
         !ctlApp.nodes[0].processor || ctlApp.nodes[0].processor->backend() != ProcessorBackend::CTL)
       return fail("ctl processor creation");
 
+    {
+      App preview;
+      graphPreviewSource(preview);
+      const int before = gLatestGen.load();
+      if (!addCtlNode(preview, scriptPath.string()) || !finishGraphPreview(preview, before, 0.25f))
+        return fail("CTL add transaction/request/result");
+    }
+
     Image ctlOut;
     ProcessorResult ctlResult = renderChain(ctlApp, src, ctlOut, 0);
     if (!ctlResult.ok || ctlOut.w != src.w || ctlOut.h != src.h || ctlOut.px.size() != src.px.size())
@@ -2410,6 +2893,16 @@ int runSelfTests() {
                                [](const PluginEntry &pe) { return pe.label == "Crop"; });
     if (cropIt == gPlugins.end()) return fail("bundled Crop plugin not found (ctl mixed)");
     const int cropIndex = (int)std::distance(gPlugins.begin(), cropIt);
+    {
+      App preview;
+      graphPreviewSource(preview);
+      const int before = gLatestGen.load();
+      if (!addNode(preview, cropIndex) || !finishGraphPreview(preview, before, 0.125f) ||
+          !testGraphEditWaits(false, ActiveGraphEdit::AddOfx, cropIndex) ||
+          !testGraphEditWaits(true, ActiveGraphEdit::AddOfx, cropIndex))
+        return fail("OFX add transaction and preview/export lifetime boundary");
+      printf("ok  Production OFX/CTL add preview transactions and OFX lifetime barriers\n");
+    }
     if (!testPreviewAfterExport(ExportPreviewWork::Active, ExportPreviewEnd::Resume, cropIndex))
       return fail("production export/preview with real OFX processor");
     printf("ok  Production export/preview with bundled OFX Crop\n");

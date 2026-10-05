@@ -1,4 +1,5 @@
 #include "RenderPipeline.h"
+#include "DocumentMutation.h"
 #include "perf.h"
 #include "ofx/OfxHost.h"  // gLatestGen cancellation token; move to generic render state later.
 #include "color/TransferFunction.h"
@@ -31,10 +32,9 @@ static void showSourcePreview(App &app) {
   app.displayDirty = true;
 }
 
-// Cancels queued processor renders and display recolours, then waits for owners.
-// Callers needing a fresh preview afterward must explicitly schedule one.
-void waitRenderIdle(App &app) {
-  std::unique_lock<std::mutex> lock(app.renderMutex);
+static bool cancelAndDrain(App &app, std::unique_lock<std::mutex> &lock) {
+  bool interrupted = app.renderPending || app.renderBusy ||
+                     app.displayRecolorPending || app.exportBusy;
   ++gLatestGen;
   app.renderPending = false;
   app.renderQuietPending = false;
@@ -42,8 +42,17 @@ void waitRenderIdle(App &app) {
   app.renderIdleCv.wait(lock, [&] { return !app.renderBusy && !app.exportBusy; });
   // Export completion may have restored a preview while we were waiting.
   // Do not let that request survive an explicit idle/cancellation barrier.
+  interrupted = interrupted || app.renderPending;
   app.renderPending = false;
   app.renderQuietPending = false;
+  return interrupted;
+}
+
+// Explicit cancellation for lifecycle/execution callers. Ordinary structural
+// edits use DocumentMutation to own the final preview decision as well.
+void waitRenderIdle(App &app) {
+  std::unique_lock<std::mutex> lock(app.renderMutex);
+  cancelAndDrain(app, lock);
 }
 
 void stopRenderWorker(App &app) {
@@ -52,10 +61,13 @@ void stopRenderWorker(App &app) {
   app.renderCv.notify_one();
 }
 
-void beginRenderMutation(App &app) {
-  waitRenderIdle(app);
-  std::lock_guard<std::mutex> lock(app.renderMutex);
+bool beginRenderMutation(App &app) {
+  std::unique_lock<std::mutex> lock(app.renderMutex);
+  // Close the worker gate before draining, including export's restoration.
   ++app.renderMutationDepth;
+  if ((app.renderBusy || app.exportBusy) && app.renderMutationWaitForSelfTest)
+    app.renderMutationWaitForSelfTest();
+  return cancelAndDrain(app, lock);
 }
 
 void endRenderMutation(App &app) {
@@ -89,21 +101,39 @@ bool parameterEditingAllowed(App &app) {
   return !app.exportBusy;
 }
 
-void scheduleRender(App &app) {
+static void requestPreview(App &app, bool quiet) {
   if (app.nodes.empty() || app.preview.px.empty()) {
     showSourcePreview(app);
     return;
   }
   std::lock_guard<std::mutex> lock(app.renderMutex);
   ++gLatestGen;
-  app.renderQuietPending = false;
+  app.renderQuietPending = quiet;
   app.renderPending = true;
-  app.renderCv.notify_one();
+  if (app.renderMutationDepth == 0) app.renderCv.notify_one();
 }
 
-void rebuildPreview(App &app) {
+void scheduleRender(App &app) {
+  requestPreview(app, false);
+}
+
+document_detail::DocumentMutation::DocumentMutation(App &app)
+    : app_(app), interrupted_(beginRenderMutation(app)) {}
+
+document_detail::DocumentMutation::~DocumentMutation() {
+  try {
+    if (!app_.quit && (changed_ || interrupted_))
+      requestPreview(app_, !changed_);
+  } catch (...) {
+    // Source-preview conversion can allocate. Even if recovery fails, release
+    // execution ownership and preserve the operation's existing status.
+  }
+  endRenderMutation(app_);
+}
+
+void document_detail::DocumentMutation::rebuildPreview() {
+  App &app = app_;
   if (app.full.px.empty()) return;
-  waitRenderIdle(app);
   const int maxEdge = kPreviewRes[std::clamp(app.previewRes, 0, kPreviewResCount - 1)].maxEdge;
   ColorEncoding inputEncoding;
   {
@@ -131,7 +161,13 @@ void rebuildPreview(App &app) {
     makePreview(app.full, maxEdge, app.preview);
   }
 
-  scheduleRender(app);
+  changed();
+}
+
+void rebuildPreview(App &app) {
+  if (app.full.px.empty()) return;
+  document_detail::DocumentMutation mutation(app);
+  mutation.rebuildPreview();
 }
 
 static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h) {
