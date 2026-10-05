@@ -11,6 +11,9 @@ void beginRenderMutation(App &app);
 void endRenderMutation(App &app);
 void beginFullResolutionRender(App &app);
 void endFullResolutionRender(App &app);
+// UI/control-thread policy: export startup and interactive edits share that
+// thread, so an allowed edit cannot be overtaken by export acquisition.
+bool parameterEditingAllowed(App &app);
 void scheduleRender(App &app);
 void scheduleDisplayRecolor(App &app);
 void rebuildPreview(App &app);

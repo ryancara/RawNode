@@ -391,6 +391,7 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
                                    int ofxPluginIndex = -1) {
   ExportTestFiles files;
   App app;
+  if (!parameterEditingAllowed(app)) return false;
   app.preview.w = app.preview.h = 1;
   app.preview.px = {0.125f, 0.125f, 0.125f, 1.0f};
   app.full.w = 2;
@@ -424,6 +425,7 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
       if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 1; }))
         return false;
     }
+    if (!parameterEditingAllowed(app)) return false;  // Preview editing stays available.
     const int generation = gLatestGen.load();
     bool started = false;
     std::thread acquireExport([&] { started = startExport(app, files.output()); });
@@ -454,6 +456,7 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
           return probe->calls == activeCalls + 1;
         })) return false;
   }
+  if (parameterEditingAllowed(app)) return false;
 
   bool ownsGraph;
   {
@@ -488,6 +491,7 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
   probe->cv.notify_all();
   joinExport(app);
   if (idleWaiter.joinable()) idleWaiter.join();
+  if (!parameterEditingAllowed(app)) return false;
   if (!cancellationStarted) return false;
   Image exported;
   ColorEncoding exportedEncoding;
@@ -656,6 +660,7 @@ static bool testExportPreviewStatus(ExportStatusResult result,
       return false;
   }
   if (app.getStatus() != exportStatus) return false;  // No "Rendering..." overwrite.
+  if (!parameterEditingAllowed(app)) return false;  // Export released; preview is still active.
   {
     std::lock_guard<std::mutex> lock(app.renderMutex);
     if (!app.renderBusy || app.renderPending || app.renderQuietPending || app.displayRecolorPending)
@@ -701,6 +706,7 @@ static bool testExportPreviewStatus(ExportStatusResult result,
 static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
   ExportTestFiles files;
   App app;
+  if (!parameterEditingAllowed(app)) return false;
   app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
   app.display = app.preview;
@@ -747,6 +753,7 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
     default: return false;
   }
   const std::string failureStatus = "Export failed: " + message;
+  if (!parameterEditingAllowed(app)) return false;
   {
     std::lock_guard<std::mutex> lock(app.renderMutex);
     if (app.exportBusy || app.renderBusy || !app.renderPending || !app.renderQuietPending)
@@ -782,6 +789,7 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
 static bool testExportThreadLifecycle(bool stopDuring) {
   ExportTestFiles files;
   App app;
+  if (!parameterEditingAllowed(app)) return false;
   app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
   app.path = (files.dir / "source.nef").string();
@@ -805,6 +813,7 @@ static bool testExportThreadLifecycle(bool stopDuring) {
     }
     stopRenderWorker(app);
     app.renderThread.join();
+    if (parameterEditingAllowed(app)) return false;
     {
       std::lock_guard<std::mutex> lock(app.renderMutex);
       if (!app.exportBusy || app.renderBusy) return false;
@@ -822,11 +831,28 @@ static bool testExportThreadLifecycle(bool stopDuring) {
     }
     // Completion leaves a joinable thread. Starting again must drain it before
     // reassignment, including its captured-input destruction after busy clears.
+    if (!parameterEditingAllowed(app)) return false;
+    {
+      std::lock_guard<std::mutex> lock(probe->mutex);
+      probe->release = false;  // Hold the second export at the same real barrier.
+    }
     if (!app.exportThread.joinable() ||
         !startExport(app, (files.dir / "second.jpg").string())) return false;
+    {
+      std::unique_lock<std::mutex> lock(probe->mutex);
+      if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 2; }))
+        return false;
+    }
+    if (parameterEditingAllowed(app)) return false;
+    {
+      std::lock_guard<std::mutex> lock(probe->mutex);
+      probe->release = true;
+    }
+    probe->cv.notify_all();
   }
   joinExport(app);
   joinExport(app);  // Draining an already joined export is harmless.
+  if (!parameterEditingAllowed(app)) return false;
   {
     std::lock_guard<std::mutex> lock(app.renderMutex);
     if (app.exportBusy || app.exportThread.joinable() || !app.renderPending || !app.renderQuietPending)
@@ -1531,10 +1557,10 @@ int runSelfTests() {
       for (bool asynchronous : {false, true})
         if (!testExportFailureCleanup(failure, asynchronous))
           return fail("production export failure/exception cleanup");
-    printf("ok  Production export failure/exception cleanup (12 deterministic cases)\n");
+    printf("ok  Production export failure/exception cleanup and parameter editability (12 deterministic cases)\n");
     if (!testExportThreadLifecycle(false) || !testExportThreadLifecycle(true))
       return fail("owned export thread restart/shutdown");
-    printf("ok  Owned export thread restart/shutdown\n");
+    printf("ok  Owned export thread restart/shutdown and parameter editability\n");
     if (!testExportPreviewStatus(ExportStatusResult::Success) ||
         !testExportPreviewStatus(ExportStatusResult::Warnings) ||
         !testExportPreviewStatus(ExportStatusResult::Failure) ||
@@ -1553,7 +1579,7 @@ int runSelfTests() {
                         ExportPreviewEnd::StopDuring, ExportPreviewEnd::StopAfter})
       if (!testPreviewAfterExport(ExportPreviewWork::Pending, ending))
         return fail("preview after export cancellation/mutation/shutdown");
-    printf("ok  Preview restoration after export (9 deterministic cases)\n");
+    printf("ok  Preview restoration and parameter editability after export (9 deterministic cases)\n");
   }
 
   {
