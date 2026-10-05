@@ -91,13 +91,10 @@ Document responsibilities are:
 
 - `docs/PROJECT_CONTEXT.md` — fast onboarding, product direction, current state,
   priorities, current development phase and near-term roadmap.
-- `docs/ARCHITECTURE_AUDIT.md` — evidence, proposed staged refactor plan and
-  unresolved architecture questions from the RawNode <-> vkdt audit. It is not
-  approved architecture by itself.
-- `docs/ARCHITECTURE.md` — authoritative technical architecture once the
-  reviewed target architecture is approved.
-- `docs/DECISIONS.md` — significant approved design decisions and the reasons
-  behind them.
+- `docs/ARCHITECTURE.md` — authoritative target technical architecture.
+- `docs/DECISIONS.md` — authoritative durable design decisions and rationale.
+- `docs/ARCHITECTURE_AUDIT.md` — audit evidence and the Codex/Claude
+  reconciliation that led to the approved architecture.
 - `CLAUDE.md` — Claude Code's persistent review/development instructions.
 - Git history and pull requests — implementation history and per-change detail.
 
@@ -105,14 +102,11 @@ Do not turn `PROJECT_CONTEXT.md` into a chronological diary. Do not copy every
 PR into it. Update it when the information a future project conversation needs
 has materially changed.
 
-`docs/ARCHITECTURE.md` and `docs/DECISIONS.md` remain intentionally deferred
-until the audit recommendations have been independently reviewed and Ryan +
-ChatGPT approve the architecture we actually want to keep.
+`docs/ARCHITECTURE.md` and `docs/DECISIONS.md` now contain the reviewed,
+approved architecture and decision log.
 
-The audit also found older root-level `ARCHITECTURE.md` and `DECISIONS.md`
-material that is partly aspirational/stale. Do not treat those root files as the
-new authoritative architecture until this documentation ambiguity is explicitly
-resolved.
+Older root-level `ARCHITECTURE.md` and `DECISIONS.md` are historical pointers
+only. The authoritative documents live under `docs/`.
 
 ## Current capabilities and baseline
 
@@ -184,18 +178,16 @@ be removed.
 
 ## Architectural direction
 
-vkdt is the primary architectural reference for the next phase of RawNode.
+The RawNode <-> vkdt architecture audit and independent Claude review are
+complete. The approved architecture is documented in `docs/ARCHITECTURE.md`.
 
-The reason is conceptual rather than implementation-specific: vkdt is lightweight,
-node/graph oriented, separates processing from display concerns cleanly, and is
-closer to the kind of application RawNode is becoming than a large catalogue
-editor.
+The architectural north star is:
 
-Do not mechanically port vkdt or assume Vulkan is required. RawNode has its own
-constraints, especially OpenFX hosting, CTL, future DCTL support and
-cross-platform CPU/GPU processing.
+> Every new RawNode feature should have an obvious home. If adding a feature
+> requires teaching unrelated parts of the application how that feature works,
+> the boundary is probably wrong.
 
-The working conceptual target is:
+The high-level target remains:
 
     Image source
          |
@@ -207,31 +199,57 @@ The working conceptual target is:
        /      \
       v        v
    Display    Export
-    sink       sink
+    path       path
       |
       v
     Viewer
 
-The important principles behind this model are:
+The implementation model is slightly more explicit:
 
-- one image-processing graph rather than separate processing systems for each
-  feature;
-- display and export are consumers/sinks of graph results;
+    UI
+     |
+     v
+    Document / Graph API
+     |
+     +---- persistent document state
+     |
+     +---- render runtime
+             |
+             v
+        graph evaluator
+             |
+             v
+       processed result
+          /       \
+         v         v
+      display     export
+
+The important approved principles are:
+
+- one image-processing graph rather than feature-specific processing systems;
+- UI/document code expresses edits instead of managing renderer sequencing;
+- the render runtime owns worker lifetime, execution exclusivity, demand,
+  cancellation and shutdown;
+- display and export consume processed graph results;
 - masks, opacity, blending, LUTs, CTL, DCTL, OFX and native processors belong to
   image processing rather than creating their own schedulers;
-- feature/UI code should report that image or display state changed rather than
-  manipulate renderer internals;
-- renderer lifetime, mutation, cancellation and scheduling details should be
-  hidden behind a small infrastructure boundary;
-- prefer re-rendering slightly too much over prematurely creating many granular
-  invalidation/cache domains.
+- renderer flags may remain internally if they are the simplest correct
+  implementation;
+- whole-graph rerendering and sequential execution are preferred before
+  fine-grained caches/parallelism;
+- explicit topology and the evaluator that uses it should arrive together;
+- vkdt is a conceptual reference for graph data flow and ownership, not a system
+  to port or a Vulkan requirement.
 
-A useful conceptual distinction is currently:
+A useful conceptual distinction remains:
 
-    processor / graph / mask / blend change -> image result invalidated
-    display / monitor conversion change     -> display result invalidated
+    source / processor / parameter / graph / mask / blend change
+        -> image processing work
 
-Do not create a third or fourth invalidation category casually.
+    display / monitor conversion change
+        -> display-only work
+
+Do not create additional invalidation/scheduling domains casually.
 
 ## Colour and image-processing direction
 
@@ -325,108 +343,89 @@ than layering more scheduler state onto the current design without need.
 
 ## Current development phase
 
-**The RawNode <-> vkdt architecture audit is complete. No architectural
-implementation has begun.**
+**The architecture audit, independent review and architecture approval are
+complete. No production architecture refactor has begun yet.**
 
-The durable audit summary and proposed staged migration plan are in:
+The authoritative architecture is now in:
+
+    docs/ARCHITECTURE.md
+    docs/DECISIONS.md
+
+The audit trail is in:
 
     docs/ARCHITECTURE_AUDIT.md
 
-The audit's main conclusion is that RawNode should undergo a **staged
-architectural refactor before masks/compositing**, not a renderer rewrite.
+The first production refactor should be a small export-lifecycle PR.
 
-It found the processor foundation and current small renderer broadly sound.
-The highest-value cleanup is to remove renderer sequencing obligations from
-ordinary UI/document code, clarify ownership/lifetime boundaries, own export
-execution more directly, and only then introduce explicit graph topology.
+The approved near-term sequence is:
 
-The proposed sequence deliberately keeps the first refactor steps
-behaviour-preserving:
-
-    Independent Claude architecture review
+    Own the export job
           |
           v
-    Ryan + ChatGPT reconcile findings
-          |
-          v
-    Approve target direction
-          |
-          v
-    Resolve documentation/contracts
-          |
-          v
-    Encapsulate existing renderer state
+    Make parameter editing unavailable during export
           |
           v
     Centralize graph-edit transactions
           |
           v
-    Make processed-result publication explicit
+    Encapsulate renderer ownership
           |
           v
-    Own export lifecycle
+    Settle first mask/graph product contract
           |
           v
-    Decide evaluation/export consistency
-          |
-          v
-    Introduce explicit topology in linear mode
-          |
-          v
-    Sequential DAG evaluation
+    Explicit topology + sequential DAG evaluator
           |
           v
     Versioned graph persistence
           |
           v
-    Approve alpha/compositing contract
-          |
-          v
-    Begin masks/compositing feature work
+    First mask contract + mask path
 
-The immediate next action is a **fresh Claude Code adversarial review of the
-audit and migration plan**. Claude should challenge whether the refactor is
-justified, whether the proposed ordering is minimal/safe, whether any
-abstractions are premature, and which open questions truly block
-implementation.
+The first four steps are primarily boundary/lifetime cleanup. They do not require
+a renderer rewrite or speculative DAG machinery.
 
-Do not begin refactoring until Ryan + ChatGPT review Claude's findings.
+The architectural goal is to make future changes cleaner across the application:
+new features should plug into the graph, render runtime, display path, export
+path or persistence rather than spread knowledge of themselves across unrelated
+subsystems.
 
-Important audit conclusions currently treated as proposals rather than approved
-decisions include:
+Important accepted implementation constraints:
 
-- keep current #32-#34 correctness guarantees;
-- hide renderer state behind one owner/coordinator before changing its policy;
-- centralize wait/mutate/reschedule sequencing behind graph operations;
-- avoid a revision-only scheduler model;
-- introduce explicit ports/topology before masks/compositing;
-- keep whole-graph rerendering initially;
-- defer per-node caches, parallel branches, tile/ROI scheduling and general job
-  systems;
-- investigate alpha/OFX/I/O behaviour before committing to a global alpha model.
+- preserve all #32-#34 renderer/lifetime guarantees;
+- export represents the accepted document state when Export is confirmed;
+- parameter editing is unavailable while export owns live processor instances;
+- structural graph mutation remains a single UI/control-thread contract;
+- failure-triggered preview restoration should not overwrite meaningful
+  operation status;
+- renderer encapsulation follows protocol simplification rather than preceding
+  it;
+- no revision/key framework is required in the near term;
+- the first DAG is sequential and uses whole-graph invalidation;
+- OpenFX remains unary and serialized initially;
+- caches, parallel branches, ROI/tile scheduling and job systems remain
+  deliberately deferred.
 
-Exact implementation details can change after independent review.
+Before DAG/mask feature implementation, the exact first mask UX/graph contract
+still needs a product decision. A global alpha association remains separately
+deferred until transparent compositing or alpha-carrying I/O requires it.
 
 ## Near-term roadmap
 
-The architecture audit deliberately separates cleanup required now from later
-feature work.
+Immediate work:
 
-Near term:
+- implement owned export execution with production-path tests;
+- independently review that focused PR;
+- apply the same small-PR/review discipline to export consistency, graph-edit
+  transactions and renderer ownership.
 
-- independently review the audit with Claude;
-- settle the small number of blocking architecture/product questions;
-- document approved architecture/decisions;
-- carry out small behaviour-preserving refactor PRs with sanitizer and focused
-  independent review;
-- establish a clean graph/execution baseline.
-
-After that baseline:
+After the architectural baseline is clean:
 
 - resume colour-management design;
-- continue DCTL/LUT and processor work;
-- establish the approved alpha/compositing contract;
-- add masks/compositing/branching incrementally.
+- continue DCTL/LUT and other processor work;
+- settle the first mask/graph product contract;
+- introduce the simple executable DAG and versioned topology persistence;
+- add masks/compositing incrementally.
 
 Do not introduce speculative caches, schedulers or broad optimisation
 infrastructure merely because a future DAG could use them.
@@ -436,10 +435,10 @@ infrastructure merely because a future DAG could use them.
 A future ChatGPT or other project-planning session should first read:
 
 1. `docs/PROJECT_CONTEXT.md`;
-2. `docs/ARCHITECTURE_AUDIT.md` while the staged refactor is being reviewed or
-   implemented;
-3. `docs/ARCHITECTURE.md`, once the reviewed architecture exists;
-4. `docs/DECISIONS.md`, once approved decisions have been recorded there;
+2. `docs/ARCHITECTURE.md`;
+3. `docs/DECISIONS.md`;
+4. `docs/ARCHITECTURE_AUDIT.md` when audit rationale or the migration
+   reconciliation matters;
 5. relevant current pull requests/issues for the task at hand.
 
 Then inspect current source where needed rather than assuming this summary
