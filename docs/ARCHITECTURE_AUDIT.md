@@ -1,20 +1,24 @@
 # RawNode Architecture Audit and Refactor Plan
 
-**Status:** Proposed direction, pending independent Claude review and Ryan + ChatGPT approval.
+**Status:** Audit complete, independently reviewed and reconciled. The approved
+target architecture now lives in `docs/ARCHITECTURE.md` and accepted decisions
+live in `docs/DECISIONS.md`.
 
 **RawNode audit baseline:** `07808451f72bba9bc59a6e9a6889ec5a4f7c07de`
 
 **vkdt reference used by the audit:** `hanatos/vkdt @ e2ebdd3e65ab39f8f7e9d30030f299fd725d0f2a`
 
-This document records the durable conclusions and proposed migration plan from
-the RawNode <-> vkdt architecture audit. It is intentionally shorter than the
-full audit report and is meant to guide future project conversations.
+This document records the evidence and recommendations from the RawNode <-> vkdt
+architecture audit and the later independent Claude review.
 
-Nothing in this file is approved architecture merely because it appears here.
-The current next step is independent adversarial review by Claude Code. After
-that review, Ryan + ChatGPT will decide which recommendations become accepted
-architecture and record those decisions in the authoritative architecture and
-decision documents.
+It is retained as the audit trail rather than the authoritative architecture.
+Where this file differs from `docs/ARCHITECTURE.md` or `docs/DECISIONS.md`,
+those reviewed documents take precedence.
+
+The independent review agreed with the core diagnosis and destination but judged
+the original ten-step migration mildly too large. The reconciled plan keeps the
+same architectural direction while removing speculative intermediate
+abstractions.
 
 ## Executive conclusion
 
@@ -117,202 +121,142 @@ described as stronger guarantees than they are:
 - export execution is detached and does not have one encompassing RAII
   ownership/exception guard.
 
-## Proposed staged migration
+## Reconciled staged migration after independent review
 
-The migration is intentionally incremental. Do not combine these steps into one
-large renderer rewrite.
+Claude independently verified the renderer, graph, export, OFX, persistence and
+test paths and agreed that a refactor is justified but that the original plan
+could be smaller.
 
-### Step 1 - Record contracts and resolve documentation authority
+The key refinement is:
 
-**Type:** Documentation only.
+> The primary architectural debt is the caller-managed renderer protocol, not
+> the mere existence of renderer flags.
 
-Document the current renderer guarantees, control-thread assumptions, current
-output-tag semantics and known consistency limitations.
+Moving flags into a coordinator before reducing that protocol would mostly move
+complexity rather than remove it.
 
-Resolve the current documentation ambiguity: root `ARCHITECTURE.md` and
-`DECISIONS.md` contain older/aspirational material, while durable project
-context expects future authoritative documents under `docs/`.
+The reconciled sequence is therefore:
 
-No production behaviour changes.
+### Step 1 - Own the export job
 
-### Step 2 - Encapsulate renderer state without changing policy
+Replace detached export lifetime with owned execution and scope-based cleanup.
 
-**Goal:** Give the existing renderer state one owner/coordinator.
+Split UI/dialog concerns from a synchronous production export-job body so tests
+exercise the real path rather than hand-reimplementing it.
 
-Move or hide the current pending/owner/gate/condition-variable state behind one
-rendering boundary while preserving the current state machine exactly.
+Preserve #34 preview restoration and status behaviour.
 
-Examples of current internals that should stop leaking outward include:
+Do not add snapshots, cloned processors or background-export concurrency.
 
-    renderPending
-    displayRecolorPending
-    renderQuietPending
-    renderBusy
-    exportBusy
-    renderMutationDepth
-    gLatestGen
+### Step 2 - Enforce export consistency simply
 
-Do not introduce a revision system in this step.
-Do not change scheduling policy.
-Do not add DAG behaviour.
+An export represents the accepted document state when Export is confirmed.
 
-A key acceptance criterion is that all #32-#34 regression behaviour remains
-unchanged.
+While export owns the live processor instances, parameter editing is
+unavailable.
 
-### Step 3 - Centralize graph edit transactions
+This avoids introducing a snapshot/staging system merely to solve consistency
+that can currently be handled by serialization.
 
-**Goal:** UI/document code no longer performs renderer protocol manually.
+### Step 3 - Centralize graph-edit transactions
 
-Route structural operations such as add, delete, reorder, bypass and chain
-restore through graph-owner operations.
-
-Ordinary callers should not need to implement:
+Remove ordinary caller responsibility for:
 
     wait for renderer
-    mutate live graph
+    mutate graph/document
     schedule preview
 
-The graph/execution boundary should perform the complete safe operation.
+Add/delete/reorder/bypass/restore operations should cross one document/graph
+mutation boundary.
 
-Failure paths matter. If an operation cancels valid preview work and then fails,
-it must preserve or deliberately restore the appropriate preview demand.
+Nested operations should produce one final preview request.
 
-This is the natural place to address existing stale-preview cases around failed
-node addition and failed RAW reload, rather than creating more feature-specific
-scheduler state.
+Failure paths that must restore a valid preview should do so quietly so the
+meaningful error/status remains visible.
 
-### Step 4 - Make processed-result publication explicit
+This is the right boundary for the known failed-add and failed-RAW-reload stale
+preview cases.
 
-**Goal:** Separate processed image results from presentation results clearly.
+### Step 4 - Encapsulate renderer ownership
 
-The current float `App.display` is really the last successful processed preview
-result, not a display-encoded image.
+Only after the external protocol has shrunk should renderer state move behind a
+dedicated runtime/owner.
 
-Introduce a clear processed-result concept while preserving current behaviour.
+That boundary should own worker lifecycle, execution exclusivity, image/display
+demand, cancellation, shutdown and safe publication.
 
-A result should eventually be able to identify at least:
+Internal pending/busy flags may remain if they are still the simplest correct
+representation.
 
-- which accepted image/document state produced it;
-- requested output;
-- resolution/quality;
-- pixel interpretation/semantics.
+A deliberate test observation seam should replace tests reaching directly into
+private renderer fields.
 
-Keep display bytes as a derived presentation result.
+### Step 5 - Settle the first mask/graph product contract
 
-Do not build a per-node cache.
+Before DAG feature work, decide the first mask UX/graph model.
 
-The audit identified a possible late-publication window when supersession occurs
-during display conversion. Reproduce it deterministically before changing
-behaviour.
+The internal architecture must remain graph-capable and must not create a
+feature-specific mask scheduler.
 
-### Step 5 - Own the export lifecycle
+Graph-native masks remain the preferred direction for eventual compositing, but
+the exact first mask UX is not yet an approved implementation contract.
 
-**Goal:** Remove detached borrowing of live application state.
+### Step 6 - Introduce topology and sequential DAG evaluation together
 
-Encapsulate export acquisition, execution, cleanup, preview restoration and
-status handling in an owned lifecycle with scope-based cleanup.
+Do not introduce topology that nothing executes.
 
-Preserve current export pixels and status behaviour.
-
-This step is about ownership and cleanup, not yet about creating cloned processor
-graphs or parallel preview/export execution.
-
-### Step 6 - Decide evaluation/export consistency
-
-**Goal:** Make parameter consistency an explicit product contract.
-
-This is a decision point, not just mechanical refactoring.
-
-Questions include:
-
-- What document state does an export promise to represent?
-- Are parameter edits allowed to take effect during export?
-- Should edits block, queue, or be staged while export owns processors?
-- Should future evaluations use immutable parameter snapshots?
-- Must export pixels and the captured sidecar always describe the same accepted
-  state?
-
-Do not silently inherit inconsistent backend behaviour.
-
-A conservative first policy may be to keep processor state stable for a complete
-evaluation and delay conflicting edits while export owns the instances. This
-must be approved before implementation.
-
-### Step 7 - Introduce explicit topology while preserving linear behaviour
-
-**Goal:** Establish graph data structures before changing graph execution.
-
-Add stable named endpoints/connections and topology validation while keeping the
-current unary, list-oriented editing experience and equivalent linear execution.
-
-Required concepts include:
+Add the smallest useful graph model and evaluator in the same architectural
+step:
 
 - stable node IDs;
-- named input/output ports;
-- explicit upstream endpoint references;
+- named ports;
+- simple image/mask roles;
+- explicit connections;
 - fan-out;
 - cycle rejection;
-- required/optional input validation;
-- explicit selected result endpoint.
+- one document output;
+- sequential dependency evaluation.
 
-Existing native, CTL and OFX processors may initially remain unary adapters.
+Preserve bit/behaviour equivalence for linear graphs first.
 
-### Step 8 - Replace chain traversal with a simple sequential DAG evaluator
+Keep OpenFX unary initially.
 
-**Goal:** Enable branching/multiple inputs without adding scheduler complexity.
+### Step 7 - Add versioned graph persistence
 
-Evaluate only nodes reachable from the requested output, in dependency order.
+Persist explicit topology only when the runtime can execute it.
 
-A shared upstream node should execute once per evaluation.
+Older builds must never silently reinterpret branching documents as a linear
+chain.
 
-Keep intermediate buffers only as long as downstream consumers need them.
+Preserve stable identities, missing processors and copy/paste compatibility.
 
-This is ordinary per-evaluation buffer lifetime, not persistent per-node caching.
+### Step 8 - Define the first mask contract and implement the first mask path
 
-Keep whole-graph invalidation initially.
+Mask representation, range, filtering, coordinate space, blend encoding and
+opacity semantics should be settled with the feature.
 
-Do not add parallel branch execution, tiling or fine-grained cache invalidation.
+A global image-alpha contract remains separate and may wait until transparent
+compositing or alpha-carrying I/O requires it.
 
-### Step 9 - Add versioned graph persistence
+### Changes from the original Codex plan
 
-**Goal:** Persist the topology safely.
+The independent review specifically recommended:
 
-Extend/migrate the sidecar representation to store:
+- moving export ownership first;
+- merging export consistency into the early export work rather than designing a
+  snapshot system;
+- moving renderer encapsulation until after graph-edit and export call protocols
+  shrink;
+- deferring processed-result identity/revision work until a concrete need exists;
+- merging topology and executable DAG traversal;
+- treating the broad revision/evaluation-key model as analysis vocabulary, not
+  a target architecture;
+- keeping whole-graph invalidation and sequential execution;
+- deciding the first mask model before DAG feature work.
 
-- explicit connections;
-- source/output port identity;
-- selected result endpoint;
-- future multi-input relationships.
-
-Preserve stable node identity and missing-processor representation.
-
-Older readers must not silently reinterpret a branching graph as a linear chain.
-
-Copy/paste and presets will need explicit topology/ID-remapping semantics.
-
-### Step 10 - Approve alpha/compositing contract, then begin feature work
-
-Only after the architectural foundation is accepted should RawNode add its first
-mask/compositor path.
-
-The audit did **not** approve a permanent global alpha model.
-
-The leading low-change candidate is:
-
-- straight/unassociated RGBA at general processor boundaries;
-- premultiplied arithmetic where compositing/filtering requires it;
-- explicit adaptation at OFX and I/O boundaries.
-
-Before approving that model, verify:
-
-- TIFF associated/unassociated alpha behaviour;
-- EXR conventions;
-- representative OFX transparency behaviour and clip preferences;
-- zero/near-zero alpha hidden-colour policy;
-- JPEG flattening behaviour;
-- viewer background/checkerboard compositing;
-- fractional-alpha CST/LUT/CTL behaviour;
-- transparent-edge filtering.
+The destination remains the same: one processing graph, simple execution,
+display/export consumers, and feature code that does not know renderer
+internals.
 
 ## What is required before masks/compositing
 
@@ -418,23 +362,28 @@ automatic retry loop.
 - temporal graphs;
 - broader plugin capability negotiation.
 
-## Independent review checkpoint
+## Independent review result
 
-Before Step 1 turns into implementation work, a fresh Claude Code session should
-adversarially review this audit and plan.
+The independent Claude review is complete.
 
-That review should specifically challenge:
+Its overall verdict was **TOO LARGE (mildly)**: the audit's diagnosis and target
+were judged correct, but several intermediate steps were unnecessary.
 
-- whether a refactor is actually justified;
-- whether the migration order is safe and minimal;
-- whether any step merely moves complexity instead of reducing coupling;
-- whether concurrency/lifetime guarantees are preserved;
-- whether any proposed abstraction is premature;
-- whether steps should be merged, split, reordered or dropped;
-- whether the proposed DAG direction is appropriate for RawNode and OFX;
-- which open questions truly block implementation;
-- which "required before masks" items can safely be deferred.
+The review confirmed these core conclusions:
 
-After Claude's review, Ryan + ChatGPT should reconcile the findings. Only then
-should approved architecture be written into the authoritative architecture and
-decision documents and implementation begin.
+- no renderer rewrite is needed;
+- caller-managed wait/mutate/reschedule sequencing is the highest-value coupling
+  to remove;
+- export ownership and production-path test coverage should be fixed first;
+- renderer encapsulation should follow, not precede, protocol simplification;
+- a simple sequential DAG is sufficient for the first branching architecture;
+- vkdt is useful for explicit topology and graph-mask concepts, not as a system
+  to port wholesale;
+- caches, ROI/tile systems, parallel branches and job systems remain premature;
+- alpha should remain a separate pending decision from local-adjustment masks.
+
+Ryan + ChatGPT reconciled the audit and review and approved the architecture in
+`docs/ARCHITECTURE.md` and `docs/DECISIONS.md`.
+
+No production architecture refactor had begun when this documentation was
+approved.
