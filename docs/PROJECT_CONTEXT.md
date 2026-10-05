@@ -329,17 +329,17 @@ measured). Do not use that known leak to dismiss unrelated sanitizer findings.
 These are known but are not reasons to expand unrelated focused PRs:
 
 - the OpenFX plugin descriptor leak described above;
-- an idle/cancel caller racing export completion can occasionally wait for the
-  restored preview to finish; this is currently a latency issue, not a lifetime
-  or correctness failure;
-- failed node addition can cancel an existing preview and fail to restore it;
-- failed RAW reload can similarly leave a stale preview;
+- an explicit lifecycle/cancellation `waitRenderIdle()` caller can still race
+  export completion and occasionally wait through its restored preview;
+  structural document mutations no longer have this latency because they close
+  the mutation gate before draining;
 - JPEG XL DNG decoding is not yet supported in the current image-loading path;
 - TIFF SubIFD handling is incomplete for some RAW-like TIFF structures;
 - export UX can block/wait on a non-cancellable full-resolution export.
 
-Re-evaluate renderer-related deferred issues after the architecture audit rather
-than layering more scheduler state onto the current design without need.
+Address remaining renderer-related deferred issues within the approved staged
+architecture rather than layering more scheduler state onto the design without
+need.
 
 ## Current development phase
 
@@ -355,7 +355,7 @@ The audit trail is in:
 
     docs/ARCHITECTURE_AUDIT.md
 
-The first two production architecture steps are complete: owned export execution landed in PR #39, and export parameter consistency landed in PR #41. The current step is centralizing graph-edit transactions so ordinary UI/document callers no longer manage wait/mutate/reschedule sequencing themselves.
+The first three production architecture steps are complete: owned export execution landed in PR #39, export parameter consistency landed in PR #41, and graph-edit transaction centralization landed in PR #43. Ordinary structural UI/document callers no longer manage wait/mutate/reschedule sequencing themselves. The current step is encapsulating renderer ownership now that the public mutation protocol has shrunk.
 
 The approved near-term sequence is:
 
@@ -414,11 +414,11 @@ deferred until transparent compositing or alpha-carrying I/O requires it.
 
 Immediate work:
 
-- centralize graph-edit transactions behind one safe document/graph mutation
-  boundary;
+- encapsulate renderer ownership behind one runtime boundary while preserving
+  the established #32-#34, #39, #41 and #43 guarantees;
 - independently review that focused refactor;
-- then encapsulate renderer ownership once the external wait/mutate/reschedule
-  protocol has shrunk.
+- after Step 4, perform a whole-architecture checkpoint against RawNode's
+  product goals and the pinned vkdt reference before mask/topology feature work.
 
 After the architectural baseline is clean:
 
