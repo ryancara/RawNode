@@ -164,12 +164,13 @@ struct App {
   std::atomic<bool> renderPending{false};  // processor-chain work only
   bool renderQuietPending = false;  // renderMutex; export-restored request preserves result status
   // Guarded by renderMutex. renderBusy covers the preview worker, exportBusy
-  // covers the detached full-resolution export worker, and mutationDepth keeps
+  // covers the owned full-resolution export worker, and mutationDepth keeps
   // the preview worker asleep while a chain is being reconstructed.
   bool renderBusy = false;
   bool exportBusy = false;
   int renderMutationDepth = 0;
   std::thread renderThread;
+  std::thread exportThread;  // control thread starts/joins; drain before destroying App
   Image display;  // latest rendered (bottom-up float), guarded by displayMutex
   std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
   std::mutex displayMutex;
