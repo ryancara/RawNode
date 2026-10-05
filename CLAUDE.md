@@ -17,9 +17,11 @@ remain cross-platform for macOS, Windows and Linux.
 The repository is the durable source of project context. Do not rely on chat
 history for important architectural knowledge.
 
-Before broad architecture or product work, read `docs/PROJECT_CONTEXT.md`.
-Also read `docs/ARCHITECTURE.md` and `docs/DECISIONS.md` once those files
-exist and are relevant to the task.
+Before broad architecture or product work, read `docs/PROJECT_CONTEXT.md`,
+`docs/ARCHITECTURE.md` and `docs/DECISIONS.md`.
+
+Read `docs/ARCHITECTURE_AUDIT.md` when the audit evidence, vkdt comparison or
+migration rationale is relevant.
 
 Document responsibilities:
 
@@ -101,22 +103,20 @@ unless they are required for correctness.
 
 ## Architectural direction
 
-vkdt is the primary architectural reference for future RawNode graph and
-rendering design because its lightweight node/graph approach is close to
-RawNode's goals.
+The RawNode <-> vkdt audit and independent architecture review are complete.
+The authoritative target is in `docs/ARCHITECTURE.md`.
 
-Use vkdt as a reference for concepts and architecture, not as code that must be
-copied literally.
+The architectural north star is:
 
-RawNode has different constraints, particularly:
+> Every new RawNode feature should have an obvious home. If adding a feature
+> requires teaching unrelated parts of the application how that feature works,
+> the boundary is probably wrong.
 
-- OpenFX hosting;
-- native C++ processors;
-- CTL;
-- future DCTL support;
-- cross-platform CPU/GPU operation.
+vkdt remains the primary conceptual reference for graph data flow, explicit
+connections and ownership. Do not port its Vulkan-specific machinery or assume
+its complexity is required.
 
-The intended high-level model is approximately:
+The high-level model remains:
 
     Image source
          |
@@ -128,17 +128,32 @@ The intended high-level model is approximately:
        /      \
       v        v
    Display    Export
-    sink       sink
+    path       path
       |
       v
     Viewer
 
-Image-processing features belong in the processing graph.
+Implementation responsibilities are:
 
-Display/monitor conversion belongs after the processed image boundary.
+- UI expresses user intent;
+- the document/graph API owns the edit and graph state;
+- processors own image operations;
+- the graph evaluator executes dependencies;
+- the render runtime owns execution lifetime, demand, cancellation and
+  preview/export/edit exclusivity;
+- display owns presentation conversion;
+- export owns file production;
+- persistence owns durable document state.
 
-Export and display should be consumers of graph output rather than independent
-image-processing architectures.
+Do not solve a new feature by teaching unrelated subsystems about it.
+
+Image-processing features belong in the graph. Display/monitor conversion belongs
+after the processed-image boundary. Export and display consume graph results
+rather than becoming independent image-processing architectures.
+
+The first DAG should remain sequential with whole-graph invalidation. Caches,
+parallel branches, general job systems, broad ROI/tile scheduling and speculative
+revision frameworks are deliberately deferred.
 
 ## Renderer principles
 
@@ -198,8 +213,10 @@ Conceptually:
 
 Do not introduce new invalidation categories casually.
 
-Before masks and compositing are implemented, RawNode's graph/rendering
-architecture will be audited against vkdt and simplified where appropriate.
+The graph/rendering architecture has been audited against vkdt. Before masks
+and compositing are implemented, follow the approved staged migration in
+`docs/ARCHITECTURE.md` and settle the remaining mask/alpha decisions recorded
+in `docs/DECISIONS.md`.
 
 ## Colour and image-processing principles
 
