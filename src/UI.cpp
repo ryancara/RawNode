@@ -81,8 +81,8 @@ int runApp(const std::string &optionalPath) {
   app.thumbCv.notify_one();
   if (app.renderThread.joinable()) app.renderThread.join();
   if (app.thumbThread.joinable()) app.thumbThread.join();
-  // A detached full-resolution export may still own processor instances.
-  // Wait for it before persisting or destroying the graph.
+  // Drain owned export execution before persisting or destroying the graph.
+  joinExport(app);
   waitRenderIdle(app);
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
