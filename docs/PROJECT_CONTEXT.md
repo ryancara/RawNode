@@ -344,7 +344,7 @@ than layering more scheduler state onto the current design without need.
 ## Current development phase
 
 **The architecture audit, independent review and architecture approval are
-complete. No production architecture refactor has begun yet.**
+complete. Production architecture implementation is now underway.**
 
 The authoritative architecture is now in:
 
@@ -355,7 +355,7 @@ The audit trail is in:
 
     docs/ARCHITECTURE_AUDIT.md
 
-The first production refactor should be a small export-lifecycle PR.
+The first production refactor, owned export execution, was completed in PR #39. The next step is export parameter consistency: making interactive parameter edits unavailable while export owns the live processor instances.
 
 The approved near-term sequence is:
 
