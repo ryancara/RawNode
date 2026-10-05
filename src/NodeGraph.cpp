@@ -474,11 +474,11 @@ static void appendRestoredWithinMutation(App &app, const PersistNode &persisted,
 
 bool appendPersistedNode(App &app, const PersistNode &persisted, int insertAfter) {
   DocumentMutation mutation(app);
+  mutation.changed();  // Restoration can throw after appending a node.
   const int oldCount = (int)app.nodes.size();
   const int targetIndex =
       insertAfter >= 0 && insertAfter < oldCount ? insertAfter + 1 : oldCount;
   appendRestoredWithinMutation(app, persisted, false);
-  mutation.changed();
   if (targetIndex != oldCount)
     moveNodeWithinMutation(app, oldCount, targetIndex);
   app.selectedNode = targetIndex;
@@ -517,14 +517,11 @@ void applyChain(App &app, const PersistChain &chain) {
     return;
   }
   DocumentMutation mutation(app);
-  const bool hadNodes = !app.nodes.empty();
+  mutation.changed();  // Mark replacement before any fallible restoration work.
   clearNodesWithinMutation(app);
-  if (hadNodes) mutation.changed();
 
-  for (const PersistNode &persisted : chain.nodes) {
+  for (const PersistNode &persisted : chain.nodes)
     appendRestoredWithinMutation(app, persisted, true);
-    mutation.changed();
-  }
 
   app.selectedNode = -1;
   if (!chain.selectedNodeId.empty()) {

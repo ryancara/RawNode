@@ -121,8 +121,13 @@ document_detail::DocumentMutation::DocumentMutation(App &app)
     : app_(app), interrupted_(beginRenderMutation(app)) {}
 
 document_detail::DocumentMutation::~DocumentMutation() {
-  if (!app_.quit && (changed_ || interrupted_))
-    requestPreview(app_, !changed_);
+  try {
+    if (!app_.quit && (changed_ || interrupted_))
+      requestPreview(app_, !changed_);
+  } catch (...) {
+    // Source-preview conversion can allocate. Even if recovery fails, release
+    // execution ownership and preserve the operation's existing status.
+  }
   endRenderMutation(app_);
 }
 

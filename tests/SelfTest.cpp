@@ -889,7 +889,8 @@ struct PreviewWorkerGuard {
 // With no worker running, each cancellation and processor request advances
 // gLatestGen once. This checks sequencing independently of the resulting pixels:
 // an inner wait/request cannot hide behind queue coalescing.
-static bool finishGraphPreview(App &app, int before, float expected, bool quiet = false) {
+static bool finishGraphPreview(App &app, int before, float expected, bool quiet = false,
+                               int width = 1, int height = 1) {
   if (gLatestGen.load() != before + 2 || !app.renderPending ||
       app.renderQuietPending != quiet || app.renderMutationDepth != 0) return false;
   const std::string status = app.getStatus();
@@ -902,17 +903,22 @@ static bool finishGraphPreview(App &app, int before, float expected, bool quiet 
         })) return false;
   }
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  if (app.display.w != 1 || app.display.h != 1 || app.display.px.size() != 4 ||
-      !app.displayDirty || app.displayGen <= before || app.display.px[3] != 0.75f) return false;
-  for (int i = 0; i < 3; ++i)
-    if (std::fabs(app.display.px[i] - expected) > 2e-6f) return false;
+  if (app.display.w != width || app.display.h != height ||
+      app.display.px.size() != (size_t)width * height * 4 ||
+      !app.displayDirty || app.displayGen <= before) return false;
+  for (size_t i = 0; i < app.display.px.size(); i += 4) {
+    if (std::fabs(app.display.px[i + 3] - 0.75f) > 2e-6f) return false;
+    for (int c = 0; c < 3; ++c)
+      if (std::fabs(app.display.px[i + c] - expected) > 2e-6f) return false;
+  }
   std::vector<unsigned char> rgba;
   toDisplayRGBA8(app.display, app.outputEncoding, rgba);
-  return app.displayRGBA == rgba && app.getStatus() == (quiet ? status : "1×1 preview");
+  const std::string normalStatus = std::to_string(width) + "×" + std::to_string(height) + " preview";
+  return app.displayRGBA == rgba && app.getStatus() == (quiet ? status : normalStatus);
 }
 
 enum class GraphEditCase { AddExposure, AddCst, Remove, Reorder, Disable, Enable,
-                           Append, AppendMissing, Replace, ReplaceMissing, Clear, RemoveLast };
+                           Append, AppendMissing, Replace, ReplaceMissing, ReplaceEmpty, Clear, RemoveLast };
 
 static bool testGraphEditTransaction(GraphEditCase edit) {
   App app;
@@ -931,7 +937,7 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
   PersistChain initial;
   initial.nodes = {exposure, cst};
   initial.selectedNodeId = "cst";
-  applyChain(app, initial);
+  if (edit != GraphEditCase::ReplaceEmpty) applyChain(app, initial);
   const int before = gLatestGen.load();
   float expected = (float)encodeTransfer(0.25, TransferFunction::SRGB);
   switch (edit) {
@@ -984,7 +990,8 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       break;
     }
     case GraphEditCase::Replace:
-    case GraphEditCase::ReplaceMissing: {
+    case GraphEditCase::ReplaceMissing:
+    case GraphEditCase::ReplaceEmpty: {
       PersistChain replacement;
       for (int i = 0; i < 10; ++i) {
         PersistNode node = exposure;
@@ -1005,7 +1012,7 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       if (edit == GraphEditCase::ReplaceMissing &&
           (app.nodes[5].processor || captureChain(app).nodes[5].paramsJson.at("future") != "[1,2,3]"))
         return false;
-      expected = 0.125f * std::exp2(edit == GraphEditCase::Replace ? 2.5f : 2.25f);
+      expected = 0.125f * std::exp2(edit == GraphEditCase::ReplaceMissing ? 2.25f : 2.5f);
       break;
     }
     case GraphEditCase::RemoveLast:
@@ -1013,15 +1020,46 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       // The last removal must show the unprocessed source without processor work.
       [[fallthrough]];
     case GraphEditCase::Clear: {
+      // Cancel setup work first: this edit must refresh the source even when
+      // no pending/active work was interrupted by its own transaction.
+      waitRenderIdle(app);
+      if (app.renderPending || app.renderBusy || app.displayRecolorPending) return false;
+      app.displayDirty = false;
       const int lastBefore = gLatestGen.load();
       if (edit == GraphEditCase::RemoveLast) destroyNode(app, 0);
       else clearNodes(app);
+      std::vector<unsigned char> sourceRGBA;
+      toDisplayRGBA8(app.preview, app.inputEncoding, sourceRGBA);
       return app.nodes.empty() && app.selectedNode == -1 && !app.renderPending &&
              app.renderMutationDepth == 0 && gLatestGen.load() == lastBefore + 1 &&
-             app.displayDirty && app.display.px == app.preview.px;
+             app.displayDirty && app.display.px == app.preview.px && app.displayRGBA == sourceRGBA;
     }
   }
   return finishGraphPreview(app, before, expected);
+}
+
+static bool testIdlePreviewRebuild() {
+  App app;
+  graphPreviewSource(app);
+  app.full.w = 2560;
+  app.full.h = 2;
+  app.full.px.resize((size_t)app.full.w * app.full.h * 4);
+  for (size_t i = 0; i < app.full.px.size(); i += 4) {
+    for (int c = 0; c < 3; ++c) app.full.px[i + c] = 0.125f;
+    app.full.px[i + 3] = 0.75f;
+  }
+  app.preview = app.full;
+  app.previewRes = 3;
+  if (!addNativeExposureNode(app) ||
+      !app.nodes[0].processor->setParameterValue("exposure", 1.0)) return false;
+  waitRenderIdle(app);
+  if (app.renderPending || app.renderBusy || app.displayRecolorPending) return false;
+  app.previewRes = 0;  // Production 720p selection: cap the long edge at 1280.
+  const int before = gLatestGen.load();
+  rebuildPreview(app);
+  if (app.full.w != 2560 || app.full.h != 2 || app.preview.w != 1280 || app.preview.h != 1)
+    return false;
+  return finishGraphPreview(app, before, 0.25f, false, 1280, 1);
 }
 
 static bool testGraphEditNoops() {
@@ -1065,19 +1103,24 @@ struct FailingOfxFixture {
 
 enum class FailedDocumentEdit { Ofx, Ctl, RawMissing, RawReplacedByRaster, GradeRaw };
 
-static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true) {
+static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true,
+                                   bool recolorOnly = false) {
   ExportTestFiles files;
   FailingOfxFixture ofx;
   App app;
   graphPreviewSource(app);
   if (!addNativeExposureNode(app) ||
       !app.nodes[0].processor->setParameterValue("exposure", 1.0)) return false;
-  if (!pending) {
+  if (!pending || recolorOnly) {
     waitRenderIdle(app);
     // Idle failure starts with a valid cached preview and must retain it.
     app.display = app.preview;
     for (int i = 0; i < 3; ++i) app.display.px[i] = 0.25f;
     toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  }
+  if (recolorOnly) {
+    scheduleDisplayRecolor(app);
+    if (app.renderPending || app.renderBusy || !app.displayRecolorPending) return false;
   }
   app.path = (files.dir / "missing.nef").string();
   app.inputIsRaw = true;
@@ -1127,7 +1170,8 @@ static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true)
       app.preview.w != oldPreview.w || app.preview.h != oldPreview.h || app.preview.px != oldPreview.px ||
       app.inputEncoding != oldInput || !app.inputIsRaw || app.rawWorkingEncoding != oldDefault ||
       app.outputEncoding != oldOutput || fs::exists(inputSidecarPath(app.path))) return false;
-  if (!pending)
+  if (app.displayRecolorPending) return false;
+  if (!pending && !recolorOnly)
     return gLatestGen.load() == before + 1 && !app.renderPending &&
            !app.renderQuietPending && app.renderMutationDepth == 0 &&
            app.display.px == oldDisplay.px && app.displayRGBA == oldRGBA;
@@ -1837,14 +1881,16 @@ int runSelfTests() {
     for (auto edit : {GraphEditCase::AddExposure, GraphEditCase::AddCst, GraphEditCase::Remove,
                       GraphEditCase::Reorder, GraphEditCase::Disable, GraphEditCase::Enable,
                       GraphEditCase::Append, GraphEditCase::AppendMissing, GraphEditCase::Replace,
-                      GraphEditCase::ReplaceMissing, GraphEditCase::Clear, GraphEditCase::RemoveLast}) {
+                      GraphEditCase::ReplaceMissing, GraphEditCase::ReplaceEmpty,
+                      GraphEditCase::Clear, GraphEditCase::RemoveLast}) {
       if (!testGraphEditTransaction(edit)) {
         fprintf(stderr, "graph transaction case: %d\n", (int)edit);
         return fail("production graph transaction/request/result");
       }
     }
     if (!testGraphEditNoops()) return fail("graph no-ops must retain work without requesting more");
-    printf("ok  Production graph transactions (12 edits plus no-ops)\n");
+    if (!testIdlePreviewRebuild()) return fail("idle production preview-resolution rebuild/request/result");
+    printf("ok  Production graph transactions (13 edits, idle resolution rebuild, no-ops)\n");
     for (auto edit : {FailedDocumentEdit::Ofx, FailedDocumentEdit::Ctl, FailedDocumentEdit::RawMissing,
                       FailedDocumentEdit::RawReplacedByRaster, FailedDocumentEdit::GradeRaw}) {
       for (bool pending : {false, true}) {
@@ -1854,7 +1900,9 @@ int runSelfTests() {
         }
       }
     }
-    printf("ok  Failed OFX/CTL/RAW edits preserve state and recover quietly (10 cases)\n");
+    if (!testFailedDocumentEdit(FailedDocumentEdit::Ofx, false, true))
+      return fail("failed document edit must quietly recover interrupted display-only work");
+    printf("ok  Failed OFX/CTL/RAW edits preserve state and recover quietly (11 cases)\n");
     for (bool append : {false, true})
       for (bool ctl : {false, true})
         if (!testUnavailableProcessorRestore(append, ctl))
