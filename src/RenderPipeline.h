@@ -7,7 +7,9 @@
 
 void waitRenderIdle(App &app);
 void stopRenderWorker(App &app);
-void beginRenderMutation(App &app);
+// Returns whether the barrier interrupted preview/display work or export's
+// preview restoration. Document operations use this for quiet failure recovery.
+bool beginRenderMutation(App &app);
 void endRenderMutation(App &app);
 void beginFullResolutionRender(App &app);
 void endFullResolutionRender(App &app);

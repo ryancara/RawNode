@@ -9,6 +9,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -162,13 +163,17 @@ struct App {
   std::condition_variable renderIdleCv;
   std::atomic<bool> quit{false};
   std::atomic<bool> renderPending{false};  // processor-chain work only
-  bool renderQuietPending = false;  // renderMutex; export-restored request preserves result status
+  bool renderQuietPending = false;  // renderMutex; recovery work preserves operation status
   // Guarded by renderMutex. renderBusy covers the preview worker, exportBusy
   // covers the owned full-resolution export worker, and mutationDepth keeps
   // the preview worker asleep while a chain is being reconstructed.
   bool renderBusy = false;
   bool exportBusy = false;
   int renderMutationDepth = 0;
+  // Self-test observer, configured before starting execution. Called under
+  // renderMutex immediately before a mutation barrier waits for active owners.
+  // It must not acquire renderer locks or call rendering APIs.
+  std::function<void()> renderMutationWaitForSelfTest;
   std::thread renderThread;
   std::thread exportThread;  // control thread starts/joins; drain before destroying App
   Image display;  // latest rendered (bottom-up float), guarded by displayMutex

@@ -5,6 +5,7 @@
 #include "color/LinearColorTransform.h"
 #include "color/TransferFunction.h"
 #include "NodeGraph.h"
+#include "DocumentMutation.h"
 #include "RenderPipeline.h"
 #include "ui/Themes.h"
 #include "ui/ImGuiBackend.h"
@@ -91,26 +92,33 @@ static bool reloadCurrentRawEncoding(App &app, const ColorEncoding &requested,
     std::lock_guard<std::mutex> lock(app.colorMutex);
     currentIsRaw = app.inputIsRaw;
     current = currentIsRaw ? app.inputEncoding : app.rawWorkingEncoding;
-    if (updateSessionDefault) app.rawWorkingEncoding = requested;
+    // Defaults may change immediately when no source reload is needed. A RAW
+    // reload commits both source and default only after decoding succeeds.
+    if (updateSessionDefault && (!currentIsRaw || current == requested))
+      app.rawWorkingEncoding = requested;
   }
 
   if (!currentIsRaw) return true;
   if (current == requested) return true;
 
-  waitRenderIdle(app);
+  document_detail::DocumentMutation mutation(app);
   Image img;
   ColorEncoding detectedEncoding;
   bool decodedRaw = false;
-  if (!loadImage(app.path, img, detectedEncoding, decodedRaw, requested) || !decodedRaw)
+  if (!loadImage(app.path, img, detectedEncoding, decodedRaw, requested) || !decodedRaw) {
+    app.setStatus("Could not reload RAW in " + colorEncodingName(requested));
     return false;
+  }
 
   app.full = std::move(img);
   {
     std::lock_guard<std::mutex> lock(app.colorMutex);
     app.inputEncoding = detectedEncoding;
     app.inputIsRaw = true;
+    if (updateSessionDefault) app.rawWorkingEncoding = requested;
   }
-  rebuildPreview(app);
+  mutation.changed();
+  mutation.rebuildPreview();
   if (persistAfter) {
     saveCurrentInputSidecar(app);
     persistWorkspace(app);

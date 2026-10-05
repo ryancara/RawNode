@@ -206,9 +206,12 @@ void drawLeftPanel(App &app) {
   const float btnGap = ImGui::GetStyle().ItemSpacing.x;
   const float btnsW = 4.0f * btnH + 3.0f * btnGap;
   int removeAt = -1;
+  int moveFrom = -1, moveTo = -1;
+  int enableAt = -1;
+  bool enabled = false;
   for (int i = 0; i < (int)app.nodes.size(); ++i) {
     ImGui::PushID(i);
-    Node &node = app.nodes[i];
+    const Node &node = app.nodes[i];
     const bool selected = app.selectedNode == i;
     const std::string label = nodeDisplayName(node);
     if (!node.enabled) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
@@ -224,27 +227,36 @@ void drawLeftPanel(App &app) {
     }
     if (ImGui::BeginDragDropTarget()) {
       if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("NODE_IDX")) {
-        const int from = *(const int *)payload->Data;
-        moveNode(app, from, i);
+        moveFrom = *(const int *)payload->Data;
+        moveTo = i;
       }
       ImGui::EndDragDropTarget();
     }
     ImGui::SameLine(0.0f, btnGap);
     if (iconBtn("##en", node.enabled ? ICON_FA_EYE : ICON_FA_EYE_SLASH)) {
-      waitRenderIdle(app);
-      node.enabled = !node.enabled;
-      scheduleRender(app);
+      enableAt = i;
+      enabled = !node.enabled;
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
       ImGui::SetTooltip(node.enabled ? "Disable processing" : "Enable processing");
     ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##up", ICON_FA_ARROW_UP) && i > 0) moveNode(app, i, i - 1);
+    if (iconBtn("##up", ICON_FA_ARROW_UP) && i > 0) {
+      moveFrom = i;
+      moveTo = i - 1;
+    }
     ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && i + 1 < (int)app.nodes.size()) moveNode(app, i, i + 1);
+    if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && i + 1 < (int)app.nodes.size()) {
+      moveFrom = i;
+      moveTo = i + 1;
+    }
     ImGui::SameLine(0.0f, btnGap);
     if (iconBtn("##rm", ICON_FA_XMARK)) removeAt = i;
     ImGui::PopID();
   }
-  if (removeAt >= 0) destroyNode(app, removeAt);
   ImGui::EndChild();
+  // Apply one row-control intent after all references into the node list have
+  // expired. Indices still describe the list that produced the intent.
+  if (removeAt >= 0) destroyNode(app, removeAt);
+  else if (moveFrom >= 0) moveNode(app, moveFrom, moveTo);
+  else if (enableAt >= 0) setNodeEnabled(app, enableAt, enabled);
 }
