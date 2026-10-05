@@ -355,7 +355,7 @@ The audit trail is in:
 
     docs/ARCHITECTURE_AUDIT.md
 
-The first production refactor, owned export execution, was completed in PR #39. The next step is export parameter consistency: making interactive parameter edits unavailable while export owns the live processor instances.
+The first two production architecture steps are complete: owned export execution landed in PR #39, and export parameter consistency landed in PR #41. The current step is centralizing graph-edit transactions so ordinary UI/document callers no longer manage wait/mutate/reschedule sequencing themselves.
 
 The approved near-term sequence is:
 
@@ -414,10 +414,11 @@ deferred until transparent compositing or alpha-carrying I/O requires it.
 
 Immediate work:
 
-- implement owned export execution with production-path tests;
-- independently review that focused PR;
-- apply the same small-PR/review discipline to export consistency, graph-edit
-  transactions and renderer ownership.
+- centralize graph-edit transactions behind one safe document/graph mutation
+  boundary;
+- independently review that focused refactor;
+- then encapsulate renderer ownership once the external wait/mutate/reschedule
+  protocol has shrunk.
 
 After the architectural baseline is clean:
 
