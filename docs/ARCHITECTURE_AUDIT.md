@@ -218,6 +218,46 @@ architecture under the label of cleanup.
 Then perform the planned whole-architecture checkpoint against RawNode's product
 goals and the pinned vkdt reference.
 
+The independent review of the readability pass (PR #50) surfaced concrete
+questions for that checkpoint. They are recorded here as **audit candidates, not
+accepted architecture changes**:
+
+- **App ownership:** `App` still combines window/GL state, document/source state,
+  UI preferences, filmstrip/thumbnail state, display buffers, status and the
+  render runtime. Decide whether that remains a useful composition root or hides
+  ownership boundaries that should become explicit.
+- **Document edit boundary:** structural graph edits use `DocumentMutation`, but
+  parameter edits, output-encoding edits and source swaps use different paths.
+  Decide whether this is the right product/runtime contract or an incidental
+  implementation split.
+- **Thumbnail lifetime:** the thumbnail worker is stopped/joined by `runApp`
+  rather than by an owning RAII object. Decide whether application teardown
+  should make that ownership structural.
+- **Evaluator/display boundary:** `RenderPipeline` currently contains both
+  evaluation and display publication/upload helpers. Step 6 needs a clear home
+  for the graph evaluator; decide whether those responsibilities should separate.
+- **Persistence/UI dependency:** `persist/DocumentActions` still drives UI-facing
+  workspace/filmstrip/theme behaviour. Decide whether this folder/module boundary
+  reflects durable-state ownership accurately.
+- **Locking and critical sections:** runtime -> colour -> display lock ordering is
+  implicit, and source-preview conversion can occur while holding the runtime
+  mutex. Review whether the ordering should be documented, narrowed or changed.
+- **Graph transition:** current `Node` contains reserved/shadow topology-related
+  fields. Step 6 should replace the serial representation deliberately rather
+  than evolving those fields into a second graph model.
+- **Sidecar capture:** input and export sidecars assemble overlapping durable
+  state through separate paths. Revisit this when Step 7 introduces versioned
+  graph persistence.
+- **Export test seam:** `runExportJob` is currently synchronous and test-focused.
+  Decide whether it is an intentional long-term seam or just transitional.
+- **Output/alpha/spatial contracts:** keep the already deferred alpha,
+  compositing and dimensional-policy questions explicit before masks.
+
+Two implementation-quality findings should be carried into later focused work
+but are not architectural decisions: `uploadTexture` is currently dead code, and
+the test suite does not directly protect the single-level ordering invariant that
+the final mutation preview decision is queued before the mutation gate opens.
+
 This gate does not add architecture steps; it reduces avoidable implementation
 and comprehension debt before Step 5.
 

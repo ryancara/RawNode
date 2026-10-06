@@ -238,6 +238,15 @@ After Step 4 and before Step 5, the approved stabilisation order is:
 3. perform the whole-architecture checkpoint against RawNode's product goals and
    the pinned vkdt reference.
 
+For that checkpoint, explicitly revisit the candidates exposed by the PR #50
+readability review rather than silently treating them as already-decided
+refactors: App ownership, document-edit boundaries, thumbnail lifetime,
+evaluator/display separation, persistence-to-UI coupling, runtime/display lock
+ordering, graph-transition fields, sidecar capture convergence, the synchronous
+export test seam, and the pending output/alpha/spatial contracts. Also carry the
+dead `uploadTexture` path and mutation-ordering test gap as implementation
+follow-ups, not architecture conclusions.
+
 Treat that sequence as a deliberate project boundary, not as permission to mix
 the three tasks into one PR.
 

@@ -389,6 +389,29 @@ to a human programmer without quietly changing product behaviour or architecture
 If that pass uncovers a real architectural problem, record it for the checkpoint
 instead of hiding the redesign inside cleanup.
 
+The independent PR #50 readability review surfaced several explicit candidates
+for that checkpoint. These are **questions to examine, not approved refactors**:
+
+- whether `App` owns too many unrelated responsibilities;
+- whether structural/source edits, parameter edits and output-encoding edits
+  should share a clearer document-edit boundary;
+- whether thumbnail worker lifetime belongs behind an owning RAII boundary;
+- whether evaluator and display responsibilities should remain together in
+  `RenderPipeline`;
+- whether `persist/DocumentActions` should depend on UI modules;
+- whether runtime/display lock ordering and the long source-preview critical
+  section should be made more explicit or reduced;
+- how future graph topology should replace the current reserved/shadow graph
+  fields rather than extending them ad hoc;
+- whether input/export sidecar capture should converge when versioned graph
+  persistence arrives;
+- whether `runExportJob` remains the intended synchronous test seam;
+- output/alpha/spatial contracts already deferred for masks/compositing.
+
+The checkpoint should also note the pre-existing dead `uploadTexture` path and
+the mutation-ordering test gap found during review, without treating either as
+an architectural decision by itself.
+
 The architectural goal is to make future changes cleaner across the application:
 new features should plug into the graph, render runtime, display path, export
 path or persistence rather than spread knowledge of themselves across unrelated
