@@ -26,9 +26,9 @@ The current codebase is a clean base for feature development. New work should re
 
 ## Current architecture/stabilisation sequence
 
-The approved eight-step architecture migration is in progress. Steps 1-3 are
-complete. Step 4 (renderer ownership encapsulation) is implemented in PR #45,
-independently reviewed as safe to merge, and awaiting routine macOS validation.
+The approved eight-step architecture migration is in progress. Steps 1-4 are
+complete. Step 4 (renderer ownership encapsulation) landed in PR #45 after
+independent review, sanitizer/stress validation and routine macOS validation.
 
 Before Step 5 begins, intentionally pause feature/graph expansion for three
 stabilisation tasks:
