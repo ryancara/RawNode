@@ -146,25 +146,20 @@ lifetime guarantees.
 
 ## Current renderer shape
 
-Step 4, renderer ownership encapsulation, is implemented in open PR #45 and has
-received an independent **SAFE TO MERGE** review on Linux. It is still pending
-the routine macOS build/self-test and merge.
+Step 4, renderer ownership encapsulation, is complete. PR #45 was independently
+reviewed as **SAFE TO MERGE**, validated on Linux with Release/Debug, ASan and
+TSan stress coverage, then manually validated on macOS before merge.
 
-The intended post-merge shape is one App-owned `RenderRuntime` whose private
-state owns preview/export worker lifetime, demand, cancellation, mutation
-gating, execution exclusivity and shutdown. Ordinary UI/document/export callers
-use semantic requests rather than renderer mutexes, pending/busy flags or
+RawNode now has one App-owned `RenderRuntime` whose private state owns
+preview/export worker lifetime, demand, cancellation, mutation gating, execution
+exclusivity and shutdown. Ordinary UI/document/export callers use semantic
+requests rather than renderer mutexes, pending/busy flags or
 wait/mutate/reschedule protocol.
 
 Presentation buffers remain part of the display path, export file production
 remains in the export path, and `renderChain()` remains the evaluator. The
 runtime owns **when** evaluation may execute safely, not what the document or
 export means.
-
-Until PR #45 merges, main still contains the older renderer plumbing. Do not
-build new work against that transitional public protocol. After merge, update
-this section to describe the landed runtime rather than preserving historical
-flag/API detail.
 
 ## Architectural direction
 
@@ -345,7 +340,7 @@ The audit trail is in:
 
     docs/ARCHITECTURE_AUDIT.md
 
-The first three production architecture steps are complete: owned export execution landed in PR #39, export parameter consistency landed in PR #41, and graph-edit transaction centralization landed in PR #43. Step 4, renderer ownership encapsulation, is implemented in PR #45 and independently reviewed as safe to merge; it is awaiting the routine macOS validation before merge. Ordinary structural UI/document callers no longer manage wait/mutate/reschedule sequencing themselves.
+The first four production architecture steps are complete: owned export execution landed in PR #39, export parameter consistency landed in PR #41, graph-edit transaction centralization landed in PR #43, and renderer ownership encapsulation landed in PR #45. Ordinary structural UI/document callers no longer manage wait/mutate/reschedule sequencing themselves.
 
 The approved near-term sequence is:
 
@@ -421,8 +416,6 @@ deferred until transparent compositing or alpha-carrying I/O requires it.
 
 Immediate work:
 
-- complete macOS validation and merge PR #45, then update this context to mark
-  Step 4 complete;
 - fix the two pre-existing OpenFX host multithread lifetime bugs found during
   the #45 review in one focused correctness PR;
 - perform a behaviour-preserving human-readability/source-organisation audit
