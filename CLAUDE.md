@@ -98,6 +98,16 @@ behaviour can be represented by the existing graph or invalidation model.
 
 Correctness and simplicity are more important than premature optimisation.
 
+Human readability is also an explicit maintenance goal. Source organisation
+should make architectural responsibilities, ownership and control flow legible
+to a competent C++ programmer. Prefer conceptual/top-down function order,
+coherent file responsibilities, domain-oriented names, visible lock scopes and
+comments that explain invariants/why rather than narrating syntax.
+
+The dedicated post-Step-4 readability pass is behaviour-preserving. Do not hide
+architecture or product changes inside cleanup; surface them separately for the
+architecture checkpoint. See `docs/CODE_STYLE.md`.
+
 Do not perform large refactors inside narrowly scoped bug-fix or feature PRs
 unless they are required for correctness.
 
@@ -218,6 +228,16 @@ and compositing are implemented, follow the approved staged migration in
 `docs/ARCHITECTURE.md` and settle the remaining mask/alpha decisions recorded
 in `docs/DECISIONS.md`.
 
+After Step 4 and before Step 5, the approved stabilisation order is:
+
+1. fix the pre-existing OpenFX host multithread lifetime bugs in a focused PR;
+2. perform the behaviour-preserving human-readability/source-organisation pass;
+3. perform the whole-architecture checkpoint against RawNode's product goals and
+   the pinned vkdt reference.
+
+Treat that sequence as a deliberate project boundary, not as permission to mix
+the three tasks into one PR.
+
 ## Colour and image-processing principles
 
 RawNode is intended for serious photographic and colour-managed workflows.
@@ -311,16 +331,21 @@ validation complete.
 For renderer, lifetime or concurrency work, also use ASan and TSan where the
 environment supports them.
 
-## Known baseline issue
+## Known baseline issues
 
 Leak-enabled ASan currently reports a known OpenFX plugin descriptor leak during
 plugin loading: 3,186 bytes in 36 allocations at the time this file was added.
 
-Do not attribute this leak to an unrelated PR unless the allocation behaviour
+Step-4 review also confirmed two pre-existing OpenFX host multithread lifetime
+bugs: host `multiThread()` can return before all slices finish, and the global
+host worker pool is not joined before static destruction. These are scheduled
+for a focused correctness PR after Step 4.
+
+Do not attribute these baseline issues to unrelated changes unless behaviour
 actually changes.
 
-Do not disable or dismiss other sanitizer findings merely because this known
-leak exists.
+Do not disable or dismiss other sanitizer findings merely because a known
+baseline issue exists.
 
 ## Review standard
 

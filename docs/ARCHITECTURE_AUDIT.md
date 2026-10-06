@@ -191,6 +191,35 @@ representation.
 A deliberate test observation seam should replace tests reaching directly into
 private renderer fields.
 
+### Post-Step-4 stabilisation gate
+
+Implementation/review evidence from Step 4 added a useful checkpoint before
+graph expansion.
+
+The independent PR #45 review found the RenderRuntime ownership model sound and
+also exposed two pre-existing OpenFX host multithread lifetime bugs unrelated to
+the renderer refactor:
+
+- host `multiThread()` can return before every scheduled slice has completed,
+  allowing stale workers to outlive the render action;
+- the global OpenFX host worker pool is not joined before static destruction.
+
+These should be corrected in one focused PR rather than folded into renderer
+ownership work.
+
+After that correctness fix, perform a behaviour-preserving human-readability and
+source-organisation pass. The goal is to make the physical code communicate the
+approved architecture to a human reader before topology/mask complexity arrives.
+It should improve file responsibility, conceptual/top-down function order,
+naming, comments and visibility of ownership/locking without changing
+architecture under the label of cleanup.
+
+Then perform the planned whole-architecture checkpoint against RawNode's product
+goals and the pinned vkdt reference.
+
+This gate does not add architecture steps; it reduces avoidable implementation
+and comprehension debt before Step 5.
+
 ### Step 5 - Settle the first mask/graph product contract
 
 Before DAG feature work, decide the first mask UX/graph model.
@@ -385,5 +414,7 @@ The review confirmed these core conclusions:
 Ryan + ChatGPT reconciled the audit and review and approved the architecture in
 `docs/ARCHITECTURE.md` and `docs/DECISIONS.md`.
 
-No production architecture refactor had begun when this documentation was
-approved.
+No production architecture refactor had begun when the original audit was
+approved. Subsequent implementation should be judged against the authoritative
+architecture/decision documents plus the post-Step-4 stabilisation evidence
+recorded above.
