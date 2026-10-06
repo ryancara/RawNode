@@ -33,10 +33,12 @@ independent review, sanitizer/stress validation and routine macOS validation.
 Before Step 5 begins, intentionally pause feature/graph expansion for three
 stabilisation tasks:
 
-1. fix the pre-existing OpenFX host multithread lifetime bugs found during the
-   #45 review;
-2. perform a behaviour-preserving human-readability/source-organisation pass;
-3. perform the planned whole-architecture checkpoint against RawNode's product
+1. **Complete:** fix the pre-existing OpenFX host multithread lifetime bugs found
+   during the #45 review. PR #48 fixed callback-completion and persistent-pool
+   teardown lifetime.
+2. **Next:** perform a behaviour-preserving human-readability/source-organisation
+   pass.
+3. Perform the planned whole-architecture checkpoint against RawNode's product
    goals and the pinned vkdt reference.
 
 The readability pass should make the source itself communicate the architecture:
