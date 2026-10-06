@@ -430,8 +430,8 @@ Immediate work:
 - then perform the whole-architecture checkpoint against RawNode's product goals
   and the pinned vkdt reference before mask/topology feature work.
 
-The readability pass should establish a lightweight durable source-style guide
-in `docs/CODE_STYLE.md` and should favour top-down reading order, clear file
+The readability pass should follow and refine the lightweight durable guidance
+in `docs/CODE_STYLE.md`, favouring top-down reading order, clear file
 responsibility, obvious ownership/locking, domain-oriented names and comments
 that explain invariants/why rather than narrating syntax.
 

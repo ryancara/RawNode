@@ -29,6 +29,7 @@ Document responsibilities:
   current development phase.
 - `docs/ARCHITECTURE.md` — authoritative technical architecture.
 - `docs/DECISIONS.md` — significant durable decisions and their rationale.
+- `docs/CODE_STYLE.md` — human-readability and source-organisation guidance.
 - `CLAUDE.md` — Claude Code working and review instructions.
 - Git history and pull requests — implementation history.
 
