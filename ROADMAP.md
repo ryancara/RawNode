@@ -40,6 +40,11 @@ stabilisation tasks:
    pass.
 3. Perform the planned whole-architecture checkpoint against RawNode's product
    goals and the pinned vkdt reference.
+   That checkpoint should explicitly review the candidates exposed by the
+   readability audit: App ownership, document-edit boundaries, thumbnail
+   lifetime, evaluator/display separation, persistence-to-UI coupling,
+   runtime/display lock ordering, graph-transition fields, shared sidecar
+   capture, the export test seam, and pending output/alpha/spatial contracts.
 
 The readability pass should make the source itself communicate the architecture:
 clear file responsibilities, conceptual/top-down function order, domain-oriented
