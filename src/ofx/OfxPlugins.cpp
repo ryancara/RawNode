@@ -258,14 +258,20 @@ void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *
   *outH = (int)std::lround(dh);
 }
 
-OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen) {
+OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, const RenderCancellation &cancellation) {
   e->src = src;
   e->dst = dst;
   e->w = w;
   e->h = h;
   e->outW = outW;
   e->outH = outH;
-  e->renderGen = gen;
+  // Plugins may call abort from their render threads. They borrow a read-only
+  // runtime token for this action only, including on exception paths.
+  e->cancellation = cancellation;
+  struct ClearCancellation {
+    Effect &effect;
+    ~ClearCancellation() { effect.cancellation = {}; }
+  } clearCancellation{*e};
   PropSet in;
   OfxPropertySetHandle a = H(&in);
   const int window[4] = {0, 0, outW, outH};
@@ -275,7 +281,7 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
   propSetN<int, propSetInt>(a, kOfxImageEffectPropRenderWindow, 4, window);
   propSetN<double, propSetDouble>(a, kOfxImageEffectPropRenderScale, 2, scale);
   propSetInt(a, kOfxImageEffectPropSequentialRenderStatus, 0, 0);
-  propSetInt(a, kOfxImageEffectPropInteractiveRenderStatus, 0, gen != 0);
+  propSetInt(a, kOfxImageEffectPropInteractiveRenderStatus, 0, cancellation.interactive());
   propSetInt(a, kOfxImageEffectPropRenderQualityDraft, 0, 0);
   e->metalEnabled = e->metalCapable && ofxMetalAvailable();
   if (e->metalEnabled) {

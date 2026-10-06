@@ -2,6 +2,7 @@
 
 #include "imgio/ImageIO.h"
 #include "processors/Parameter.h"
+#include "RenderCancellation.h"
 
 #include <string>
 #include <utility>
@@ -61,7 +62,7 @@ class Processor {
   // Input/output are bottom-up float RGBA in whatever colour space the chain
   // has reached at this node. Input and output must be distinct Images.
   //
-  // generation == 0 means "do not cancel". Non-zero values are currently used
-  // by interactive preview rendering to abandon superseded work.
-  virtual ProcessorResult render(const Image &input, Image &output, int generation) = 0;
+  // The borrowed token allows cooperative cancellation of obsolete previews.
+  // An empty token (export) never cancels; no scheduler state belongs here.
+  virtual ProcessorResult render(const Image &input, Image &output, const RenderCancellation &cancellation) = 0;
 };

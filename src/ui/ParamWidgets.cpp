@@ -1,7 +1,6 @@
 #include "ui/ParamWidgets.h"
 
 #include "NodeGraph.h"
-#include "RenderPipeline.h"
 
 #include "imgui.h"
 
@@ -126,7 +125,7 @@ static bool paramEditButton(double &value, bool asInt, double lo, double hi) {
 }
 
 static void finishParameterChange(App &app, bool changed) {
-  if (changed) scheduleRender(app);
+  if (changed) app.renderer.requestPreview();
 }
 
 static void drawParam(App &app, Node &node, ProcessorParameter param) {
@@ -135,7 +134,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
   const std::string label = param.label.empty() ? param.id : param.label;
   const std::string idLabel = label + "##" + param.id;
   ImGui::PushID(param.id.c_str());
-  const bool editable = parameterEditingAllowed(app);
+  const bool editable = app.renderer.canEditParameters();
   ImGui::BeginDisabled(!param.enabled || !editable);
 
   // Disabled ImGui items can still report a pending edit on deactivation.

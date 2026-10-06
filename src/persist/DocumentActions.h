@@ -17,5 +17,3 @@ void doExport(App &app);
 // synchronous export body. Each owns full-resolution execution until cleanup.
 bool runExportJob(App &app, const std::string &outPath);
 bool startExport(App &app, const std::string &outPath);
-// Call on the control thread, without renderer locks, before App destruction.
-void joinExport(App &app);

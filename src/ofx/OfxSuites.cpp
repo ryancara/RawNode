@@ -108,7 +108,6 @@ double dprop(const PropSet &ps, const char *k, int i, double fallback) {
 
 // ------------------------------------------------------ effects, params, clips
 
-std::atomic<int> gLatestGen{0};
 std::mutex gValueMutex;
 
 static Effect *E(OfxImageEffectHandle h) { return reinterpret_cast<Effect *>(h); }
@@ -331,7 +330,7 @@ static OfxStatus clipGetRegionOfDefinition(OfxImageClipHandle c, OfxTime, OfxRec
   *rod = {0, 0, (double)(isOutput ? e->outW : e->w), (double)(isOutput ? e->outH : e->h)};
   return kOfxStatOK;
 }
-static int effectAbort(OfxImageEffectHandle e) { return E(e)->renderGen && E(e)->renderGen != gLatestGen; }
+static int effectAbort(OfxImageEffectHandle e) { return E(e)->cancellation.cancelled(); }
 static OfxStatus imageMemoryAlloc(OfxImageEffectHandle, size_t n, OfxImageMemoryHandle *h) {
   *h = reinterpret_cast<OfxImageMemoryHandle>(malloc(n));
   return *h ? kOfxStatOK : kOfxStatErrMemory;

@@ -52,7 +52,7 @@ int runApp(const std::string &optionalPath) {
     app.setStatus("Add plugins with + to build a processing chain.");
   if (!optionalPath.empty()) openPath(app, optionalPath);
 
-  app.renderThread = std::thread(renderWorker, &app);
+  app.renderer.start();
   app.thumbThread = startFilmstripThumbThread(&app);
 
   glfwSetDropCallback(app.window, [](GLFWwindow *w, int count, const char **paths) {
@@ -77,13 +77,13 @@ int runApp(const std::string &optionalPath) {
     glfwSwapBuffers(app.window);
   }
 
-  stopRenderWorker(app);
+  {
+    std::lock_guard<std::mutex> lock(app.thumbMutex);
+    app.quit = true;
+  }
   app.thumbCv.notify_one();
-  if (app.renderThread.joinable()) app.renderThread.join();
+  app.renderer.shutdown();
   if (app.thumbThread.joinable()) app.thumbThread.join();
-  // Drain owned export execution before persisting or destroying the graph.
-  joinExport(app);
-  waitRenderIdle(app);
   saveCurrentInputSidecar(app);
   persistWorkspace(app);
   clearNodes(app);

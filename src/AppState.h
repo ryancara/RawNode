@@ -2,6 +2,7 @@
 
 #include "imgio/ImageIO.h"
 #include "processors/Processor.h"
+#include "RenderRuntime.h"
 
 #include <GLFW/glfw3.h>
 
@@ -9,7 +10,6 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
-#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -87,6 +87,10 @@ inline constexpr struct {
 inline constexpr int kPreviewResCount = 4;
 
 struct App {
+  // Workers borrow document/display/status fields. Stop in the destructor body,
+  // while ALL members are alive, independent of their declaration order.
+  ~App() noexcept { renderer.shutdown(); }
+
   GLFWwindow *window = nullptr;
   unsigned int tex = 0;
   int texW = 0, texH = 0;
@@ -158,30 +162,14 @@ struct App {
   bool themeApplyPending = false;
   bool layoutApplyPending = false;
 
-  std::mutex renderMutex;
-  std::condition_variable renderCv;
-  std::condition_variable renderIdleCv;
+  // Application/thumbnail intent is independent of renderer shutdown.
   std::atomic<bool> quit{false};
-  std::atomic<bool> renderPending{false};  // processor-chain work only
-  bool renderQuietPending = false;  // renderMutex; recovery work preserves operation status
-  // Guarded by renderMutex. renderBusy covers the preview worker, exportBusy
-  // covers the owned full-resolution export worker, and mutationDepth keeps
-  // the preview worker asleep while a chain is being reconstructed.
-  bool renderBusy = false;
-  bool exportBusy = false;
-  int renderMutationDepth = 0;
-  // Self-test observer, configured before starting execution. Called under
-  // renderMutex immediately before a mutation barrier waits for active owners.
-  // It must not acquire renderer locks or call rendering APIs.
-  std::function<void()> renderMutationWaitForSelfTest;
-  std::thread renderThread;
-  std::thread exportThread;  // control thread starts/joins; drain before destroying App
+  // Presentation storage: only display_detail/pumpDisplayUpload publish/consume.
   Image display;  // latest rendered (bottom-up float), guarded by displayMutex
   std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
   std::mutex displayMutex;
   bool displayDirty = false;
   int displayGen = 0;
-  bool displayRecolorPending = false;  // guarded by renderMutex; display-only work
 
   std::mutex statusMutex;
   void setStatus(const std::string &s) {
@@ -192,4 +180,7 @@ struct App {
     std::lock_guard<std::mutex> lock(statusMutex);
     return status;
   }
+  // Declared last as a second lifetime safeguard; explicit destruction above
+  // remains authoritative if future App members are added after this one.
+  RenderRuntime renderer{*this};
 };

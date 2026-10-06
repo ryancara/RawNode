@@ -18,7 +18,7 @@ class NativeExposureProcessor final : public Processor {
   bool activateParameter(const std::string &id) override;
 
   void setRenderSize(int width, int height) override;
-  ProcessorResult render(const Image &input, Image &output, int generation) override;
+  ProcessorResult render(const Image &input, Image &output, const RenderCancellation &cancellation) override;
 
  private:
   std::atomic<double> exposureEv_{0.0};

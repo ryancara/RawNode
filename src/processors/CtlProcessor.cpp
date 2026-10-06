@@ -1195,8 +1195,8 @@ void CtlProcessor::setRenderSize(int width, int height) {
   (void)height;
 }
 
-ProcessorResult CtlProcessor::render(const Image &input, Image &output, int generation) {
-  (void)generation;
+ProcessorResult CtlProcessor::render(const Image &input, Image &output, const RenderCancellation &cancellation) {
+  (void)cancellation;
   if (!impl_) return ProcessorResult::failure(-1, "Invalid CTL processor");
 
   std::vector<ParameterValue> values;

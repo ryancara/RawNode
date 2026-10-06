@@ -3,27 +3,17 @@
 #include "AppState.h"
 #include "processors/Processor.h"
 
-#include <functional>
-
-void waitRenderIdle(App &app);
-void stopRenderWorker(App &app);
-// Returns whether the barrier interrupted preview/display work or export's
-// preview restoration. Document operations use this for quiet failure recovery.
-bool beginRenderMutation(App &app);
-void endRenderMutation(App &app);
-void beginFullResolutionRender(App &app);
-void endFullResolutionRender(App &app);
-// UI/control-thread policy: export startup and interactive edits share that
-// thread, so an allowed edit cannot be overtaken by export acquisition.
-bool parameterEditingAllowed(App &app);
-void scheduleRender(App &app);
-void scheduleDisplayRecolor(App &app);
-void rebuildPreview(App &app);
 void uploadTexture(App &app, const Image &img);
 void pumpDisplayUpload(App &app);
-ProcessorResult renderChain(App &app, const Image &src, Image &out, int gen);
-void renderWorker(App *app);
-// Test observer runs under renderMutex immediately before the idle wait releases
-// it. Reacquiring renderMutex after observing this callback proves worker parking.
-// The observer must not call rendering APIs or acquire renderMutex itself.
-void renderWorkerForSelfTest(App *app, const std::function<void()> &onIdle);
+// Evaluator only: the caller owns processor execution/lifetime. An empty token
+// evaluates without cancellation (export and direct, worker-free self-tests).
+ProcessorResult renderChain(App &app, const Image &src, Image &out,
+                            const RenderCancellation &cancellation = {});
+
+namespace display_detail {
+// Runtime publication boundary. Conversion and the display-buffer lock stay in
+// the presentation path; callers must hold runtime execution/document ownership.
+void showSourcePreview(App &app);
+void recolorDisplay(App &app);
+void publishPreview(App &app, Image result, int generation);
+}

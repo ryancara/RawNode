@@ -18,7 +18,7 @@ class OfxProcessor final : public Processor {
   bool resetParameter(const std::string &id, bool notify = true) override;
   bool activateParameter(const std::string &id) override;
   void setRenderSize(int width, int height) override;
-  ProcessorResult render(const Image &input, Image &output, int generation) override;
+  ProcessorResult render(const Image &input, Image &output, const RenderCancellation &cancellation) override;
 
   int pluginIndex() const { return pluginIndex_; }
   Effect *effect() { return instance_.get(); }

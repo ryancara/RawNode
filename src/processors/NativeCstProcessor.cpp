@@ -118,8 +118,8 @@ void NativeCstProcessor::setRenderSize(int width, int height) {
   (void)height;
 }
 
-ProcessorResult NativeCstProcessor::render(const Image &input, Image &output, int generation) {
-  (void)generation;
+ProcessorResult NativeCstProcessor::render(const Image &input, Image &output, const RenderCancellation &cancellation) {
+  (void)cancellation;
 
   const int inputSpace = inputSpace_.load(std::memory_order_relaxed);
   const int inputGamma = inputGamma_.load(std::memory_order_relaxed);

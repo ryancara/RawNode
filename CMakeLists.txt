@@ -111,6 +111,8 @@ add_executable(OfxRawHost
   src/processors/NativeCstProcessor.cpp
   src/processors/CtlProcessor.cpp
   src/RenderPipeline.cpp
+  src/RenderRuntime.cpp
+  src/DocumentMutation.cpp
   src/persist/DocumentActions.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp
