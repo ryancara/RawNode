@@ -314,10 +314,6 @@ measured). Do not use that known leak to dismiss unrelated sanitizer findings.
 These are known but are not reasons to expand unrelated focused PRs:
 
 - the OpenFX plugin descriptor leak described above;
-- the OpenFX host multithread suite has two pre-existing lifetime bugs found
-  during PR #45 review: `multiThread()` can return before every slice finishes,
-  and the global host worker pool is never joined before static destruction;
-  fix these together in one focused correctness PR immediately after Step 4;
 - JPEG XL DNG decoding is not yet supported in the current image-loading path;
 - TIFF SubIFD handling is incomplete for some RAW-like TIFF structures;
 - export UX can block/wait on a non-cancellable full-resolution export.
@@ -342,6 +338,12 @@ The audit trail is in:
 
 The first four production architecture steps are complete: owned export execution landed in PR #39, export parameter consistency landed in PR #41, graph-edit transaction centralization landed in PR #43, and renderer ownership encapsulation landed in PR #45. Ordinary structural UI/document callers no longer manage wait/mutate/reschedule sequencing themselves.
 
+The first post-Step-4 stabilisation item is also complete: PR #48 fixed the two
+pre-existing OpenFX host multithread lifetime bugs discovered during #45 review.
+The host pool now waits for callbacks to finish before returning and owns/joins
+its persistent worker threads at teardown. PR #48 was independently reviewed and
+then validated on macOS before merge.
+
 The approved near-term sequence is:
 
     Own the export job
@@ -356,10 +358,10 @@ The approved near-term sequence is:
     Encapsulate renderer ownership
           |
           v
-    Fix OFX host multithread lifetime bugs
+    Fix OFX host multithread lifetime bugs        [complete]
           |
           v
-    Human-readability / source-organisation pass
+    Human-readability / source-organisation pass   [next]
           |
           v
     Whole-architecture checkpoint against vkdt
@@ -416,12 +418,12 @@ deferred until transparent compositing or alpha-carrying I/O requires it.
 
 Immediate work:
 
-- fix the two pre-existing OpenFX host multithread lifetime bugs found during
-  the #45 review in one focused correctness PR;
-- perform a behaviour-preserving human-readability/source-organisation audit
+- perform the behaviour-preserving human-readability/source-organisation audit
   and cleanup so the physical code structure mirrors the settled architecture;
 - then perform the whole-architecture checkpoint against RawNode's product goals
   and the pinned vkdt reference before mask/topology feature work.
+
+The OpenFX multithread lifetime stabilisation item is complete in PR #48.
 
 The readability pass should follow and refine the lightweight durable guidance
 in `docs/CODE_STYLE.md`, favouring top-down reading order, clear file

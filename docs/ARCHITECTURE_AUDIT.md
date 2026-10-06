@@ -204,10 +204,11 @@ the renderer refactor:
   allowing stale workers to outlive the render action;
 - the global OpenFX host worker pool is not joined before static destruction.
 
-These should be corrected in one focused PR rather than folded into renderer
-ownership work.
+These were corrected in focused PR #48 rather than folded into renderer
+ownership work. Independent review found the generation/acknowledgement model
+sound, and macOS validation passed before merge.
 
-After that correctness fix, perform a behaviour-preserving human-readability and
+The next stabilisation task is the behaviour-preserving human-readability and
 source-organisation pass. The goal is to make the physical code communicate the
 approved architecture to a human reader before topology/mask complexity arrives.
 It should improve file responsibility, conceptual/top-down function order,
