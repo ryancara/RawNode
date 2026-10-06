@@ -1,4 +1,5 @@
 #include "SelfTest.h"
+#include "OfxThreadPoolTests.h"
 
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
@@ -9,6 +10,7 @@
 #include "RenderRuntimeTestAccess.h"
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"
+#include "ofxMultiThread.h"
 #include "processors/CtlProcessor.h"
 #include "processors/NativeCstProcessor.h"
 #include "processors/NativeExposureProcessor.h"
@@ -1287,6 +1289,8 @@ static bool testPartialMutationUnwind() {
 // The descriptor carries the fixture pointer; there is no global test token.
 struct AbortOfxFixture {
   OfxPlugin plugin{};
+  bool threaded = false, returnedEarly = false;
+  std::atomic<unsigned> destroySlices{0};
   int index = (int)gPlugins.size();
   std::mutex mutex;
   std::condition_variable cv;
@@ -1300,16 +1304,46 @@ struct AbortOfxFixture {
   AbortOfxFixture() {
     plugin.pluginIdentifier = "org.rawnode.selftest.abort";
     plugin.mainEntry = [](const char *action, const void *handle, OfxPropertySetHandle, OfxPropertySetHandle) {
-      if (std::strcmp(action, kOfxImageEffectActionRender) != 0) return kOfxStatReplyDefault;
+      if (std::strcmp(action, kOfxImageEffectActionRender) != 0 &&
+          std::strcmp(action, kOfxActionDestroyInstance) != 0) return kOfxStatReplyDefault;
       auto *effect = static_cast<Effect *>(const_cast<void *>(handle));
       auto &probe = *static_cast<AbortOfxFixture *>(effect->props.m.at("selftest-probe")[0].p);
-      std::unique_lock<std::mutex> lock(probe.mutex);
-      probe.instance = effect;
-      ++probe.calls;
-      probe.interactive.push_back(effect->cancellation.interactive());
-      probe.cv.notify_all();
-      probe.cv.wait(lock, [&] { return probe.releaseAll || probe.calls <= probe.released; });
-      probe.aborted.push_back(probe.suite->abort(reinterpret_cast<OfxImageEffectHandle>(effect)));
+      const auto *threads = static_cast<const OfxMultiThreadSuiteV1 *>(
+          gOfxHost.fetchSuite(gOfxHost.host, kOfxMultiThreadSuite, 1));
+      if (std::strcmp(action, kOfxActionDestroyInstance) == 0) {
+        if (probe.threaded)
+          return threads->multiThread([](unsigned, unsigned, void *arg) {
+            ++static_cast<AbortOfxFixture *>(arg)->destroySlices;
+          }, 2, &probe);
+        return kOfxStatReplyDefault;
+      }
+      if (probe.threaded) {
+        struct Slices {
+          AbortOfxFixture &probe;
+          Effect *effect;
+          std::thread::id caller;
+          bool helperEntered = false, helperFinished = false;
+        } slices{probe, effect, std::this_thread::get_id()};
+        const auto status = threads->multiThread([](unsigned, unsigned, void *arg) {
+          auto &s = *static_cast<Slices *>(arg);
+          std::unique_lock<std::mutex> lock(s.probe.mutex);
+          if (std::this_thread::get_id() == s.caller || s.helperEntered) {
+            s.probe.cv.wait(lock, [&] { return s.helperEntered; });
+          } else {
+            s.helperEntered = true;
+            s.probe.waitAndAbort(s.effect, lock);
+            s.helperFinished = true;
+            s.probe.cv.notify_all();
+          }
+        }, 2, &slices);
+        std::unique_lock<std::mutex> lock(probe.mutex);
+        probe.returnedEarly |= status != kOfxStatOK || !slices.helperFinished;
+        // Keep a failing mutant's borrowed stack/token alive during cleanup.
+        probe.cv.wait(lock, [&] { return slices.helperFinished; });
+      } else {
+        std::unique_lock<std::mutex> lock(probe.mutex);
+        probe.waitAndAbort(effect, lock);
+      }
       std::copy(effect->src, effect->src + (size_t)effect->w * effect->h * 4, effect->dst);
       return kOfxStatOK;
     };
@@ -1320,6 +1354,14 @@ struct AbortOfxFixture {
     gPlugins.push_back(std::move(entry));
   }
   ~AbortOfxFixture() { gPlugins.pop_back(); }
+  void waitAndAbort(Effect *effect, std::unique_lock<std::mutex> &lock) {
+    instance = effect;
+    ++calls;
+    interactive.push_back(effect->cancellation.interactive());
+    cv.notify_all();
+    cv.wait(lock, [&] { return releaseAll || calls <= released; });
+    aborted.push_back(suite->abort(reinterpret_cast<OfxImageEffectHandle>(effect)));
+  }
   bool wait(int count) {
     std::unique_lock<std::mutex> lock(mutex);
     return cv.wait_for(lock, std::chrono::seconds(2), [&] { return calls == count; });
@@ -1331,9 +1373,10 @@ struct AbortOfxFixture {
   }
 };
 
-static bool testOfxRuntimeCancellation() {
+static bool testOfxRuntimeCancellation(bool threaded = false) {
   ExportTestFiles files;
   AbortOfxFixture fixture;
+  fixture.threaded = threaded;
   App app;
   app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
   app.full = app.preview;
@@ -1371,11 +1414,14 @@ static bool testOfxRuntimeCancellation() {
   app.renderer.joinExport();
   if (!previewIdle(app)) return false;
   app.renderer.shutdown();
-  return fixture.aborted == std::vector<int>({1, 0, 0, 0}) &&
+  const bool ok = !fixture.returnedEarly && fixture.aborted == std::vector<int>({1, 0, 0, 0}) &&
          fixture.interactive == std::vector<bool>({true, true, false, true}) &&
          !fixture.instance->cancellation.interactive() &&
          !fixture.suite->abort(reinterpret_cast<OfxImageEffectHandle>(fixture.instance)) &&
          fs::is_regular_file(files.output());
+  // DestroyInstance may still use the suite after renderer shutdown.
+  clearNodes(app);
+  return ok && (!threaded || fixture.destroySlices == 2);
 }
 
 enum class FailedDocumentEdit { Ofx, Ctl, RawMissing, RawReplacedByRaster, GradeRaw };
@@ -1662,6 +1708,7 @@ int runSelfTests() {
   if (!testControlThreadAssertions()) return fail("renderer control-thread assertions");
   printf("ok  Debug control-thread contract (8 expected child assertions)\n");
 #endif
+  if (!testOfxThreadPool()) return fail("OFX host multithread lifetime");
   for (bool started : {false, true})
     for (bool pending : {false, true})
       if (!testRuntimeIdleLifecycle(started, pending)) return fail("runtime idle/pending start/shutdown");
@@ -1674,6 +1721,8 @@ int runSelfTests() {
     return fail("normal demand / final mutation decision / read-only runtime observation");
   if (!testRuntimeCancellation()) return fail("per-runtime token supersession and evaluator cancellation");
   if (!testOfxRuntimeCancellation()) return fail("runtime cancellation reaches OFX abort; export remains uncancellable");
+  if (std::thread::hardware_concurrency() > 1 && !testOfxRuntimeCancellation(true))
+    return fail("worker-slice OFX abort lifetime and DestroyInstance threading");
   printf("ok  Owned runtime lifecycle (12 cases), demand merging, observation and cancellation\n");
 
   for (bool half : {false, true}) {
