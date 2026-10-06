@@ -1,5 +1,6 @@
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"
+#include "ofx/OfxThreadPool.h"
 #include "ofx/OfxMetal.h"
 
 #include "ofxGPURender.h"
@@ -374,57 +375,123 @@ static thread_local unsigned tIndex = 0;
 static thread_local bool tSpawned = false;
 static unsigned cpuCount() { return std::max(1u, std::thread::hardware_concurrency()); }
 
-static std::mutex gMtMu;
-static std::condition_variable gMtCv;
-static std::condition_variable gMtDone;
-static OfxThreadFunctionV1 *gMtF = nullptr;
-static void *gMtArg = nullptr;
-static unsigned gMtN = 0;
-static std::atomic<unsigned> gMtNext{0};
-static unsigned gMtWorkersDone = 0;
-static unsigned gMtParticipants = 0;
-static std::atomic<bool> gMtActive{false};
-static std::atomic<bool> gMtShutdown{false};
-static std::vector<std::thread> gMtPool;
+// Restore the enclosing callback's identity after a nested call, and leave a
+// top-level caller eligible for the persistent pool on its next invocation.
+struct MtThreadContext {
+  unsigned index = tIndex;
+  bool spawned = tSpawned;
+  ~MtThreadContext() { tIndex = index; tSpawned = spawned; }
+};
 
-static void mtRunSlices() {
+OfxThreadPool::~OfxThreadPool() { shutdown(); }
+
+void OfxThreadPool::shutdown() {
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
+    stopping_ = true;
+    observe(Event::Stopping);
+    doneCv_.wait(lock, [this] { return !active_; });
+  }
+  workCv_.notify_all();
+  // Both condition variables and job state remain alive until the last join.
+  // In particular, never join while holding the workers' mutex.
+  for (auto &worker : workers_)
+    if (worker.joinable()) worker.join();
+  std::lock_guard<std::mutex> lock(mutex_);
+  observe(Event::Stopped);
+}
+
+bool OfxThreadPool::tryRun(OfxThreadFunctionV1 *function, unsigned slices, void *argument) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  if (active_ || stopping_) return false;
+  if (!started_) {
+    // Reserve before creating threads. A partial launch failure still leaves
+    // every successfully created worker owned and joinable by this object.
+    try {
+      workers_.reserve(helperCount_);
+      for (unsigned i = 0; i < helperCount_; ++i)
+        workers_.emplace_back([this] { workerLoop(); });
+    } catch (...) {
+      // Use the helpers we could launch; the caller can also run every slice.
+    }
+    started_ = true;
+  }
+  function_ = function;
+  argument_ = argument;
+  slices_ = slices;
+  nextSlice_.store(0, std::memory_order_relaxed);
+  workersRemaining_ = (unsigned)workers_.size();
+  ++generation_;
+  active_ = true;
+  lock.unlock();
+  workCv_.notify_all();
+  runSlices();
+  lock.lock();
+  observe(Event::CallerWaiting);
+  doneCv_.wait(lock, [this] { return workersRemaining_ == 0; });
+  // The caller and every helper have left their callbacks. Only now may a new
+  // call replace the job or the caller destroy its borrowed argument.
+  active_ = false;
+  function_ = nullptr;
+  argument_ = nullptr;
+  doneCv_.notify_all();
+  return true;
+}
+
+void OfxThreadPool::runSlices() {
+  MtThreadContext context;
   for (;;) {
-    const unsigned i = gMtNext.fetch_add(1, std::memory_order_relaxed);
-    if (i >= gMtN) break;
+    const unsigned i = nextSlice_.fetch_add(1, std::memory_order_relaxed);
+    if (i >= slices_) break;
     tIndex = i;
     tSpawned = true;
-    gMtF(i, gMtN, gMtArg);
+    function_(i, slices_, argument_);
   }
 }
 
-static void mtWorkerLoop() {
+void OfxThreadPool::workerLoop() {
+  std::uint64_t seenGeneration = 0;
+  std::unique_lock<std::mutex> lock(mutex_);
   for (;;) {
-    std::unique_lock<std::mutex> lock(gMtMu);
-    gMtCv.wait(lock, [] { return gMtShutdown.load() || gMtActive.load(); });
-    if (gMtShutdown.load()) return;
+    workCv_.wait(lock, [&] {
+      const bool ready = stopping_ || generation_ != seenGeneration;
+      if (!ready) observe(Event::WorkerWaiting);
+      return ready;
+    });
+    // Shutdown must not discard a published job that this helper still owes.
+    if (generation_ == seenGeneration && stopping_) return;
+    seenGeneration = generation_;
     lock.unlock();
-    mtRunSlices();
+    runSlices();
     lock.lock();
-    if (++gMtWorkersDone >= gMtParticipants) gMtDone.notify_one();
+    // A worker acknowledges each generation exactly once, after its callbacks
+    // finish, even when other participants claimed all of this job's slices.
+    --workersRemaining_;
+    observe(Event::WorkerCompleted);
+    doneCv_.notify_all();
   }
 }
 
-static void mtEnsurePool() {
-  static std::once_flag once;
-  std::call_once(once, [] {
-    const unsigned nw = cpuCount();
-    for (unsigned i = 1; i < nw; ++i) gMtPool.emplace_back(mtWorkerLoop);
-  });
+void OfxThreadPool::observe(Event event) const {
+  if (observer_) observer_(observerContext_, event);
 }
 
 static OfxStatus multiThreadEphemeral(OfxThreadFunctionV1 f, unsigned n, void *arg) {
   std::vector<std::thread> threads;
-  for (unsigned i = 0; i < n; ++i)
-    threads.emplace_back([=] {
-      tIndex = i;
-      tSpawned = true;
-      f(i, n, arg);
-    });
+  try {
+    threads.reserve(n);
+    for (unsigned i = 0; i < n; ++i)
+      threads.emplace_back([=] {
+        tIndex = i;
+        tSpawned = true;
+        f(i, n, arg);
+      });
+  } catch (...) {
+    // Thread creation failure must not destroy an already launched callback's
+    // argument, or a vector of joinable threads, before those callbacks finish.
+    for (auto &t : threads) t.join();
+    return kOfxStatFailed;
+  }
   for (auto &t : threads) t.join();
   return kOfxStatOK;
 }
@@ -432,34 +499,15 @@ static OfxStatus multiThreadEphemeral(OfxThreadFunctionV1 f, unsigned n, void *a
 static OfxStatus multiThread(OfxThreadFunctionV1 f, unsigned n, void *arg) {
   if (!f) return kOfxStatFailed;
   if (n <= 1) {
+    MtThreadContext context;
     tIndex = 0;
     tSpawned = false;
     f(0, 1, arg);
     return kOfxStatOK;
   }
-  if (gMtActive.load() || tSpawned) return multiThreadEphemeral(f, n, arg);
-  mtEnsurePool();
-  const unsigned helpers = std::min((unsigned)gMtPool.size(), n - 1);
-  {
-    std::unique_lock<std::mutex> lock(gMtMu);
-    gMtF = f;
-    gMtArg = arg;
-    gMtN = n;
-    gMtNext.store(0, std::memory_order_relaxed);
-    gMtWorkersDone = 0;
-    gMtParticipants = 1 + helpers;
-    gMtActive.store(true);
-  }
-  gMtCv.notify_all();
-  tSpawned = false;
-  mtRunSlices();
-  {
-    std::unique_lock<std::mutex> lock(gMtMu);
-    if (++gMtWorkersDone >= gMtParticipants) gMtDone.notify_one();
-    gMtDone.wait(lock, [] { return gMtWorkersDone >= gMtParticipants; });
-    gMtActive.store(false);
-  }
-  return kOfxStatOK;
+  if (tSpawned) return multiThreadEphemeral(f, n, arg);
+  if (OfxThreadPool::host().tryRun(f, n, arg)) return kOfxStatOK;
+  return multiThreadEphemeral(f, n, arg);
 }
 static OfxStatus multiThreadNumCPUs(unsigned *n) {
   *n = cpuCount();
@@ -644,3 +692,10 @@ static PropSet gHostProps = [] {
 }();
 OfxHost gOfxHost = {H(&gHostProps), fetchSuite};
 
+// Construct the owner after the suite globals, but before main loads any
+// plugin libraries. Workers are still created lazily. RawNode drains rendering
+// and destroys instances before static teardown; it does not call ActionUnload
+// or dlclose. The pool remains available for DestroyInstance and for library
+// destructors registered during loading, then joins before host data is freed.
+static OfxThreadPool gThreadPool(cpuCount() - 1);
+OfxThreadPool &OfxThreadPool::host() { return gThreadPool; }
