@@ -25,3 +25,6 @@ class DocumentMutation {
 };
 
 }  // namespace document_detail
+
+// Source/document operation; pixel rebuilding is not renderer execution policy.
+void rebuildPreview(App &app);

@@ -244,7 +244,7 @@ void OfxProcessor::setRenderSize(int width, int height) {
   instance_->h = height;
 }
 
-ProcessorResult OfxProcessor::render(const Image &input, Image &output, int generation) {
+ProcessorResult OfxProcessor::render(const Image &input, Image &output, const RenderCancellation &cancellation) {
   if (!instance_ || pluginIndex_ < 0 || pluginIndex_ >= (int)gPlugins.size())
     return ProcessorResult::failure(-1, "Invalid OFX processor");
 
@@ -259,7 +259,7 @@ ProcessorResult OfxProcessor::render(const Image &input, Image &output, int gene
 
   const OfxStatus status =
       renderEffect(plugin, instance_.get(), const_cast<float *>(input.px.data()), output.px.data(),
-                   input.w, input.h, outW, outH, generation);
+                   input.w, input.h, outW, outH, cancellation);
   if (status != kOfxStatOK)
     return ProcessorResult::failure((int)status, "OFX status " + std::to_string((int)status));
 

@@ -14,7 +14,6 @@
 
 #include <exception>
 #include <filesystem>
-#include <thread>
 
 namespace fs = std::filesystem;
 
@@ -463,13 +462,6 @@ struct ExportRequest {
   PersistChain chain;
 };
 
-// Adopt ownership already acquired on the control thread. Disarm only after
-// a thread has successfully taken responsibility for the same ownership.
-struct ExportOwnership {
-  App *app;
-  ~ExportOwnership() { if (app) endFullResolutionRender(*app); }
-};
-
 static std::string exceptionMessage(std::exception_ptr error) {
   try {
     std::rethrow_exception(error);
@@ -544,7 +536,7 @@ static bool executeExportJob(App &app, const ExportRequest &request) noexcept {
       PreviewSizeRestore restore{app, request.previewWidth, request.previewHeight, restorationError};
       for (auto &node : app.nodes)
         if (node.processor) node.processor->setRenderSize(request.source.w, request.source.h);
-      result = renderChain(app, request.source, out, 0);
+      result = renderChain(app, request.source, out);
     }
     if (restorationError) std::rethrow_exception(restorationError);
     const bool ok = result.ok && writeImage(out, request.outPath, request.space, request.jpegQuality);
@@ -569,17 +561,12 @@ static bool executeExportJob(App &app, const ExportRequest &request) noexcept {
 
 }  // namespace
 
-void joinExport(App &app) {
-  if (app.exportThread.joinable()) app.exportThread.join();
-}
-
 bool runExportJob(App &app, const std::string &outPath) {
-  joinExport(app);
   if (app.full.px.empty() || app.nodes.empty() || outPath.empty()) return false;
-  app.setStatus("Exporting full resolution...");
-  beginFullResolutionRender(app);
-  ExportOwnership ownership{&app};
+  auto ownership = app.renderer.acquireExport();
+  if (!ownership) return false;
   try {
+    app.setStatus("Exporting full resolution...");
     return executeExportJob(app, captureExportRequest(app, outPath));
   } catch (...) {
     publishExportException(app, std::current_exception());
@@ -588,20 +575,15 @@ bool runExportJob(App &app, const std::string &outPath) {
 }
 
 bool startExport(App &app, const std::string &outPath) {
-  // Join before acquiring a new export, without renderMutex: the old worker
-  // needs that mutex to release ownership. Never assign over a joinable thread.
-  joinExport(app);
   if (app.full.px.empty() || app.nodes.empty() || outPath.empty()) return false;
-  app.setStatus("Exporting full resolution...");
-  beginFullResolutionRender(app);
-  ExportOwnership ownership{&app};
+  auto ownership = app.renderer.acquireExport();
+  if (!ownership) return false;
   try {
+    app.setStatus("Exporting full resolution...");
     ExportRequest request = captureExportRequest(app, outPath);
-    app.exportThread = std::thread([&app, request = std::move(request)]() noexcept {
-      ExportOwnership workerOwnership{&app};
+    ownership.start([&app, request = std::move(request)]() noexcept {
       executeExportJob(app, request);
     });
-    ownership.app = nullptr;
     return true;
   } catch (...) {
     publishExportException(app, std::current_exception());

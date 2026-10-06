@@ -5,7 +5,7 @@
 #include "NodeGraph.h"
 #include "color/LinearColorTransform.h"
 #include "color/TransferFunction.h"
-#include "RenderPipeline.h"
+#include "DocumentMutation.h"
 #include "ofx/OfxHost.h"  // gPlugins: external plugin discovery is still OFX-specific.
 #include "ui/Widgets.h"
 
@@ -92,7 +92,7 @@ void drawLeftPanel(App &app) {
       std::lock_guard<std::mutex> lock(app.colorMutex);
       app.outputEncoding.gamut = rgbGamutDefinition(outputGamutIndex).value;
     }
-    scheduleDisplayRecolor(app);
+    app.renderer.requestDisplayRefresh();
   }
 
   int outputGammaIndex = std::max(0, transferFunctionIndex(outputEncoding.gamma));
@@ -101,7 +101,7 @@ void drawLeftPanel(App &app) {
       std::lock_guard<std::mutex> lock(app.colorMutex);
       app.outputEncoding.gamma = transferFunctionDefinition(outputGammaIndex).value;
     }
-    scheduleDisplayRecolor(app);
+    app.renderer.requestDisplayRefresh();
   }
 
   {

@@ -18,7 +18,7 @@ class NativeCstProcessor final : public Processor {
   bool activateParameter(const std::string &id) override;
 
   void setRenderSize(int width, int height) override;
-  ProcessorResult render(const Image &input, Image &output, int generation) override;
+  ProcessorResult render(const Image &input, Image &output, const RenderCancellation &cancellation) override;
 
  private:
   // Store stable enum values, not menu positions.

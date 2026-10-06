@@ -2,9 +2,9 @@
 #pragma once
 
 #include "ofxImageEffect.h"
+#include "RenderCancellation.h"
 
 #include <algorithm>
-#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -62,11 +62,10 @@ struct Effect {
   bool metalCapable = false;                  // plugin declared kOfxImageEffectPropMetalRenderSupported
   int w = 0, h = 0;                           // input/source clip dims
   int outW = 0, outH = 0;                     // output clip dims (== w,h unless the plugin changes its RoD)
-  int renderGen = 0;
+  RenderCancellation cancellation;  // borrowed only during renderEffect()
 };
 
-// Bumping gLatestGen aborts in-flight interactive renders. gValueMutex guards Param values.
-extern std::atomic<int> gLatestGen;
+// Guards OFX parameter values; preview cancellation is owned by RenderRuntime.
 extern std::mutex gValueMutex;
 // Called with plugin warnings/errors, on the thread that raised them.
 extern std::function<void(const std::string &)> gOnMessage;
@@ -91,5 +90,5 @@ std::unique_ptr<Effect> createInstance(PluginEntry &pe);
 // Falls back to inW×inH when the plugin does not override its RoD.
 void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *outH);
 // src: bottom-up float RGBA w*h pixels. dst receives outW*outH pixels (capacity >= outW*outH).
-// gen 0 = never aborted.
-OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, int gen);
+// Empty cancellation token = never aborted.
+OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, const RenderCancellation &cancellation = {});

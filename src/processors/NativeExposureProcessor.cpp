@@ -44,8 +44,8 @@ void NativeExposureProcessor::setRenderSize(int width, int height) {
   (void)height;
 }
 
-ProcessorResult NativeExposureProcessor::render(const Image &input, Image &output, int generation) {
-  (void)generation;
+ProcessorResult NativeExposureProcessor::render(const Image &input, Image &output, const RenderCancellation &cancellation) {
+  (void)cancellation;
 
   output = input;
   const float gain = (float)std::exp2(exposureEv_.load(std::memory_order_relaxed));
