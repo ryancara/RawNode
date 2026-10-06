@@ -39,7 +39,8 @@ class OfxThreadPool {
   void *observerContext_ = nullptr;
 
   // All job/lifecycle state is protected by mutex_. Only slice claiming is
-  // atomic; published callback fields stay unchanged until every helper exits.
+  // atomic; published callback fields stay unchanged until every helper has
+  // acknowledged the generation.
   const unsigned helperCount_;
   std::mutex mutex_;
   std::condition_variable workCv_, doneCv_;

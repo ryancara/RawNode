@@ -10,65 +10,8 @@
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
 
-static void sourceToDisplayRGBA8(const App &app, const Image &img, std::vector<unsigned char> &rgba) {
-  ColorEncoding encoding;
-  {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    encoding = app.inputEncoding;
-  }
-  toDisplayRGBA8(img, encoding, rgba);
-}
-
-void display_detail::showSourcePreview(App &app) {
-  if (app.preview.px.empty()) return;
-  std::vector<unsigned char> rgba;
-  sourceToDisplayRGBA8(app, app.preview, rgba);
-  std::lock_guard<std::mutex> lock(app.displayMutex);
-  app.display = app.preview;
-  app.displayRGBA = std::move(rgba);
-  app.displayDirty = true;
-}
-
-static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h) {
-  PerfScope _ps("uploadTextureRGBA");
-  if (!rgba || w <= 0 || h <= 0) return;
-  if (!app.tex) glGenTextures(1, &app.tex);
-  glBindTexture(GL_TEXTURE_2D, app.tex);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  if (app.texW != w || app.texH != h) {
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-    app.texW = w;
-    app.texH = h;
-  } else {
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-  }
-}
-
-void uploadTexture(App &app, const Image &img) {
-  std::vector<unsigned char> rgba;
-  if (app.nodes.empty())
-    sourceToDisplayRGBA8(app, img, rgba);
-  else {
-    ColorEncoding outputEncoding;
-    {
-      std::lock_guard<std::mutex> lock(app.colorMutex);
-      outputEncoding = app.outputEncoding;
-    }
-    toDisplayRGBA8(img, outputEncoding, rgba);
-  }
-  uploadTextureRGBA(app, rgba.data(), img.w, img.h);
-}
-
-void pumpDisplayUpload(App &app) {
-  std::lock_guard<std::mutex> lock(app.displayMutex);
-  if (app.displayDirty && !app.displayRGBA.empty() && app.display.w > 0 && app.display.h > 0) {
-    uploadTextureRGBA(app, app.displayRGBA.data(), app.display.w, app.display.h);
-    app.displayDirty = false;
-  }
-}
+static void sourceToDisplayRGBA8(const App &app, const Image &img, std::vector<unsigned char> &rgba);
+static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h);
 
 ProcessorResult renderChain(App &app, const Image &src, Image &out, const RenderCancellation &cancellation) {
   static thread_local Image cur, next;
@@ -99,6 +42,39 @@ ProcessorResult renderChain(App &app, const Image &src, Image &out, const Render
   }
   out = std::move(cur);
   return ProcessorResult::success();
+}
+
+void uploadTexture(App &app, const Image &img) {
+  std::vector<unsigned char> rgba;
+  if (app.nodes.empty())
+    sourceToDisplayRGBA8(app, img, rgba);
+  else {
+    ColorEncoding outputEncoding;
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      outputEncoding = app.outputEncoding;
+    }
+    toDisplayRGBA8(img, outputEncoding, rgba);
+  }
+  uploadTextureRGBA(app, rgba.data(), img.w, img.h);
+}
+
+void pumpDisplayUpload(App &app) {
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  if (app.displayDirty && !app.displayRGBA.empty() && app.display.w > 0 && app.display.h > 0) {
+    uploadTextureRGBA(app, app.displayRGBA.data(), app.display.w, app.display.h);
+    app.displayDirty = false;
+  }
+}
+
+void display_detail::showSourcePreview(App &app) {
+  if (app.preview.px.empty()) return;
+  std::vector<unsigned char> rgba;
+  sourceToDisplayRGBA8(app, app.preview, rgba);
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  app.display = app.preview;
+  app.displayRGBA = std::move(rgba);
+  app.displayDirty = true;
 }
 
 // Called only under runtime execution ownership.
@@ -138,4 +114,31 @@ void display_detail::publishPreview(App &app, Image result, int generation) {
   app.displayRGBA = std::move(rgba);
   app.displayDirty = true;
   app.displayGen = generation;
+}
+
+static void sourceToDisplayRGBA8(const App &app, const Image &img, std::vector<unsigned char> &rgba) {
+  ColorEncoding encoding;
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    encoding = app.inputEncoding;
+  }
+  toDisplayRGBA8(img, encoding, rgba);
+}
+
+static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h) {
+  PerfScope _ps("uploadTextureRGBA");
+  if (!rgba || w <= 0 || h <= 0) return;
+  if (!app.tex) glGenTextures(1, &app.tex);
+  glBindTexture(GL_TEXTURE_2D, app.tex);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  if (app.texW != w || app.texH != h) {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    app.texW = w;
+    app.texH = h;
+  } else {
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+  }
 }

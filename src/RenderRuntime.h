@@ -59,16 +59,19 @@ class RenderRuntime {
   friend class document_detail::DocumentMutation;
   friend class RenderRuntimeTestAccess;
 
-  void assertControlThread() const;
+  // DocumentMutation is the sole caller of the structural edit boundary.
   bool beginMutation();
   void completeMutation(bool changed, bool interrupted) noexcept;
-  bool cancelAndDrain(std::unique_lock<std::mutex> &lock);
+
   void requestPreview(bool quiet);
   void queuePreview(bool quiet);        // mutex_ held; normal demand wins.
-  void finishExport() noexcept;
+  bool cancelAndDrain(std::unique_lock<std::mutex> &lock);
+
   void runPreview();
   void finishPreview() noexcept;
+  void finishExport() noexcept;
   void join(std::thread &worker);
+  void assertControlThread() const;
 
   // Configured only through the self-test friend, before execution. Observers
   // run with mutex_ held, must not re-enter the runtime, and cannot throw.
@@ -81,11 +84,17 @@ class RenderRuntime {
   App &app_;
   mutable std::mutex mutex_;
   std::condition_variable workCv_, idleCv_;
+
+  // Demand and execution gates are protected by mutex_. A display refresh
+  // cannot consume required processor work; mutation/export close dispatch.
   bool stopping_ = false;
   bool previewPending_ = false, quietPending_ = false;
   bool displayPending_ = false;
   bool previewBusy_ = false, exportBusy_ = false;
   int mutationDepth_ = 0;
+
+  // Evaluation reads cancellation without taking mutex_. Thread handles are
+  // moved under mutex_ and joined outside it so workers can finish.
   std::atomic<int> epoch_{0};
   std::thread previewThread_, exportThread_;
 #ifndef NDEBUG
