@@ -28,6 +28,7 @@ static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor);
 static bool addOfxWithinMutation(App &app, int pluginIndex);
 static bool addCtlWithinMutation(App &app, const std::string &path);
 static void moveNodeWithinMutation(App &app, int from, int to);
+
 static PersistNode capturePersistedNode(const Node &node);
 static void appendRestoredWithinMutation(App &app, const PersistNode &persisted, bool preserveId);
 static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParameter &param);

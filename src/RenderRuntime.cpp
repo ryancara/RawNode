@@ -125,8 +125,9 @@ void RenderRuntime::completeMutation(bool changed, bool interrupted) noexcept {
     // mutation gate or replace the meaningful operation status.
   }
   std::lock_guard<std::mutex> lock(mutex_);
-  // Queue the final preview decision before opening the gate, so dispatch
-  // cannot overtake the completed edit. Observers see that same boundary.
+  // Any final preview request was made above while mutationDepth_ still closes
+  // dispatch, so later demand cannot run ahead of the completed edit.
+  // Observers see that same boundary.
   observe(Event::MutationCompleted);
   assert(mutationDepth_ > 0);
   --mutationDepth_;

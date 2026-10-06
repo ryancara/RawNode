@@ -21,6 +21,9 @@ void setNodeEnabled(App &app, int index, bool enabled);
 // Capture preserves unavailable processors and opaque parameter values.
 bool captureNode(const App &app, int index, PersistNode &out);
 PersistChain captureChain(const App &app);
+
+// Restoring persisted nodes uses the same structural transaction boundary.
 bool appendPersistedNode(App &app, const PersistNode &node, int insertAfter = -1);
 void applyChain(App &app, const PersistChain &chain);
+
 bool hasUnknownProcessorChoiceIds(const App &app);

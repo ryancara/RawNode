@@ -8,7 +8,7 @@
 ProcessorResult renderChain(App &app, const Image &src, Image &out,
                             const RenderCancellation &cancellation = {});
 
-// UI thread with a current GL context. Workers publish CPU buffers below;
+// UI thread with a current GL context. The runtime publishes CPU buffers below;
 // pumpDisplayUpload consumes them for the viewer.
 void uploadTexture(App &app, const Image &img);
 void pumpDisplayUpload(App &app);

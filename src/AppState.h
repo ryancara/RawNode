@@ -88,8 +88,10 @@ inline constexpr struct {
 inline constexpr int kPreviewResCount = 4;
 
 // Shared application state. UI.cpp owns the application loop and thumbnail
-// teardown; RenderRuntime owns preview/export execution. Document edits use
-// DocumentMutation, while the dedicated mutexes below guard shared snapshots.
+// teardown; RenderRuntime owns preview/export execution. Structural graph
+// edits and preview-source rebuilds use DocumentMutation; parameter edits
+// are excluded only during export. The dedicated mutexes below guard
+// shared snapshots.
 struct App {
   // Preview/export workers borrow document/display/status fields. Stop them in
   // the destructor body while all members are alive, regardless of member order.
