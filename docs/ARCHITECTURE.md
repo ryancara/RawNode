@@ -500,6 +500,24 @@ The architecture should be reached through small behaviour-preserving changes.
    Once the public protocol has shrunk, own worker lifecycle, execution
    exclusivity, demand, cancellation and shutdown behind one runtime boundary.
 
+### Stabilisation gate after Step 4
+
+Before beginning Step 5:
+
+1. fix the pre-existing OpenFX host multithread lifetime bugs exposed by Step 4
+   review (early `multiThread()` completion and an unjoined global worker pool)
+   in a separate focused correctness PR;
+2. perform a behaviour-preserving human-readability/source-organisation pass so
+   file boundaries, function order, naming, comments and lock/ownership structure
+   make the architecture legible to a competent C++ programmer;
+3. perform the planned whole-architecture checkpoint against RawNode's actual
+   product goals and the pinned vkdt reference.
+
+These are stabilisation/review gates, **not additional numbered architecture
+steps**. The readability pass must not smuggle architecture or behaviour changes
+into cleanup. Architectural problems discovered there should be recorded for the
+checkpoint.
+
 5. **Settle the first mask/graph product contract.**
    Decide the first user-visible mask model before graph feature work.
 
@@ -513,6 +531,33 @@ The architecture should be reached through small behaviour-preserving changes.
    requires them.
 
 Each step should remain independently reviewable.
+
+## Source organisation and human readability
+
+Source layout should help a human programmer recover the architecture from the
+code rather than requiring knowledge of the project's implementation history.
+
+Prefer:
+
+- one obvious responsibility per file or tightly related file group;
+- top-down implementation order: public/domain operations before lower-level
+  mechanics where practical;
+- related lifecycle, request, mutation, export and worker operations grouped
+  conceptually rather than ordered by when they were added;
+- domain-oriented names over names that expose incidental implementation
+  machinery;
+- small, visually obvious lock scopes and comments that state ownership/thread
+  invariants;
+- comments that explain **why**, invariants and non-obvious constraints rather
+  than restating C++ syntax;
+- source structure that mirrors the UI/document/graph/runtime/display/export/
+  persistence boundaries in this document.
+
+Do not pursue readability by inventing layers, managers or tiny wrappers without
+a real responsibility boundary. Formatting is useful but is not a substitute
+for conceptual reading order.
+
+The durable source-style guidance lives in `docs/CODE_STYLE.md`.
 
 ## Testing requirements
 

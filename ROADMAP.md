@@ -24,6 +24,35 @@ The original backend-neutral architecture work is now in place:
 
 The current codebase is a clean base for feature development. New work should return to small, focused PRs.
 
+## Current architecture/stabilisation sequence
+
+The approved eight-step architecture migration is in progress. Steps 1-3 are
+complete. Step 4 (renderer ownership encapsulation) is implemented in PR #45,
+independently reviewed as safe to merge, and awaiting routine macOS validation.
+
+Before Step 5 begins, intentionally pause feature/graph expansion for three
+stabilisation tasks:
+
+1. fix the pre-existing OpenFX host multithread lifetime bugs found during the
+   #45 review;
+2. perform a behaviour-preserving human-readability/source-organisation pass;
+3. perform the planned whole-architecture checkpoint against RawNode's product
+   goals and the pinned vkdt reference.
+
+The readability pass should make the source itself communicate the architecture:
+clear file responsibilities, conceptual/top-down function order, domain-oriented
+names, visible ownership/locking and comments that explain rationale/invariants.
+It must not mix new architecture or product behaviour into cleanup.
+
+Then resume:
+
+- Step 5: settle the first mask/graph product contract;
+- Step 6: explicit topology + sequential DAG evaluator;
+- Step 7: versioned graph persistence;
+- Step 8: first mask contract + mask path.
+
+These stabilisation tasks are not extra migration steps.
+
 ## Completed editing workflow milestone
 
 RawNode now supports:
@@ -81,7 +110,10 @@ Add a simple photo-culling workflow:
 
 Allow exporting multiple selected/workspace images using the same processing and export infrastructure.
 
-Before expanding batch export, fix the existing full-resolution export lifetime race by snapshotting or synchronising the render graph rather than rendering against mutable processors from a detached thread.
+Full-resolution export execution is now owned and serialized against live
+processor use. Future batch/workspace export should reuse that ownership model
+rather than reintroducing detached access, processor cloning or a separate
+scheduler without a concrete product need.
 
 ## Graph / List interface
 

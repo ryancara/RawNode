@@ -220,6 +220,30 @@ The authoritative project documents are:
 
 Old root-level architecture/decision files are historical only.
 
+## D037 — Stabilise and make the source human-readable before graph expansion
+
+**Status:** Accepted
+
+After renderer ownership encapsulation and before mask/topology feature work,
+RawNode will:
+
+1. fix the pre-existing OpenFX host multithread lifetime bugs discovered during
+   Step 4 review in a separate correctness PR;
+2. perform a behaviour-preserving human-readability/source-organisation pass;
+3. perform the planned whole-architecture checkpoint against the pinned vkdt
+   reference and RawNode's actual product goals.
+
+The readability pass should make source layout reflect architectural
+responsibilities: clear file ownership, top-down reading order, conceptually
+grouped functions, domain-oriented names, visible locking/ownership and comments
+that explain invariants and rationale.
+
+It is not an excuse for hidden redesign. If cleanup reveals a genuine
+architectural problem, record it for the checkpoint and address it deliberately.
+
+These are stabilisation gates between Steps 4 and 5, not additional numbered
+architecture-migration steps.
+
 ## Pending decisions
 
 Before DAG/mask feature work:
@@ -251,6 +275,14 @@ Before transparent compositing or alpha-carrying I/O:
 2. Make parameter editing unavailable during export.
 3. Centralize graph-edit transactions.
 4. Encapsulate renderer ownership once the public protocol has shrunk.
+
+Then complete the D037 stabilisation gate:
+
+- fix the OpenFX host multithread lifetime bugs;
+- perform the behaviour-preserving human-readability/source-organisation pass;
+- perform the whole-architecture checkpoint against vkdt and RawNode's product
+  goals.
+
 5. Settle the first mask/graph product contract.
 6. Introduce topology and sequential DAG evaluation together.
 7. Add versioned graph persistence.

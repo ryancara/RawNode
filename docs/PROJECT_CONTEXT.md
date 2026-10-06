@@ -95,6 +95,7 @@ Document responsibilities are:
 - `docs/DECISIONS.md` — authoritative durable design decisions and rationale.
 - `docs/ARCHITECTURE_AUDIT.md` — audit evidence and the Codex/Claude
   reconciliation that led to the approved architecture.
+- `docs/CODE_STYLE.md` — human-readability and source-organisation principles.
 - `CLAUDE.md` — Claude Code's persistent review/development instructions.
 - Git history and pull requests — implementation history and per-change detail.
 
@@ -145,36 +146,25 @@ lifetime guarantees.
 
 ## Current renderer shape
 
-The current renderer is still largely a linear-chain architecture inherited
-from RawNode's earlier evolution.
+Step 4, renderer ownership encapsulation, is implemented in open PR #45 and has
+received an independent **SAFE TO MERGE** review on Linux. It is still pending
+the routine macOS build/self-test and merge.
 
-Current machinery includes concepts such as:
+The intended post-merge shape is one App-owned `RenderRuntime` whose private
+state owns preview/export worker lifetime, demand, cancellation, mutation
+gating, execution exclusivity and shutdown. Ordinary UI/document/export callers
+use semantic requests rather than renderer mutexes, pending/busy flags or
+wait/mutate/reschedule protocol.
 
-    renderPending
-    displayRecolorPending
-    renderQuietPending
-    renderBusy
-    exportBusy
-    renderMutationDepth
-    gLatestGen
+Presentation buffers remain part of the display path, export file production
+remains in the export path, and `renderChain()` remains the evaluator. The
+runtime owns **when** evaluation may execute safely, not what the document or
+export means.
 
-and APIs such as:
-
-    scheduleRender()
-    scheduleDisplayRecolor()
-    waitRenderIdle()
-    beginRenderMutation()
-    endRenderMutation()
-    beginFullResolutionRender()
-    endFullResolutionRender()
-
-These mechanisms currently solve real correctness problems. They are **not**
-automatically the desired long-term public architecture.
-
-Do not add more feature-specific pending domains merely by copying this pattern.
-The architecture audit exists partly to determine which of these concepts should
-remain, which should be hidden, which can be collapsed, and which can eventually
-be removed.
+Until PR #45 merges, main still contains the older renderer plumbing. Do not
+build new work against that transitional public protocol. After merge, update
+this section to describe the landed runtime rather than preserving historical
+flag/API detail.
 
 ## Architectural direction
 
@@ -329,10 +319,10 @@ measured). Do not use that known leak to dismiss unrelated sanitizer findings.
 These are known but are not reasons to expand unrelated focused PRs:
 
 - the OpenFX plugin descriptor leak described above;
-- an explicit lifecycle/cancellation `waitRenderIdle()` caller can still race
-  export completion and occasionally wait through its restored preview;
-  structural document mutations no longer have this latency because they close
-  the mutation gate before draining;
+- the OpenFX host multithread suite has two pre-existing lifetime bugs found
+  during PR #45 review: `multiThread()` can return before every slice finishes,
+  and the global host worker pool is never joined before static destruction;
+  fix these together in one focused correctness PR immediately after Step 4;
 - JPEG XL DNG decoding is not yet supported in the current image-loading path;
 - TIFF SubIFD handling is incomplete for some RAW-like TIFF structures;
 - export UX can block/wait on a non-cancellable full-resolution export.
@@ -355,7 +345,7 @@ The audit trail is in:
 
     docs/ARCHITECTURE_AUDIT.md
 
-The first three production architecture steps are complete: owned export execution landed in PR #39, export parameter consistency landed in PR #41, and graph-edit transaction centralization landed in PR #43. Ordinary structural UI/document callers no longer manage wait/mutate/reschedule sequencing themselves. The current step is encapsulating renderer ownership now that the public mutation protocol has shrunk.
+The first three production architecture steps are complete: owned export execution landed in PR #39, export parameter consistency landed in PR #41, and graph-edit transaction centralization landed in PR #43. Step 4, renderer ownership encapsulation, is implemented in PR #45 and independently reviewed as safe to merge; it is awaiting the routine macOS validation before merge. Ordinary structural UI/document callers no longer manage wait/mutate/reschedule sequencing themselves.
 
 The approved near-term sequence is:
 
@@ -371,6 +361,15 @@ The approved near-term sequence is:
     Encapsulate renderer ownership
           |
           v
+    Fix OFX host multithread lifetime bugs
+          |
+          v
+    Human-readability / source-organisation pass
+          |
+          v
+    Whole-architecture checkpoint against vkdt
+          |
+          v
     Settle first mask/graph product contract
           |
           v
@@ -382,8 +381,16 @@ The approved near-term sequence is:
           v
     First mask contract + mask path
 
-The first four steps are primarily boundary/lifetime cleanup. They do not require
-a renderer rewrite or speculative DAG machinery.
+The first four numbered steps are primarily boundary/lifetime cleanup. They do
+not require a renderer rewrite or speculative DAG machinery.
+
+The OFX correctness fix, readability pass and architecture checkpoint between
+Steps 4 and 5 are **stabilisation gates, not extra architecture-migration
+steps**. The readability pass is deliberately behaviour-preserving: make files,
+function order, naming, comments and source layout communicate the architecture
+to a human programmer without quietly changing product behaviour or architecture.
+If that pass uncovers a real architectural problem, record it for the checkpoint
+instead of hiding the redesign inside cleanup.
 
 The architectural goal is to make future changes cleaner across the application:
 new features should plug into the graph, render runtime, display path, export
@@ -414,11 +421,19 @@ deferred until transparent compositing or alpha-carrying I/O requires it.
 
 Immediate work:
 
-- encapsulate renderer ownership behind one runtime boundary while preserving
-  the established #32-#34, #39, #41 and #43 guarantees;
-- independently review that focused refactor;
-- after Step 4, perform a whole-architecture checkpoint against RawNode's
-  product goals and the pinned vkdt reference before mask/topology feature work.
+- complete macOS validation and merge PR #45, then update this context to mark
+  Step 4 complete;
+- fix the two pre-existing OpenFX host multithread lifetime bugs found during
+  the #45 review in one focused correctness PR;
+- perform a behaviour-preserving human-readability/source-organisation audit
+  and cleanup so the physical code structure mirrors the settled architecture;
+- then perform the whole-architecture checkpoint against RawNode's product goals
+  and the pinned vkdt reference before mask/topology feature work.
+
+The readability pass should follow and refine the lightweight durable guidance
+in `docs/CODE_STYLE.md`, favouring top-down reading order, clear file
+responsibility, obvious ownership/locking, domain-oriented names and comments
+that explain invariants/why rather than narrating syntax.
 
 After the architectural baseline is clean:
 
