@@ -249,6 +249,25 @@ and the behaviour-preserving human-readability/source-organisation pass was
 completed in PR #50 after independent review and macOS validation. The next task
 is the whole-architecture checkpoint.
 
+## D038 — Sidecars belong to editable source documents only
+
+**Status:** Accepted
+
+RawNode sidecars represent editable per-source document state. Exported JPEG,
+PNG, TIFF and other rendered derivatives do not receive RawNode sidecars.
+Export consumes the evaluated document; it is not a second persistence path.
+Successful export means the rendered derivative was written successfully.
+
+This also removes a data-integrity hazard: the legacy export-sidecar naming
+rule could resolve an export such as `DSC_0001.NEF.png` to the existing source
+sidecar `DSC_0001.NEF.rawnode.json` and overwrite its grade, including when an
+export was named after another source image.
+
+Source Sidecar V2 semantics remain unchanged. Legacy export sidecars may remain
+on disk, but are not part of the product model and require no migration or
+deletion. Source-sidecar write reliability/atomic replacement remains separate
+Step 7 work.
+
 ## Pending decisions
 
 Before DAG/mask feature work:

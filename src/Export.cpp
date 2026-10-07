@@ -1,9 +1,7 @@
 #include "Export.h"
 
 #include "AppState.h"
-#include "NodeGraph.h"
 #include "RenderPipeline.h"
-#include "persist/DocumentActions.h"
 
 #include <exception>
 #include <filesystem>
@@ -14,14 +12,11 @@ namespace {
 
 struct ExportRequest {
   Image source;
-  std::string outPath, sourcePath;
+  std::string outPath;
   int previewWidth = 0, previewHeight = 0;
-  ColorEncoding space, sourceRawEncoding;
-  bool sourceUsesRawEncoding = false;
+  ColorEncoding space;
   bool bypassedMissingProcessor = false;
   int jpegQuality = 92;
-  PersistGui gui;
-  PersistChain chain;
 };
 
 static ExportRequest captureExportRequest(App &app, const std::string &outPath);
@@ -111,15 +106,10 @@ static ExportRequest captureExportRequest(App &app, const std::string &outPath) 
   request.source = app.full;
   request.previewWidth = app.preview.w;
   request.previewHeight = app.preview.h;
-  request.sourcePath = app.path;
   request.jpegQuality = app.jpegQuality;
-  request.gui = captureSidecarGui(app);
-  request.chain = captureChain(app);
   {
     std::lock_guard<std::mutex> lock(app.colorMutex);
     request.space = app.outputEncoding;
-    request.sourceUsesRawEncoding = app.inputIsRaw;
-    request.sourceRawEncoding = app.inputEncoding;
   }
   for (const auto &node : app.nodes)
     if (node.enabled && !node.processor) request.bypassedMissingProcessor = true;
@@ -141,8 +131,6 @@ static bool executeExportJob(App &app, const ExportRequest &request) noexcept {
     }
     if (restorationError) std::rethrow_exception(restorationError);
     const bool ok = result.ok && writeImage(out, request.outPath, request.space, request.jpegQuality);
-    if (ok) saveExportSidecar(request.outPath, request.sourcePath, request.gui, request.chain,
-                              request.sourceUsesRawEncoding ? &request.sourceRawEncoding : nullptr);
     if (ok) {
       std::string status = "Exported " + fs::path(request.outPath).filename().string() + " (" +
                            std::to_string(request.source.w) + "×" + std::to_string(request.source.h) + ")";

@@ -48,20 +48,16 @@ For each source file `photo.cr2`, settings are stored in:
 
 Same basename as the image, with `.ofxrawhost.json` appended (works for any extension).
 
-## Export sidecar
+## Exported derivatives
 
-On export, a sibling JSON is written next to the image file:
-
-| Export           | Sidecar           |
-| ---------------- | ----------------- |
-| `img-a7Kx.jpg`   | `img-a7Kx.json`   |
-| `out/export.png` | `out/export.json` |
-
-Export sidecars record the full chain, parameters, input path, output color space, and export options so the render can be reproduced or audited later.
+RawNode sidecars belong to editable source documents only. Exported images do
+not receive sidecar JSON; export writes the rendered derivative without changing
+the source sidecar. Legacy export sidecars may remain on disk but are not used
+by export. See [SIDECAR.md](../SIDECAR.md) for the current source-sidecar format.
 
 ## Sidecar document shape
 
-Input and export sidecars share the same `sidecar` object:
+The legacy input-sidecar document shape is:
 
 ```json
 {
@@ -70,7 +66,6 @@ Input and export sidecars share the same `sidecar` object:
   "kind": "input",
   "sourcePath": "DSC_0001.cr2",
   "inputColorSpace": "Linear Rec.2020",
-  "exportedAt": "2026-09-27T12:00:00Z",
   "gui": { "...": "same keys as workspace gui block" },
   "chain": {
     "selectedNode": 0,
@@ -92,7 +87,7 @@ Input and export sidecars share the same `sidecar` object:
 }
 ```
 
-- `kind`: `"input"` for image sidecars, `"export"` for export sidecars.
+- `kind`: `"input"` for editable source-image sidecars.
 - `params`: keyed by OFX parameter **name** (stable). Values are numbers, booleans, or strings depending on type; multi-dimensional params are JSON arrays.
 - `pluginIdentifier`: used to rebind plugins if install order changes; `pluginLabel` is informational.
 
