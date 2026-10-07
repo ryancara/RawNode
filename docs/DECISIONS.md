@@ -244,9 +244,10 @@ architectural problem, record it for the checkpoint and address it deliberately.
 These are stabilisation gates between Steps 4 and 5, not additional numbered
 architecture-migration steps.
 
-**Current progress:** the first D037 stabilisation item was completed in PR #48.
-The next task is the behaviour-preserving human-readability/source-organisation
-pass, followed by the whole-architecture checkpoint.
+**Current progress:** the first D037 stabilisation item was completed in PR #48
+and the behaviour-preserving human-readability/source-organisation pass was
+completed in PR #50 after independent review and macOS validation. The next task
+is the whole-architecture checkpoint.
 
 ## Pending decisions
 

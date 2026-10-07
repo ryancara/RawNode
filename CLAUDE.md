@@ -234,9 +234,9 @@ After Step 4 and before Step 5, the approved stabilisation order is:
 1. fix the pre-existing OpenFX host multithread lifetime bugs in a focused PR
    (**complete in PR #48**);
 2. perform the behaviour-preserving human-readability/source-organisation pass
-   (**current task**);
+   (**complete in PR #50**);
 3. perform the whole-architecture checkpoint against RawNode's product goals and
-   the pinned vkdt reference.
+   the pinned vkdt reference (**current task**).
 
 For that checkpoint, explicitly revisit the candidates exposed by the PR #50
 readability review rather than silently treating them as already-decided
