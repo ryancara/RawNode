@@ -114,6 +114,7 @@ add_executable(OfxRawHost
   src/RenderPipeline.cpp
   src/RenderRuntime.cpp
   src/DocumentMutation.cpp
+  src/Export.cpp
   src/persist/DocumentActions.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp

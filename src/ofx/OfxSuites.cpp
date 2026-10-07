@@ -692,10 +692,10 @@ static PropSet gHostProps = [] {
 }();
 OfxHost gOfxHost = {H(&gHostProps), fetchSuite};
 
-// Construct the owner after the suite globals, but before main loads any
-// plugin libraries. Workers are still created lazily. RawNode drains rendering
-// and destroys instances before static teardown; it does not call ActionUnload
-// or dlclose. The pool remains available for DestroyInstance and for library
-// destructors registered during loading, then joins before host data is freed.
+// Construct after this translation unit's suite globals so the pool joins its
+// workers before those globals are destroyed. Workers are created lazily.
+// runApp drains rendering and destroys instances while the pool is still alive;
+// RawNode does not call ActionUnload or dlclose. This does not establish a
+// portable ordering for plugin-library destructors during process teardown.
 static OfxThreadPool gThreadPool(cpuCount() - 1);
 OfxThreadPool &OfxThreadPool::host() { return gThreadPool; }

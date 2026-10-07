@@ -3,6 +3,7 @@
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
 #include "NodeGraph.h"
+#include "Export.h"
 #include "ui/Themes.h"
 #include "ui/DockLayout.h"
 
@@ -13,6 +14,20 @@
 
 #include <cstdlib>
 #include <filesystem>
+
+namespace fs = std::filesystem;
+
+void doExport(App &app) {
+  if (app.full.px.empty() || app.nodes.empty()) return;
+  const char *exts[] = {".png", ".jpg"};
+  const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg"};
+  std::string def = fs::path(app.path).stem().string() + exts[app.exportFormat];
+  auto sel = pfd::save_file("Export", def, {filters[app.exportFormat * 2], filters[app.exportFormat * 2 + 1]});
+  std::string outPath = sel.result();
+  if (outPath.empty()) return;
+  if (fs::path(outPath).extension().empty()) outPath += exts[app.exportFormat];
+  startExport(app, outPath);
+}
 
 static bool copySelectedNode(App &app) {
   PersistNode node;

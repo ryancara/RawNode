@@ -21,6 +21,173 @@ static unsigned long long gNextNodeId = 1;
 
 using document_detail::DocumentMutation;
 
+// Mutation helpers borrow the public operation's scope; capture and parameter
+// helpers only translate live state to/from persistence records.
+static void clearNodesWithinMutation(App &app);
+static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor);
+static bool addOfxWithinMutation(App &app, int pluginIndex);
+static bool addCtlWithinMutation(App &app, const std::string &path);
+static void moveNodeWithinMutation(App &app, int from, int to);
+
+static PersistNode capturePersistedNode(const Node &node);
+static void appendRestoredWithinMutation(App &app, const PersistNode &persisted, bool preserveId);
+static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParameter &param);
+static bool persistedParameterType(ParameterType type);
+static std::string paramValueJson(const ProcessorParameter &param);
+static std::string trimParamJson(std::string value);
+static bool legacyNumericChoiceValue(const ProcessorParameter &param, const std::string &raw, int &selected);
+static void applyParamValueJson(Processor &processor, const ProcessorParameter &param, const std::string &raw);
+
+Node *selectedNode(App &app) {
+  if (app.selectedNode < 0 || app.selectedNode >= (int)app.nodes.size()) return nullptr;
+  return &app.nodes[app.selectedNode];
+}
+
+std::string nodeDisplayName(const Node &node) {
+  if (node.processor) return node.processor->displayName();
+  if (!node.storedLabel.empty()) return node.storedLabel + " (Missing)";
+  if (!node.storedIdentifier.empty()) return node.storedIdentifier + " (Missing)";
+  return "Missing processor";
+}
+
+void clearNodes(App &app) {
+  if (app.nodes.empty()) {
+    app.selectedNode = -1;
+    app.paramFilter[0] = '\0';
+    return;
+  }
+  DocumentMutation mutation(app);
+  clearNodesWithinMutation(app);
+  mutation.changed();
+}
+
+bool addNode(App &app, int pluginIndex) {
+  if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return false;
+  DocumentMutation mutation(app);
+  const bool added = addOfxWithinMutation(app, pluginIndex);
+  if (added) mutation.changed();
+  return added;
+}
+
+bool addNativeExposureNode(App &app) {
+  DocumentMutation mutation(app);
+  const bool added = appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
+  if (added) mutation.changed();
+  return added;
+}
+
+bool addNativeCstNode(App &app) {
+  DocumentMutation mutation(app);
+  const bool added = appendProcessorNode(app, std::make_unique<NativeCstProcessor>());
+  if (added) mutation.changed();
+  return added;
+}
+
+bool addCtlNode(App &app, const std::string &path) {
+  DocumentMutation mutation(app);
+  const bool added = addCtlWithinMutation(app, path);
+  if (added) mutation.changed();
+  return added;
+}
+
+void destroyNode(App &app, int index) {
+  if (index < 0 || index >= (int)app.nodes.size()) return;
+  DocumentMutation mutation(app);
+  app.nodes.erase(app.nodes.begin() + index);
+  if (app.nodes.empty())
+    app.selectedNode = -1;
+  else if (app.selectedNode >= (int)app.nodes.size())
+    app.selectedNode = (int)app.nodes.size() - 1;
+  else if (app.selectedNode > index)
+    --app.selectedNode;
+  app.paramFilter[0] = '\0';
+
+  mutation.changed();
+}
+
+void moveNode(App &app, int from, int to) {
+  if (from < 0 || to < 0 || from >= (int)app.nodes.size() || to >= (int)app.nodes.size() || from == to) return;
+  DocumentMutation mutation(app);
+  moveNodeWithinMutation(app, from, to);
+  mutation.changed();
+}
+
+void setNodeEnabled(App &app, int index, bool enabled) {
+  if (index < 0 || index >= (int)app.nodes.size() || app.nodes[index].enabled == enabled) return;
+  DocumentMutation mutation(app);
+  app.nodes[index].enabled = enabled;
+  mutation.changed();
+}
+
+bool captureNode(const App &app, int index, PersistNode &out) {
+  if (index < 0 || index >= (int)app.nodes.size()) return false;
+  out = capturePersistedNode(app.nodes[index]);
+  return true;
+}
+
+PersistChain captureChain(const App &app) {
+  PersistChain chain;
+  if (app.selectedNode >= 0 && app.selectedNode < (int)app.nodes.size())
+    chain.selectedNodeId = app.nodes[app.selectedNode].id;
+
+  chain.nodes.reserve(app.nodes.size());
+  for (const Node &node : app.nodes)
+    chain.nodes.push_back(capturePersistedNode(node));
+  return chain;
+}
+
+bool appendPersistedNode(App &app, const PersistNode &persisted, int insertAfter) {
+  DocumentMutation mutation(app);
+  mutation.changed();  // Restoration can throw after appending a node.
+  const int oldCount = (int)app.nodes.size();
+  const int targetIndex =
+      insertAfter >= 0 && insertAfter < oldCount ? insertAfter + 1 : oldCount;
+  appendRestoredWithinMutation(app, persisted, false);
+  if (targetIndex != oldCount)
+    moveNodeWithinMutation(app, oldCount, targetIndex);
+  app.selectedNode = targetIndex;
+  app.paramFilter[0] = '\0';
+  return true;
+}
+
+void applyChain(App &app, const PersistChain &chain) {
+  if (app.nodes.empty() && chain.nodes.empty()) {
+    app.selectedNode = -1;
+    app.paramFilter[0] = '\0';
+    return;
+  }
+  DocumentMutation mutation(app);
+  mutation.changed();  // Mark replacement before any fallible restoration work.
+  clearNodesWithinMutation(app);
+
+  for (const PersistNode &persisted : chain.nodes)
+    appendRestoredWithinMutation(app, persisted, true);
+
+  app.selectedNode = -1;
+  if (!chain.selectedNodeId.empty()) {
+    for (int i = 0; i < (int)app.nodes.size(); ++i) {
+      if (app.nodes[i].id == chain.selectedNodeId) {
+        app.selectedNode = i;
+        break;
+      }
+    }
+  }
+
+  // V1 migration fallback.
+  if (app.selectedNode < 0 && chain.selectedNode >= 0 && chain.selectedNode < (int)app.nodes.size())
+    app.selectedNode = chain.selectedNode;
+  if (app.selectedNode < 0 && !app.nodes.empty()) app.selectedNode = 0;
+}
+
+bool hasUnknownProcessorChoiceIds(const App &app) {
+  for (const Node &node : app.nodes) {
+    if (!node.processor) continue;
+    for (const ProcessorParameter &param : node.processor->parameters())
+      if (parameterHasUnknownChoiceId(node, param)) return true;
+  }
+  return false;
+}
+
 static bool nodeIdExists(const App &app, const std::string &id, int skipIndex = -1) {
   if (id.empty()) return false;
   for (int i = 0; i < (int)app.nodes.size(); ++i) {
@@ -42,18 +209,6 @@ static std::string restoredNodeId(const App &app, const std::string &requested, 
   return makeNodeId(app);
 }
 
-Node *selectedNode(App &app) {
-  if (app.selectedNode < 0 || app.selectedNode >= (int)app.nodes.size()) return nullptr;
-  return &app.nodes[app.selectedNode];
-}
-
-std::string nodeDisplayName(const Node &node) {
-  if (node.processor) return node.processor->displayName();
-  if (!node.storedLabel.empty()) return node.storedLabel + " (Missing)";
-  if (!node.storedIdentifier.empty()) return node.storedIdentifier + " (Missing)";
-  return "Missing processor";
-}
-
 static int findPluginIndex(const std::string &identifier, const std::string &labelFallback) {
   if (!identifier.empty()) {
     for (int i = 0; i < (int)gPlugins.size(); ++i) {
@@ -66,6 +221,170 @@ static int findPluginIndex(const std::string &identifier, const std::string &lab
       if (gPlugins[i].label == labelFallback) return i;
   }
   return -1;
+}
+
+static void clearNodesWithinMutation(App &app) {
+  app.nodes.clear();
+  app.selectedNode = -1;
+  app.paramFilter[0] = '\0';
+}
+
+static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor) {
+  if (!processor) return false;
+
+  Node node;
+  node.id = makeNodeId(app);
+  node.processor = std::move(processor);
+  node.storedBackend = processorBackendName(node.processor->backend());
+  node.storedIdentifier = node.processor->identifier();
+  node.storedLabel = node.processor->displayName();
+
+  if (app.preview.w) node.processor->setRenderSize(app.preview.w, app.preview.h);
+  for (const ProcessorParameter &param : node.processor->parameters())
+    if (param.type == ParameterType::Group) node.groupOpen[param.id] = param.groupInitiallyOpen;
+
+  app.nodes.push_back(std::move(node));
+  app.selectedNode = (int)app.nodes.size() - 1;
+  app.paramFilter[0] = '\0';
+  return true;
+}
+
+static bool addOfxWithinMutation(App &app, int pluginIndex) {
+  auto processor = OfxProcessor::create(pluginIndex);
+  if (!processor) {
+    app.setStatus("Plugin failed to create an instance");
+    return false;
+  }
+  return appendProcessorNode(app, std::move(processor));
+}
+
+static bool addCtlWithinMutation(App &app, const std::string &path) {
+  std::string error;
+  auto processor = CtlProcessor::create(path, &error);
+  if (!processor) {
+    app.setStatus("Could not load CTL" + (error.empty() ? std::string() : ": " + error));
+    return false;
+  }
+  return appendProcessorNode(app, std::move(processor));
+}
+
+static void moveNodeWithinMutation(App &app, int from, int to) {
+  Node node = std::move(app.nodes[from]);
+  app.nodes.erase(app.nodes.begin() + from);
+  app.nodes.insert(app.nodes.begin() + to, std::move(node));
+  app.selectedNode = to;
+}
+
+static PersistNode capturePersistedNode(const Node &node) {
+  PersistNode persisted;
+  persisted.id = node.id;
+  persisted.enabled = node.enabled;
+  persisted.groupOpen = node.groupOpen;
+  persisted.paramsJson = node.preservedParamsJson;
+
+  if (node.processor) {
+    persisted.backend = processorBackendName(node.processor->backend());
+    persisted.identifier = node.processor->identifier();
+    persisted.label = node.processor->displayName();
+
+    for (const ProcessorParameter &param : node.processor->parameters()) {
+      if (param.secret || !param.persistValue || !persistedParameterType(param.type)) continue;
+
+      // If a newer build wrote a stable choice ID that this build does not
+      // recognise, keep the opaque original value instead of replacing it
+      // with this build's fallback/default selection on save or copy.
+      if (param.type == ParameterType::Choice && !param.choiceIds.empty()) {
+        auto preserved = node.preservedParamsJson.find(param.id);
+        if (preserved != node.preservedParamsJson.end()) {
+          std::string preservedId;
+          if (parseJsonStringValue(trimParamJson(preserved->second), preservedId)) {
+            if (std::find(param.choiceIds.begin(), param.choiceIds.end(), preservedId) == param.choiceIds.end())
+              continue;
+          } else {
+            int legacySelected = 0;
+            if (!legacyNumericChoiceValue(param, preserved->second, legacySelected))
+              continue;
+          }
+        }
+      }
+
+      persisted.paramsJson[param.id] = paramValueJson(param);
+    }
+  } else {
+    persisted.backend = node.storedBackend.empty() ? "unknown" : node.storedBackend;
+    persisted.identifier = node.storedIdentifier;
+    persisted.label = node.storedLabel;
+  }
+
+  return persisted;
+}
+
+static void appendRestoredWithinMutation(App &app, const PersistNode &persisted,
+                                        bool preserveId) {
+  const std::string backend = persisted.backend.empty() ? "ofx" : persisted.backend;
+  bool created = false;
+
+  if (backend == "ofx") {
+    const int pluginIndex = findPluginIndex(persisted.identifier, persisted.label);
+    created = pluginIndex >= 0 && addOfxWithinMutation(app, pluginIndex);
+  } else if (backend == "native" && persisted.identifier == NativeExposureProcessor::kIdentifier) {
+    created = appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
+  } else if (backend == "native" && persisted.identifier == NativeCstProcessor::kIdentifier) {
+    created = appendProcessorNode(app, std::make_unique<NativeCstProcessor>());
+  } else if (backend == "ctl") {
+    created = addCtlWithinMutation(app, persisted.identifier);
+  }
+
+  if (created) {
+    Node &node = app.nodes.back();
+    if (preserveId && !persisted.id.empty())
+      node.id = restoredNodeId(app, persisted.id, (int)app.nodes.size() - 1);
+    node.enabled = persisted.enabled;
+    node.groupOpen = persisted.groupOpen;
+    node.storedBackend = backend;
+    node.storedIdentifier = persisted.identifier;
+    node.storedLabel = persisted.label;
+    node.preservedParamsJson = persisted.paramsJson;
+
+    if (node.processor) {
+      const auto params = node.processor->parameters();
+      for (const ProcessorParameter &param : params) {
+        auto it = persisted.paramsJson.find(param.id);
+        if (it != persisted.paramsJson.end())
+          applyParamValueJson(*node.processor, param, it->second);
+      }
+    }
+
+    return;
+  }
+
+  // Unavailable processors are pasted as the same non-destructive placeholder
+  // used by Sidecar V2 restore. A copied node is still useful even if another
+  // machine does not currently have its plugin/script installed.
+  Node node;
+  node.id = preserveId ? restoredNodeId(app, persisted.id) : makeNodeId(app);
+  node.enabled = persisted.enabled;
+  node.storedBackend = backend;
+  node.storedIdentifier = persisted.identifier;
+  node.storedLabel = persisted.label;
+  node.preservedParamsJson = persisted.paramsJson;
+  node.groupOpen = persisted.groupOpen;
+  app.nodes.push_back(std::move(node));
+}
+
+static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParameter &param) {
+  if (param.type != ParameterType::Choice || param.choiceIds.empty()) return false;
+  const auto it = node.preservedParamsJson.find(param.id);
+  if (it == node.preservedParamsJson.end()) return false;
+
+  std::string id;
+  if (parseJsonStringValue(trimParamJson(it->second), id))
+    return std::find(param.choiceIds.begin(), param.choiceIds.end(), id) == param.choiceIds.end();
+
+  // Development builds briefly wrote stable choices as numbers. Treat a
+  // numeric value as migratable only when it maps exactly to a current choice.
+  int legacySelected = 0;
+  return !legacyNumericChoiceValue(param, it->second, legacySelected);
 }
 
 // Doubles are written with max_digits10 so strtod restores the exact value;
@@ -235,306 +554,4 @@ static void applyParamValueJson(Processor &processor, const ProcessorParameter &
     default:
       return;
   }
-}
-
-void destroyNode(App &app, int index) {
-  if (index < 0 || index >= (int)app.nodes.size()) return;
-  DocumentMutation mutation(app);
-  app.nodes.erase(app.nodes.begin() + index);
-  if (app.nodes.empty())
-    app.selectedNode = -1;
-  else if (app.selectedNode >= (int)app.nodes.size())
-    app.selectedNode = (int)app.nodes.size() - 1;
-  else if (app.selectedNode > index)
-    --app.selectedNode;
-  app.paramFilter[0] = '\0';
-
-  mutation.changed();
-}
-
-static void clearNodesWithinMutation(App &app) {
-  app.nodes.clear();
-  app.selectedNode = -1;
-  app.paramFilter[0] = '\0';
-}
-
-void clearNodes(App &app) {
-  if (app.nodes.empty()) {
-    app.selectedNode = -1;
-    app.paramFilter[0] = '\0';
-    return;
-  }
-  DocumentMutation mutation(app);
-  clearNodesWithinMutation(app);
-  mutation.changed();
-}
-
-static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor) {
-  if (!processor) return false;
-
-  Node node;
-  node.id = makeNodeId(app);
-  node.processor = std::move(processor);
-  node.storedBackend = processorBackendName(node.processor->backend());
-  node.storedIdentifier = node.processor->identifier();
-  node.storedLabel = node.processor->displayName();
-
-  if (app.preview.w) node.processor->setRenderSize(app.preview.w, app.preview.h);
-  for (const ProcessorParameter &param : node.processor->parameters())
-    if (param.type == ParameterType::Group) node.groupOpen[param.id] = param.groupInitiallyOpen;
-
-  app.nodes.push_back(std::move(node));
-  app.selectedNode = (int)app.nodes.size() - 1;
-  app.paramFilter[0] = '\0';
-  return true;
-}
-
-static bool addOfxWithinMutation(App &app, int pluginIndex) {
-  auto processor = OfxProcessor::create(pluginIndex);
-  if (!processor) {
-    app.setStatus("Plugin failed to create an instance");
-    return false;
-  }
-  return appendProcessorNode(app, std::move(processor));
-}
-
-bool addNode(App &app, int pluginIndex) {
-  if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return false;
-  DocumentMutation mutation(app);
-  const bool added = addOfxWithinMutation(app, pluginIndex);
-  if (added) mutation.changed();
-  return added;
-}
-
-bool addNativeExposureNode(App &app) {
-  DocumentMutation mutation(app);
-  const bool added = appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
-  if (added) mutation.changed();
-  return added;
-}
-
-bool addNativeCstNode(App &app) {
-  DocumentMutation mutation(app);
-  const bool added = appendProcessorNode(app, std::make_unique<NativeCstProcessor>());
-  if (added) mutation.changed();
-  return added;
-}
-
-static bool addCtlWithinMutation(App &app, const std::string &path) {
-  std::string error;
-  auto processor = CtlProcessor::create(path, &error);
-  if (!processor) {
-    app.setStatus("Could not load CTL" + (error.empty() ? std::string() : ": " + error));
-    return false;
-  }
-  return appendProcessorNode(app, std::move(processor));
-}
-
-bool addCtlNode(App &app, const std::string &path) {
-  DocumentMutation mutation(app);
-  const bool added = addCtlWithinMutation(app, path);
-  if (added) mutation.changed();
-  return added;
-}
-
-static void moveNodeWithinMutation(App &app, int from, int to) {
-  Node node = std::move(app.nodes[from]);
-  app.nodes.erase(app.nodes.begin() + from);
-  app.nodes.insert(app.nodes.begin() + to, std::move(node));
-  app.selectedNode = to;
-}
-
-void moveNode(App &app, int from, int to) {
-  if (from < 0 || to < 0 || from >= (int)app.nodes.size() || to >= (int)app.nodes.size() || from == to) return;
-  DocumentMutation mutation(app);
-  moveNodeWithinMutation(app, from, to);
-  mutation.changed();
-}
-
-void setNodeEnabled(App &app, int index, bool enabled) {
-  if (index < 0 || index >= (int)app.nodes.size() || app.nodes[index].enabled == enabled) return;
-  DocumentMutation mutation(app);
-  app.nodes[index].enabled = enabled;
-  mutation.changed();
-}
-
-static PersistNode capturePersistedNode(const Node &node) {
-  PersistNode persisted;
-  persisted.id = node.id;
-  persisted.enabled = node.enabled;
-  persisted.groupOpen = node.groupOpen;
-  persisted.paramsJson = node.preservedParamsJson;
-
-  if (node.processor) {
-    persisted.backend = processorBackendName(node.processor->backend());
-    persisted.identifier = node.processor->identifier();
-    persisted.label = node.processor->displayName();
-
-    for (const ProcessorParameter &param : node.processor->parameters()) {
-      if (param.secret || !param.persistValue || !persistedParameterType(param.type)) continue;
-
-      // If a newer build wrote a stable choice ID that this build does not
-      // recognise, keep the opaque original value instead of replacing it
-      // with this build's fallback/default selection on save or copy.
-      if (param.type == ParameterType::Choice && !param.choiceIds.empty()) {
-        auto preserved = node.preservedParamsJson.find(param.id);
-        if (preserved != node.preservedParamsJson.end()) {
-          std::string preservedId;
-          if (parseJsonStringValue(trimParamJson(preserved->second), preservedId)) {
-            if (std::find(param.choiceIds.begin(), param.choiceIds.end(), preservedId) == param.choiceIds.end())
-              continue;
-          } else {
-            int legacySelected = 0;
-            if (!legacyNumericChoiceValue(param, preserved->second, legacySelected))
-              continue;
-          }
-        }
-      }
-
-      persisted.paramsJson[param.id] = paramValueJson(param);
-    }
-  } else {
-    persisted.backend = node.storedBackend.empty() ? "unknown" : node.storedBackend;
-    persisted.identifier = node.storedIdentifier;
-    persisted.label = node.storedLabel;
-  }
-
-  return persisted;
-}
-
-bool captureNode(const App &app, int index, PersistNode &out) {
-  if (index < 0 || index >= (int)app.nodes.size()) return false;
-  out = capturePersistedNode(app.nodes[index]);
-  return true;
-}
-
-PersistChain captureChain(const App &app) {
-  PersistChain chain;
-  if (app.selectedNode >= 0 && app.selectedNode < (int)app.nodes.size())
-    chain.selectedNodeId = app.nodes[app.selectedNode].id;
-
-  chain.nodes.reserve(app.nodes.size());
-  for (const Node &node : app.nodes)
-    chain.nodes.push_back(capturePersistedNode(node));
-  return chain;
-}
-
-static void appendRestoredWithinMutation(App &app, const PersistNode &persisted,
-                                        bool preserveId) {
-  const std::string backend = persisted.backend.empty() ? "ofx" : persisted.backend;
-  bool created = false;
-
-  if (backend == "ofx") {
-    const int pluginIndex = findPluginIndex(persisted.identifier, persisted.label);
-    created = pluginIndex >= 0 && addOfxWithinMutation(app, pluginIndex);
-  } else if (backend == "native" && persisted.identifier == NativeExposureProcessor::kIdentifier) {
-    created = appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
-  } else if (backend == "native" && persisted.identifier == NativeCstProcessor::kIdentifier) {
-    created = appendProcessorNode(app, std::make_unique<NativeCstProcessor>());
-  } else if (backend == "ctl") {
-    created = addCtlWithinMutation(app, persisted.identifier);
-  }
-
-  if (created) {
-    Node &node = app.nodes.back();
-    if (preserveId && !persisted.id.empty())
-      node.id = restoredNodeId(app, persisted.id, (int)app.nodes.size() - 1);
-    node.enabled = persisted.enabled;
-    node.groupOpen = persisted.groupOpen;
-    node.storedBackend = backend;
-    node.storedIdentifier = persisted.identifier;
-    node.storedLabel = persisted.label;
-    node.preservedParamsJson = persisted.paramsJson;
-
-    if (node.processor) {
-      const auto params = node.processor->parameters();
-      for (const ProcessorParameter &param : params) {
-        auto it = persisted.paramsJson.find(param.id);
-        if (it != persisted.paramsJson.end())
-          applyParamValueJson(*node.processor, param, it->second);
-      }
-    }
-
-    return;
-  }
-
-  // Unavailable processors are pasted as the same non-destructive placeholder
-  // used by Sidecar V2 restore. A copied node is still useful even if another
-  // machine does not currently have its plugin/script installed.
-  Node node;
-  node.id = preserveId ? restoredNodeId(app, persisted.id) : makeNodeId(app);
-  node.enabled = persisted.enabled;
-  node.storedBackend = backend;
-  node.storedIdentifier = persisted.identifier;
-  node.storedLabel = persisted.label;
-  node.preservedParamsJson = persisted.paramsJson;
-  node.groupOpen = persisted.groupOpen;
-  app.nodes.push_back(std::move(node));
-}
-
-bool appendPersistedNode(App &app, const PersistNode &persisted, int insertAfter) {
-  DocumentMutation mutation(app);
-  mutation.changed();  // Restoration can throw after appending a node.
-  const int oldCount = (int)app.nodes.size();
-  const int targetIndex =
-      insertAfter >= 0 && insertAfter < oldCount ? insertAfter + 1 : oldCount;
-  appendRestoredWithinMutation(app, persisted, false);
-  if (targetIndex != oldCount)
-    moveNodeWithinMutation(app, oldCount, targetIndex);
-  app.selectedNode = targetIndex;
-  app.paramFilter[0] = '\0';
-  return true;
-}
-
-static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParameter &param) {
-  if (param.type != ParameterType::Choice || param.choiceIds.empty()) return false;
-  const auto it = node.preservedParamsJson.find(param.id);
-  if (it == node.preservedParamsJson.end()) return false;
-
-  std::string id;
-  if (parseJsonStringValue(trimParamJson(it->second), id))
-    return std::find(param.choiceIds.begin(), param.choiceIds.end(), id) == param.choiceIds.end();
-
-  // Development builds briefly wrote stable choices as numbers. Treat a
-  // numeric value as migratable only when it maps exactly to a current choice.
-  int legacySelected = 0;
-  return !legacyNumericChoiceValue(param, it->second, legacySelected);
-}
-
-bool hasUnknownProcessorChoiceIds(const App &app) {
-  for (const Node &node : app.nodes) {
-    if (!node.processor) continue;
-    for (const ProcessorParameter &param : node.processor->parameters())
-      if (parameterHasUnknownChoiceId(node, param)) return true;
-  }
-  return false;
-}
-
-void applyChain(App &app, const PersistChain &chain) {
-  if (app.nodes.empty() && chain.nodes.empty()) {
-    app.selectedNode = -1;
-    app.paramFilter[0] = '\0';
-    return;
-  }
-  DocumentMutation mutation(app);
-  mutation.changed();  // Mark replacement before any fallible restoration work.
-  clearNodesWithinMutation(app);
-
-  for (const PersistNode &persisted : chain.nodes)
-    appendRestoredWithinMutation(app, persisted, true);
-
-  app.selectedNode = -1;
-  if (!chain.selectedNodeId.empty()) {
-    for (int i = 0; i < (int)app.nodes.size(); ++i) {
-      if (app.nodes[i].id == chain.selectedNodeId) {
-        app.selectedNode = i;
-        break;
-      }
-    }
-  }
-
-  // V1 migration fallback.
-  if (app.selectedNode < 0 && chain.selectedNode >= 0 && chain.selectedNode < (int)app.nodes.size())
-    app.selectedNode = chain.selectedNode;
-  if (app.selectedNode < 0 && !app.nodes.empty()) app.selectedNode = 0;
 }

@@ -7,6 +7,7 @@
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
 #include "DocumentMutation.h"
+#include "Export.h"
 #include "RenderRuntimeTestAccess.h"
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"

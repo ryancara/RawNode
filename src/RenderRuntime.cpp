@@ -14,32 +14,11 @@ RenderRuntime::RenderRuntime(App &app) noexcept : app_(app)
 
 RenderRuntime::~RenderRuntime() noexcept { shutdown(); }
 
-void RenderRuntime::assertControlThread() const {
-#ifndef NDEBUG
-  assert(controlThread_ == std::this_thread::get_id() && "renderer operation requires the control thread");
-#endif
-}
-
-void RenderRuntime::observe(Event event) const noexcept {
-  if (observer_) observer_(observerContext_, event);
-}
-
 void RenderRuntime::start() {
   assertControlThread();
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_ || previewThread_.joinable()) return;
   previewThread_ = std::thread([this] { runPreview(); });
-}
-
-void RenderRuntime::join(std::thread &worker) {
-  // Move under the state lock so even self-test snapshots never race a thread
-  // handle being assigned/joined. Joining itself cannot hold a worker's mutex.
-  std::thread owned;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    owned = std::move(worker);
-  }
-  if (owned.joinable()) owned.join();
 }
 
 void RenderRuntime::shutdown() noexcept {
@@ -61,62 +40,6 @@ void RenderRuntime::shutdown() noexcept {
     assert(!previewBusy_ && !exportBusy_);
     observe(Event::Stopped);
   }
-}
-
-bool RenderRuntime::cancelAndDrain(std::unique_lock<std::mutex> &lock) {
-  bool interrupted = previewPending_ || previewBusy_ || displayPending_ || exportBusy_;
-  ++epoch_;
-  previewPending_ = quietPending_ = displayPending_ = false;
-  idleCv_.wait(lock, [&] { return !previewBusy_ && !exportBusy_; });
-  // The caller closes dispatch before draining, so export restoration cannot
-  // race this barrier into another preview evaluation.
-  interrupted = interrupted || previewPending_;
-  previewPending_ = quietPending_ = false;
-  return interrupted;
-}
-
-bool RenderRuntime::beginMutation() {
-  assertControlThread();
-  std::unique_lock<std::mutex> lock(mutex_);
-  ++mutationDepth_;                     // Close the gate before draining.
-  if (previewBusy_ || exportBusy_) observe(Event::MutationWaiting);
-  return cancelAndDrain(lock);
-}
-
-void RenderRuntime::completeMutation(bool changed, bool interrupted) noexcept {
-  assertControlThread();
-  try {
-    if (changed || interrupted) requestPreview(!changed);
-  } catch (...) {
-    // Source conversion may allocate. Recovery failure must not strand the
-    // mutation gate or replace the meaningful operation status (#43).
-  }
-  std::lock_guard<std::mutex> lock(mutex_);
-  // Observation point: the final decision is queued and the gate is still shut.
-  observe(Event::MutationCompleted);
-  assert(mutationDepth_ > 0);
-  --mutationDepth_;
-  if (mutationDepth_ == 0 && (previewPending_ || displayPending_)) workCv_.notify_one();
-}
-
-void RenderRuntime::queuePreview(bool quiet) {
-  if (stopping_) return;
-  // Both request kinds share one domain; recovery cannot downgrade a normal
-  // request already queued by a later edit (including a nested edit).
-  quietPending_ = quiet && (!previewPending_ || quietPending_);
-  previewPending_ = true;
-}
-
-void RenderRuntime::requestPreview(bool quiet) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  if (stopping_) return;
-  if (app_.nodes.empty() || app_.preview.px.empty()) {
-    display_detail::showSourcePreview(app_);
-    return;
-  }
-  ++epoch_;
-  queuePreview(quiet);
-  if (mutationDepth_ == 0) workCv_.notify_one();
 }
 
 void RenderRuntime::requestPreview() {
@@ -171,6 +94,11 @@ void RenderRuntime::Export::startOwned(std::function<void()> work) {
   runtime_ = nullptr;                   // Successful transfer only.
 }
 
+void RenderRuntime::joinExport() {
+  assertControlThread();
+  join(exportThread_);
+}
+
 void RenderRuntime::finishExport() noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
   exportBusy_ = false;
@@ -180,15 +108,62 @@ void RenderRuntime::finishExport() noexcept {
   workCv_.notify_one();
 }
 
-void RenderRuntime::joinExport() {
+bool RenderRuntime::beginMutation() {
   assertControlThread();
-  join(exportThread_);
+  std::unique_lock<std::mutex> lock(mutex_);
+  ++mutationDepth_;                     // Close the gate before draining.
+  if (previewBusy_ || exportBusy_) observe(Event::MutationWaiting);
+  return cancelAndDrain(lock);
 }
 
-void RenderRuntime::finishPreview() noexcept {
+void RenderRuntime::completeMutation(bool changed, bool interrupted) noexcept {
+  assertControlThread();
+  try {
+    if (changed || interrupted) requestPreview(!changed);
+  } catch (...) {
+    // Source conversion may allocate. Recovery failure must not strand the
+    // mutation gate or replace the meaningful operation status.
+  }
   std::lock_guard<std::mutex> lock(mutex_);
-  previewBusy_ = false;
-  idleCv_.notify_all();
+  // Any final preview request was made above while mutationDepth_ still closes
+  // dispatch, so later demand cannot run ahead of the completed edit.
+  // Observers see that same boundary.
+  observe(Event::MutationCompleted);
+  assert(mutationDepth_ > 0);
+  --mutationDepth_;
+  if (mutationDepth_ == 0 && (previewPending_ || displayPending_)) workCv_.notify_one();
+}
+
+void RenderRuntime::requestPreview(bool quiet) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (stopping_) return;
+  if (app_.nodes.empty() || app_.preview.px.empty()) {
+    display_detail::showSourcePreview(app_);
+    return;
+  }
+  ++epoch_;
+  queuePreview(quiet);
+  if (mutationDepth_ == 0) workCv_.notify_one();
+}
+
+void RenderRuntime::queuePreview(bool quiet) {
+  if (stopping_) return;
+  // Both request kinds share one domain; recovery cannot downgrade a normal
+  // request already queued by a later edit (including a nested edit).
+  quietPending_ = quiet && (!previewPending_ || quietPending_);
+  previewPending_ = true;
+}
+
+bool RenderRuntime::cancelAndDrain(std::unique_lock<std::mutex> &lock) {
+  bool interrupted = previewPending_ || previewBusy_ || displayPending_ || exportBusy_;
+  ++epoch_;
+  previewPending_ = quietPending_ = displayPending_ = false;
+  idleCv_.wait(lock, [&] { return !previewBusy_ && !exportBusy_; });
+  // The caller closes dispatch before draining, so export restoration cannot
+  // race this barrier into another preview evaluation.
+  interrupted = interrupted || previewPending_;
+  previewPending_ = quietPending_ = false;
+  return interrupted;
 }
 
 void RenderRuntime::runPreview() {
@@ -241,4 +216,31 @@ void RenderRuntime::runPreview() {
       app_.setStatus("Render failed" + (result.message.empty() ? std::string() : ": " + result.message));
     }
   }
+}
+
+void RenderRuntime::finishPreview() noexcept {
+  std::lock_guard<std::mutex> lock(mutex_);
+  previewBusy_ = false;
+  idleCv_.notify_all();
+}
+
+void RenderRuntime::join(std::thread &worker) {
+  // Move under the state lock so even self-test snapshots never race a thread
+  // handle being assigned/joined. Joining itself cannot hold a worker's mutex.
+  std::thread owned;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    owned = std::move(worker);
+  }
+  if (owned.joinable()) owned.join();
+}
+
+void RenderRuntime::observe(Event event) const noexcept {
+  if (observer_) observer_(observerContext_, event);
+}
+
+void RenderRuntime::assertControlThread() const {
+#ifndef NDEBUG
+  assert(controlThread_ == std::this_thread::get_id() && "renderer operation requires the control thread");
+#endif
 }

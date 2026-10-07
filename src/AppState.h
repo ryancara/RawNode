@@ -32,6 +32,8 @@ enum class CompositeMode {
   Normal,
 };
 
+// One entry in App::nodes; vector order is the current processing order.
+// The node owns its processor, whose lifetime is protected by DocumentMutation.
 struct Node {
   std::string id;
   bool enabled = true;
@@ -51,8 +53,7 @@ struct Node {
   float opacity = 1.0f;
   CompositeMode compositeMode = CompositeMode::Normal;
 
-  // UI state is currently OFX-specific and will move behind generic
-  // parameters in the next refactor.
+  // Expanded parameter groups, keyed by the backend-neutral parameter ID.
   std::map<std::string, bool> groupOpen;
 };
 
@@ -86,9 +87,14 @@ inline constexpr struct {
 };
 inline constexpr int kPreviewResCount = 4;
 
+// Shared application state. UI.cpp owns the application loop and thumbnail
+// teardown; RenderRuntime owns preview/export execution. Structural graph
+// edits and preview-source rebuilds use DocumentMutation; parameter edits
+// are excluded only during export. The dedicated mutexes below guard
+// shared snapshots.
 struct App {
-  // Workers borrow document/display/status fields. Stop in the destructor body,
-  // while ALL members are alive, independent of their declaration order.
+  // Preview/export workers borrow document/display/status fields. Stop them in
+  // the destructor body while all members are alive, regardless of member order.
   ~App() noexcept { renderer.shutdown(); }
 
   GLFWwindow *window = nullptr;
@@ -148,6 +154,8 @@ struct App {
   bool showAbout = false;
   bool showDonate = false;
 
+  // The thumbnail worker exchanges jobs/results under thumbMutex; GL textures
+  // and filmstrip entries stay on the UI thread. runApp joins it before teardown.
   std::atomic<int> filmstripGen{0};
   std::atomic<int> filmstripThumbEdge{256};  // snapped long-edge cap (see kFilmstripThumbEdges)
   int thumbLruTick = 0;
