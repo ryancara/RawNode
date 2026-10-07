@@ -361,10 +361,10 @@ The approved near-term sequence is:
     Fix OFX host multithread lifetime bugs        [complete]
           |
           v
-    Human-readability / source-organisation pass   [next]
+    Human-readability / source-organisation pass   [complete]
           |
           v
-    Whole-architecture checkpoint against vkdt
+    Whole-architecture checkpoint against vkdt      [next]
           |
           v
     Settle first mask/graph product contract
@@ -441,12 +441,12 @@ deferred until transparent compositing or alpha-carrying I/O requires it.
 
 Immediate work:
 
-- perform the behaviour-preserving human-readability/source-organisation audit
-  and cleanup so the physical code structure mirrors the settled architecture;
-- then perform the whole-architecture checkpoint against RawNode's product goals
-  and the pinned vkdt reference before mask/topology feature work.
+- perform the whole-architecture checkpoint against RawNode's product goals and
+  the pinned vkdt reference before mask/topology feature work.
 
-The OpenFX multithread lifetime stabilisation item is complete in PR #48.
+The OpenFX multithread lifetime stabilisation item is complete in PR #48. The
+behaviour-preserving human-readability/source-organisation pass is complete in
+PR #50 after independent review and macOS validation.
 
 The readability pass should follow and refine the lightweight durable guidance
 in `docs/CODE_STYLE.md`, favouring top-down reading order, clear file

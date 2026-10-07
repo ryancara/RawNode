@@ -36,9 +36,11 @@ stabilisation tasks:
 1. **Complete:** fix the pre-existing OpenFX host multithread lifetime bugs found
    during the #45 review. PR #48 fixed callback-completion and persistent-pool
    teardown lifetime.
-2. **Next:** perform a behaviour-preserving human-readability/source-organisation
-   pass.
-3. Perform the planned whole-architecture checkpoint against RawNode's product
+2. **Complete:** perform a behaviour-preserving human-readability/source-
+   organisation pass. PR #50 reorganised the source around existing
+   responsibilities without changing behaviour and was independently reviewed
+   and validated on macOS.
+3. **Next:** perform the planned whole-architecture checkpoint against RawNode's product
    goals and the pinned vkdt reference.
    That checkpoint should explicitly review the candidates exposed by the
    readability audit: App ownership, document-edit boundaries, thumbnail
