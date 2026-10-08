@@ -384,6 +384,37 @@ static bool testRuntimeActiveShutdown(bool exporting, bool destroy,
   return facts.destroyed && !facts.destroyedActive;
 }
 
+// Keep this single-level: an inner edit can already queue demand and hide an
+// outer completion that requests its final preview only after opening the gate.
+static bool testSingleMutationCompletionDemand(bool changed) {
+  App app;
+  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  Node node;
+  node.processor = std::make_unique<NativeExposureProcessor>();
+  app.nodes.push_back(std::move(node));
+  RuntimeEvents events(app);
+  if (!changed) {
+    app.renderer.requestPreview();     // Real demand for beginMutation to interrupt.
+    const auto pending = renderState(app);
+    if (!pending.previewPending || pending.quietPending) return false;
+  }
+  {
+    DocumentMutation mutation(app);
+    const auto editing = renderState(app);
+    if (editing.mutationDepth != 1 || editing.previewPending || editing.quietPending) return false;
+    if (changed) mutation.changed();
+  }
+  const auto index = static_cast<size_t>(RuntimeEvent::MutationCompleted);
+  if (events.counts[index] != 1) return false;
+  const auto completing = events.states[index];
+  if (completing.mutationDepth != 1 || !completing.previewPending ||
+      completing.quietPending != !changed) return false;
+  // With no worker started, opening the gate leaves the final demand queued.
+  const auto completed = renderState(app);
+  return completed.mutationDepth == 0 && completed.previewPending &&
+         completed.quietPending == !changed;
+}
+
 static bool testNormalPreviewDominatesQuiet(bool observe) {
   App app;
   app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
@@ -1780,6 +1811,11 @@ int runSelfTests() {
   }
   if (!testNormalPreviewDominatesQuiet(false) || !testNormalPreviewDominatesQuiet(true))
     return fail("normal demand / final mutation decision / read-only runtime observation");
+  if (!testSingleMutationCompletionDemand(true))
+    return fail("changed single-level mutation queues normal demand before gate opening");
+  if (!testSingleMutationCompletionDemand(false))
+    return fail("interrupted unchanged single-level mutation queues quiet recovery before gate opening");
+  printf("ok  Single-level mutation completion demand before gate opening (2 cases)\n");
   if (!testRuntimeCancellation()) return fail("per-runtime token supersession and evaluator cancellation");
   if (!testOfxRuntimeCancellation()) return fail("runtime cancellation reaches OFX abort; export remains uncancellable");
   if (std::thread::hardware_concurrency() > 1 && !testOfxRuntimeCancellation(true))
