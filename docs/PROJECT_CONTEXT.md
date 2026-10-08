@@ -263,8 +263,10 @@ RAW decode and native CST should share colour definitions/math where practical
 instead of maintaining duplicate matrices or transfer functions.
 
 The UI direction is to treat colour space and gamma/transfer function as
-separate concepts. Further RAW working-space design is deliberately postponed
-until after the architecture audit.
+separate concepts. With the architecture audit/checkpoint complete, further
+RAW working-space design may proceed independently when appropriate, provided
+it does not pre-empt the unsettled graph/mask contract or introduce conflicting
+architecture.
 
 Display/monitor conversion conceptually occurs after the processed-image
 boundary. A display conversion change should not require rerunning expensive
@@ -374,7 +376,7 @@ Current execution still uses a serial node chain. The remaining sequence is:
     Step 7: Versioned graph persistence
           |
           v
-    Step 8: First mask contract + mask path
+    Step 8: Concrete first mask path + remaining implementation details
 
 The completed gates are stabilisation/review work, not extra numbered
 architecture steps. The checkpoint validates the direction for the next stage,
@@ -406,8 +408,9 @@ Step 5 must settle at least:
 - the first mask type and real use case;
 - how list view maps to topology and whether a masked adjustment is one compound
   row/block;
-- mask versus image alpha, RGB mixing and base-input alpha handling;
-- where opacity belongs;
+- how mask coverage interacts with image alpha, RGB mixing and base-input alpha
+  handling, preserving D034's accepted separation of mask and image alpha;
+- ownership/meaning of opacity and effect strength;
 - multi-input dimension mismatch policy;
 - required/optional inputs and missing-input behaviour;
 - branch colour policy;
@@ -416,15 +419,23 @@ Step 5 must settle at least:
 - mask visualization/inspection;
 - empty-graph interpretation behaviour.
 
+Step 5 settles enough product/architectural semantics, including mixing
+semantics where necessary, to define the required graph shape before topology
+work. Step 8 implements the first mask path and settles remaining concrete
+representation, range, filtering/sampling and blend-encoding details that need
+not be fixed during Step 5.
+
 These remain decision topics, not contracts chosen by checkpoint closure.
 Simple UI must not imply a weaker internal graph model: a masked adjustment may
 be one logical editing unit while the document remains a genuine graph. Masks
 and effect strength belong in graph-native operations rather than requiring
 every processor backend to understand masking. Do not add masked-processor
 renderer state, a special mask scheduler, mask fields that bypass the graph, or
-universal processor opacity merely because the list places opacity beside an
-adjustment. Explicit mix/blend ownership of opacity/coverage is a likely
-direction to settle in Step 5, not a newly accepted contract here.
+mandatory opacity in every processor backend merely because the list places
+opacity beside an adjustment. This does not rule out generic graph/evaluator-level
+opacity; exact ownership remains a Step 5 decision. Explicit mix/blend ownership
+of opacity/coverage is a likely direction to settle in Step 5, not a newly
+accepted contract here.
 
 Do not start DAG implementation until this first mask/graph contract is settled.
 Global alpha association remains separately deferred until transparent
@@ -432,19 +443,21 @@ compositing or alpha-carrying I/O requires it.
 
 ## Near-term roadmap
 
-Immediate work:
+Current architecture/product-contract work:
 
 - Step 5: decide the first mask/graph product contract using the topics above.
 
 The checkpoint and immediate follow-ups are complete. No additional broad
 architecture cleanup is required before this discussion.
 
-After the Step 5 contract is settled:
+Colour-management design and DCTL/LUT or other processor work may continue
+independently when appropriate. Step 5 is not a prerequisite for that unrelated
+work, provided it does not pre-empt the unsettled graph/mask contract or introduce
+conflicting architecture.
 
-- resume colour-management design;
-- continue DCTL/LUT and other processor work;
-- introduce the simple executable DAG and versioned topology persistence;
-- add masks/compositing incrementally.
+The architecture track proceeds from the Step 5 contract to generic explicit
+topology/evaluation in Step 6, versioned topology persistence in Step 7, and the
+first concrete mask path with remaining implementation details in Step 8.
 
 Do not introduce speculative caches, schedulers or broad optimisation
 infrastructure merely because a future DAG could use them.

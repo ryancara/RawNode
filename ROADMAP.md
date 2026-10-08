@@ -49,7 +49,8 @@ complete. Remaining focused findings are recorded in
 - Step 6: transition from today's serial chain to explicit topology and a
   sequential DAG evaluator together.
 - Step 7: versioned graph persistence.
-- Step 8: first mask contract + mask path.
+- Step 8: first concrete mask path and remaining implementation details under
+  the Step 5 product/architectural contract.
 
 The completed stabilisation tasks are not extra migration steps.
 

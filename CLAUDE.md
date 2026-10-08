@@ -249,9 +249,15 @@ explicit topology and the sequential evaluator together, including image/mask
 ports and shared upstream evaluation. A simple list UI must preserve a real
 internal graph: masks and effect strength use graph-native operations, not
 masked-processor renderer state, a mask scheduler, mask fields that bypass the
-graph or mandatory opacity in every backend. Exact mix/blend and opacity
-semantics remain Step 5 decisions. Masks are not image alpha; global alpha
-association remains separately deferred.
+graph or mandatory opacity implemented internally by every processor backend.
+Generic graph/evaluator-level opacity is not ruled out; exact ownership remains
+a Step 5 decision. Step 5 settles the product/architectural contract, including
+opacity/effect-strength meaning and enough mixing semantics to define graph
+shape. Step 8 implements the first mask path and settles remaining concrete
+representation/range/filtering and blend-encoding details not needed in Step 5.
+No concrete mix/blend operation is automatically a Step 6 deliverable.
+D034 already separates masks from image alpha; coverage/alpha interaction
+remains open, and global alpha association remains separately deferred.
 
 The candidate dispositions are recorded in `docs/ARCHITECTURE_AUDIT.md`. App
 remains a practical composition root. Leaf App locks must not call back into

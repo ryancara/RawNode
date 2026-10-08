@@ -26,9 +26,11 @@ abstractions.
 
 At the original audit baseline, the recommendation was a **staged architectural
 refactor before masks and compositing**, not a rendering-engine rewrite.
-The findings below describe that baseline, not unresolved post-Step-4 work;
-Steps 1–4 have since addressed export ownership/consistency and caller-managed
-renderer sequencing. See the completed checkpoint below for the current verdict.
+These findings describe the original audit baseline. Some were resolved by
+Steps 1–4 and the stabilisation work; others intentionally remain as target
+architecture or later product-contract work, including the serial chain and
+incomplete branch image/spatial/colour semantics. The completed checkpoint below
+records their current disposition.
 
 The original baseline's foundations were broadly healthy:
 
@@ -222,13 +224,17 @@ add numbered architecture steps.
 
 ### Completed post-Step-4 whole-architecture checkpoint
 
-**Checkpoint closure baseline:** `fd0f1a750d8ce84981839ef074bc1fead5aad410`
-(including immediate follow-ups #53 and #54).
+**Reviewed architecture basis:** the post-#50 state used for the independent
+checkpoint, before the immediate follow-ups landed.
+
+**Checkpoint closure state:** `fd0f1a750d8ce84981839ef074bc1fead5aad410`
+includes follow-ups #53 and #54; it is not the exact revision inspected by both
+architecture reviewers.
 
 **Pinned conceptual reference:**
 `hanatos/vkdt @ e2ebdd3e65ab39f8f7e9d30030f299fd725d0f2a`.
 
-Codex and Claude independently reviewed RawNode's current implementation and
+Codex and Claude independently reviewed RawNode's post-#50 implementation and
 approved target against its actual product goals, production code and
 renderer/lifetime constraints, and the pinned vkdt reference:
 
@@ -279,9 +285,11 @@ compositing operations, and display/export consumers.
 Several of these remain target capabilities. Step 6 must implement explicit
 topology, named image/mask ports and upstream endpoint references, cycle
 rejection, required/optional input validation, one authoritative document
-output, sequential topological/shared-upstream evaluation, per-evaluation
-intermediate-buffer lifetime, and graph-native mix/blend operations under the
-Step 5 contract. The first DAG retains whole-graph invalidation.
+output, sequential topological/shared-upstream evaluation and per-evaluation
+intermediate-buffer lifetime. These are the generic topology/evaluator
+capabilities required by the Step 5 contract. Any concrete multi-input mix/blend
+operation belongs in the implementation step selected by that contract, not
+automatically in Step 6. The first DAG retains whole-graph invalidation.
 
 Deliberately deferred unless a concrete requirement or measurement justifies
 them: Vulkan as an application architecture requirement, GPU-resident graph
@@ -306,7 +314,7 @@ D019–D038.
 | `makePreview` helper-thread launch | If a later `std::thread` launch throws, earlier joinable threads can cause termination. Partial-launch exception safety remains focused work, not an architecture blocker. These three lifetime items may share one future PR. |
 | Evaluator/display separation | Make the graph evaluator an explicit seam when topology lands in Step 6. Display remains after the processed-image boundary; no separate preliminary refactor. |
 | `DocumentActions` / UI coupling | Acknowledged placement debt. Revisit when persistence/document APIs consolidate, probably Step 7; do not move files solely for cleanliness. |
-| Runtime/display/colour locking | Reviewed locking is safe with no observed cycle/deadlock. Some critical sections could be shorter; no pre-Step-5 lock redesign. Leaf App locks must not call back into RenderRuntime while held. |
+| Runtime/display/colour locking | No lock-order cycle or deadlock was found in the reviewed paths. Some critical sections could be shorter; no pre-Step-5 lock redesign. Leaf App locks must not call back into RenderRuntime while held. |
 | Reserved/shadow graph fields | Transitional only. Do not extend them into a second graph model. Remove or redefine unused fields as real topology and evaluation land together in Step 6. |
 | Source/export sidecar question | Superseded by D038 and PR #53: sidecars belong only to editable source documents; exported derivatives receive none. There is no future source/export capture-convergence task. |
 | `runExportJob` test seam | Retain the useful synchronous production export test seam; no present reason to remove or redesign it. |
@@ -327,6 +335,13 @@ to delay Step 5 or reopen broad architecture cleanup.
 **Current task: decision work before implementation.** Settle the first
 mask/graph product contract before DAG feature work; the pending topics and
 graph-model guardrails are in `docs/PROJECT_CONTEXT.md`.
+
+Step 5 settles the product/architectural contract needed before topology work:
+the user-visible mask model and its list/graph attachment, ownership/meaning of
+opacity and effect strength, multi-input behaviour, coordinate semantics if the
+first mask is geometric, and enough mixing semantics to define the required
+graph shape. D034's mask/image-alpha separation is already accepted; their
+interaction remains open. No actual contract answer is chosen here.
 
 The internal architecture must remain graph-capable and must not create a
 feature-specific mask scheduler.
@@ -363,10 +378,14 @@ chain.
 
 Preserve stable identities, missing processors and copy/paste compatibility.
 
-### Step 8 - Define the first mask contract and implement the first mask path
+### Step 8 - Settle remaining concrete mask details and implement the first mask path
 
-Mask representation, range, filtering, coordinate space, blend encoding and
-opacity semantics should be settled with the feature.
+Implement the first mask path under the Step 5 product/architectural contract.
+Settle remaining lower-level details that were not needed before topology work:
+concrete mask representation, range, filtering/sampling, concrete blend encoding
+where not already required by Step 5, and implementation details of the selected
+path. Do not postpone Step 5's required ownership, graph-shape or geometric
+coordinate decisions to this step.
 
 A global image-alpha contract remains separate and may wait until transparent
 compositing or alpha-carrying I/O requires it.
@@ -461,9 +480,9 @@ automatic retry loop.
 ### Early-refactoring questions — settled
 
 The original questions below are answered by D022 (one control thread), D024
-(accepted export state and frozen parameter edits), the architecture's eventual
-replacement supersession contract, manual output interpretation, D025 (quiet
-recovery/status preservation), and D036 (authoritative document paths). They are
+(accepted export state and frozen parameter edits), D032 (eventual-replacement
+supersession), manual output interpretation, D025 (quiet recovery/status
+preservation), and D036 (authoritative document paths). They are
 historical audit prompts, not open checkpoint prerequisites.
 
 - Is the serialized control-thread assumption an explicit RawNode contract?

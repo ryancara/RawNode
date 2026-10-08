@@ -280,20 +280,26 @@ Step 7 work.
 
 ## Pending decisions
 
-Before DAG/mask feature work:
+Step 5 — product/architectural contract before topology work:
 
 - graph-native masks versus the exact first per-node mask UX;
+- list/graph attachment and opacity/effect-strength ownership/meaning;
+- enough mixing and mask-coverage/alpha interaction semantics to define graph
+  shape, preserving D034's accepted mask/image-alpha separation;
 - multi-input dimension mismatch policy;
 - missing/bypassed multi-input node semantics;
+- branch colour mismatch policy;
+- spatial coordinate semantics if the first mask is geometric.
+
+Before versioned graph persistence:
+
 - graph-sidecar version policy;
 - subgraph copy/paste topology rules.
 
-Before masks/compositing:
+Step 8 — remaining concrete first-mask details and implementation:
 
-- mask representation/range/filtering/coordinate-space contract;
-- blend encoding;
-- opacity semantics;
-- branch colour mismatch policy;
+- concrete mask representation/range/filtering/sampling;
+- concrete blend encoding where not already required by Step 5;
 - unavailable mask/compositor behaviour.
 
 Before transparent compositing or alpha-carrying I/O:
@@ -315,7 +321,8 @@ The D037 stabilisation gate and immediate checkpoint follow-ups are complete.
 5. Settle the first mask/graph product contract — current decision work.
 6. Introduce topology and sequential DAG evaluation together.
 7. Add versioned graph persistence.
-8. Define the first mask contract and add the first mask path.
+8. Settle remaining concrete mask details and add the first mask path under the
+   Step 5 contract.
 
 If implementation evidence changes this direction, update this log rather than
 letting the architecture drift silently.

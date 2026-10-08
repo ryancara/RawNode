@@ -521,17 +521,24 @@ steps**. Steps 1–4 are complete; this target does not imply that the Step 6
 explicit graph is already implemented.
 
 5. **Settle the first mask/graph product contract — current.**
-   Decide the first user-visible mask model before graph feature work. This is
-   decision work; see `docs/PROJECT_CONTEXT.md` for the pending product topics.
+   Decide the first user-visible mask model, list/graph attachment,
+   opacity/effect-strength ownership, multi-input behaviour, geometric coordinates
+   if needed, and enough mixing semantics to define graph shape before topology
+   work. See `docs/PROJECT_CONTEXT.md` for the pending topics; no answer is chosen
+   by this status update.
 
 6. **Introduce explicit topology and sequential DAG evaluation together.**
-   Preserve equivalent linear behaviour first.
+   Implement generic topology/evaluation capabilities and preserve equivalent
+   linear behaviour first. A concrete mix/blend operation belongs in the
+   implementation step selected by the Step 5 contract.
 
 7. **Add versioned graph persistence.**
 
-8. **Define the mask contract and add the first mask path.**
-   Alpha/compositing contracts are settled only as the corresponding feature
-   requires them.
+8. **Settle remaining concrete mask details and add the first mask path.**
+   Implement the Step 5 contract; settle remaining representation, range,
+   filtering/sampling and concrete blend encoding where not already needed in
+   Step 5. Global alpha association remains separate until the corresponding
+   transparent-compositing or alpha-carrying feature requires it.
 
 Each step should remain independently reviewable.
 
