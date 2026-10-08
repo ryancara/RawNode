@@ -92,7 +92,7 @@ struct RuntimeEvents {
 };
 
 enum class ExportFailure { None, Result, RenderException, UnknownException,
-                           SizeException, RestoreException, CaptureException };
+                           SizeException, RestoreException };
 
 // A barrier makes queue ordering deterministic without timing a slow render.
 class SchedulingSelfTestProcessor : public Processor {
@@ -115,11 +115,7 @@ class SchedulingSelfTestProcessor : public Processor {
   ProcessorBackend backend() const override { return ProcessorBackend::Native; }
   std::string identifier() const override { return "org.rawnode.selftest.scheduling"; }
   std::string displayName() const override { return "Self-test Scheduling"; }
-  std::vector<ProcessorParameter> parameters() const override {
-    if (exportFailure == ExportFailure::CaptureException)
-      throw std::runtime_error("Self-test capture failure");
-    return {};
-  }
+  std::vector<ProcessorParameter> parameters() const override { return {}; }
   bool setParameterValue(const std::string &, const ParameterValue &, bool) override { return false; }
   bool resetParameter(const std::string &, bool) override { return false; }
   bool activateParameter(const std::string &) override { return false; }
@@ -185,6 +181,70 @@ struct ExportTestFiles {
   }
   std::string output() const { return (dir / "test.png").string(); }
 };
+
+// Check both the old stem-based export name and the source-style appended name.
+static bool hasNoExportSidecar(const std::string &outPath) {
+  const fs::path path(outPath);
+  return !fs::exists(path.parent_path() / (path.stem().string() + ".rawnode.json")) &&
+         !fs::exists(outPath + ".rawnode.json");
+}
+
+static bool exportHasRgb(const std::string &path, float expected) {
+  Image image;
+  ColorEncoding encoding;
+  bool raw = false;
+  if (!loadImage(path, image, encoding, raw) || raw || image.w != 2 || image.h != 1 ||
+      image.px.size() != 8) return false;
+  if (encoding != ColorEncoding{RgbGamut::Rec709, TransferFunction::Linear}) return false;
+  // These fixtures export sRGB; loadImage linearises it. Compare encoded RGB
+  // with one 8-bit step of tolerance for PNG quantisation and uniform JPEG.
+  for (size_t i = 0; i < image.px.size(); ++i)
+    if (i % 4 != 3 &&
+        !(std::abs(encodeTransfer(image.px[i], TransferFunction::SRGB) - expected) <= 1.0 / 255.0))
+      return false;
+  return true;
+}
+
+static bool testExportPreservesSourceSidecar(bool crossImage) {
+  ExportTestFiles files;
+  App app;
+  app.path = (files.dir / "DSC_0001.NEF").string();
+  app.inputIsRaw = true;
+  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
+  if (!addNativeExposureNode(app) ||
+      !app.nodes[0].processor->setParameterValue("exposure", 1.0)) return false;
+  saveCurrentInputSidecar(app);
+  const std::string sourceSidecar = inputSidecarPath(app.path);
+  const std::string targetSource = crossImage ? (files.dir / "DSC_0002.NEF").string() : app.path;
+  const std::string targetSidecar = inputSidecarPath(targetSource);
+  if (crossImage) {
+    PersistChain otherGrade = captureChain(app);
+    otherGrade.nodes[0].paramsJson["exposure"] = "-2";
+    if (!saveInputSidecar(targetSource, captureSidecarGui(app), otherGrade, &app.inputEncoding))
+      return false;
+  }
+  const auto readBytes = [](const std::string &path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+  };
+  const std::string sourceBefore = readBytes(sourceSidecar);
+  const std::string targetBefore = readBytes(targetSidecar);
+  if (sourceBefore.empty() || targetBefore.empty()) return false;
+
+  // The legacy export writer stripped .png/.jpg and overwrote targetSidecar.
+  const std::string outPath = targetSource + (crossImage ? ".jpg" : ".png");
+  if (!runExportJob(app, outPath) || !exportHasRgb(outPath, 0.25f) ||
+      app.getStatus().find("Exported ") != 0 ||
+      !fs::is_regular_file(sourceSidecar) || !fs::is_regular_file(targetSidecar) ||
+      readBytes(sourceSidecar) != sourceBefore || readBytes(targetSidecar) != targetBefore ||
+      fs::exists(outPath + ".rawnode.json")) return false;
+  // Only the pre-existing source sidecars and the derivative may be present.
+  for (const auto &entry : fs::directory_iterator(files.dir))
+    if (entry.path() != fs::path(sourceSidecar) && entry.path() != fs::path(targetSidecar) &&
+        entry.path() != fs::path(outPath)) return false;
+  return true;
+}
 
 static bool testRuntimeIdleLifecycle(bool started, bool pending) {
   App app;
@@ -747,7 +807,7 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
   ColorEncoding exportedEncoding;
   bool decodedRaw = false;
   if (!loadImage(files.output(), exported, exportedEncoding, decodedRaw) || exported.w != 2 ||
-      exported.h != 1 || !fs::is_regular_file(exportSidecarPath(files.output()))) return false;
+      exported.h != 1 || !hasNoExportSidecar(files.output())) return false;
   if (probe->width != 1 || probe->height != 1 ||
       probe->calls != activeCalls + 1 + (expectPreview ? 1 : 0)) return false;
   const auto &fullCall = probe->history[activeCalls];
@@ -838,7 +898,7 @@ static bool testExportPreviewStatus(ExportStatusResult result,
   if (!idleDuringExport || events.failed || events.releasedStatus != exportStatus) return false;
   const bool exported = result == ExportStatusResult::Success || result == ExportStatusResult::Warnings;
   if (fs::is_regular_file(outPath) != exported ||
-      fs::is_regular_file(exportSidecarPath(outPath)) != exported) return false;
+      !hasNoExportSidecar(outPath)) return false;
   {
     std::unique_lock<std::mutex> lock(probe->mutex);
     if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 2; }))
@@ -912,8 +972,7 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
 
   // Leave preview unstarted until export cleanup has been inspected.
   if (asynchronous) {
-    const bool started = startExport(app, files.output());
-    if (started != (failure != ExportFailure::CaptureException)) return false;
+    if (!startExport(app, files.output())) return false;
     app.renderer.joinExport();
   } else if (runExportJob(app, files.output())) {
     return false;
@@ -925,7 +984,6 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
     case ExportFailure::UnknownException: message = "Unknown exception"; break;
     case ExportFailure::SizeException: message = "Self-test full sizing failure"; break;
     case ExportFailure::RestoreException: message = "Self-test preview sizing failure"; break;
-    case ExportFailure::CaptureException: message = "Self-test capture failure"; break;
     default: return false;
   }
   const std::string failureStatus = "Export failed: " + message;
@@ -935,7 +993,7 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
       return false;
   }
   if (renderState(app).exportThreadOwned || app.getStatus() != failureStatus ||
-      fs::exists(files.output()) || fs::exists(exportSidecarPath(files.output()))) return false;
+      fs::exists(files.output()) || !hasNoExportSidecar(files.output())) return false;
   for (auto *sizingProbe : {probe, nextProbe}) {
     std::lock_guard<std::mutex> lock(sizingProbe->mutex);
     if (sizingProbe->width != 1 || sizingProbe->height != 1) return false;
@@ -1019,9 +1077,11 @@ static bool testExportThreadLifecycle(bool stopDuring) {
   const auto state = renderState(app);
   if (!app.renderer.canEditParameters() || state.exportBusy || state.exportThreadOwned ||
       state.previewPending != !stopDuring || state.quietPending != !stopDuring) return false;
-  PersistSidecar sidecar;
-  if (!loadSidecarFile(exportSidecarPath(files.output()), sidecar) || sidecar.sourcePath != app.path ||
-      sidecar.chain.nodes.size() != 1 || sidecar.chain.nodes[0].id != "export-probe") return false;
+  if (!exportHasRgb(files.output(), 0.125f) || !hasNoExportSidecar(files.output())) return false;
+  if (!stopDuring) {
+    const std::string second = (files.dir / "second.jpg").string();
+    if (!exportHasRgb(second, 0.125f) || !hasNoExportSidecar(second)) return false;
+  }
   app.renderer.shutdown();
   return probe->calls == (stopDuring ? 1 : 2) && probe->width == 1 && probe->height == 1 &&
          std::all_of(probe->history.begin(), probe->history.end(), [](const auto &call) {
@@ -1594,9 +1654,9 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
     if (probe->calls != 2) return false;  // Original owner, then one final preview.
   }
   if (exporting) {
-    PersistSidecar exported;
-    if (!loadSidecarFile(exportSidecarPath(files.output()), exported) ||
-        exported.chain.nodes.size() != 2 || !exported.chain.nodes[1].enabled) return false;
+    // D024: the accepted +1 EV grade must reach the file. A late render after
+    // Remove/Disable would write 0.125 instead of 0.25; metadata cannot prove this.
+    if (!exportHasRgb(files.output(), 0.25f) || !hasNoExportSidecar(files.output())) return false;
   }
   const float expected = edit == ActiveGraphEdit::Remove || edit == ActiveGraphEdit::Disable ? 0.125f : 0.25f;
   std::lock_guard<std::mutex> lock(app.displayMutex);
@@ -2283,13 +2343,16 @@ int runSelfTests() {
   }
 
   {
+    if (!testExportPreservesSourceSidecar(false) || !testExportPreservesSourceSidecar(true))
+      return fail("export must preserve same-source and cross-image sidecars byte-for-byte");
+    printf("ok  PNG/JPEG exports preserve source sidecars without creating derivative sidecars (2 collision cases)\n");
     for (auto failure : {ExportFailure::RenderException, ExportFailure::UnknownException,
                          ExportFailure::SizeException, ExportFailure::RestoreException,
-                         ExportFailure::CaptureException, ExportFailure::Result})
+                         ExportFailure::Result})
       for (bool asynchronous : {false, true})
         if (!testExportFailureCleanup(failure, asynchronous))
           return fail("production export failure/exception cleanup");
-    printf("ok  Production export failure/exception cleanup and parameter editability (12 deterministic cases)\n");
+    printf("ok  Production export failure/exception cleanup and parameter editability (10 deterministic cases)\n");
     if (!testExportThreadLifecycle(false) || !testExportThreadLifecycle(true))
       return fail("owned export thread restart/shutdown");
     printf("ok  Owned export thread restart/shutdown and parameter editability\n");

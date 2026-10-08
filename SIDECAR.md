@@ -178,15 +178,15 @@ V1 nodes are normalised as `backend: "ofx"`. They receive stable node IDs when l
 
 When both files exist, RawNode prefers the V2 `.rawnode.json` sidecar.
 
-## Export sidecars
+## Exported derivatives
 
-Export metadata uses the same V2 graph representation and is written as:
+RawNode sidecars belong to editable source images/documents. Exported JPEG,
+PNG, TIFF and other rendered derivatives do not receive RawNode sidecars.
+Export consumes the evaluated document and writes the derivative; it does not
+save a second editable document or modify the source sidecar.
 
-```text
-export-name.rawnode.json
-```
-
-The export sidecar also records the source path and export timestamp.
+Older RawNode versions may have created export sidecars. Those legacy files may
+remain on disk; current export does not read, update, migrate or delete them.
 
 RawNode ICC profiles include stable colour-encoding IDs so supported wide-gamut exports can be identified on re-import. DaVinci Intermediate is scene-referred and can map encoded values to linear values above 1.0, which a conventional matrix/TRC ICC profile cannot fully represent. RawNode therefore warns on DI export that external ICC-managed applications may clip highlights.
 

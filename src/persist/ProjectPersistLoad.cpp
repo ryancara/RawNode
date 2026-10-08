@@ -477,7 +477,6 @@ bool loadSidecarFile(const std::string &path, PersistSidecar &out) {
   extractStringField(json, "format", out.format);
   extractIntField(json, "version", out.version);
   extractStringField(json, "kind", out.kind);
-  extractStringField(json, "exportedAt", out.exportedAt);
 
   // Never rewrite a future RawNode schema as V2. The caller can use the
   // parsed version to explain why loading was refused.

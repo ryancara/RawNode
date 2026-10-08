@@ -63,7 +63,6 @@ struct PersistSidecar {
   std::string legacyRawWorkingSpace;
   std::string rawColorSpace;
   std::string rawGamma;
-  std::string exportedAt;
   PersistGui gui;
   PersistChain chain;
 };
@@ -71,7 +70,6 @@ struct PersistSidecar {
 std::string workspaceProjectPath(const std::string &workspaceDir);
 std::string inputSidecarPath(const std::string &imagePath);
 std::string legacyInputSidecarPath(const std::string &imagePath);
-std::string exportSidecarPath(const std::string &exportPath);
 
 bool isSupportedImagePath(const std::string &path);
 bool isHostMetadataPath(const std::string &path);
@@ -107,8 +105,5 @@ bool loadPresetFile(const std::string &path, std::string &kind, PersistChain &ch
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);
 bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,
                       const PersistChain &chain, const ColorEncoding *rawEncoding = nullptr);
-bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath,
-                       const PersistGui &gui, const PersistChain &chain,
-                       const ColorEncoding *rawEncoding = nullptr);
 
 std::string relativeToWorkspace(const std::string &workspaceDir, const std::string &absPath);

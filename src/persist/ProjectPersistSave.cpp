@@ -6,10 +6,8 @@
 #include "color/TransferFunction.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstdio>
 #include <cstring>
-#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -142,11 +140,6 @@ std::string inputSidecarPath(const std::string &imagePath) { return imagePath + 
 
 std::string legacyInputSidecarPath(const std::string &imagePath) { return imagePath + ".ofxrawhost.json"; }
 
-std::string exportSidecarPath(const std::string &exportPath) {
-  fs::path p(exportPath);
-  return (p.parent_path() / (p.stem().string() + ".rawnode.json")).string();
-}
-
 bool isSupportedImagePath(const std::string &path) {
   if (isHostMetadataPath(path)) return false;
   return isRasterImagePath(path) || isRawImagePath(path);
@@ -220,22 +213,6 @@ bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui
   return writeFile(workspaceProjectPath(workspaceDir), o.str());
 }
 
-static std::string iso8601Now() {
-  using namespace std::chrono;
-  const auto now = system_clock::now();
-  const std::time_t t = system_clock::to_time_t(now);
-  std::tm tm{};
-#if defined(_WIN32)
-  gmtime_s(&tm, &t);
-#else
-  gmtime_r(&t, &tm);
-#endif
-  char buf[32];
-  std::snprintf(buf, sizeof buf, "%04d-%02d-%02dT%02d:%02d:%02dZ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                tm.tm_hour, tm.tm_min, tm.tm_sec);
-  return buf;
-}
-
 static void appendSidecarHeader(std::ostringstream &o, const std::string &kind,
                                 const std::string &sourcePath,
                                 const ColorEncoding *rawEncoding) {
@@ -265,17 +242,4 @@ bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,
   appendChainJson(o, chain);
   o << '}';
   return writeFile(inputSidecarPath(imagePath), o.str());
-}
-
-bool saveExportSidecar(const std::string &exportPath, const std::string &sourceImagePath,
-                       const PersistGui &gui, const PersistChain &chain,
-                       const ColorEncoding *rawEncoding) {
-  std::ostringstream o;
-  appendSidecarHeader(o, "export", sourceImagePath, rawEncoding);
-  o << "\"exportedAt\":\"" << iso8601Now() << "\",";
-  appendGuiJson(o, gui, false);
-  o << ',';
-  appendChainJson(o, chain);
-  o << '}';
-  return writeFile(exportSidecarPath(exportPath), o.str());
 }
