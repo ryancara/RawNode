@@ -90,7 +90,8 @@ do not need Git history to understand correctness.
 ## Behaviour-preserving cleanup
 
 The dedicated readability/source-organisation pass after architecture Step 4 is
-behaviour-preserving.
+complete. The following behaviour-preserving constraints also apply to future
+cleanup.
 
 It may:
 
@@ -111,8 +112,9 @@ It should not quietly:
 - change persistence semantics;
 - change renderer guarantees.
 
-If readability work exposes a genuine architecture problem, record it for the
-planned architecture checkpoint and address it deliberately in a focused change.
+If future readability work exposes a genuine architecture problem, record it
+and address it deliberately in a focused change. The post-Step-4 architecture
+checkpoint is complete; broad cleanup is no longer the current task.
 
 ## Review standard
 

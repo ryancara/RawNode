@@ -30,37 +30,28 @@ The approved eight-step architecture migration is in progress. Steps 1-4 are
 complete. Step 4 (renderer ownership encapsulation) landed in PR #45 after
 independent review, sanitizer/stress validation and routine macOS validation.
 
-Before Step 5 begins, intentionally pause feature/graph expansion for three
-stabilisation tasks:
+The full post-Step-4 stabilisation gate is complete:
 
-1. **Complete:** fix the pre-existing OpenFX host multithread lifetime bugs found
-   during the #45 review. PR #48 fixed callback-completion and persistent-pool
-   teardown lifetime.
-2. **Complete:** perform a behaviour-preserving human-readability/source-
-   organisation pass. PR #50 reorganised the source around existing
-   responsibilities without changing behaviour and was independently reviewed
-   and validated on macOS.
-3. **Next:** perform the planned whole-architecture checkpoint against RawNode's product
-   goals and the pinned vkdt reference.
-   That checkpoint should explicitly review the candidates exposed by the
-   readability audit: App ownership, document-edit boundaries, thumbnail
-   lifetime, evaluator/display separation, persistence-to-UI coupling,
-   runtime/display lock ordering, graph-transition fields, shared sidecar
-   capture, the export test seam, and pending output/alpha/spatial contracts.
+1. OpenFX host multithread lifetime correction (#48);
+2. behaviour-preserving readability/source organisation (#50), independently
+   reviewed and validated on macOS;
+3. the whole-architecture checkpoint against RawNode's product goals and the
+   pinned vkdt reference.
 
-The readability pass should make the source itself communicate the architecture:
-clear file responsibilities, conceptual/top-down function order, domain-oriented
-names, visible ownership/locking and comments that explain rationale/invariants.
-It must not mix new architecture or product behaviour into cleanup.
+Codex and Claude independently found the direction sound for the next stage;
+no further broad refactor is justified before Step 5. Immediate follow-ups #53
+(source-only sidecars) and #54 (mutation-completion ordering regression) are
+complete. Remaining focused findings are recorded in
+`docs/ARCHITECTURE_AUDIT.md` and do not block Step 5.
 
-Then resume:
-
-- Step 5: settle the first mask/graph product contract;
-- Step 6: explicit topology + sequential DAG evaluator;
-- Step 7: versioned graph persistence;
+- **Step 5 — current:** settle the first mask/graph product contract through
+  decision work before implementation; see `docs/PROJECT_CONTEXT.md`.
+- Step 6: transition from today's serial chain to explicit topology and a
+  sequential DAG evaluator together.
+- Step 7: versioned graph persistence.
 - Step 8: first mask contract + mask path.
 
-These stabilisation tasks are not extra migration steps.
+The completed stabilisation tasks are not extra migration steps.
 
 ## Completed editing workflow milestone
 
