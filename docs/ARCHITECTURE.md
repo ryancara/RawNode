@@ -3,8 +3,10 @@
 **Status:** Authoritative target architecture.
 
 This document records the architecture approved after the RawNode <-> vkdt
-architecture audit and independent Claude review. Current source code may still
-be transitioning toward this model.
+architecture audit and independent Claude review. Steps 1–4 and the
+post-Step-4 stabilisation/checkpoint gate are complete. Step 5 is current
+product-contract decision work; current execution still uses a serial node
+chain. Step 6 remains the explicit graph/evaluator implementation transition.
 
 Read this together with:
 
@@ -502,33 +504,41 @@ The architecture should be reached through small behaviour-preserving changes.
 
 ### Stabilisation gate after Step 4
 
-Before beginning Step 5:
+The full gate is complete:
 
-1. fix the pre-existing OpenFX host multithread lifetime bugs exposed by Step 4
-   review (early `multiThread()` completion and an unjoined global worker pool)
-   in a separate focused correctness PR;
-2. perform a behaviour-preserving human-readability/source-organisation pass so
-   file boundaries, function order, naming, comments and lock/ownership structure
-   make the architecture legible to a competent C++ programmer;
-3. perform the planned whole-architecture checkpoint against RawNode's actual
+1. OpenFX host multithread lifetime correction (#48);
+2. behaviour-preserving readability/source organisation (#50);
+3. independent Codex and Claude whole-architecture checkpoint against RawNode's
    product goals and the pinned vkdt reference.
 
-These are stabilisation/review gates, **not additional numbered architecture
-steps**. The readability pass must not smuggle architecture or behaviour changes
-into cleanup. Architectural problems discovered there should be recorded for the
-checkpoint.
+Both reviews found the direction sound for the next stage, with no broad
+architectural blocker before Step 5. Immediate follow-ups #53 (source-only
+sidecars) and #54 (mutation-completion ordering regression) are complete.
+See `docs/ARCHITECTURE_AUDIT.md` for evidence and non-blocking dispositions.
 
-5. **Settle the first mask/graph product contract.**
-   Decide the first user-visible mask model before graph feature work.
+These are stabilisation/review gates, **not additional numbered architecture
+steps**. Steps 1–4 are complete; this target does not imply that the Step 6
+explicit graph is already implemented.
+
+5. **Settle the first mask/graph product contract — current.**
+   Decide the first user-visible mask model, list/graph attachment,
+   opacity/effect-strength ownership, multi-input behaviour, geometric coordinates
+   if needed, and enough mixing semantics to define graph shape before topology
+   work. See `docs/PROJECT_CONTEXT.md` for the pending topics; no answer is chosen
+   by this status update.
 
 6. **Introduce explicit topology and sequential DAG evaluation together.**
-   Preserve equivalent linear behaviour first.
+   Implement generic topology/evaluation capabilities and preserve equivalent
+   linear behaviour first. A concrete mix/blend operation belongs in the
+   implementation step selected by the Step 5 contract.
 
 7. **Add versioned graph persistence.**
 
-8. **Define the mask contract and add the first mask path.**
-   Alpha/compositing contracts are settled only as the corresponding feature
-   requires them.
+8. **Settle remaining concrete mask details and add the first mask path.**
+   Implement the Step 5 contract; settle remaining representation, range,
+   filtering/sampling and concrete blend encoding where not already needed in
+   Step 5. Global alpha association remains separate until the corresponding
+   transparent-compositing or alpha-carrying feature requires it.
 
 Each step should remain independently reviewable.
 

@@ -105,17 +105,21 @@ to a competent C++ programmer. Prefer conceptual/top-down function order,
 coherent file responsibilities, domain-oriented names, visible lock scopes and
 comments that explain invariants/why rather than narrating syntax.
 
-The dedicated post-Step-4 readability pass is behaviour-preserving. Do not hide
-architecture or product changes inside cleanup; surface them separately for the
-architecture checkpoint. See `docs/CODE_STYLE.md`.
+The post-Step-4 readability pass is complete. Keep future cleanup
+behaviour-preserving and surface architecture or product changes separately.
+See `docs/CODE_STYLE.md`.
 
 Do not perform large refactors inside narrowly scoped bug-fix or feature PRs
 unless they are required for correctness.
 
 ## Architectural direction
 
-The RawNode <-> vkdt audit and independent architecture review are complete.
-The authoritative target is in `docs/ARCHITECTURE.md`.
+The original RawNode <-> vkdt audit and the post-Step-4 whole-architecture
+checkpoint are complete. Codex and Claude independently found the direction
+**sound for the next stage**. No further broad architecture cleanup is justified
+before Step 5. This does not mean the explicit graph is implemented: current
+`App::nodes` execution is still serial. The authoritative target is in
+`docs/ARCHITECTURE.md`.
 
 The architectural north star is:
 
@@ -229,26 +233,40 @@ and compositing are implemented, follow the approved staged migration in
 `docs/ARCHITECTURE.md` and settle the remaining mask/alpha decisions recorded
 in `docs/DECISIONS.md`.
 
-After Step 4 and before Step 5, the approved stabilisation order is:
+The post-Step-4 stabilisation gate is complete: OpenFX multithread lifetime
+(#48), readability/source organisation (#50), and the independent Codex and
+Claude whole-architecture checkpoint. PR #53 settled the source-only sidecar
+boundary (D038); PR #54 deterministically protects single-level mutation
+completion demand before gate opening. Neither remains an open checkpoint item.
 
-1. fix the pre-existing OpenFX host multithread lifetime bugs in a focused PR
-   (**complete in PR #48**);
-2. perform the behaviour-preserving human-readability/source-organisation pass
-   (**complete in PR #50**);
-3. perform the whole-architecture checkpoint against RawNode's product goals and
-   the pinned vkdt reference (**current task**).
+**Step 5 is current: settle the first mask/graph product contract.** This is
+product/architecture decision work. Use the open topics and graph-model
+guardrails in `docs/PROJECT_CONTEXT.md`; do not silently settle them in unrelated
+implementation work.
 
-For that checkpoint, explicitly revisit the candidates exposed by the PR #50
-readability review rather than silently treating them as already-decided
-refactors: App ownership, document-edit boundaries, thumbnail lifetime,
-evaluator/display separation, persistence-to-UI coupling, runtime/display lock
-ordering, graph-transition fields, sidecar capture convergence, the synchronous
-export test seam, and the pending output/alpha/spatial contracts. Also carry the
-dead `uploadTexture` path and mutation-ordering test gap as implementation
-follow-ups, not architecture conclusions.
+Do not start DAG implementation until that contract is settled. Step 6 introduces
+explicit topology and the sequential evaluator together, including image/mask
+ports and shared upstream evaluation. A simple list UI must preserve a real
+internal graph: masks and effect strength use graph-native operations, not
+masked-processor renderer state, a mask scheduler, mask fields that bypass the
+graph or mandatory opacity implemented internally by every processor backend.
+Generic graph/evaluator-level opacity is not ruled out; exact ownership remains
+a Step 5 decision. Step 5 settles the product/architectural contract, including
+opacity/effect-strength meaning and enough mixing semantics to define graph
+shape. Step 8 implements the first mask path and settles remaining concrete
+representation/range/filtering and blend-encoding details not needed in Step 5.
+No concrete mix/blend operation is automatically a Step 6 deliverable.
+D034 already separates masks from image alpha; coverage/alpha interaction
+remains open, and global alpha association remains separately deferred.
 
-Treat that sequence as a deliberate project boundary, not as permission to mix
-the three tasks into one PR.
+The candidate dispositions are recorded in `docs/ARCHITECTURE_AUDIT.md`. App
+remains a practical composition root. Leaf App locks must not call back into
+RenderRuntime while held; no pre-Step-5 lock redesign is required.
+Thumbnail exceptional lifetime, the macOS pthread handoff and `makePreview`
+partial thread-launch safety remain focused follow-ups, not architecture
+blockers or reasons to reopen the audit. Dead `uploadTexture` cleanup belongs
+with the Step 6 evaluator/display boundary; persistence atomicity and GUI-state
+cleanup belong with Step 7.
 
 ## Colour and image-processing principles
 

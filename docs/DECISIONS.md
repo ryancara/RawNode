@@ -244,10 +244,20 @@ architectural problem, record it for the checkpoint and address it deliberately.
 These are stabilisation gates between Steps 4 and 5, not additional numbered
 architecture-migration steps.
 
-**Current progress:** the first D037 stabilisation item was completed in PR #48
-and the behaviour-preserving human-readability/source-organisation pass was
-completed in PR #50 after independent review and macOS validation. The next task
-is the whole-architecture checkpoint.
+**Current progress:** the full stabilisation gate is complete: PR #48 fixed
+OpenFX multithread lifetime, PR #50 completed readability/source organisation
+after independent review and macOS validation, and Codex and Claude independently
+completed the whole-architecture checkpoint against RawNode's product goals and
+`hanatos/vkdt @ e2ebdd3e65ab39f8f7e9d30030f299fd725d0f2a`.
+Both found the architectural direction **sound for the next stage**, with no
+further broad refactor justified before Step 5. Immediate checkpoint follow-ups
+#53 (D038 source-only sidecars) and #54 (single-level mutation-completion ordering
+regression) are complete. Remaining lifetime/exception-safety findings are
+focused, non-blocking follow-ups; see `docs/ARCHITECTURE_AUDIT.md`.
+
+**Step 5 is now current:** product/architecture decisions for the first
+mask/graph contract, before DAG implementation. Execution remains a serial node
+chain; Step 6 is the deliberate explicit topology/evaluator transition.
 
 ## D038 — Sidecars belong to editable source documents only
 
@@ -270,20 +280,26 @@ Step 7 work.
 
 ## Pending decisions
 
-Before DAG/mask feature work:
+Step 5 — product/architectural contract before topology work:
 
 - graph-native masks versus the exact first per-node mask UX;
+- list/graph attachment and opacity/effect-strength ownership/meaning;
+- enough mixing and mask-coverage/alpha interaction semantics to define graph
+  shape, preserving D034's accepted mask/image-alpha separation;
 - multi-input dimension mismatch policy;
 - missing/bypassed multi-input node semantics;
+- branch colour mismatch policy;
+- spatial coordinate semantics if the first mask is geometric.
+
+Before versioned graph persistence:
+
 - graph-sidecar version policy;
 - subgraph copy/paste topology rules.
 
-Before masks/compositing:
+Step 8 — remaining concrete first-mask details and implementation:
 
-- mask representation/range/filtering/coordinate-space contract;
-- blend encoding;
-- opacity semantics;
-- branch colour mismatch policy;
+- concrete mask representation/range/filtering/sampling;
+- concrete blend encoding where not already required by Step 5;
 - unavailable mask/compositor behaviour.
 
 Before transparent compositing or alpha-carrying I/O:
@@ -295,22 +311,18 @@ Before transparent compositing or alpha-carrying I/O:
 
 ## Approved near-term migration
 
-1. Own the export job.
-2. Make parameter editing unavailable during export.
-3. Centralize graph-edit transactions.
-4. Encapsulate renderer ownership once the public protocol has shrunk.
+1. Own the export job — complete.
+2. Make parameter editing unavailable during export — complete.
+3. Centralize graph-edit transactions — complete.
+4. Encapsulate renderer ownership once the public protocol has shrunk — complete.
 
-Then complete the D037 stabilisation gate:
+The D037 stabilisation gate and immediate checkpoint follow-ups are complete.
 
-- fix the OpenFX host multithread lifetime bugs;
-- perform the behaviour-preserving human-readability/source-organisation pass;
-- perform the whole-architecture checkpoint against vkdt and RawNode's product
-  goals.
-
-5. Settle the first mask/graph product contract.
+5. Settle the first mask/graph product contract — current decision work.
 6. Introduce topology and sequential DAG evaluation together.
 7. Add versioned graph persistence.
-8. Define the first mask contract and add the first mask path.
+8. Settle remaining concrete mask details and add the first mask path under the
+   Step 5 contract.
 
 If implementation evidence changes this direction, update this log rather than
 letting the architecture drift silently.

@@ -157,14 +157,20 @@ requests rather than renderer mutexes, pending/busy flags or
 wait/mutate/reschedule protocol.
 
 Presentation buffers remain part of the display path, export file production
-remains in the export path, and `renderChain()` remains the evaluator. The
-runtime owns **when** evaluation may execute safely, not what the document or
-export means.
+remains in the export path, and `renderChain()` still evaluates `App::nodes`
+as an ordered serial chain. Explicit topology and graph evaluation remain
+Step 6 work. The runtime owns **when** evaluation may execute safely, not what
+the document or export means.
 
 ## Architectural direction
 
-The RawNode <-> vkdt architecture audit and independent Claude review are
-complete. The approved architecture is documented in `docs/ARCHITECTURE.md`.
+The original RawNode <-> vkdt audit and the post-Step-4 whole-architecture
+checkpoint are complete. Codex and Claude independently reviewed the current
+implementation and target against RawNode's product goals and the pinned vkdt
+reference and found the direction **sound for the next stage**. No further broad
+architectural refactor is justified before Step 5. This does not mean the final
+graph architecture is implemented. The approved target remains documented in
+`docs/ARCHITECTURE.md`; checkpoint evidence is in `docs/ARCHITECTURE_AUDIT.md`.
 
 The architectural north star is:
 
@@ -257,16 +263,20 @@ RAW decode and native CST should share colour definitions/math where practical
 instead of maintaining duplicate matrices or transfer functions.
 
 The UI direction is to treat colour space and gamma/transfer function as
-separate concepts. Further RAW working-space design is deliberately postponed
-until after the architecture audit.
+separate concepts. With the architecture audit/checkpoint complete, further
+RAW working-space design may proceed independently when appropriate, provided
+it does not pre-empt the unsettled graph/mask contract or introduce conflicting
+architecture.
 
 Display/monitor conversion conceptually occurs after the processed-image
 boundary. A display conversion change should not require rerunning expensive
 image processors when the processed image is still valid.
 
-Before masks/compositing are implemented, RawNode also needs an explicit
-decision about internal alpha representation (for example straight/unassociated
-versus premultiplied) and how that maps to OFX and compositing.
+Masks are not image alpha. Global alpha association remains deliberately
+unresolved and is not a prerequisite for Step 5 mask-contract discussion.
+Before transparent compositing or alpha-carrying workflows, explicitly revisit
+TIFF, EXR, OpenFX and JPEG flattening semantics; current source alpha behaviour
+is inconsistent across formats.
 
 ## Persistence direction
 
@@ -274,6 +284,8 @@ RawNode uses sidecar files as persistent per-image edit state.
 
 Important persistence principles:
 
+- sidecars belong to editable source documents only; exported derivatives do
+  not receive RawNode sidecars (D038);
 - avoid a central project/catalogue database;
 - maintain backwards compatibility where practical;
 - processor/node identity must remain stable enough for persistence, presets and
@@ -316,7 +328,17 @@ These are known but are not reasons to expand unrelated focused PRs:
 - the OpenFX plugin descriptor leak described above;
 - JPEG XL DNG decoding is not yet supported in the current image-loading path;
 - TIFF SubIFD handling is incomplete for some RAW-like TIFF structures;
-- export UX can block/wait on a non-cancellable full-resolution export.
+- export UX can block/wait on a non-cancellable full-resolution export;
+- thumbnail worker exceptional-unwind lifetime, the macOS pthread-to-joiner
+  exception gap, and `makePreview` partial helper-thread launch remain focused
+  lifetime/exception-safety follow-ups; normal thumbnail shutdown is safe;
+- the dead `uploadTexture` path should be removed when the evaluator/display
+  boundary is touched in Step 6 unless a use appears earlier;
+- source sidecar writes remain in-place rather than atomic, and Sidecar V2 still
+  includes some GUI preferences; persistence hardening/document-state cleanup
+  belongs with Step 7;
+- exporting over the exact path of an editable raster source can overwrite the
+  source image itself; this pre-existing hazard is separate from export sidecars.
 
 Address remaining renderer-related deferred issues within the approved staged
 architecture rather than layering more scheduler state onto the design without
@@ -324,93 +346,41 @@ need.
 
 ## Current development phase
 
-**The architecture audit, independent review and architecture approval are
-complete. Production architecture implementation is now underway.**
+**Step 5 — Settle the first mask/graph product contract — is current.**
+This is product/architecture decision work before graph implementation.
 
-The authoritative architecture is now in:
+Steps 1–4 are complete: owned export execution, frozen parameter edits during
+export, centralized graph-edit transactions and encapsulated renderer ownership.
+Ordinary structural UI/document callers no longer manage renderer sequencing.
 
-    docs/ARCHITECTURE.md
-    docs/DECISIONS.md
+The full post-Step-4 stabilisation gate is complete: the OpenFX multithread
+lifetime fix (#48), the behaviour-preserving readability/source-organisation
+pass (#50), and the independently completed Codex and Claude architecture
+checkpoint. The two immediate checkpoint follow-ups are also complete: #53
+implemented D038's source-only sidecar rule and #54 deterministically protects
+single-level mutation-completion ordering.
 
-The audit trail is in:
+The checkpoint found no broad architecture blocker before Step 5. App remains
+a practical composition root; the remaining thread-launch/lifetime findings are
+focused implementation follow-ups, not reasons to reopen the architecture audit.
+See `docs/ARCHITECTURE_AUDIT.md` for the candidate dispositions.
 
-    docs/ARCHITECTURE_AUDIT.md
+Current execution still uses a serial node chain. The remaining sequence is:
 
-The first four production architecture steps are complete: owned export execution landed in PR #39, export parameter consistency landed in PR #41, graph-edit transaction centralization landed in PR #43, and renderer ownership encapsulation landed in PR #45. Ordinary structural UI/document callers no longer manage wait/mutate/reschedule sequencing themselves.
-
-The first post-Step-4 stabilisation item is also complete: PR #48 fixed the two
-pre-existing OpenFX host multithread lifetime bugs discovered during #45 review.
-The host pool now waits for callbacks to finish before returning and owns/joins
-its persistent worker threads at teardown. PR #48 was independently reviewed and
-then validated on macOS before merge.
-
-The approved near-term sequence is:
-
-    Own the export job
+    Step 5: First mask/graph product contract       [current; decisions]
           |
           v
-    Make parameter editing unavailable during export
+    Step 6: Explicit topology + sequential DAG evaluator
           |
           v
-    Centralize graph-edit transactions
+    Step 7: Versioned graph persistence
           |
           v
-    Encapsulate renderer ownership
-          |
-          v
-    Fix OFX host multithread lifetime bugs        [complete]
-          |
-          v
-    Human-readability / source-organisation pass   [complete]
-          |
-          v
-    Whole-architecture checkpoint against vkdt      [next]
-          |
-          v
-    Settle first mask/graph product contract
-          |
-          v
-    Explicit topology + sequential DAG evaluator
-          |
-          v
-    Versioned graph persistence
-          |
-          v
-    First mask contract + mask path
+    Step 8: Concrete first mask path + remaining implementation details
 
-The first four numbered steps are primarily boundary/lifetime cleanup. They do
-not require a renderer rewrite or speculative DAG machinery.
-
-The OFX correctness fix, readability pass and architecture checkpoint between
-Steps 4 and 5 are **stabilisation gates, not extra architecture-migration
-steps**. The readability pass is deliberately behaviour-preserving: make files,
-function order, naming, comments and source layout communicate the architecture
-to a human programmer without quietly changing product behaviour or architecture.
-If that pass uncovers a real architectural problem, record it for the checkpoint
-instead of hiding the redesign inside cleanup.
-
-The independent PR #50 readability review surfaced several explicit candidates
-for that checkpoint. These are **questions to examine, not approved refactors**:
-
-- whether `App` owns too many unrelated responsibilities;
-- whether structural/source edits, parameter edits and output-encoding edits
-  should share a clearer document-edit boundary;
-- whether thumbnail worker lifetime belongs behind an owning RAII boundary;
-- whether evaluator and display responsibilities should remain together in
-  `RenderPipeline`;
-- whether `persist/DocumentActions` should depend on UI modules;
-- whether runtime/display lock ordering and the long source-preview critical
-  section should be made more explicit or reduced;
-- how future graph topology should replace the current reserved/shadow graph
-  fields rather than extending them ad hoc;
-- whether input/export sidecar capture should converge when versioned graph
-  persistence arrives;
-- whether `runExportJob` remains the intended synchronous test seam;
-- output/alpha/spatial contracts already deferred for masks/compositing.
-
-The checkpoint should also note the pre-existing dead `uploadTexture` path and
-the mutation-ordering test gap found during review, without treating either as
-an architectural decision by itself.
+The completed gates are stabilisation/review work, not extra numbered
+architecture steps. The checkpoint validates the direction for the next stage,
+not a permanent or finished architecture.
 
 The architectural goal is to make future changes cleaner across the application:
 new features should plug into the graph, render runtime, display path, export
@@ -433,33 +403,61 @@ Important accepted implementation constraints:
 - caches, parallel branches, ROI/tile scheduling and job systems remain
   deliberately deferred.
 
-Before DAG/mask feature implementation, the exact first mask UX/graph contract
-still needs a product decision. A global alpha association remains separately
-deferred until transparent compositing or alpha-carrying I/O requires it.
+Step 5 must settle at least:
+
+- the first mask type and real use case;
+- how list view maps to topology and whether a masked adjustment is one compound
+  row/block;
+- how mask coverage interacts with image alpha, RGB mixing and base-input alpha
+  handling, preserving D034's accepted separation of mask and image alpha;
+- ownership/meaning of opacity and effect strength;
+- multi-input dimension mismatch policy;
+- required/optional inputs and missing-input behaviour;
+- branch colour policy;
+- coordinate space if the first mask is geometric, preferably using
+  resolution-independent document semantics;
+- mask visualization/inspection;
+- empty-graph interpretation behaviour.
+
+Step 5 settles enough product/architectural semantics, including mixing
+semantics where necessary, to define the required graph shape before topology
+work. Step 8 implements the first mask path and settles remaining concrete
+representation, range, filtering/sampling and blend-encoding details that need
+not be fixed during Step 5.
+
+These remain decision topics, not contracts chosen by checkpoint closure.
+Simple UI must not imply a weaker internal graph model: a masked adjustment may
+be one logical editing unit while the document remains a genuine graph. Masks
+and effect strength belong in graph-native operations rather than requiring
+every processor backend to understand masking. Do not add masked-processor
+renderer state, a special mask scheduler, mask fields that bypass the graph, or
+mandatory opacity in every processor backend merely because the list places
+opacity beside an adjustment. This does not rule out generic graph/evaluator-level
+opacity; exact ownership remains a Step 5 decision. Explicit mix/blend ownership
+of opacity/coverage is a likely direction to settle in Step 5, not a newly
+accepted contract here.
+
+Do not start DAG implementation until this first mask/graph contract is settled.
+Global alpha association remains separately deferred until transparent
+compositing or alpha-carrying I/O requires it.
 
 ## Near-term roadmap
 
-Immediate work:
+Current architecture/product-contract work:
 
-- perform the whole-architecture checkpoint against RawNode's product goals and
-  the pinned vkdt reference before mask/topology feature work.
+- Step 5: decide the first mask/graph product contract using the topics above.
 
-The OpenFX multithread lifetime stabilisation item is complete in PR #48. The
-behaviour-preserving human-readability/source-organisation pass is complete in
-PR #50 after independent review and macOS validation.
+The checkpoint and immediate follow-ups are complete. No additional broad
+architecture cleanup is required before this discussion.
 
-The readability pass should follow and refine the lightweight durable guidance
-in `docs/CODE_STYLE.md`, favouring top-down reading order, clear file
-responsibility, obvious ownership/locking, domain-oriented names and comments
-that explain invariants/why rather than narrating syntax.
+Colour-management design and DCTL/LUT or other processor work may continue
+independently when appropriate. Step 5 is not a prerequisite for that unrelated
+work, provided it does not pre-empt the unsettled graph/mask contract or introduce
+conflicting architecture.
 
-After the architectural baseline is clean:
-
-- resume colour-management design;
-- continue DCTL/LUT and other processor work;
-- settle the first mask/graph product contract;
-- introduce the simple executable DAG and versioned topology persistence;
-- add masks/compositing incrementally.
+The architecture track proceeds from the Step 5 contract to generic explicit
+topology/evaluation in Step 6, versioned topology persistence in Step 7, and the
+first concrete mask path with remaining implementation details in Step 8.
 
 Do not introduce speculative caches, schedulers or broad optimisation
 infrastructure merely because a future DAG could use them.
