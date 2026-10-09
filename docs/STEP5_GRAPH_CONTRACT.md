@@ -17,6 +17,8 @@ It is intentionally a working document. Items marked **Accepted** are the curren
 - [x] Clarified qualifier as a standalone Mask-producing node
 - [x] Clarified Mask as scalar coverage rather than grayscale RGB
 - [x] Clarified no automatic intermediate colour-space propagation
+- [x] Accepted raster/reference spatial model as current Step 5 direction
+- [ ] Independent narrow spatial-model challenge by Codex and Claude
 - [ ] Settle remaining Step 5 implementation contracts
 - [ ] Review this document against current source
 - [ ] Close Step 5 in durable architecture / decision docs
@@ -61,7 +63,9 @@ The qualifier is not hidden inside Exposure. It is a reusable graph node.
 
 ### Accepted: Image
 
-An Image is floating-point image data plus the spatial information required to know where its pixels belong.
+An Image is floating-point RGBA raster data with width and height.
+
+The first graph does **not** automatically attach source-coordinate provenance, a canvas offset, or a propagated spatial transform to every intermediate Image.
 
 The initial graph does **not** automatically propagate a colour-space / transfer-function tag with every intermediate Image.
 
@@ -175,7 +179,17 @@ Rectangle       → Mask
 future Pen/Path → Mask
 ```
 
-Geometric generators do not require RGB pixels merely to generate their shape, but they do require a defined document/spatial reference.
+Geometric generators do not require RGB samples merely to generate their shape.
+
+They use an optional **Reference Image** input to determine the raster frame in which the Mask is generated. If no Reference is connected, the document Source is the default reference.
+
+Conceptually:
+
+```text
+Reference Image → Radial Gradient → Mask
+```
+
+The Reference is dimensional/spatial context, not a colour-sampling input.
 
 ### Accepted: Mask processor / combiner
 
@@ -254,19 +268,23 @@ Example:
 
 is a 50% interpolation between input and the +1 EV result. It is not defined as +0.5 EV.
 
-### Open: spatially incompatible processor output
+### Accepted: generic self-mixing requires compatible raster dimensions
 
-The generic wrapper needs a precise rule when a processor changes raster dimensions or spatial mapping.
+The generic wrapper is governed by raster compatibility rather than a processor whitelist.
 
-This is a generic value-compatibility question, not a processor whitelist.
+If a node is evaluated as full-strength Normal processing with no Mask, its processor result may change dimensions.
 
-Likely initial behaviour:
+If the node requires pixelwise self-mixing because:
 
-- full-strength Normal processing may forward the processor result;
-- any operation that requires pixelwise mixing / Mask application requires compatible spatial domains;
-- otherwise evaluation reports a clear incompatibility until an explicit alignment/reformat operation exists.
+- a Mask is connected;
+- Strength is less than 1; or
+- Blend Mode is non-Normal;
 
-This must be settled before Step 6 evaluator implementation.
+then the processor output width and height must match the node's Image input width and height.
+
+If the dimensions do not match, evaluation reports a clear incompatibility. RawNode does not implicitly resize, resample, align or reproject the result.
+
+This is intentionally generic. Crop, OFX, native and future processor types are governed by the same rule.
 
 ## Blend modes
 
@@ -441,69 +459,132 @@ Exact Parallel Mixer arithmetic remains open.
 
 ## Spatial model
 
-### Accepted: dimensions alone are insufficient
+### Accepted: raster-local semantics for the first DAG
 
-Two images can have equal width/height while referring to different regions of the document.
+RawNode's first DAG uses a deliberately small spatial contract.
 
-Example:
+Graph values carry their raster dimensions, but the evaluator does **not** automatically propagate source-coordinate transforms, canvas offsets, semantic alignment metadata or ROI state through every intermediate value.
 
-```text
-1000×1000 crop from top-left
-1000×1000 crop from bottom-right
-```
-
-Those buffers are not spatially interchangeable.
-
-A Mask also needs to know the spatial domain to which its samples apply.
-
-### Strong candidate: minimal document-space descriptor
-
-Step 6 should carry enough spatial information to determine whether graph values are aligned.
-
-The intent is deliberately smaller than a full ROI/tile scheduler.
-
-Candidate conceptual data:
+Conceptually:
 
 ```text
-SpatialDomain
-    reference/document identity
-    raster width
-    raster height
-    mapping between raster and document/reference coordinates
+Image
+    RGBA float raster
+    width
+    height
+
+Mask
+    scalar [0,1] raster
+    width
+    height
 ```
 
-The exact representation is **Open**.
+Pixelwise operations require matching raster dimensions.
 
-The design should borrow established concepts rather than inventing a large RawNode-specific geometry system.
+Equal dimensions are treated as numerically compatible. RawNode does not attempt to determine whether two equal-size buffers represent the same original source region or the same geometric transform. If the user connects them, the operation combines corresponding raster coordinates.
 
-Useful references include:
+This is deliberate user control rather than semantic policing.
 
-- OpenFX canonical coordinates vs pixel coordinates / Region of Definition;
-- GIMP layer extents and offsets relative to the canvas;
-- Natron image bounds / merge extents;
-- vkdt ROI propagation and its documented drawn-mask/transform limitations;
-- Resolve's distinction between input, node and output sizing.
+### Accepted: no implicit spatial conversion
 
-### Accepted constraints for the first DAG
+The first DAG performs no automatic:
 
-- no automatic resize/reformat;
-- no ROI/tile scheduler;
-- no branch-specific spatial optimisation;
-- incompatible spatial domains should not be silently treated as aligned;
-- geometric Mask parameters must not be stored in preview-pixel coordinates;
-- preview and full-resolution export must describe the same document-space shape.
+- resize;
+- resample;
+- reprojection;
+- branch alignment;
+- canvas-offset reconciliation;
+- source-coordinate remapping.
 
-### Open spatial decisions
+Different-size values require an explicit future Resize / Reformat / Transform / Align operation where such behaviour is desired.
 
-Before Step 6 implementation, settle at minimum:
+No ROI/tile scheduler or automatic branch-specific spatial optimisation is introduced in Step 6.
 
-- exact `SpatialDomain` representation;
-- reference frame / origin convention;
-- pixel-centre convention if needed;
-- preview-scale representation;
-- how Crop/rotation/geometry-changing operations describe their output mapping;
-- what happens when the mapping is unknown;
-- exact compatibility test for pixelwise Mask/mix/mixer operations.
+### Accepted: geometric Mask generators use a Reference Image
+
+Geometric Mask generators use an optional Reference Image input.
+
+```text
+Reference Image → Radial / Gradient / Pen → Mask
+```
+
+The generator does not inspect the Reference's RGB values merely to draw the shape. The Reference defines the raster frame and dimensions in which the Mask is generated.
+
+If Reference is absent:
+
+```text
+Reference = document Source
+```
+
+This keeps the common graph visually simple while allowing an explicit alternative reference when required.
+
+Example after Crop:
+
+```text
+Source → Crop ───────────────→ Exposure
+          │                       ↑
+          └→ Radial.reference     │
+                 │                │
+                 └──── Mask ──────┘
+```
+
+The Radial is generated in the cropped frame because Crop is its explicit Reference.
+
+### Accepted: resolution-independent geometry
+
+Geometric-mask parameters must not be stored in preview-pixel coordinates.
+
+Initial convention:
+
+- positions use normalized x/y coordinates relative to the Reference frame;
+- distances such as radius / feather use a documented fraction of the shorter Reference dimension so circular geometry remains isotropic on non-square images.
+
+The same saved geometry therefore describes the same relative shape at preview and full-resolution evaluation.
+
+Pixel-aware generators such as Qualifier already inherit the raster dimensions of their Image input.
+
+Mask→Mask processors preserve dimensions unless an explicit operation declares otherwise.
+
+Mask combiners require equal dimensions.
+
+### Accepted: Crop is recommended late, not restricted
+
+RawNode may recommend keeping final creative Crop late in a photographic workflow because it is simple and keeps the full image available to upstream processing.
+
+Crop is nevertheless legal anywhere in the graph.
+
+A geometry-changing node is not treated as a special processor category. The generic self-mixing rule above determines whether Mask / Strength / non-Normal Blend can be applied.
+
+### Why RawNode does not adopt a larger spatial system now
+
+Other software demonstrates richer valid approaches:
+
+- OpenFX separates canonical coordinates from actual pixel coordinates and carries Region-of-Definition / render-scale concepts;
+- GIMP uses canvas-relative layer extents and offsets;
+- Natron tracks image bounds for compositing;
+- vkdt propagates ROI information and has transform-aware spatial behaviour;
+- darktable keeps crop late for useful photographic workflow while internally transforming masks through its ordered pixelpipe.
+
+Those systems solve requirements that RawNode's first DAG does not currently have.
+
+RawNode is intentionally deferring:
+
+- automatic mask reprojection through transforms;
+- automatic alignment of branches;
+- general canvas/bounding-box compositing;
+- ROI propagation;
+- transform-aware retouch coordinates.
+
+If a future real workflow requires those capabilities, spatial metadata may be added to graph values as an additive capability. It should not be introduced pre-emptively in Step 6.
+
+### Narrow review gate
+
+Before Step 6 starts, Codex and Claude should independently try to break this minimal raster/reference model with concrete RawNode graphs.
+
+A richer per-value SpatialDomain should be added only if a reviewer can show a required near-term workflow that:
+
+1. cannot be represented cleanly using raster dimensions plus an explicit Reference Image; and
+2. would force a graph redesign rather than being an additive future capability.
 
 ## External masks
 
@@ -623,9 +704,8 @@ A sensible internal implementation sequence is:
 
 ```text
 1. Graph value model
-      Image
-      Mask
-      spatial descriptor
+      Image raster + dimensions
+      Mask raster + dimensions
 
 2. Port model
       fixed named ports
@@ -667,13 +747,12 @@ Do not add:
 
 The remaining implementation-level decisions are intentionally small:
 
-1. **SpatialDomain representation and compatibility rules.**
-2. **Exact graph/port data shape**, including repeated slot identity and ordering.
-3. **Generic wrapper behaviour when processor output changes dimensions/spatial mapping.**
-4. **Exact unavailable-state propagation**, especially how a missing Mask disables its dependent effect while preserving the graph.
-5. **Mask-generator bypass behaviour.**
-6. **Minimum requested-endpoint mechanism for Mask inspection**, or whether that waits until the first mask implementation.
-7. **How Step 6 gates V2 save/copy/autosave paths** until Step 7 can persist topology safely.
+1. **Exact graph/port data shape**, including repeated slot identity and ordering.
+2. **Exact unavailable-state propagation**, especially how a missing Mask disables its dependent effect while preserving the graph.
+3. **Mask-generator bypass behaviour.**
+4. **Minimum requested-endpoint mechanism for Mask inspection**, or whether that waits until the first mask implementation.
+5. **How Step 6 gates V2 save/copy/autosave paths** until Step 7 can persist topology safely.
+6. **Confirm the accepted raster/reference spatial model survives the narrow Codex/Claude challenge review.**
 
 The following do **not** need to block Step 6:
 
@@ -692,10 +771,11 @@ The following do **not** need to block Step 6:
 
 ## Proposed next steps
 
-1. Resolve the seven implementation-level questions above, beginning with the spatial model and graph/port shape.
-2. Update this working document with the accepted answers.
-3. Ask Codex for an implementation-readiness review against current source without coding.
-4. Ask Claude for an independent adversarial recheck of the final Step 5 contract.
-5. Distill accepted Step 5 decisions into `docs/DECISIONS.md`, `docs/ARCHITECTURE.md`, and `docs/PROJECT_CONTEXT.md`.
-6. Close Step 5.
-7. Begin Step 6 with a focused implementation plan and regression tests.
+1. Run independent Codex and Claude challenge reviews of the accepted raster/reference spatial model.
+2. If no graph-breaking case is demonstrated, retain the minimal model and avoid adding SpatialDomain machinery.
+3. Settle the remaining graph/port, unavailable-state, mask-generator bypass, mask-inspection and V2-gating details.
+4. Ask Codex for an implementation-readiness review against current source without coding.
+5. Ask Claude for an independent adversarial recheck of the final Step 5 contract.
+6. Distill accepted Step 5 decisions into `docs/DECISIONS.md`, `docs/ARCHITECTURE.md`, and `docs/PROJECT_CONTEXT.md`.
+7. Close Step 5.
+8. Begin Step 6 with a focused implementation plan and regression tests.
