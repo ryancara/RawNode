@@ -883,7 +883,7 @@ An explicit Reference is a normal graph dependency. It participates in:
 - shared-upstream evaluation;
 - intermediate lifetime.
 
-A connected but unavailable Reference does **not** silently fall back to Source. It makes that Mask unavailable, and the dependent masked effect follows the fail-closed unavailable rule.
+A connected but unavailable Reference does **not** silently fall back to Source. It makes that Mask unavailable; the dependent Mask use then follows the accepted fail-open rule: full coverage plus a persistent warning.
 
 A geometric generator has one Reference and one output raster per evaluation. Its output never changes frame according to whichever consumer asks for it.
 
