@@ -20,7 +20,12 @@ It is intentionally a working document. Items marked **Accepted** are the curren
 - [x] Accepted raster/reference spatial model as current Step 5 direction
 - [x] Independent narrow spatial-model challenge by Codex and Claude
 - [x] Reconciled spatial review: no per-value SpatialDomain; small evaluator-contract extensions accepted
-- [ ] Settle remaining Step 5 implementation contracts
+- [x] Independent Codex / Claude port-model review
+- [x] Settled fixed-port / repeated-slot representation
+- [x] Settled missing Mask / Reference full-coverage fallback + warning
+- [x] Settled Mask-generator bypass = full coverage
+- [x] Settled that old V2 compatibility is not a product requirement
+- [ ] Final Step 5 implementation-readiness review
 - [ ] Review this document against current source
 - [ ] Close Step 5 in durable architecture / decision docs
 - [ ] Begin Step 6 implementation
@@ -341,58 +346,64 @@ Still to settle later:
 
 ### Accepted product direction
 
-Unavailable processors/effects remain present in the document and sidecar.
+Unavailable processors/effects remain represented in the document.
 
-Their identity, parameters and graph connections must be preserved so reinstalling the missing dependency can restore the edit.
+Their identity, parameters, declared interface and graph connections must be preserved so reinstalling or relinking the dependency can restore the edit.
 
 Missing state is not the same as user bypass state.
 
-RawNode must show a persistent warning.
+RawNode must show a persistent warning when a connected dependency is unavailable.
 
-### Accepted safety behaviour
+### Accepted: missing Mask / Reference is fail-open with warning
 
-A missing Mask dependency must never silently become white, because that could widen a local edit into a global edit.
-
-If a connected Mask dependency is unavailable, the dependent masked effect should fail closed / contribute no effect rather than become global.
-
-The graph and connection remain intact in the sidecar.
-
-A missing ordinary image effect may be bypassed for evaluation while remaining present and warned about.
-
-Export may continue with an explicit warning that unavailable effects were omitted. This is intentionally closer to RawNode's current missing-plugin philosophy than treating every unavailable dependency as a hard export failure.
-
-The exact warning / UI presentation can be implemented later.
-
-### Accepted: unavailable dependency is different from an invalid evaluation
-
-RawNode distinguishes recoverable unavailability from a graph/value incompatibility.
-
-If an unavailable node exists anywhere in a Mask's dependency closure, including a connected Reference path:
-
-- preserve the node, parameters and connections;
-- mark the Mask unavailable;
-- make the dependent masked effect fail closed / contribute no effect;
-- show a persistent warning.
-
-An absent Reference is not unavailable. It resolves to the document Source for the current evaluation.
-
-A user bypass remains a normal pass-through according to the bypass rules. It must not be treated as a missing dependency.
-
-By contrast, if all required values evaluate successfully but their raster dimensions are incompatible for a pixelwise operation, that requested evaluation is invalid:
+Ryan's chosen product behaviour is deliberately simple:
 
 ```text
-valid Image + valid Mask + mismatched dimensions
-    → evaluation error
+Mask input unconnected
+    → full coverage
 
-export evaluation error
-    → export refuses
+connected Mask unavailable
+    → full coverage + persistent warning
+
+Mask generator's connected Reference unavailable
+    → generator cannot produce its intended Mask
+    → downstream Mask use falls back to full coverage + persistent warning
 ```
 
-Dimension mismatch is therefore not silently converted into fail-closed behaviour.
+In other words, a missing/unavailable Mask or Reference behaves as though no Mask is restricting the dependent effect.
+
+For an ordinary Image adjustment this means the adjustment becomes global.
+
+For a Layer Mixer slot, an absent or unavailable slot Mask means that layer contributes at full coverage.
+
+The connection/state remains represented. RawNode must not delete the edge or silently convert "connected but unavailable" into "never connected", because restoring the dependency should restore the intended edit.
+
+This is a deliberate fail-open product choice. The persistent warning is therefore important.
+
+### Accepted: unavailable is different from invalid
+
+Availability and numerical graph validity are separate.
+
+If all required values evaluate successfully but cannot legally participate in the requested operation, that is a hard evaluation error.
+
+Example:
+
+```text
+Image 6000×4000
+Mask  3000×2000
+
+→ dimension incompatibility
+→ requested evaluation fails
+→ export refuses
+```
+
+A dimension mismatch is not treated as a missing Mask and does not fall back to global coverage.
+
+A missing ordinary unary Image effect may continue to use RawNode's existing "preserve + warn + bypass/pass-through where possible" philosophy. More complex unavailable graph operations should preserve their interface/state and use the narrowest operation-specific fallback that is actually defined rather than deleting topology.
 
 ## Bypass
 
-### Accepted
+### Accepted: ordinary graph operations
 
 Unary Image processor bypass:
 
@@ -406,84 +417,324 @@ Unary Mask processor bypass:
 pass Mask input through unchanged
 ```
 
-Mixer bypass should forward its defined base / background input.
-
-### Open: Mask-generator bypass
-
-There is no universal scalar output that is neutral for every possible consumer.
-
-White is neutral for an ordinary adjustment Mask input but is not neutral for every Add / Intersect / Subtract / Invert graph.
-
-Do not hard-code `generator bypass = white` as a durable graph rule.
-
-Possible product behaviours include:
-
-- no generic bypass for source-like Mask generators;
-- disabling/disconnecting a particular Mask use;
-- an explicit constant-output override.
-
-Settle this separately from missing/unavailable behaviour.
-
-## Repeated ports / mixer-ready topology
-
-### Strong candidate for Step 6
-
-Step 6 should support a richer port model immediately rather than implementing only fixed one-off named inputs and redesigning it later for mixers.
-
-Required concepts:
-
-- stable node identities;
-- typed Image / Mask endpoints;
-- named input/output ports;
-- zero-input generators;
-- one source per scalar input;
-- fan-out;
-- joins;
-- cycle rejection;
-- required / optional inputs;
-- stable ordered repeated input groups / slots;
-- named outputs;
-- one authoritative document Image output.
-
-A repeated slot may conceptually contain:
+Mixer bypass:
 
 ```text
-stableSlotId
-image : Image
-mask  : Mask?
-slot parameters
+pass its defined base / background Image through
 ```
 
-This does not require implementing Layer Mixer in Step 6.
+### Accepted: Mask-generator bypass = full coverage
 
-It ensures the graph can represent it later without redesigning the port model.
+A source-like Mask generator such as Radial, Gradient or future Pen/Path has no Mask input to pass through.
 
-### Candidate Layer Mixer shape
+Its generic bypass result is therefore:
+
+```text
+Mask = 1.0 everywhere in the generator's evaluated frame
+```
+
+So:
+
+```text
+Radial enabled
+    → Radial Mask
+
+Radial bypassed
+    → full-coverage Mask
+    → dependent adjustment applies globally
+```
+
+The Mask connection remains intact, so re-enabling the generator immediately restores its contribution.
+
+This is a defined numerical bypass result, not hidden graph rewiring.
+
+For downstream Mask combiners, the white result participates in their normal maths. "Bypass" therefore does not mean "remove this node from an arbitrary Mask expression"; it means "this generator currently produces full coverage".
+
+## Port model / mixer-ready topology
+
+### Accepted: static named typed port declarations
+
+Each node kind declares a small immutable interface in code.
+
+Ports are:
+
+- named by stable semantic IDs;
+- explicitly input or output;
+- typed `Image` or `Mask`;
+- required or optional.
+
+Examples:
+
+```text
+Exposure
+    inputs
+        image : Image required
+        mask  : Mask optional
+    outputs
+        image : Image
+
+Qualifier
+    inputs
+        image : Image required
+    outputs
+        mask : Mask
+
+Radial
+    inputs
+        reference : Image optional
+    outputs
+        mask : Mask
+```
+
+Port labels, UI position and translated display names are presentation only.
+
+Fixed ports do not need per-instance runtime socket objects. Known node kinds can share immutable declarations.
+
+### Accepted: consumer-owned incoming connections
+
+Each scalar input accepts at most one producer, so RawNode stores the upstream output on the consuming input rather than maintaining a second authoritative global edge list.
+
+Conceptually:
+
+```text
+Node.fixedInputs
+    portId → optional OutputRef
+
+Slot.inputs
+    portId → optional OutputRef
+```
+
+Output fan-out is represented by multiple consumers referring to the same `OutputRef`.
+
+Any UI edge list, adjacency index or "find consumers" map is derived data, not a second topology authority.
+
+This makes "two producers connected to one input" impossible by construction and lets deleting a slot delete its incoming connections with that slot.
+
+### Accepted: typed endpoint/address concepts
+
+Use direction-aware C++ concepts rather than requiring input and output port names to be globally unique.
+
+Conceptually:
+
+```text
+OutputRef
+    nodeId
+    outputPortId
+
+InputAddress
+    nodeId
+    optional slotId
+    inputPortId
+```
+
+Therefore an ordinary processor may naturally use `image` as both an input and output semantic name if desired; direction disambiguates them.
+
+Examples:
+
+```text
+Qualifier.output(mask)
+Exposure.input(mask)
+
+LayerMixer.slot(7).input(image)
+LayerMixer.slot(7).input(mask)
+```
+
+Persist these as structured components rather than delimiter-encoded strings.
+
+### Accepted: ordered node-owned repeated slots
+
+Nodes that need a variable number of associated inputs/settings own an ordered vector of Slots.
+
+A Slot has:
+
+```text
+stable SlotId
+its incoming connections
+its slot-local settings
+```
+
+The slot's **position in the vector is semantic order**.
+
+The SlotId is identity.
+
+These must never be conflated.
+
+A SlotId:
+
+- is scoped to its owning node;
+- is stable across reorder, reconnect and parameter changes;
+- is persisted once graph persistence exists;
+- is never derived from vector position or producer identity;
+- should be monotonic / not reused within that node.
+
+Use a strong SlotId type so vector indices cannot be passed accidentally where identity is required.
+
+There is no current requirement for more than one repeated slot collection on a node, so Step 6 does not need a persisted `GroupId`. If a future node genuinely needs multiple independent repeated collections, that can be added without changing Node/Port/Connection topology.
+
+### Accepted: one authoritative slot order
+
+Store semantic order only as the order of the Slot vector.
+
+Do not also persist an `order` field on each Slot.
+
+For Layer Mixer:
+
+```text
+slots = [A, B, C]
+
+evaluation:
+    background
+      → A
+      → B
+      → C
+```
+
+After the user drags C above A:
+
+```text
+slots = [C, A, B]
+
+evaluation:
+    background
+      → C
+      → A
+      → B
+```
+
+Slot C keeps its:
+
+- Image connection;
+- Mask connection;
+- opacity;
+- blend mode;
+- future slot-local settings.
+
+Only its position changes.
+
+Visible labels such as "Layer 1", "Layer 2", "Layer 3" are derived from current position and are not durable identities.
+
+### Accepted: slot-local settings live on the Slot
+
+Layer Mixer concept:
 
 ```text
 background : Image
 
-layers : ordered repeated group
-    stableSlotId
-    image      : Image
-    mask       : Mask?
+slots : ordered
+    SlotId
+    image : Image
+    mask  : Mask?
     opacity
     blendMode
 ```
 
-Layer blend / opacity belongs to the mixer slot because the same producer Image may feed more than one mixer with different compositing settings.
+The producer does not own these settings because one producer may feed several mixer slots with different settings.
 
-### Candidate Parallel Mixer shape
+Do not use parallel arrays such as:
+
+```text
+images[i]
+masks[i]
+opacities[i]
+blendModes[i]
+```
+
+The Slot object keeps the association explicit.
+
+### Accepted: Parallel Mixer uses the same topology primitive
+
+Parallel Mixer concept:
 
 ```text
 base : Image
 
-branches : ordered/repeated Image inputs
+slots : ordered
+    SlotId
+    image : Image
+    future branch-local settings if ever needed
 ```
 
-The explicit Base prevents the mixer from having to infer the common ancestor from topology.
+Its exact arithmetic remains open.
 
-Exact Parallel Mixer arithmetic remains open.
+Slot order is stored deterministically even if the eventual equation is mathematically commutative.
+
+Layer Mixer and Parallel Mixer are separate node kinds with separate operation semantics. Reusing the Slot topology primitive does not imply identical slot settings or maths.
+
+### Accepted: Source and document output are explicit endpoints
+
+Source is a normal zero-input graph operation with an Image output.
+
+The document stores an explicit authoritative Image output endpoint rather than deriving output from node-storage order.
+
+Conceptually:
+
+```text
+primarySource
+    → Source.image
+
+documentOutput
+    → some Image OutputRef
+```
+
+A source-only document has Source as both.
+
+Requested inspection endpoints do not change `documentOutput`.
+
+### Accepted: graph validation rules
+
+At minimum validate:
+
+- unique Node IDs;
+- stable declared port IDs;
+- unique Slot IDs within a node;
+- endpoint existence;
+- output-to-input direction;
+- exact Image/Mask type compatibility;
+- at most one producer per destination input;
+- required/optional input rules;
+- required slot inputs;
+- an Image-valued document output;
+- cycles through all explicit dependencies, including repeated-slot and Reference inputs.
+
+Required inputs may temporarily be unconnected while the user is editing. Such a node is representable but cannot successfully evaluate when the requested result depends on it.
+
+Bypass or unavailability does not remove topology for structural cycle checking.
+
+### Accepted: index safety
+
+Durable graph operations use NodeId / SlotId / semantic port IDs, not list/vector indices.
+
+UI selection IDs and drag/drop payloads for graph objects should also use stable IDs.
+
+A useful regression fixture is deliberately out-of-order Slot IDs such as:
+
+```text
+slot vector = [3, 1, 2]
+```
+
+and tests that prove:
+
+- reorder changes semantic evaluation order;
+- Slot IDs do not change;
+- delete/insert does not renumber unrelated slots;
+- cycles through repeated inputs are rejected;
+- one producer may feed fixed and repeated consumers safely.
+
+### Accepted: current transitional structures are replaced, not extended
+
+The existing transitional `NodeInput` / `NodeInputRole` representation is not rich enough for explicit topology.
+
+Step 6 should replace it cleanly with named typed ports and consumer-owned references.
+
+Retain the useful concepts already present elsewhere:
+
+- stable Node identity;
+- Image/Mask distinction;
+- processor/backend identity;
+- preserved parameters;
+- RenderRuntime / DocumentMutation lifetime and mutation boundaries.
+
+Do not keep vector/list order as processing semantics once the graph lands.
 
 ## Spatial model
 
@@ -770,7 +1021,7 @@ A separate explicit operation can convert a colour Image to Mask using luminance
 
 Exact file decoding, filtering, asset references, relinking, orientation and persistence details can wait until the feature is implemented / Step 7 persistence work.
 
-Missing external assets make the Mask unavailable and follow the fail-closed unavailable-Mask rule. They must never silently become white.
+Missing external assets preserve their graph state and show a persistent warning. Under the accepted fail-open Mask rule, a dependent Mask use falls back to full coverage until the asset is relinked.
 
 ## Pen / path masks
 
@@ -836,30 +1087,62 @@ Do not let Step 6 accidentally make vector/list order authoritative again.
 
 ## Persistence boundary
 
-### Accepted
+### Accepted: old V2 compatibility is not a product requirement
 
-Sidecar V2 remains the current linear document format.
+RawNode currently has no external user base whose documents must constrain the new graph architecture.
 
-Step 6 must not silently flatten nonlinear topology into V2.
+The future graph sidecar format may therefore replace Sidecar V2 cleanly.
 
-Until Step 7 provides versioned graph persistence, nonlinear state must either remain unavailable to normal user editing or unsupported writes must be clearly gated/refused.
+Do not add migration machinery, compatibility layers or architectural compromises merely to preserve old development-sidecar semantics.
 
-Future persistence must preserve at least:
+A cheap one-way migration for developer test files may be added later if convenient, but it is optional.
 
-- stable node IDs;
-- node/backend identity;
-- parameters;
-- bypass/enabled state;
-- strength/mix;
-- blend mode identity;
-- typed connections;
-- named output ports;
-- repeated mixer-slot IDs and order;
-- document output;
-- missing/unavailable nodes;
-- external asset references where relevant.
+### Accepted: never silently flatten a graph through V2
 
-Exports do not receive RawNode sidecars.
+Removing backwards-compatibility requirements does **not** make silent corruption acceptable during development.
+
+Once Step 6 can represent topology that V2 cannot express:
+
+```text
+graph state not representable by current serializer
+    → refuse / disable that save path
+    → never flatten it into node-array order
+```
+
+This is only a temporary anti-corruption guard until Step 7 lands.
+
+No elaborate V2 gating architecture is required.
+
+### Step 7 graph persistence target
+
+The replacement format should persist at least:
+
+- stable Node IDs;
+- node kind/backend identity and schema/interface version where needed;
+- parameters and generic node controls;
+- fixed input references;
+- static/saved interface information sufficient to preserve unavailable or unknown nodes;
+- ordered Slot arrays;
+- stable Slot IDs and slot-local settings;
+- document Source/output endpoints;
+- missing/unavailable state and external asset references where relevant.
+
+Port IDs and node-kind IDs become persistence contracts. A rename requires an explicit alias/migration rather than positional guessing.
+
+Node array/storage order is not execution order.
+
+Copy/paste of a graph fragment should:
+
+- allocate fresh Node IDs for pasted nodes;
+- build one complete old→new NodeId map before rewriting references;
+- preserve semantic port IDs;
+- preserve Slot IDs when copying an entire node, because the new owning NodeId changes their scope;
+- allocate a fresh SlotId when duplicating a slot inside an existing node;
+- preserve slot order/settings;
+- copy internal references;
+- drop external incoming references unless the command explicitly defines a rebinding rule, with warnings for dropped Mask/Reference links.
+
+Exports remain derivative files and do not receive RawNode sidecars.
 
 ## Step 6 implementation target
 
@@ -879,10 +1162,11 @@ A sensible internal implementation sequence is:
       authoritative document output by default
 
 3. Port model
-      fixed named ports
-      repeated / variadic groups
-      stable slot IDs
-      typed endpoint references
+      static named typed port declarations
+      consumer-owned fixed inputs
+      ordered node-owned repeated Slots
+      stable Slot IDs
+      typed OutputRef / InputAddress concepts
       optional Reference Image ports
 
 4. Validation
@@ -936,37 +1220,45 @@ This OFX policy should be finalized before generic masking/strength on OFX ships
 
 ## Decisions still required before Step 6 coding
 
-The spatial architecture itself is now settled. The remaining implementation-level decisions are smaller:
+The Step 5 product/architecture contract is now substantially settled.
 
-1. **Exact graph/port data shape**, including repeated slot identity and ordering.
-2. **Unavailable-state representation / propagation mechanics**, implementing the accepted distinction between recoverable unavailability and hard graph/value incompatibility.
-3. **Mask-generator bypass behaviour.**
-4. **How Step 6 gates V2 save/copy/autosave paths** until Step 7 can persist topology safely.
+There are no remaining broad product-model decisions required before the final implementation-readiness review.
 
-The following are accepted Step 6 requirements rather than open questions:
+Accepted decisions now include:
 
-- no per-value SpatialDomain;
-- raster dimensions live on Image/Mask values;
-- per-evaluation `EvaluationContext`;
-- each node uses actual evaluated input dimensions;
-- Reference is a real graph dependency;
+- one authoritative graph;
+- typed Image / Mask values;
+- no automatic intermediate colour metadata;
+- minimal raster/reference spatial model;
+- per-evaluation context and actual input dimensions;
 - requested Image/Mask endpoint evaluation;
-- raster mismatch is a hard error for that requested evaluation;
-- export refuses on a hard evaluation incompatibility.
+- static named typed port declarations;
+- consumer-owned scalar input references;
+- ordered node-owned repeated Slots with stable Slot IDs;
+- semantic slot order separated from slot identity;
+- explicit Source/document output endpoints;
+- generic Image-node Mask / Strength / Blend ownership;
+- missing/unavailable Mask or Reference = full coverage + persistent warning;
+- Mask-generator bypass = full coverage;
+- valid-but-incompatible raster dimensions = hard evaluation error;
+- no backwards-compatibility requirement for Sidecar V2.
 
-The following should be resolved before their corresponding feature ships, but do **not** need to block the core DAG:
+The final Step 5 review should now look for:
 
-- OFX RoD→raster / render-scale / optional-mask-clip policy;
-- exact geometric coordinate convention before the first geometric generator is persisted;
+- contradictions or underspecified implementation boundaries;
+- a concrete case that still forces the implementer to invent architecture;
+- unsafe interaction with current RenderRuntime / DocumentMutation lifetime rules;
+- accidental retention of list/vector processing order;
+- persistence or copy/paste ambiguity that would force a topology redesign.
+
+The following still remain intentionally deferred until their corresponding feature:
+
+- exact geometric coordinate convention before the first persisted geometric generator;
+- OFX RoD→raster / render-scale / optional-mask-clip policy before generic OFX masking/strength ships;
 - full-resolution dimension-only preflight/warning;
-- External Mask decoding/filtering details;
-- native Crop / Resize rounding details beyond the generic deterministic-sizing rule.
-
-The following do **not** need to block Step 6:
-
 - Qualifier algorithm;
 - non-Normal blend maths;
-- Parallel Mixer equation;
+- Parallel Mixer arithmetic;
 - fractional Mask-combine maths;
 - Layer Mixer implementation;
 - arbitrary DAG List View presentation;
@@ -978,14 +1270,11 @@ The following do **not** need to block Step 6:
 
 ## Proposed next steps
 
-1. Settle the exact graph/port/repeated-slot data shape.
-2. Settle unavailable-state representation/propagation mechanics using the accepted fail-closed-vs-hard-error distinction.
-3. Settle Mask-generator bypass behaviour.
-4. Settle the temporary V2 persistence gate for Step 6.
-5. Ask Codex for a final implementation-readiness review against current source without coding.
-6. Ask Claude for an independent final adversarial recheck of the complete Step 5 contract.
-7. Distill accepted Step 5 decisions into `docs/DECISIONS.md`, `docs/ARCHITECTURE.md`, and `docs/PROJECT_CONTEXT.md`, including removal of the older branch-compatibility/spatial-metadata wording.
-8. Close Step 5.
-9. Begin Step 6 with a focused implementation plan and regression tests.
+1. Ask Codex for a final implementation-readiness review against the complete Step 5 contract and current source, without coding.
+2. Ask Claude for an independent final adversarial recheck of the same complete contract.
+3. Reconcile only concrete blockers or contradictions found by those reviews.
+4. Distill the accepted contract into `docs/DECISIONS.md`, `docs/ARCHITECTURE.md`, `docs/PROJECT_CONTEXT.md`, `CLAUDE.md` where appropriate, and remove superseded wording.
+5. Close Step 5 and merge the contract/docs PR.
+6. Begin Step 6 with a focused implementation plan and regression tests.
 
-The OFX adapter findings from the spatial review should be tracked as focused follow-up work and resolved before generic Mask / Strength / Blend is exposed on OFX nodes.
+The OFX adapter findings from the spatial review remain focused follow-up work and should be resolved before generic Mask / Strength / Blend is exposed on OFX nodes.
