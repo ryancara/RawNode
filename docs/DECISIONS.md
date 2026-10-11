@@ -194,7 +194,7 @@ A local-adjustment mask is a separate scalar/coverage concept from image alpha.
 The graph must be able to represent mask data without creating a separate
 rendering architecture.
 
-The exact first mask UX/graph contract is still pending.
+The Step 5 graph/mask product contract is settled. Mask remains a distinct typed graph value; the first concrete production mask path remains Step 8.
 
 ## D035 — Global alpha contract remains pending
 
@@ -255,9 +255,10 @@ further broad refactor justified before Step 5. Immediate checkpoint follow-ups
 regression) are complete. Remaining lifetime/exception-safety findings are
 focused, non-blocking follow-ups; see `docs/ARCHITECTURE_AUDIT.md`.
 
-**Step 5 is now current:** product/architecture decisions for the first
-mask/graph contract, before DAG implementation. Execution remains a serial node
-chain; Step 6 is the deliberate explicit topology/evaluator transition.
+**Step 5 is complete:** the first mask/graph product contract was independently
+reviewed by Codex and Claude and closed without another broad architecture
+refactor. Execution on main remains a serial node chain until Step 6 lands;
+Step 6 is now the deliberate explicit topology/evaluator transition.
 
 ## D038 — Sidecars belong to editable source documents only
 
@@ -278,36 +279,149 @@ on disk, but are not part of the product model and require no migration or
 deletion. Source-sidecar write reliability/atomic replacement remains separate
 Step 7 work.
 
+## D039 — Raster-local Image/Mask graph values
+
+**Status:** Accepted
+
+Graph values are deliberately minimal:
+
+- `Image` is floating-point RGBA raster data plus width/height.
+- `Mask` is scalar coverage in `[0,1]` plus width/height.
+- Mask is distinct from image alpha.
+
+The first DAG does not automatically propagate colour encoding, source-coordinate
+provenance, canvas offsets or a `SpatialDomain`. Operations that need colour
+interpretation declare it explicitly. Pixelwise operations use raster-coordinate
+correspondence and require compatible dimensions. No implicit resize, alignment
+or reprojection occurs.
+
+A small per-evaluation context carries render purpose and Source full/evaluated
+dimensions. Each operation receives the actual dimensions of its evaluated
+inputs.
+
+## D040 — Named typed ports, consumer-owned connections and stable Slots
+
+**Status:** Accepted
+
+Node kinds declare static named Image/Mask input/output ports with required or
+optional input status.
+
+Each single-producer input stores its upstream `OutputRef`; outputs fan out
+because several consumers may reference the same output. There is no second
+authoritative global edge list.
+
+Repeated/variadic inputs use node-owned ordered Slots. A Slot owns a stable
+node-local `SlotId`, its incoming references and its slot-local settings.
+Vector position is semantic processing order; SlotId is identity and must not be
+derived from position or producer. No persisted `GroupId` is required for the
+currently planned graph.
+
+## D041 — Explicit Source, document output and requested endpoint evaluation
+
+**Status:** Accepted
+
+Each document has one primary Source and an explicit authoritative Image
+`documentOutput`. Output is never inferred from node storage/list order.
+
+The sequential evaluator may request any named Image or Mask output for preview
+or inspection while normal preview/export requests `documentOutput`. Shared
+upstream work executes once per evaluation and intermediate values live only as
+long as required by that evaluation.
+
+## D042 — Fail-open Mask availability and numerical generator bypass
+
+**Status:** Accepted
+
+Unavailable Mask data propagates through required Mask-processing inputs unless
+an operation defines a narrower fallback. RawNode does not manufacture an
+upstream white raster for missing data.
+
+At an optional Mask coverage input, an unavailable Mask is treated as absent:
+the effect/layer uses full coverage, the connection is preserved, and a
+persistent warning is reported.
+
+A bypassed source-like Mask generator produces a real full-coverage Mask when
+its Reference frame resolves. If a connected Reference is unavailable, the
+generator output remains unavailable and the downstream coverage consumer uses
+the fail-open rule.
+
+Valid-but-incompatible raster dimensions remain a hard evaluation error and are
+never converted into fail-open behaviour.
+
+## D043 — Generic Image-node strength/blend ownership
+
+**Status:** Accepted
+
+Generic Mask, Strength/Mix and Blend are graph/node concerns, not mandatory
+features inside every processor backend.
+
+Normal is the first executable blend mode. Non-Normal maths remains feature work.
+
+Full-strength Normal processing with no available Mask may change dimensions.
+If pixelwise self-mixing is required by an available Mask, Strength < 1 or a
+non-Normal blend, the participating rasters must have compatible dimensions.
+
+Step 6 builds the typed graph/evaluator and proves these contracts with test
+operations; the first concrete user-facing Mask application path remains Step 8.
+
+## D044 — Step 6 uses the existing runtime ownership boundary
+
+**Status:** Accepted
+
+The first DAG remains sequential and runs under the existing `RenderRuntime`,
+`DocumentMutation`, export exclusion, cancellation and shutdown ownership.
+
+Structural edits are staged/validated and committed through
+`DocumentMutation`. Node-owned mutable controls must be read race-free by the
+worker through atomics/locking or a consistent per-evaluation snapshot.
+
+Evaluation diagnostics travel with the requested result. Successful fail-open or
+pass-through fallbacks may export with warnings; hard graph/value errors refuse
+export. Warnings are derived from reachable dependencies.
+
+## D045 — Sidecar V2 does not constrain graph persistence
+
+**Status:** Accepted
+
+RawNode has no external user base requiring Sidecar V2 backwards compatibility
+to constrain the explicit graph.
+
+Step 7 may replace V2 with a graph-native versioned format. Until then, any
+save/autosave/clipboard/preset path that cannot represent the Step 6 graph must
+refuse or be disabled rather than silently flattening topology.
+
+V2 remains documented as the historical/current linear format until replacement.
+
+## D046 — Step 6 List View is a topology view, not execution order
+
+**Status:** Accepted
+
+For the Step 6 UI subset, List View derives the main Image spine from
+`documentOutput` upstream through unary Image inputs.
+
+Insert/paste/move/delete are explicit topology-splice operations addressed by
+stable IDs and committed as document mutations. Storage/list order has no
+independent processing semantics.
+
+Arbitrary-DAG List View presentation remains deferred.
+
 ## Pending decisions
 
-Step 5 — product/architectural contract before topology work:
+The following remain intentionally deferred until the corresponding feature:
 
-- graph-native masks versus the exact first per-node mask UX;
-- list/graph attachment and opacity/effect-strength ownership/meaning;
-- enough mixing and mask-coverage/alpha interaction semantics to define graph
-  shape, preserving D034's accepted mask/image-alpha separation;
-- multi-input dimension mismatch policy;
-- missing/bypassed multi-input node semantics;
-- branch colour mismatch policy;
-- spatial coordinate semantics if the first mask is geometric.
-
-Before versioned graph persistence:
-
-- graph-sidecar version policy;
-- subgraph copy/paste topology rules.
-
-Step 8 — remaining concrete first-mask details and implementation:
-
-- concrete mask representation/range/filtering/sampling;
-- concrete blend encoding where not already required by Step 5;
-- unavailable mask/compositor behaviour.
-
-Before transparent compositing or alpha-carrying I/O:
-
-- formal alpha association;
-- hidden colour at zero alpha;
-- TIFF/EXR/OpenFX adaptation;
-- JPEG flattening/background policy where relevant.
+- exact Qualifier algorithm;
+- exact geometric-mask coordinate convention before geometric parameters are
+  persisted;
+- fractional Add / Intersect / Subtract Mask maths;
+- non-Normal blend formulas/domain;
+- Parallel Mixer arithmetic;
+- detailed Layer Mixer compositing and alpha interaction;
+- arbitrary-DAG List View presentation;
+- global alpha association and transparent compositing policy;
+- OFX RoD/render-scale/project-size/internal-mask policy before generic
+  Mask/Strength/Blend is exposed on OFX;
+- External Mask decoding/filtering/asset details;
+- ROI, tiling, caches and graph parallelism.
 
 ## Approved near-term migration
 
@@ -318,8 +432,8 @@ Before transparent compositing or alpha-carrying I/O:
 
 The D037 stabilisation gate and immediate checkpoint follow-ups are complete.
 
-5. Settle the first mask/graph product contract — current decision work.
-6. Introduce topology and sequential DAG evaluation together.
+5. Settle the first mask/graph product contract — complete.
+6. Introduce topology and sequential DAG evaluation together — current.
 7. Add versioned graph persistence.
 8. Settle remaining concrete mask details and add the first mask path under the
    Step 5 contract.
