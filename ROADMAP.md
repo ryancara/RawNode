@@ -44,10 +44,10 @@ no further broad refactor is justified before Step 5. Immediate follow-ups #53
 complete. Remaining focused findings are recorded in
 `docs/ARCHITECTURE_AUDIT.md` and do not block Step 5.
 
-- **Step 5 — current:** settle the first mask/graph product contract through
-  decision work before implementation; see `docs/PROJECT_CONTEXT.md`.
-- Step 6: transition from today's serial chain to explicit topology and a
-  sequential DAG evaluator together.
+- **Step 5 — complete:** the first mask/graph product contract is settled and
+  independently reviewed; see `docs/STEP5_GRAPH_CONTRACT.md`.
+- **Step 6 — current:** transition from today's serial chain to explicit topology
+  and one sequential requested-endpoint DAG evaluator.
 - Step 7: versioned graph persistence.
 - Step 8: first concrete mask path and remaining implementation details under
   the Step 5 product/architectural contract.
@@ -120,11 +120,17 @@ scheduler without a concrete product need.
 
 Allow switching between graph and list views of the same processing structure.
 
-Initially both should represent the existing serial chain.
+Step 6 makes the graph authoritative. The List View derives a main Image spine
+from explicit topology; moving rows must rewrite topology rather than reorder
+storage.
+
+The Node View and List View remain two presentations of the same document.
 
 Add number-key node selection.
 
-Enable branching only when a concrete use case justifies it.
+Branching, typed Mask endpoints and future mixers use the same graph. Arbitrary
+DAG List View presentation may remain simple until concrete workflows require
+more.
 
 ## Assignable input system
 
