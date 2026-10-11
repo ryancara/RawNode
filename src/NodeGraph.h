@@ -9,7 +9,8 @@ Node *findNode(App &app, const NodeId &id);
 const Node *findNode(const App &app, const NodeId &id);
 const PortDeclaration *findOutput(const App &app, const OutputRef &output);
 const std::optional<OutputRef> *findInput(const App &app, const InputAddress &input);
-// Phase 1 state invariants only. Required connections/types/cycles are 6B.
+// Structural validation includes all stored edges/types/cycles. Disconnected
+// required inputs remain representable; see requestedGraphError for readiness.
 // Empty means valid; otherwise the first invariant violation is returned.
 std::string documentStateError(const App &app);
 

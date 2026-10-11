@@ -82,6 +82,8 @@ enum class NodeOperation {
   TestMaskProcessor,
   TestMultipleOutputs,
   TestSlotted,
+  TestMaskedImage,
+  TestReferenceMask,
 };
 
 const NodeInterface &nodeInterface(NodeOperation operation);
@@ -99,6 +101,8 @@ struct Slot {
   InputBindings inputs;
   SlotSettings settings;
 };
+
+namespace graph_detail { class StagedEdit; }
 
 // The node owns its processor; DocumentMutation protects that lifetime.
 struct Node {
@@ -128,5 +132,19 @@ struct Node {
   std::map<std::string, bool> groupOpen;
 
  private:
+  friend class graph_detail::StagedEdit;
+  void observeSlotIds();
   uint64_t nextSlotId_ = 1;  // High-water mark survives deletion/reorder.
 };
+
+// Borrowed document storage, not a second graph. Validation is worker-free.
+struct GraphView {
+  const std::vector<Node> &nodes;
+  const NodeId &primarySource;
+  const OutputRef &documentOutput;
+};
+
+const Node *findNode(GraphView graph, const NodeId &id);
+const PortDeclaration *findOutput(GraphView graph, const OutputRef &output);
+const PortDeclaration *findInputDeclaration(GraphView graph, const InputAddress &input);
+const std::optional<OutputRef> *findInput(GraphView graph, const InputAddress &input);

@@ -1,6 +1,7 @@
 #include "NodeGraph.h"
 
 #include "DocumentMutation.h"
+#include "GraphValidation.h"
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
 #include "processors/NativeExposureProcessor.h"
@@ -8,13 +9,14 @@
 #include "processors/CtlProcessor.h"
 
 #include <algorithm>
+#include <cassert>
+#include <stdexcept>
 #include <cctype>
 #include <cstdlib>
 #include <limits>
 #include <locale>
 #include <sstream>
 #include <memory>
-#include <set>
 
 // Node creation currently happens on the UI thread. Sidecar V2 persists IDs
 // across sessions; the counter only supplies fresh IDs for newly added nodes.
@@ -46,68 +48,19 @@ Node *findNode(App &app, const NodeId &id) {
 }
 
 const Node *findNode(const App &app, const NodeId &id) {
-  for (const auto &node : app.nodes)
-    if (node.id == id) return &node;
-  return nullptr;
+  return findNode(GraphView{app.nodes, app.primarySource, app.documentOutput}, id);
 }
 
 const PortDeclaration *findOutput(const App &app, const OutputRef &output) {
-  const Node *node = findNode(app, output.nodeId);
-  return node ? nodeInterface(node->operation).findFixedPort(output.outputPortId, PortDirection::Output) : nullptr;
+  return findOutput(GraphView{app.nodes, app.primarySource, app.documentOutput}, output);
 }
 
 const std::optional<OutputRef> *findInput(const App &app, const InputAddress &input) {
-  const Node *node = findNode(app, input.nodeId);
-  if (!node) return nullptr;
-  const auto &interface = nodeInterface(node->operation);
-  const InputBindings *bindings = &node->fixedInputs;
-  if (input.slotId) {
-    const Slot *slot = node->findSlot(*input.slotId);
-    if (!slot || !interface.findSlotInput(input.inputPortId)) return nullptr;
-    bindings = &slot->inputs;
-  } else if (!interface.findFixedPort(input.inputPortId, PortDirection::Input)) {
-    return nullptr;
-  }
-  const auto found = bindings->find(input.inputPortId);
-  return found == bindings->end() ? nullptr : &found->second;
+  return findInput(GraphView{app.nodes, app.primarySource, app.documentOutput}, input);
 }
 
 std::string documentStateError(const App &app) {
-  std::set<std::string> nodeIds;
-  int sources = 0;
-  for (const auto &node : app.nodes) {
-    if (node.id.value.empty()) return "Empty NodeId";
-    if (!nodeIds.insert(node.id.value).second) return "Duplicate NodeId";
-    if (node.operation == NodeOperation::Source) {
-      ++sources;
-      if (node.id != app.primarySource) return "Source is not the primary Source";
-      if (!node.enabled || node.processor || !node.fixedInputs.empty() || !node.slots.empty())
-        return "Invalid Source state";
-    } else if (node.operation != NodeOperation::ImageProcessor && node.processor) {
-      return "Graph-native node has an Image processor";
-    }
-    const auto &interface = nodeInterface(node.operation);
-    size_t fixedInputCount = 0;
-    for (const auto &port : interface.fixedPorts)
-      if (port.direction == PortDirection::Input) {
-        ++fixedInputCount;
-        if (node.fixedInputs.count(port.id) != 1) return "Missing fixed input storage";
-      }
-    if (fixedInputCount != node.fixedInputs.size()) return "Unknown fixed input storage";
-    if (!node.slots.empty() && interface.slotInputs.empty()) return "Node has no repeated inputs";
-    std::set<uint64_t> slotIds;
-    for (const auto &slot : node.slots) {
-      if (slot.id.value == 0) return "Invalid SlotId";
-      if (!slotIds.insert(slot.id.value).second) return "Duplicate SlotId";
-      if (slot.inputs.size() != interface.slotInputs.size()) return "Invalid Slot input storage";
-      for (const auto &port : interface.slotInputs)
-        if (slot.inputs.count(port.id) != 1) return "Missing Slot input storage";
-    }
-  }
-  if (sources != 1) return "Document must contain exactly one primary Source";
-  const auto *output = findOutput(app, app.documentOutput);
-  if (!output || output->type != ValueType::Image) return "Document output must name an existing Image output";
-  return {};
+  return graphStructureError({app.nodes, app.primarySource, app.documentOutput});
 }
 
 Node *selectedNode(App &app) {
@@ -186,7 +139,9 @@ void destroyNode(App &app, int index) {
 
 void moveNode(App &app, int from, int to) {
   if (from < 0 || to < 0 || from >= (int)app.nodes.size() || to >= (int)app.nodes.size() || from == to) return;
-  if (app.nodes[from].operation == NodeOperation::Source || app.nodes[to].operation == NodeOperation::Source) return;
+  // Source remains an immovable boundary even in deliberately shuffled storage.
+  for (int i = std::min(from, to); i <= std::max(from, to); ++i)
+    if (app.nodes[i].operation == NodeOperation::Source) return;
   DocumentMutation mutation(app);
   moveNodeWithinMutation(app, from, to);
   mutation.changed();
@@ -312,6 +267,8 @@ static void clearNodesWithinMutation(App &app) {
   auto source = std::find_if(app.nodes.begin(), app.nodes.end(), [&](const Node &node) {
     return node.id == app.primarySource && node.operation == NodeOperation::Source;
   });
+  assert(source != app.nodes.end() && "Document is missing its primary Source");
+  if (source == app.nodes.end()) throw std::logic_error("Document is missing its primary Source");
   Node retainedSource = std::move(*source);
   app.nodes.clear();
   app.nodes.push_back(std::move(retainedSource));

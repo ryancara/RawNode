@@ -1,6 +1,7 @@
 #include "SelfTest.h"
 #include "OfxThreadPoolTests.h"
 #include "GraphModelTests.h"
+#include "GraphCommandsTests.h"
 
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
@@ -1798,6 +1799,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 int runSelfTests() {
   if (!testGraphModel()) return fail("Step 6A graph model");
+  if (!testGraphCommands()) return fail("Step 6B topology commands");
 #if !defined(NDEBUG) && !defined(_WIN32)
   if (!testControlThreadAssertions()) return fail("renderer control-thread assertions");
   printf("ok  Debug control-thread contract (8 expected child assertions)\n");

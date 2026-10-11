@@ -1,6 +1,7 @@
 #include "GraphModelTests.h"
 
 #include "NodeGraph.h"
+#include "GraphCommands.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -141,6 +142,9 @@ static bool testSlotIdentity() {
   Node node(NodeOperation::TestSlotted);
   node.id = NodeId{"slotted"};
   for (int i = 0; i < 3; ++i) {
+    Node producer(NodeOperation::TestReferenceMask);
+    producer.id = NodeId{"mask-" + std::to_string(i + 1)};
+    if (!graph::addNode(app, std::move(producer)).ok()) return false;
     Slot slot = node.makeSlot();
     slot.inputs.at(ports::image) = OutputRef{app.primarySource, ports::image};
     slot.inputs.at(ports::mask) = OutputRef{NodeId{"mask-" + std::to_string(slot.id.value)}, ports::mask};
