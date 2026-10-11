@@ -37,9 +37,10 @@ Other OFX filter plugins should work 🤞 If you confirm one, a PR to this table
 
 ### Crop
 
-A bundled OFX plugin that simply crops the image. Intended at the **beginning of a plugin chain**
-so downstream plugins process fewer pixels, it implements `getRegionOfDefinition` to report the
-cropped output dimensions directly to the host.
+A bundled OFX plugin that simply crops the image. Placing it near the **beginning of the current
+serial plugin chain** can improve efficiency because downstream plugins process fewer pixels; this
+is guidance, not a permanent graph-placement restriction. It implements `getRegionOfDefinition`
+to report the cropped output dimensions directly to the host.
 
 **Parameters:**
 
