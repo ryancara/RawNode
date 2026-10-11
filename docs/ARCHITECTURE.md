@@ -4,9 +4,9 @@
 
 This document records the architecture approved after the RawNode <-> vkdt
 architecture audit and independent Claude review. Steps 1–4 and the
-post-Step-4 stabilisation/checkpoint gate are complete. Step 5 is current
-product-contract decision work; current execution still uses a serial node
-chain. Step 6 remains the explicit graph/evaluator implementation transition.
+post-Step-4 stabilisation/checkpoint gate and Step 5 product-contract work are
+complete. Current execution still uses a serial node chain. Step 6 is current:
+the explicit graph/evaluator implementation transition.
 
 Read this together with:
 
@@ -143,10 +143,11 @@ The target evaluator is intentionally simple:
 
 - sequential;
 - dependency ordered;
-- evaluates only nodes reachable from the requested document output;
+- evaluates only nodes reachable from the requested Image/Mask endpoint;
 - executes a shared upstream node once per evaluation;
 - retains intermediate buffers only while downstream consumers need them;
-- fails the complete evaluation if a required node fails;
+- distinguishes available values, unavailable values, hard errors and cancellation;
+- propagates unavailable required inputs unless an operation defines a fallback;
 - checks cooperative cancellation between operations where practical.
 
 This is not a persistent node-cache system.
@@ -215,8 +216,9 @@ It owns:
 - parameters;
 - enabled/bypass state;
 - colour/document settings;
-- graph topology once branching is enabled;
-- future selected document output.
+- explicit graph topology;
+- primary Source and authoritative document Image output;
+- ordered repeated Slot identity/settings once used by a graph operation.
 
 Renderer pending flags, busy flags, cancellation tokens and worker state must
 never become persistent edit state.
@@ -322,9 +324,14 @@ Keep these concepts distinct:
 A node-opacity UI must not force every processor backend to implement masking
 internally.
 
-The exact first mask graph/UX contract remains a product decision before mask
-feature implementation. The architecture must not prevent graph-native masks
-and compositing.
+The Step 5 mask/graph contract is settled. Mask is a typed scalar-coverage
+graph value, distinct from image alpha. Optional Mask coverage is fail-open on
+unavailability with a warning; unavailable Mask data otherwise propagates
+through required Mask-processing inputs.
+
+Generic Mask/Strength/Blend ownership belongs to graph/node evaluation rather
+than individual backends. The first concrete user-facing mask path remains Step
+8.
 
 ## Colour semantics
 
@@ -341,9 +348,14 @@ Unless an operation explicitly requires otherwise:
 - avoid silently introducing display-referred behaviour into scene-referred
   processing.
 
-Image meaning is more than numeric RGBA values. As branching/compositing is
-introduced, graph values must carry enough semantic information to determine
-whether independently processed branches are compatible.
+The first DAG deliberately keeps Image values numeric and raster-local:
+floating-point RGBA plus dimensions. It does not automatically propagate
+colour-space/transfer-function metadata, source-coordinate provenance or a
+spatial transform.
+
+Operations that require colour interpretation declare it explicitly. RawNode
+permits arbitrary numerical branch combinations rather than automatically
+inferring or converting unknown OFX/CTL/DCTL/LUT colour meaning.
 
 The current output-tag behaviour remains a manual interpretation contract until
 a deliberate colour-management change replaces it. Do not silently turn it into
@@ -437,26 +449,26 @@ shared state.
 
 ## Persistence migration for topology
 
-Sidecar V2 remains the current linear-document format.
+Sidecar V2 remains the current **linear** document format until Step 7 replaces it.
 
-When non-linear topology becomes writable, persistence must explicitly encode
-connections and output-port identity.
+It is not a backwards-compatibility constraint on the explicit graph. RawNode has
+no external user base requiring the new topology model to preserve V2 execution
+semantics.
 
-A future format must preserve:
+The graph-native format must preserve at least:
 
-- stable node IDs;
-- missing/unavailable processors;
-- unknown parameter values where currently preserved;
-- explicit connections;
-- source/output port identity;
-- document output;
+- stable Node IDs and node/backend identity;
+- static/saved interfaces sufficient to preserve unavailable nodes;
+- parameters and generic node controls;
+- consumer-owned upstream OutputRefs;
+- ordered Slot arrays with stable node-local SlotIds and slot-local settings;
+- primary Source and authoritative document output;
+- external asset references where relevant;
 - safe copy/paste ID remapping.
 
-Older RawNode builds must not silently reinterpret a branching graph as a linear
-chain.
-
-The exact policy for writing V2 for still-linear graphs versus always writing a
-new version remains to be decided with the persistence implementation.
+Until Step 7 lands, any save/autosave/clipboard/preset path that cannot represent
+the current graph must refuse or be disabled. It must never silently flatten
+explicit topology into V2 list order.
 
 ## Deliberately deferred complexity
 
@@ -476,7 +488,6 @@ The following are not part of the approved near-term architecture work:
 - GPU-native graph-result storage;
 - automatic colour-space inference for arbitrary OFX/CTL/DCTL code;
 - OpenFX multi-clip support;
-- intermediate-output viewer selection;
 - a dedicated status subsystem;
 - a broad revision/evaluation-key framework.
 
@@ -520,17 +531,17 @@ These are stabilisation/review gates, **not additional numbered architecture
 steps**. Steps 1–4 are complete; this target does not imply that the Step 6
 explicit graph is already implemented.
 
-5. **Settle the first mask/graph product contract — current.**
-   Decide the first user-visible mask model, list/graph attachment,
-   opacity/effect-strength ownership, multi-input behaviour, geometric coordinates
-   if needed, and enough mixing semantics to define graph shape before topology
-   work. See `docs/PROJECT_CONTEXT.md` for the pending topics; no answer is chosen
-   by this status update.
+5. **Settle the first mask/graph product contract — complete.**
+   The accepted contract is summarized in `docs/DECISIONS.md` and detailed in
+   `docs/STEP5_GRAPH_CONTRACT.md`.
 
-6. **Introduce explicit topology and sequential DAG evaluation together.**
-   Implement generic topology/evaluation capabilities and preserve equivalent
-   linear behaviour first. A concrete mix/blend operation belongs in the
-   implementation step selected by the Step 5 contract.
+6. **Introduce explicit topology and sequential DAG evaluation together — current.**
+   Implement one authoritative graph with static named typed ports,
+   consumer-owned input references, ordered stable Slots, explicit Source and
+   document output, requested Image/Mask endpoint evaluation, fan-out, joins,
+   cycle rejection, shared-upstream evaluation and per-evaluation value lifetime.
+   Preserve equivalent linear behaviour first. The first concrete production
+   Mask application remains Step 8.
 
 7. **Add versioned graph persistence.**
 

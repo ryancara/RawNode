@@ -92,11 +92,22 @@ These fields use the same stable IDs and shared colour registry as RAW and the n
 
 RAW session defaults are **not** per-image edit state. They are stored only in the optional workspace file as `gui.rawDefaultColorSpace` and `gui.rawDefaultGamma`. Per-image sidecars neither write nor apply those fields. Development sidecars that already contain recognised values are ignored; unknown future values are protected from destructive rewrite.
 
-### Serial order and future graph connections
+### Serial order and graph migration
 
-In Sidecar V2, the order of `graph.nodes` is the authoritative processing order because the current renderer is serial.
+In Sidecar V2, the order of `graph.nodes` is the authoritative processing order
+because V2 describes RawNode's current serial renderer.
 
-Explicit graph connections are deliberately not written yet. They should be added as an additive schema field when RawNode can actually execute graph routing. Stable node IDs provide the identity needed for that later step.
+This is a historical/current-V2 rule, not the future graph model.
+
+Step 6 introduces explicit in-memory topology. Step 7 may replace V2 with a
+graph-native versioned format rather than extending V2 additively. There is no
+product requirement to keep old V2 files compatible with the replacement
+format.
+
+Until graph persistence exists, any save/autosave/clipboard/preset path that
+cannot faithfully represent the current graph must refuse or be disabled. It
+must never serialize graph topology by pretending node-array order is execution
+order.
 
 ## Node identity
 
@@ -137,7 +148,14 @@ The placeholder preserves:
 - group UI state;
 - raw parameter JSON.
 
-Missing processors are bypassed during rendering. If the processor becomes available again in a future session/build, the saved state remains available for restoration.
+In current V2 serial rendering, missing unary processors are bypassed while
+their saved state remains available for restoration.
+
+The explicit graph keeps unavailable node/interface identity and connections
+separate from evaluation availability. A defined pass-through may yield an
+available value plus a warning; unavailable Mask data follows the Step 5
+propagation/fail-open rules. Do not generalize the current unary-bypass sentence
+into a universal fallback for future graph operations.
 
 ## Unknown parameters
 
@@ -206,9 +224,13 @@ Sidecars written by this version contain independent colour-space/gamma IDs that
 
 ## Versioning
 
-Schema changes must increment or deliberately extend the versioned format.
+Schema changes must use an explicit versioned format.
 
-Prefer additive fields where possible. Older versions should never silently discard unavailable processors or parameter state merely because they cannot execute it.
+For Sidecar V2 maintenance, additive changes remain reasonable where they are
+actually useful. The Step 7 graph format may instead replace V2 cleanly.
+
+No version may silently discard unavailable processors/interfaces, parameter
+state or topology merely because it cannot execute them.
 
 ## Folder-level state
 

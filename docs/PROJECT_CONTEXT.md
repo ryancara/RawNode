@@ -167,9 +167,10 @@ the document or export means.
 The original RawNode <-> vkdt audit and the post-Step-4 whole-architecture
 checkpoint are complete. Codex and Claude independently reviewed the current
 implementation and target against RawNode's product goals and the pinned vkdt
-reference and found the direction **sound for the next stage**. No further broad
-architectural refactor is justified before Step 5. This does not mean the final
-graph architecture is implemented. The approved target remains documented in
+reference and found the direction **sound for the next stage**. Step 5 has now
+closed after independent final Codex/Claude implementation-readiness review.
+No further broad architectural refactor is justified before Step 6. This does
+not mean the final graph architecture is implemented. The approved target remains documented in
 `docs/ARCHITECTURE.md`; checkpoint evidence is in `docs/ARCHITECTURE_AUDIT.md`.
 
 The architectural north star is:
@@ -287,7 +288,7 @@ Important persistence principles:
 - sidecars belong to editable source documents only; exported derivatives do
   not receive RawNode sidecars (D038);
 - avoid a central project/catalogue database;
-- maintain backwards compatibility where practical;
+- Sidecar V2 compatibility does not constrain the graph-native Step 7 format; unsupported graph state must never be silently flattened through V2;
 - processor/node identity must remain stable enough for persistence, presets and
   copy/paste;
 - unavailable/missing processors should remain represented rather than silently
@@ -403,41 +404,33 @@ Important accepted implementation constraints:
 - caches, parallel branches, ROI/tile scheduling and job systems remain
   deliberately deferred.
 
-Step 5 must settle at least:
+Step 5 has settled the graph-shape/product questions that must precede
+topology implementation. The accepted contract is detailed in
+`docs/STEP5_GRAPH_CONTRACT.md` and D039–D046.
 
-- the first mask type and real use case;
-- how list view maps to topology and whether a masked adjustment is one compound
-  row/block;
-- how mask coverage interacts with image alpha, RGB mixing and base-input alpha
-  handling, preserving D034's accepted separation of mask and image alpha;
-- ownership/meaning of opacity and effect strength;
-- multi-input dimension mismatch policy;
-- required/optional inputs and missing-input behaviour;
-- branch colour policy;
-- coordinate space if the first mask is geometric, preferably using
-  resolution-independent document semantics;
-- mask visualization/inspection;
-- empty-graph interpretation behaviour.
+In particular:
 
-Step 5 settles enough product/architectural semantics, including mixing
-semantics where necessary, to define the required graph shape before topology
-work. Step 8 implements the first mask path and settles remaining concrete
-representation, range, filtering/sampling and blend-encoding details that need
-not be fixed during Step 5.
+- Mask is a typed scalar-coverage graph value, distinct from image alpha;
+- generic Mask/Strength/Blend ownership belongs to graph/node evaluation rather
+  than every processor backend;
+- List View is a topology view, with a derived main Image spine for the Step 6
+  UI subset;
+- required/optional inputs, unavailable propagation, fail-open optional Mask
+  coverage and hard dimension incompatibility are defined;
+- branch colour is deliberately numerical unless an operation explicitly
+  declares colour interpretation;
+- geometric Reference is raster-frame context without automatic transform
+  propagation;
+- Image/Mask requested-endpoint inspection is part of Step 6;
+- Source/document-output and source-only behaviour are explicit.
 
-These remain decision topics, not contracts chosen by checkpoint closure.
-Simple UI must not imply a weaker internal graph model: a masked adjustment may
-be one logical editing unit while the document remains a genuine graph. Masks
-and effect strength belong in graph-native operations rather than requiring
-every processor backend to understand masking. Do not add masked-processor
-renderer state, a special mask scheduler, mask fields that bypass the graph, or
-mandatory opacity in every processor backend merely because the list places
-opacity beside an adjustment. This does not rule out generic graph/evaluator-level
-opacity; exact ownership remains a Step 5 decision. Explicit mix/blend ownership
-of opacity/coverage is a likely direction to settle in Step 5, not a newly
-accepted contract here.
+Step 8 implements the first concrete production Mask path and settles remaining
+feature details such as exact geometric coordinates, Mask combine equations,
+non-Normal blend maths and detailed Layer/Parallel Mixer arithmetic.
 
-Do not start DAG implementation until this first mask/graph contract is settled.
+Do not add masked-processor renderer state, a special mask scheduler, mask fields
+that bypass the graph or mandatory opacity inside every processor backend.
+
 Global alpha association remains separately deferred until transparent
 compositing or alpha-carrying I/O requires it.
 
