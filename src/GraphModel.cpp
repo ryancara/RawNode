@@ -42,6 +42,9 @@ const NodeInterface &nodeInterface(NodeOperation operation) {
       {ports::reference, Direction::Input, ValueType::Image, false},
       {ports::mask, Direction::Output, ValueType::Mask},
   }, {}};
+  static const NodeInterface unavailableMask{{
+      {ports::mask, Direction::Output, ValueType::Mask},
+  }, {}};
   switch (operation) {
     case NodeOperation::Source: return source;
     case NodeOperation::ImageProcessor: return processor;
@@ -51,6 +54,9 @@ const NodeInterface &nodeInterface(NodeOperation operation) {
     case NodeOperation::TestSlotted: return slotted;
     case NodeOperation::TestMaskedImage: return maskedImage;
     case NodeOperation::TestReferenceMask: return referenceMask;
+    case NodeOperation::TestImage: return processor;
+    case NodeOperation::TestUnavailableImage: return source;
+    case NodeOperation::TestUnavailableMask: return unavailableMask;
   }
   throw std::invalid_argument("Unknown graph operation");
 }

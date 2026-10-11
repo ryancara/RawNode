@@ -2,6 +2,7 @@
 #include "OfxThreadPoolTests.h"
 #include "GraphModelTests.h"
 #include "GraphCommandsTests.h"
+#include "GraphEvaluatorTests.h"
 
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
@@ -1800,6 +1801,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 int runSelfTests() {
   if (!testGraphModel()) return fail("Step 6A graph model");
   if (!testGraphCommands()) return fail("Step 6B topology commands");
+  if (!testGraphEvaluator()) return fail("Step 6C graph evaluator");
 #if !defined(NDEBUG) && !defined(_WIN32)
   if (!testControlThreadAssertions()) return fail("renderer control-thread assertions");
   printf("ok  Debug control-thread contract (8 expected child assertions)\n");
@@ -3013,6 +3015,7 @@ int runSelfTests() {
   if (order.px[0] > 0.1f || order.px[(size_t)7 * 8 * 4] < 0.5f) return fail("source rows are not bottom-up");
 
   loadPlugins();
+  if (!testGraphEvaluatorOfx()) return fail("Step 6C OFX graph evaluator");
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
 
   // Standard CTL backend: load a real .ctl with a sibling import, render it

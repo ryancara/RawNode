@@ -52,7 +52,7 @@ static InputAddress input(const NodeId &id, const PortId &port = ports::image,
 // Exact comparison includes storage order, stable identities, references,
 // settings and processor ownership. It is deliberately only a test snapshot,
 // not a graph serialization or persistence implementation.
-static std::string snapshot(const Fixture &fixture) {
+static std::string snapshot(GraphView graph) {
   std::ostringstream out;
   const auto endpoint = [&](const OutputRef &ref) {
     out << std::quoted(ref.nodeId.value) << std::quoted(ref.outputPortId.value);
@@ -65,9 +65,9 @@ static std::string snapshot(const Fixture &fixture) {
     }
     out << '}';
   };
-  out << std::quoted(fixture.source.value);
-  endpoint(fixture.output);
-  for (const auto &node : fixture.nodes) {
+  out << std::quoted(graph.primarySource.value);
+  endpoint(graph.documentOutput);
+  for (const auto &node : graph.nodes) {
     out << std::quoted(node.id.value) << static_cast<int>(node.operation) << node.enabled << node.processor.get();
     out << std::quoted(node.storedBackend) << std::quoted(node.storedIdentifier) << std::quoted(node.storedLabel);
     for (const auto &entry : node.preservedParamsJson) out << std::quoted(entry.first) << std::quoted(entry.second);
@@ -82,6 +82,7 @@ static std::string snapshot(const Fixture &fixture) {
   }
   return out.str();
 }
+static std::string snapshot(const Fixture &fixture) { return snapshot(fixture.view()); }
 
 template <typename Command>
 static bool rejectedUnchanged(Fixture &fixture, Command command) {
@@ -321,7 +322,8 @@ static bool testSlots() {
 static bool testSplices() {
   Fixture f;
   const NodeId a{"A-95"}, b{"B-12"}, n{"inserted-72"}, c{"tail-31"}, multi{"multi-tail"},
-               fan{"fan-out"}, original{"secondary"}, maskConsumer{"mask-consumer"};
+               fan{"fan-out"}, original{"secondary"}, maskConsumer{"mask-consumer"},
+               reference{"reference-consumer"}, slots{"slot-consumer"};
   Node first; first.id = a;
   CHECK(graph::insertImageNode(f.document(), std::move(first)).ok());
   Node second; second.id = b;
@@ -335,7 +337,12 @@ static bool testSplices() {
   CHECK(bound(f, input(c), image(b)) && f.output == image(c));
   Node many(NodeOperation::TestMultipleOutputs); many.id = multi;
   CHECK(graph::insertImageNode(f.document(), std::move(many)).ok());
-  CHECK(f.add(fan) && f.add(original) && f.add(maskConsumer, NodeOperation::TestMaskProcessor));
+  CHECK(f.add(fan) && f.add(original) && f.add(maskConsumer, NodeOperation::TestMaskProcessor) &&
+        f.add(reference, NodeOperation::TestReferenceMask) && f.add(slots, NodeOperation::TestSlotted));
+  const auto slot = graph::addSlot(f.document(), slots).addedSlot;
+  CHECK(slot);
+  CHECK(graph::connect(f.document(), image(multi), input(reference, ports::reference)).ok());
+  CHECK(graph::connect(f.document(), image(multi), input(slots, ports::image, slot)).ok());
   CHECK(graph::connect(f.document(), image(multi), input(fan)).ok());
   CHECK(graph::connect(f.document(), {multi, PortId{"original"}}, input(original)).ok());
   CHECK(graph::connect(f.document(), mask(multi), input(maskConsumer, ports::mask)).ok());
@@ -345,6 +352,7 @@ static bool testSplices() {
   CHECK(graph::deleteImageNode(f.document(), multi).ok());
   CHECK(f.output == image(c) && bound(f, input(fan), image(c)) && disconnected(f, input(original)) &&
         disconnected(f, input(maskConsumer, ports::mask)));
+  CHECK(bound(f, input(reference, ports::reference), image(c)) && bound(f, input(slots, ports::image, slot), image(c)));
   CHECK(graph::deleteImageNode(f.document(), n).ok());
   CHECK(bound(f, input(b), image(a)) && !f.node(n));
   CHECK(graph::deleteImageNode(f.document(), c).ok());
@@ -415,6 +423,26 @@ static bool testMoveAndAtomicSplices() {
   return true;
 }
 
+static bool testSpineRejections() {
+  Fixture f;
+  const NodeId a{"unary"}, multi{"multiple-outputs"}, join{"non-unary"};
+  Node ordinary; ordinary.id = a;
+  Node outputs(NodeOperation::TestMultipleOutputs); outputs.id = multi;
+  CHECK(graph::insertImageNode(f.document(), std::move(ordinary)).ok());
+  CHECK(graph::insertImageNode(f.document(), std::move(outputs)).ok());
+  CHECK(graph::setDocumentOutput(f.document(), {multi, PortId{"original"}}).ok());
+  CHECK(rejectedUnchanged(f, [&] { return graph::moveImageNode(f.document(), a); }));
+  CHECK(f.add(join, NodeOperation::TestSlotted));
+  const auto slot = graph::addSlot(f.document(), join).addedSlot;
+  CHECK(slot && graph::connect(f.document(), image(multi), input(join, ports::image, slot)).ok());
+  CHECK(graph::setDocumentOutput(f.document(), image(join)).ok());
+  CHECK(rejectedUnchanged(f, [&] { return graph::moveImageNode(f.document(), a); }));
+  CHECK(graph::setDocumentOutput(f.document(), image(multi)).ok());
+  CHECK(graph::disconnect(f.document(), input(multi)).ok());
+  CHECK(rejectedUnchanged(f, [&] { return graph::moveImageNode(f.document(), a); }));
+  return true;
+}
+
 static bool testMalformedStateAndOwnership() {
   Fixture f;
   const NodeId a{"processor"}, s{"slotted"}, m{"mask-source"};
@@ -464,6 +492,11 @@ static bool testAppAndSourceMove() {
   Node consumer; consumer.id = b;
   CHECK(graph::addNode(app, std::move(consumer)).ok());
   CHECK(graph::connect(app, image(a), input(b)).ok());
+  const auto beforeRejected = snapshot({app.nodes, app.primarySource, app.documentOutput});
+  auto *consumerProcessor = findNode(app, a)->processor.get();
+  CHECK(!graph::connect(app, image(b), input(a)).ok()); // Would close a cycle.
+  CHECK(snapshot({app.nodes, app.primarySource, app.documentOutput}) == beforeRejected &&
+        findNode(app, a)->processor.get() == consumerProcessor);
   CHECK(graph::reconnect(app, image(app.primarySource), input(b)).ok());
   CHECK(graph::disconnect(app, input(b)).ok());
   Node slotted(NodeOperation::TestSlotted); slotted.id = slots;
@@ -515,6 +548,7 @@ bool testGraphCommands() {
       {"6B Slot identity, order, settings, references and restored high-water IDs", testSlots},
       {"6B unary Image insert/delete splices and secondary-output consumers", testSplices},
       {"6B topology moves, storage independence and compound failure atomicity", testMoveAndAtomicSplices},
+      {"6B spine moves refuse secondary outputs, non-unary joins and disconnected inputs", testSpineRejections},
       {"6B malformed operation/storage/ownership and Slot exhaustion", testMalformedStateAndOwnership},
       {"6B App mutation wrappers and Source move boundaries", testAppAndSourceMove},
   };

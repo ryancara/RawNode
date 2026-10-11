@@ -77,13 +77,17 @@ struct NodeInterface {
 enum class NodeOperation {
   Source,
   ImageProcessor,
-  // Declarations only; these operations have no production implementation/UI.
+  // Static test interfaces only; pixel implementations require the evaluator's
+  // test executor. These are never production UI/persistence features.
   TestImageToMask,
   TestMaskProcessor,
   TestMultipleOutputs,
   TestSlotted,
   TestMaskedImage,
   TestReferenceMask,
+  TestImage,
+  TestUnavailableImage,
+  TestUnavailableMask,
 };
 
 const NodeInterface &nodeInterface(NodeOperation operation);
