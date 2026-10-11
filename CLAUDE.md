@@ -115,10 +115,12 @@ unless they are required for correctness.
 ## Architectural direction
 
 The original RawNode <-> vkdt audit and the post-Step-4 whole-architecture
-checkpoint are complete. Codex and Claude independently found the direction
-**sound for the next stage**. No further broad architecture cleanup is justified
-before Step 5. This does not mean the explicit graph is implemented: current
-`App::nodes` execution is still serial. The authoritative target is in
+checkpoint and Step 5 product-contract work are complete. Codex and Claude
+independently found the direction **sound for the next stage** and again found
+the final Step 5 contract sound after small clarifications. No further broad
+architecture cleanup is justified before Step 6. The explicit graph is not yet
+implemented: current `App::nodes` execution is still serial. The authoritative
+target is in
 `docs/ARCHITECTURE.md`.
 
 The architectural north star is:
@@ -239,25 +241,28 @@ Claude whole-architecture checkpoint. PR #53 settled the source-only sidecar
 boundary (D038); PR #54 deterministically protects single-level mutation
 completion demand before gate opening. Neither remains an open checkpoint item.
 
-**Step 5 is current: settle the first mask/graph product contract.** This is
-product/architecture decision work. Use the open topics and graph-model
-guardrails in `docs/PROJECT_CONTEXT.md`; do not silently settle them in unrelated
-implementation work.
+**Step 5 is complete.** The accepted graph/mask contract is detailed in
+`docs/STEP5_GRAPH_CONTRACT.md` and summarized in D039–D046.
 
-Do not start DAG implementation until that contract is settled. Step 6 introduces
-explicit topology and the sequential evaluator together, including image/mask
-ports and shared upstream evaluation. A simple list UI must preserve a real
-internal graph: masks and effect strength use graph-native operations, not
-masked-processor renderer state, a mask scheduler, mask fields that bypass the
-graph or mandatory opacity implemented internally by every processor backend.
-Generic graph/evaluator-level opacity is not ruled out; exact ownership remains
-a Step 5 decision. Step 5 settles the product/architectural contract, including
-opacity/effect-strength meaning and enough mixing semantics to define graph
-shape. Step 8 implements the first mask path and settles remaining concrete
-representation/range/filtering and blend-encoding details not needed in Step 5.
-No concrete mix/blend operation is automatically a Step 6 deliverable.
-D034 already separates masks from image alpha; coverage/alpha interaction
-remains open, and global alpha association remains separately deferred.
+**Step 6 is current.** Introduce explicit topology and the sequential evaluator
+together: static named Image/Mask ports, consumer-owned upstream references,
+ordered stable Slots, explicit Source/document output, requested Image/Mask
+endpoints, fan-out, cycle rejection, shared-upstream evaluation and
+per-evaluation value lifetime.
+
+Do not preserve list/vector order as hidden execution semantics. A simple List
+View is derived from graph topology. Keep the existing RenderRuntime /
+DocumentMutation ownership boundary; do not add feature-specific schedulers,
+parallel branches, persistent caches or processor cloning.
+
+Unavailable Mask data propagates through required Mask-processing inputs and
+fail-opens to full coverage only at optional effect/layer coverage use, with a
+persistent warning. A bypassed source-like Mask generator produces real white
+coverage only when its Reference frame resolves.
+
+The first concrete production Mask path remains Step 8. Step 6 should prove the
+typed Mask/evaluation contracts with tests without silently expanding into the
+user-facing masking feature.
 
 The candidate dispositions are recorded in `docs/ARCHITECTURE_AUDIT.md`. App
 remains a practical composition root. Leaf App locks must not call back into
@@ -294,10 +299,12 @@ visually.
 
 ## Graph and persistence principles
 
-The processing chain is persistent image state.
+The processing graph is persistent image state.
 
-Sidecars must remain backwards compatible unless a deliberate migration is
-implemented.
+Sidecar V2 is the current linear format only. Its backwards compatibility does
+not constrain the Step 7 graph-native format. Until that format lands, no
+save/autosave/clipboard/preset path may silently flatten graph state it cannot
+represent.
 
 Processor/node identity must remain stable enough for persistence, presets and
 copy/paste.
