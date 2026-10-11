@@ -16,7 +16,7 @@ static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h)
 ProcessorResult renderChain(App &app, const Image &src, Image &out, const RenderCancellation &cancellation) {
   static thread_local Image cur, next;
 
-  if (app.nodes.empty()) {
+  if (!app.hasSerialNodes()) {
     out = src;
     return ProcessorResult::success();
   }
@@ -26,7 +26,7 @@ ProcessorResult renderChain(App &app, const Image &src, Image &out, const Render
   cur.px = src.px;
   for (size_t i = 0; i < app.nodes.size(); ++i) {
     Node &n = app.nodes[i];
-    if (!n.enabled || !n.processor) continue;
+    if (n.operation != NodeOperation::ImageProcessor || !n.enabled || !n.processor) continue;
 
     const auto t0 = std::chrono::steady_clock::now();
     ProcessorResult result = n.processor->render(cur, next, cancellation);
@@ -46,7 +46,7 @@ ProcessorResult renderChain(App &app, const Image &src, Image &out, const Render
 
 void uploadTexture(App &app, const Image &img) {
   std::vector<unsigned char> rgba;
-  if (app.nodes.empty())
+  if (!app.hasSerialNodes())
     sourceToDisplayRGBA8(app, img, rgba);
   else {
     ColorEncoding outputEncoding;
@@ -86,7 +86,7 @@ void display_detail::recolorDisplay(App &app) {
     img = app.display;
   }
   std::vector<unsigned char> rgba;
-  if (app.nodes.empty())
+  if (!app.hasSerialNodes())
     sourceToDisplayRGBA8(app, img, rgba);
   else {
     ColorEncoding outputEncoding;

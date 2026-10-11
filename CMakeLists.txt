@@ -97,6 +97,7 @@ add_executable(OfxRawHost
   src/main.cpp
   tests/SelfTest.cpp
   tests/OfxThreadPoolTests.cpp
+  tests/GraphModelTests.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
   src/imgio/ImageLoad.cpp
@@ -107,6 +108,7 @@ add_executable(OfxRawHost
   src/color/TransferFunction.cpp
   src/UI.cpp
   src/NodeGraph.cpp
+  src/GraphModel.cpp
   src/processors/OfxProcessor.cpp
   src/processors/NativeExposureProcessor.cpp
   src/processors/NativeCstProcessor.cpp

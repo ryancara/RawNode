@@ -18,7 +18,7 @@
 namespace fs = std::filesystem;
 
 void doExport(App &app) {
-  if (app.full.px.empty() || app.nodes.empty()) return;
+  if (app.full.px.empty() || !app.hasSerialNodes()) return;
   const char *exts[] = {".png", ".jpg"};
   const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg"};
   std::string def = fs::path(app.path).stem().string() + exts[app.exportFormat];
@@ -43,7 +43,7 @@ static bool copySelectedNode(App &app) {
 }
 
 static bool copyGrade(App &app) {
-  if (app.nodes.empty()) return false;
+  if (!app.hasSerialNodes()) return false;
   const PersistChain transfer = captureChain(app);
   const bool colourProtected =
       (!app.path.empty() && app.sidecarWriteBlockedPath == app.path) || app.workspaceWriteBlocked;
@@ -85,7 +85,7 @@ static bool pasteFromClipboard(App &app) {
       app.setStatus("Could not paste node");
       return false;
     }
-    if (Node *node = selectedNode(app); node && !node->processor)
+    if (Node *node = selectedNode(app); node && node->isMissingProcessor())
       app.setStatus("Pasted node (processor unavailable)");
     else
       app.setStatus("Pasted node");
@@ -100,7 +100,7 @@ static bool pasteFromClipboard(App &app) {
     applyChain(app, transfer);
     int unavailable = 0;
     for (const Node &node : app.nodes)
-      if (!node.processor) ++unavailable;
+      if (node.isMissingProcessor()) ++unavailable;
     if (unavailable > 0)
       app.setStatus("Pasted full grade (" + std::to_string(unavailable) + " processor(s) unavailable)");
     else
@@ -141,7 +141,7 @@ static bool saveNodePreset(App &app) {
 }
 
 static bool saveGradePreset(App &app) {
-  if (app.nodes.empty()) return false;
+  if (!app.hasSerialNodes()) return false;
   const PersistChain preset = captureChain(app);
   const bool colourProtected =
       (!app.path.empty() && app.sidecarWriteBlockedPath == app.path) || app.workspaceWriteBlocked;
@@ -194,7 +194,7 @@ static bool loadPreset(App &app) {
       app.setStatus("Could not apply node preset");
       return false;
     }
-    if (Node *node = selectedNode(app); node && !node->processor)
+    if (Node *node = selectedNode(app); node && node->isMissingProcessor())
       app.setStatus("Loaded node preset (processor unavailable)");
     else
       app.setStatus("Loaded node preset");
@@ -209,7 +209,7 @@ static bool loadPreset(App &app) {
     applyChain(app, preset);
     int unavailable = 0;
     for (const Node &node : app.nodes)
-      if (!node.processor) ++unavailable;
+      if (node.isMissingProcessor()) ++unavailable;
     if (unavailable > 0)
       app.setStatus("Loaded full-grade preset (" + std::to_string(unavailable) + " processor(s) unavailable)");
     else
@@ -288,7 +288,7 @@ void DrawUiFrame(App &app) {
       const char *copyShortcut = "Ctrl+C";
       const char *pasteShortcut = "Ctrl+V";
 #endif
-      const bool canCopyNode = app.selectedNode >= 0 && app.selectedNode < (int)app.nodes.size();
+      const bool canCopyNode = selectedNode(app) != nullptr;
       if (ImGui::MenuItem("Copy Node", copyShortcut, false, canCopyNode))
         copySelectedNode(app);
 #ifdef __APPLE__
@@ -296,7 +296,7 @@ void DrawUiFrame(App &app) {
 #else
       const char *copyGradeShortcut = "Ctrl+Shift+C";
 #endif
-      if (ImGui::MenuItem("Copy Full Grade", copyGradeShortcut, false, !app.nodes.empty()))
+      if (ImGui::MenuItem("Copy Full Grade", copyGradeShortcut, false, app.hasSerialNodes()))
         copyGrade(app);
       if (ImGui::MenuItem("Paste", pasteShortcut))
         pasteFromClipboard(app);
@@ -304,7 +304,7 @@ void DrawUiFrame(App &app) {
       if (ImGui::BeginMenu("Presets")) {
         if (ImGui::MenuItem("Save Node Preset…", nullptr, false, canCopyNode))
           saveNodePreset(app);
-        if (ImGui::MenuItem("Save Full Grade Preset…", nullptr, false, !app.nodes.empty()))
+        if (ImGui::MenuItem("Save Full Grade Preset…", nullptr, false, app.hasSerialNodes()))
           saveGradePreset(app);
         ImGui::Separator();
         if (ImGui::MenuItem("Load Preset…"))

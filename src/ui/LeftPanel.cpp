@@ -201,7 +201,7 @@ void drawLeftPanel(App &app) {
   }
 
   ImGui::BeginChild("nodeList", ImVec2(0, 0), ImGuiChildFlags_Borders);
-  if (app.nodes.empty()) ImGui::TextDisabled("No nodes yet.\nAdd a processor to build a chain.");
+  if (!app.hasSerialNodes()) ImGui::TextDisabled("No nodes yet.\nAdd a processor to build a chain.");
   const float btnH = ImGui::GetFrameHeight();
   const float btnGap = ImGui::GetStyle().ItemSpacing.x;
   const float btnsW = 4.0f * btnH + 3.0f * btnGap;
@@ -210,8 +210,9 @@ void drawLeftPanel(App &app) {
   int enableAt = -1;
   bool enabled = false;
   for (int i = 0; i < (int)app.nodes.size(); ++i) {
-    ImGui::PushID(i);
     const Node &node = app.nodes[i];
+    if (node.operation != NodeOperation::ImageProcessor) continue;
+    ImGui::PushID(i);
     const bool selected = app.selectedNode == i;
     const std::string label = nodeDisplayName(node);
     if (!node.enabled) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
@@ -240,12 +241,14 @@ void drawLeftPanel(App &app) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
       ImGui::SetTooltip(node.enabled ? "Disable processing" : "Enable processing");
     ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##up", ICON_FA_ARROW_UP) && i > 0) {
+    if (iconBtn("##up", ICON_FA_ARROW_UP) && i > 0 &&
+        app.nodes[i - 1].operation == NodeOperation::ImageProcessor) {
       moveFrom = i;
       moveTo = i - 1;
     }
     ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && i + 1 < (int)app.nodes.size()) {
+    if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && i + 1 < (int)app.nodes.size() &&
+        app.nodes[i + 1].operation == NodeOperation::ImageProcessor) {
       moveFrom = i;
       moveTo = i + 1;
     }

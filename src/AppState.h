@@ -1,7 +1,7 @@
 #pragma once
 
 #include "imgio/ImageIO.h"
-#include "processors/Processor.h"
+#include "GraphModel.h"
 #include "RenderRuntime.h"
 
 #include <GLFW/glfw3.h>
@@ -17,45 +17,6 @@
 #include <thread>
 #include <unordered_set>
 #include <vector>
-
-enum class NodeInputRole {
-  Image,
-  Mask,
-};
-
-struct NodeInput {
-  NodeInputRole role = NodeInputRole::Image;
-  std::string sourceNodeId;
-};
-
-enum class CompositeMode {
-  Normal,
-};
-
-// One entry in App::nodes; vector order is the current processing order.
-// The node owns its processor, whose lifetime is protected by DocumentMutation.
-struct Node {
-  std::string id;
-  bool enabled = true;
-  std::unique_ptr<Processor> processor;
-
-  // Persistence identity is retained even when a processor is unavailable.
-  // For live processors these mirror the processor; for missing processors
-  // they let Sidecar V2 round-trip the node without deleting it.
-  std::string storedBackend;
-  std::string storedIdentifier;
-  std::string storedLabel;
-  std::map<std::string, std::string> preservedParamsJson;
-
-  // Reserved by the graph-capable data model. The current renderer still
-  // evaluates a simple serial chain and leaves these at their defaults.
-  std::vector<NodeInput> inputs;
-  float opacity = 1.0f;
-  CompositeMode compositeMode = CompositeMode::Normal;
-
-  // Expanded parameter groups, keyed by the backend-neutral parameter ID.
-  std::map<std::string, bool> groupOpen;
-};
 
 struct ThumbReady {
   std::string path;
@@ -93,6 +54,11 @@ inline constexpr int kPreviewResCount = 4;
 // are excluded only during export. The dedicated mutexes below guard
 // shared snapshots.
 struct App {
+  App() {
+    Node source(NodeOperation::Source);
+    source.id = primarySource;
+    nodes.push_back(std::move(source));
+  }
   // Preview/export workers borrow document/display/status fields. Stop them in
   // the destructor body while all members are alive, regardless of member order.
   ~App() noexcept { renderer.shutdown(); }
@@ -139,7 +105,18 @@ struct App {
   int themeIndex = 2;        // Photoshop
   float previewPanX = 0.0f;
   float previewPanY = 0.0f;
+  // One graph storage, including the primary Source. Source uses full/preview
+  // above for the current document image; it owns no second pixel copy.
   std::vector<Node> nodes;
+  NodeId primarySource{"source"};
+  OutputRef documentOutput{primarySource, ports::image};
+  // Temporary serial compatibility until the evaluator/List View cutover.
+  // It does not infer documentOutput or maintain another topology.
+  bool hasSerialNodes() const {
+    return std::any_of(nodes.begin(), nodes.end(), [](const Node &node) {
+      return node.operation == NodeOperation::ImageProcessor;
+    });
+  }
   int selectedNode = -1;
 
   std::string workspaceDir;

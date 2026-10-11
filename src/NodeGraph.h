@@ -3,8 +3,17 @@
 #include "AppState.h"
 #include "persist/ProjectPersist.h"
 
-// The current graph is App::nodes in serial order. These operations own node
-// identity, processor lifetime and conversion to/from persistence records.
+// App::nodes is the single graph storage, including Source. Execution remains
+// serial temporarily; these lookups never interpret storage position as an ID.
+Node *findNode(App &app, const NodeId &id);
+const Node *findNode(const App &app, const NodeId &id);
+const PortDeclaration *findOutput(const App &app, const OutputRef &output);
+const std::optional<OutputRef> *findInput(const App &app, const InputAddress &input);
+// Phase 1 state invariants only. Required connections/types/cycles are 6B.
+// Empty means valid; otherwise the first invariant violation is returned.
+std::string documentStateError(const App &app);
+
+// Legacy List View commands still take storage indices until Phase 5.
 Node *selectedNode(App &app);
 std::string nodeDisplayName(const Node &node);
 // Structural operations run on the single control thread. Each owns execution

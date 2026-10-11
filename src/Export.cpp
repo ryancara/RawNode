@@ -27,7 +27,7 @@ static void publishExportException(App &app, std::exception_ptr error,
 }  // namespace
 
 bool runExportJob(App &app, const std::string &outPath) {
-  if (app.full.px.empty() || app.nodes.empty() || outPath.empty()) return false;
+  if (app.full.px.empty() || !app.hasSerialNodes() || outPath.empty()) return false;
   auto ownership = app.renderer.acquireExport();
   if (!ownership) return false;
   try {
@@ -40,7 +40,7 @@ bool runExportJob(App &app, const std::string &outPath) {
 }
 
 bool startExport(App &app, const std::string &outPath) {
-  if (app.full.px.empty() || app.nodes.empty() || outPath.empty()) return false;
+  if (app.full.px.empty() || !app.hasSerialNodes() || outPath.empty()) return false;
   auto ownership = app.renderer.acquireExport();
   if (!ownership) return false;
   try {
@@ -112,7 +112,7 @@ static ExportRequest captureExportRequest(App &app, const std::string &outPath) 
     request.space = app.outputEncoding;
   }
   for (const auto &node : app.nodes)
-    if (node.enabled && !node.processor) request.bypassedMissingProcessor = true;
+    if (node.enabled && node.isMissingProcessor()) request.bypassedMissingProcessor = true;
   return request;
 }
 

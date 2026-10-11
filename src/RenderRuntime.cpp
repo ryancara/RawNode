@@ -137,7 +137,7 @@ void RenderRuntime::completeMutation(bool changed, bool interrupted) noexcept {
 void RenderRuntime::requestPreview(bool quiet) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_) return;
-  if (app_.nodes.empty() || app_.preview.px.empty()) {
+  if (!app_.hasSerialNodes() || app_.preview.px.empty()) {
     display_detail::showSourcePreview(app_);
     return;
   }
@@ -198,7 +198,7 @@ void RenderRuntime::runPreview() {
       display_detail::recolorDisplay(app_);
       continue;
     }
-    if (app_.nodes.empty() || app_.preview.px.empty()) continue;
+    if (!app_.hasSerialNodes() || app_.preview.px.empty()) continue;
     for (auto &node : app_.nodes)
       if (node.processor) node.processor->setRenderSize(width, height);
     if (!quiet) app_.setStatus("Rendering...");
