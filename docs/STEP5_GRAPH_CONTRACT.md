@@ -1,12 +1,12 @@
 # Step 5 Graph / Mask Product Contract
 
-**Status:** In progress.  
-**Purpose:** Working design record for Step 5 of the RawNode architecture migration.  
-**Base reviewed:** `816d44f350a626d27321ad32c9232adc75e32afd`
+**Status:** Complete; accepted contract for Step 6.  
+**Purpose:** Product and architecture contract settled by Step 5 of the RawNode architecture migration.  
+**Final independent review head:** `43935dd2bd815e0eecfe43b9a3e418610fe62f70`
 
 This document records the current product and architecture contract being settled before Step 6 implements explicit graph topology and sequential DAG evaluation.
 
-It is intentionally a working document. Items marked **Accepted** are the current project direction. Items marked **Strong candidate** still need one final implementation-oriented pass before becoming durable decisions. Items marked **Open** must not be silently decided by Step 6 implementation. Once Step 5 closes, durable decisions should be distilled into `docs/DECISIONS.md` and `docs/ARCHITECTURE.md`.
+Items marked **Accepted** are the Step 5 contract. Items marked **Open** are deliberately deferred feature details and must not be silently decided by unrelated Step 6 implementation. The durable architecture and decision documents summarize the accepted contract; this file remains the detailed design record.
 
 ## Progress
 
@@ -25,9 +25,10 @@ It is intentionally a working document. Items marked **Accepted** are the curren
 - [x] Settled missing Mask / Reference full-coverage fallback + warning
 - [x] Settled Mask-generator bypass = full coverage
 - [x] Settled that old V2 compatibility is not a product requirement
-- [ ] Final Step 5 implementation-readiness review
-- [ ] Review this document against current source
-- [ ] Close Step 5 in durable architecture / decision docs
+- [x] Final independent Step 5 implementation-readiness reviews by Codex and Claude
+- [x] Reconcile final availability / bypass / runtime ambiguities
+- [x] Review this document against current source
+- [x] Close Step 5 in durable architecture / decision docs
 - [ ] Begin Step 6 implementation
 
 ## Product model
@@ -282,13 +283,15 @@ If a node is evaluated as full-strength Normal processing with no Mask, its proc
 
 If the node requires pixelwise self-mixing because:
 
-- a Mask is connected;
+- an **available Mask value** is present;
 - Strength is less than 1; or
 - Blend Mode is non-Normal;
 
 then the processor output width and height must match the node's Image input width and height.
 
 If the dimensions do not match, the requested evaluation fails. Export refuses rather than silently omitting the edit. RawNode does not implicitly resize, resample, align or reproject the result.
+
+A connected Mask whose value is **unavailable** follows the fail-open rule below and counts as absent for this self-mixing trigger. A bypassed Mask generator that successfully produces a real full-coverage Mask is still an available Mask and participates normally in compatibility checks.
 
 This is intentionally generic. Crop, OFX, native and future processor types are governed by the same rule.
 
@@ -354,31 +357,64 @@ Missing state is not the same as user bypass state.
 
 RawNode must show a persistent warning when a connected dependency is unavailable.
 
-### Accepted: missing Mask / Reference is fail-open with warning
+### Accepted: evaluation distinguishes value, unavailable, hard error and cancellation
 
-Ryan's chosen product behaviour is deliberately simple:
+Graph evaluation must distinguish at least:
+
+```text
+available value
+unavailable value + diagnostics
+hard evaluation error
+cancelled / obsolete evaluation
+```
+
+These states are not interchangeable.
+
+A warning does not by itself mean a value is unavailable. For example, an unavailable ordinary unary Image processor with a defined pass-through fallback may produce an **available Image plus a warning**.
+
+A node whose required input value is unavailable produces an unavailable output unless that node explicitly defines a narrower fallback.
+
+Therefore an unavailable Mask propagates through operations that require its Mask data:
+
+```text
+Missing External Mask
+        ↓ unavailable
+      Invert
+        ↓ unavailable
+     Exposure.mask
+        ↓
+full coverage + warning
+```
+
+RawNode does **not** manufacture an upstream white Mask merely because a later consumer uses fail-open coverage.
+
+Requesting an unavailable Mask directly for inspection returns an unavailable result with diagnostics; it does not invent a consumer-sized white raster.
+
+### Accepted: fail-open occurs at optional coverage use
+
+Ryan's chosen product behaviour is deliberately fail-open at the point where a Mask restricts an effect or layer:
 
 ```text
 Mask input unconnected
     → full coverage
 
-connected Mask unavailable
-    → full coverage + persistent warning
+connected Mask value unavailable
+    → treat coverage as absent/full
+    → persistent warning
 
 Mask generator's connected Reference unavailable
-    → generator cannot produce its intended Mask
-    → downstream Mask use falls back to full coverage + persistent warning
+    → generator Mask unavailable
+    → downstream optional coverage use becomes full coverage
+    → persistent warning
 ```
 
-In other words, a missing/unavailable Mask or Reference behaves as though no Mask is restricting the dependent effect.
+For an ordinary Image adjustment, unavailable optional Mask coverage makes the adjustment global.
 
-For an ordinary Image adjustment this means the adjustment becomes global.
-
-For a Layer Mixer slot, an absent or unavailable slot Mask means that layer contributes at full coverage.
+For a Layer Mixer slot, an absent or unavailable slot Mask means that layer contributes at full coverage; its own opacity/blend settings still apply.
 
 The connection/state remains represented. RawNode must not delete the edge or silently convert "connected but unavailable" into "never connected", because restoring the dependency should restore the intended edit.
 
-This is a deliberate fail-open product choice. The persistent warning is therefore important.
+A shared unavailable Mask does not need a fabricated shared raster. Each optional coverage consumer independently applies full coverage and carries the relevant warning.
 
 ### Accepted: unavailable is different from invalid
 
@@ -397,9 +433,13 @@ Mask  3000×2000
 → export refuses
 ```
 
-A dimension mismatch is not treated as a missing Mask and does not fall back to global coverage.
+A valid wrong-sized Mask is not treated as unavailable and does not fall back to global coverage.
 
-A missing ordinary unary Image effect may continue to use RawNode's existing "preserve + warn + bypass/pass-through where possible" philosophy. More complex unavailable graph operations should preserve their interface/state and use the narrowest operation-specific fallback that is actually defined rather than deleting topology.
+A dangling endpoint, type mismatch, cycle or missing required connection is graph invalidity rather than missing optional coverage.
+
+Cancellation is also separate and must not be reinterpreted as unavailable data.
+
+A missing ordinary unary Image effect may continue to use RawNode's existing preserve + warn + pass-through philosophy where that fallback is defined. More complex unavailable graph operations should preserve their interface/state and use only explicitly defined fallbacks.
 
 ## Bypass
 
@@ -423,32 +463,51 @@ Mixer bypass:
 pass its defined base / background Image through
 ```
 
-### Accepted: Mask-generator bypass = full coverage
+A bypassed operation evaluates only the inputs needed to produce its bypass result.
+
+Therefore:
+
+- unary Image bypass needs only its pass-through Image input;
+- unary Mask bypass needs only its pass-through Mask input;
+- mixer bypass needs only its base/background input;
+- source-like Mask-generator bypass still needs its Reference frame.
+
+Unused Mask/branch inputs of a bypassed operation are not evaluated merely because their connections exist. Structural cycle validation still includes all stored dependencies regardless of bypass.
+
+### Accepted: Mask-generator bypass = full coverage when its frame resolves
 
 A source-like Mask generator such as Radial, Gradient or future Pen/Path has no Mask input to pass through.
 
-Its generic bypass result is therefore:
+Its generic bypass result is:
 
 ```text
-Mask = 1.0 everywhere in the generator's evaluated frame
+Mask = 1.0 everywhere in the resolved generator frame
 ```
+
+Frame resolution still occurs.
+
+If Reference is absent, the current-evaluation primary Source supplies the frame.
+
+If a connected Reference is available, that Reference supplies the frame.
+
+If a connected Reference is unavailable, there is no valid frame in which to manufacture a white raster. The generator output therefore remains **unavailable**, and a downstream optional Mask coverage input follows the accepted fail-open rule.
 
 So:
 
 ```text
-Radial enabled
-    → Radial Mask
+Radial bypassed + valid frame
+    → real full-coverage Mask
 
-Radial bypassed
-    → full-coverage Mask
-    → dependent adjustment applies globally
+Radial bypassed + connected unavailable Reference
+    → unavailable Mask
+    → coverage consumer becomes full + warning
 ```
 
-The Mask connection remains intact, so re-enabling the generator immediately restores its contribution.
+The Mask connection remains intact.
 
-This is a defined numerical bypass result, not hidden graph rewiring.
+A real white bypass Mask is ordinary Mask data. If it feeds Invert, the result is black; if it feeds a future combiner, white participates in that combiner's defined maths.
 
-For downstream Mask combiners, the white result participates in their normal maths. "Bypass" therefore does not mean "remove this node from an arbitrary Mask expression"; it means "this generator currently produces full coverage".
+This is deliberately different from unavailable Mask propagation. Bypass is a defined numerical result when its required frame exists; unavailability means the Mask data does not exist.
 
 ## Port model / mixer-ready topology
 
@@ -492,7 +551,7 @@ Fixed ports do not need per-instance runtime socket objects. Known node kinds ca
 
 ### Accepted: consumer-owned incoming connections
 
-Each scalar input accepts at most one producer, so RawNode stores the upstream output on the consuming input rather than maintaining a second authoritative global edge list.
+Each single-producer input accepts at most one producer, so RawNode stores the upstream output on the consuming input rather than maintaining a second authoritative global edge list.
 
 Conceptually:
 
@@ -539,7 +598,7 @@ LayerMixer.slot(7).input(image)
 LayerMixer.slot(7).input(mask)
 ```
 
-Persist these as structured components rather than delimiter-encoded strings.
+`OutputRef` components are persisted as the upstream source stored on each consuming input, and `documentOutput` is persisted explicitly. `InputAddress` is a command/validation address derived from the consumer's storage location; it is **not** separately persisted as a second edge record. Structured fields are preferred over delimiter-encoded strings.
 
 ### Accepted: ordered node-owned repeated slots
 
@@ -676,9 +735,15 @@ documentOutput
     → some Image OutputRef
 ```
 
+A document has exactly one primary Source bound to the current document image. Source cannot be deleted. Copy/paste and presets do not create a second Source; transferred references to Source rebind to the destination document's Source.
+
 A source-only document has Source as both.
 
+`documentOutput` must always name an existing Image output. A unary-spine delete that removes the current output retargets it to that deleted node's Image producer under the List View splice rule below.
+
 Requested inspection endpoints do not change `documentOutput`.
+
+For Step 6, preserve current source-only presentation behaviour: when the requested Image endpoint is `Source.image`, the viewer uses the document input interpretation. Source-only export remains disabled rather than introducing an unrelated product change during the graph migration. Mask inspection uses presentation-only grayscale and never Image colour conversion.
 
 ### Accepted: graph validation rules
 
@@ -722,9 +787,9 @@ and tests that prove:
 
 ### Accepted: current transitional structures are replaced, not extended
 
-The existing transitional `NodeInput` / `NodeInputRole` representation is not rich enough for explicit topology.
+The existing transitional `NodeInput` / `NodeInputRole` representation is not rich enough for explicit topology. The reserved `Node::opacity` / `CompositeMode` fields are likewise not the settled generic-control model.
 
-Step 6 should replace it cleanly with named typed ports and consumer-owned references.
+Step 6 should replace these transitional fields cleanly with named typed ports, consumer-owned references, and the accepted node-level Strength/Blend ownership rather than extending the reserved placeholders.
 
 Retain the useful concepts already present elsewhere:
 
@@ -1074,16 +1139,75 @@ List order does not determine render order.
 
 Topology editing belongs primarily to Node View.
 
+### Accepted Step 6 minimum: derived main Image spine
+
+Step 6 does not need to solve presentation of an arbitrary DAG, but the existing List View must stop being an executable-order vector.
+
+For the Step 6 UI subset, derive the main Image spine by walking upstream from `documentOutput` through each ordinary unary node's `image` input toward Source.
+
+List View rows are therefore a presentation of explicit topology.
+
+For unary Image nodes on that spine:
+
+- insert / paste is an explicit edge splice;
+- move is an explicit topology rewrite, not a storage-vector permutation;
+- delete reconnects consumers of the deleted node's Image output to its Image producer where the unary splice is well-defined;
+- if `documentOutput` pointed at the deleted unary node, it retargets to that Image producer;
+- consumers of other outputs are disconnected rather than guessed;
+- each compound edit is staged/validated and committed through one `DocumentMutation`.
+
+Nodes outside the main spine may be shown separately or minimally in Step 6 and are not reordered by List View presentation order.
+
 ### Open
 
-Exact List View projection for arbitrary DAGs is not yet settled.
+The exact List View projection for an arbitrary future DAG remains deferred. Step 6 must not invent a second presentation order with processing semantics.
 
-Possible approaches include:
+## Step 6 mutation, parameter and diagnostic rules
 
-- derived main-spine / nested mask presentation;
-- stable topological order plus non-semantic presentation rank.
+### Accepted: structural edits use the mutation barrier
 
-Do not let Step 6 accidentally make vector/list order authoritative again.
+Structural graph changes are document mutations:
+
+- connect / reconnect / disconnect;
+- add / delete node;
+- change `documentOutput`;
+- add / delete / reorder Slot;
+- enable/bypass state when changing it would alter which dependencies the evaluation needs.
+
+Stage and validate compound topology changes before committing them under `DocumentMutation`. `DocumentMutation` provides execution exclusion, not automatic rollback.
+
+### Accepted: node-owned mutable controls must be race-free
+
+Processor backends already synchronize their own parameters. New node-owned controls such as Strength, Blend Mode and future slot settings must also be read race-free by the preview worker.
+
+They are:
+
+- blocked during export under the existing parameter-edit exclusion;
+- followed by a normal preview request;
+- represented with appropriate atomics/locking or captured in a consistent per-evaluation snapshot.
+
+Do not add a second scheduler or feature-specific lock protocol.
+
+The requested inspection endpoint is preview-demand state and must likewise be captured consistently for an evaluation/publication.
+
+### Accepted: diagnostics travel with evaluation results
+
+Evaluation returns diagnostics for reachable dependencies together with the requested result state.
+
+Warnings such as:
+
+- missing unary processor with a defined pass-through fallback;
+- unavailable Mask/Reference resolved fail-open at a coverage input;
+
+do not turn a successful result into a hard error.
+
+Export proceeds when the requested document output is successfully evaluated with such warnings and reports them in its final status.
+
+Hard graph/value errors still refuse export.
+
+Warnings are derived from the dependencies reachable from the requested endpoint, not from an unconditional scan of every stored node.
+
+Publication retains the request identity, result value kind (Image/Mask) and diagnostics together so an obsolete Image/Mask inspection result cannot be recoloured or presented under a newer request's interpretation.
 
 ## Persistence boundary
 
@@ -1147,6 +1271,8 @@ Exports remain derivative files and do not receive RawNode sidecars.
 ## Step 6 implementation target
 
 Step 6 remains one architectural transition: explicit topology and executable sequential DAG evaluation land together.
+
+Step 6 implements the typed Image/Mask value model, availability/error propagation, requested-endpoint evaluation and enough test-only graph operations to prove those contracts. It does **not** need to expose the production generic adjustment Mask × Strength × Normal wrapper in the UI. The first concrete user-facing Mask application path remains Step 8. This prevents Step 6 topology work from silently absorbing the first masking feature while still making the evaluator ready for it.
 
 A sensible internal implementation sequence is:
 
@@ -1222,7 +1348,7 @@ This OFX policy should be finalized before generic masking/strength on OFX ships
 
 The Step 5 product/architecture contract is now substantially settled.
 
-There are no remaining broad product-model decisions required before the final implementation-readiness review.
+There are no remaining broad product-model decisions. The final independent implementation-readiness reviews found the architecture sound after the narrow availability/bypass/runtime clarifications now incorporated above.
 
 Accepted decisions now include:
 
@@ -1270,11 +1396,12 @@ The following still remain intentionally deferred until their corresponding feat
 
 ## Proposed next steps
 
-1. Ask Codex for a final implementation-readiness review against the complete Step 5 contract and current source, without coding.
-2. Ask Claude for an independent final adversarial recheck of the same complete contract.
-3. Reconcile only concrete blockers or contradictions found by those reviews.
-4. Distill the accepted contract into `docs/DECISIONS.md`, `docs/ARCHITECTURE.md`, `docs/PROJECT_CONTEXT.md`, `CLAUDE.md` where appropriate, and remove superseded wording.
-5. Close Step 5 and merge the contract/docs PR.
-6. Begin Step 6 with a focused implementation plan and regression tests.
+Step 5 is closed.
 
-The OFX adapter findings from the spatial review remain focused follow-up work and should be resolved before generic Mask / Strength / Blend is exposed on OFX nodes.
+1. Merge the reconciled Step 5 contract and durable-document updates.
+2. Begin Step 6 with a focused implementation plan and regression-test matrix.
+3. Keep Step 6 scoped to one authoritative explicit graph plus sequential requested-endpoint evaluation.
+4. Preserve the OFX adapter findings as focused follow-up work before generic Mask / Strength / Blend is exposed on OFX nodes.
+5. Begin the first concrete production Mask path in Step 8 after graph persistence in Step 7.
+
+No additional broad architecture review is required before Step 6 unless implementation uncovers a concrete contradiction against this contract.
