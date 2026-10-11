@@ -1,8 +1,9 @@
 # RawNode Architecture Audit and Refactor Plan
 
-**Status:** Original audit and post-Step-4 whole-architecture checkpoint
-complete, independently reviewed and reconciled. Step 5 is current
-product-contract decision work. The approved target architecture lives in
+**Status:** Original audit, post-Step-4 whole-architecture checkpoint and
+Step 5 product-contract work are complete, independently reviewed and
+reconciled. Step 6 explicit topology/evaluator implementation is current. The
+approved target architecture lives in
 `docs/ARCHITECTURE.md` and accepted decisions live in `docs/DECISIONS.md`.
 
 **RawNode audit baseline:** `07808451f72bba9bc59a6e9a6889ec5a4f7c07de`
@@ -330,24 +331,21 @@ PR #53 and PR #54 closed the two immediate checkpoint follow-ups. The remaining
 lifetime/exception-safety findings are focused implementation work, not reasons
 to delay Step 5 or reopen broad architecture cleanup.
 
-### Step 5 - Settle the first mask/graph product contract
+### Step 5 - Settle the first mask/graph product contract — complete
 
-**Current task: decision work before implementation.** Settle the first
-mask/graph product contract before DAG feature work; the pending topics and
-graph-model guardrails are in `docs/PROJECT_CONTEXT.md`.
+Step 5 closed after independent Codex and Claude final reviews at PR #56 found
+the architecture sound after narrow contract clarifications only.
 
-Step 5 settles the product/architectural contract needed before topology work:
-the user-visible mask model and its list/graph attachment, ownership/meaning of
-opacity and effect strength, multi-input behaviour, coordinate semantics if the
-first mask is geometric, and enough mixing semantics to define the required
-graph shape. D034's mask/image-alpha separation is already accepted; their
-interaction remains open. No actual contract answer is chosen here.
+The accepted contract is detailed in `docs/STEP5_GRAPH_CONTRACT.md` and
+summarized by D039–D046 in `docs/DECISIONS.md`.
 
-The internal architecture must remain graph-capable and must not create a
-feature-specific mask scheduler.
+In particular, it settles typed Image/Mask values, raster/reference semantics,
+port/connection/Slot identity, Source/document output, requested endpoints,
+generic strength/blend ownership, fail-open optional Mask coverage,
+Mask-generator bypass, Step 6 runtime/mutation boundaries and the V2 replacement
+direction.
 
-Graph-native masks remain the preferred direction for eventual compositing, but
-the exact first mask UX is not yet an approved implementation contract.
+The first concrete production Mask path remains Step 8.
 
 ### Step 6 - Introduce topology and sequential DAG evaluation together
 
@@ -373,10 +371,12 @@ Keep OpenFX unary initially.
 
 Persist explicit topology only when the runtime can execute it.
 
-Older builds must never silently reinterpret branching documents as a linear
-chain.
+Step 7 may replace Sidecar V2 cleanly; old V2 compatibility is not a product
+constraint. Until replacement persistence exists, graph state that V2 cannot
+represent must be refused rather than silently flattened.
 
-Preserve stable identities, missing processors and copy/paste compatibility.
+Preserve stable identities, unavailable processors/interfaces and explicit
+copy/paste remapping.
 
 ### Step 8 - Settle remaining concrete mask details and implement the first mask path
 
