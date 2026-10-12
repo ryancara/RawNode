@@ -48,7 +48,10 @@ complete. Remaining focused findings are recorded in
   independently reviewed; see `docs/STEP5_GRAPH_CONTRACT.md`.
 - **Step 6 — current:** transition from today's serial chain to explicit topology
   and one sequential requested-endpoint DAG evaluator.
-- Step 7: versioned graph persistence.
+- Step 7: versioned graph persistence, with a forward-compatible home for
+  editor node positions/layout data.
+- **Graph View UI milestone (between Steps 7 and 8; not a new architecture
+  step):** implement a switchable graphical node editor on the existing graph.
 - Step 8: first concrete mask path and remaining implementation details under
   the Step 5 product/architectural contract.
 
@@ -122,19 +125,36 @@ scheduler without a concrete product need.
 
 ## Graph / List interface
 
-Allow switching between graph and list views of the same processing structure.
+**Delivery milestone:** After Step 7 graph-native persistence and before Step 8
+introduces the first user-facing masks, build the graphical Node/Graph View.
+This is a UI/product milestone, not an additional numbered architecture refactor.
 
-Step 6 makes the graph authoritative. The List View derives a main Image spine
-from explicit topology; moving rows must rewrite topology rather than reorder
-storage.
+The editor must have an explicit switch between **Graph View and List View**.
+Switching views changes presentation only: both show and edit the same
+authoritative document graph, preserve NodeId selection, and produce identical
+processing results. Neither view owns a separate copy of topology or render
+state.
 
-The Node View and List View remain two presentations of the same document.
+Step 6 makes the graph authoritative. The List View derives its main Image spine
+from explicit topology; moving rows rewrites topology rather than rearranging
+node storage. Off-spine nodes must remain accessible, even if arbitrary-DAG List
+View presentation stays deliberately simple.
 
-Add number-key node selection.
+Initial Graph View scope:
 
-Branching, typed Mask endpoints and future mixers use the same graph. Arbitrary
-DAG List View presentation may remain simple until concrete workflows require
-more.
+- draggable nodes with pan/zoom and typed Image/Mask ports and connections;
+- connection editing through the existing validated graph commands;
+- shared selection/inspection and editing actions with List View;
+- node layout positions saved with the editable source document, and restored
+  when reopened; Step 7 should make room for this without coupling layout to
+  graph evaluation.
+
+Add number-key node selection as a separate small interaction improvement.
+
+Branching, typed Mask endpoints and future mixers use the same graph. The first
+user-facing mask workflows remain Step 8, after the visual editor milestone.
+Do not build a second graph model, renderer or persistence representation for
+Graph View.
 
 ## Assignable input system
 
