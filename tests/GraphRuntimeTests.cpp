@@ -356,7 +356,10 @@ static bool testWorkerExceptionBoundary() {
   RenderRuntimeTestAccess::evaluation(app.renderer, nullptr, [](void *context) {
     if (++*static_cast<std::atomic<int> *>(context) == 1) throw std::bad_alloc();
   }, &attempts);
-  WorkerGuard guard{app, executor}; app.renderer.start(); app.renderer.requestDocumentPreview(); CHECK(idle(app));
+  WorkerGuard guard{app, executor};
+  // The topology edit already queued a preview. Replace it before starting the
+  // worker so the injected exception cannot belong to a superseded request.
+  app.renderer.requestDocumentPreview(); app.renderer.start(); CHECK(idle(app));
   auto result = publication(app);
   CHECK(result.result.state == EvaluationState::Error && result.result.requested == image(endpoint) && processor->calls == 0);
   CHECK(result.request && *result.request == image(endpoint) && diagnostic(result.result, "bad_alloc"));
