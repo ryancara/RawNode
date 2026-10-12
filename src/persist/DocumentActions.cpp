@@ -398,8 +398,6 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
     app.setStatus("Sidecar files are not images — open the image file instead.");
     return;
   }
-  if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
-
   const ColorEncoding requestedRaw = rawWorkingEncodingForOpen(app, path, applySidecar);
   Image img;
   ColorEncoding detectedEncoding;
@@ -409,6 +407,12 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
     return;
   }
 
+  // Decode first, then drain preview/export before replacing any live document
+  // state. Export borrows full Source under its lease; this scope also keeps
+  // nested sidecar edits from dispatching against a half-switched document.
+  document_detail::DocumentMutation mutation(app);
+  if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
+  mutation.changed();
   app.path = path;
   app.full = std::move(img);
   {
@@ -437,7 +441,7 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
     app.sidecarWriteBlockedPath.clear();
   }
 
-  rebuildPreview(app);
+  mutation.rebuildPreview();
   persistWorkspace(app);
 }
 

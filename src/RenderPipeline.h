@@ -13,9 +13,14 @@ ProcessorResult renderChain(App &app, const Image &src, Image &out,
 void pumpDisplayUpload(App &app);
 
 namespace display_detail {
-// Runtime publication boundary. Conversion and the display-buffer lock stay in
-// the presentation path; callers must hold runtime execution/document ownership.
-void recolorDisplay(App &app);
+// Prepare under execution/document ownership, outside the runtime mutex. The
+// final commit is gated by the runtime, then takes only the display-buffer lock.
+struct Presentation {
+  std::vector<unsigned char> rgba;
+  int w = 0, h = 0;
+};
+Presentation preparePresentation(const App &app, const EvaluationResult &result);
+void commitDisplayRefresh(App &app, const App::PreviewPublication &snapshot, Presentation presentation);
 void publishPreview(App &app, EvaluationResult result, int generation,
-                    std::shared_ptr<const OutputRef> request);
+                    std::shared_ptr<const OutputRef> request, Presentation presentation);
 }

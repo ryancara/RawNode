@@ -231,16 +231,29 @@ void RenderRuntime::runPreview() {
     // implementation exceptions, not just Processor::render exceptions.
     try {
       if (recolorOnly) {
+        const auto snapshot = [&] {
+          std::lock_guard<std::mutex> displayLock(app_.displayMutex);
+          return app_.processed; // Immutable shared value and publication identity.
+        }();
+        endpoint = snapshot.request;
+        auto presentation = display_detail::preparePresentation(app_, snapshot.result);
+        if (beforePublication_) beforePublication_(publicationContext_, snapshot.result.requested);
         std::lock_guard<std::mutex> lock(mutex_);
-        if (gen == epoch_.load()) display_detail::recolorDisplay(app_);
+        if (gen == epoch_.load() && !stopping_)
+          display_detail::commitDisplayRefresh(app_, snapshot, std::move(presentation));
         continue;
       }
-      if (!endpoint) continue;
+      const ImageValue source = app_.preview;
+      // Startup and processor edits are valid before a photo is opened. Keep
+      // the initial guidance; the evaluator still validates every actual Source.
+      if (!endpoint || !source || source->px.empty() || source->w <= 0 || source->h <= 0 ||
+          app_.full.px.empty() || app_.full.w <= 0 || app_.full.h <= 0) continue;
       if (!quiet) app_.setStatus("Rendering...");
       const RenderCancellation cancellation(epoch_, gen);
-      const ImageValue source = app_.preview;
+      // previewBusy_ owns this document until finishPreview; every Source
+      // replacement drains that ownership through DocumentMutation.
       const EvaluationContext context{EvaluationPurpose::Preview, app_.full.w, app_.full.h,
-                                       source ? source->w : 0, source ? source->h : 0};
+                                       source->w, source->h};
       auto result = evaluateOwned(*endpoint, context, source, cancellation);
       if (result.state == EvaluationState::Cancelled || cancellation.cancelled()) continue;
       std::string status;
@@ -251,20 +264,22 @@ void RenderRuntime::runPreview() {
         status = std::to_string(w) + "×" + std::to_string(h) + " preview";
       } else status = result.state == EvaluationState::Unavailable ? "Preview unavailable" : "Render failed";
       for (const auto &diagnostic : result.diagnostics) status += " — " + diagnostic.message;
+      auto presentation = display_detail::preparePresentation(app_, result);
       if (beforePublication_) beforePublication_(publicationContext_, *endpoint);
       // This same gate records endpoint demand/generation and protects typed
       // publication. An older Image or Mask cannot publish after a new request.
       std::lock_guard<std::mutex> lock(mutex_);
-      if (gen != epoch_.load() || stopping_) continue;
-      display_detail::publishPreview(app_, std::move(result), gen, endpoint);
-      if (!quiet) app_.setStatus(status);
+      if (gen != epoch_.load() || endpoint != pendingEndpoint_ || stopping_) continue;
+      const bool reportStatus = !quiet || result.state != EvaluationState::Available;
+      display_detail::publishPreview(app_, std::move(result), gen, endpoint, std::move(presentation));
+      if (reportStatus) app_.setStatus(status);
     } catch (...) {
-      reportPreviewException(endpoint, gen, quiet);
+      reportPreviewException(endpoint, gen);
     }
   }
 }
 
-void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef> &endpoint, int gen, bool quiet) noexcept {
+void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef> &endpoint, int gen) noexcept {
   const auto error = std::current_exception();
   try {
     if (!endpoint) return;
@@ -278,8 +293,8 @@ void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef
     result.diagnostics.push_back({DiagnosticLevel::Error, *endpoint, message});
     std::lock_guard<std::mutex> lock(mutex_);
     if (gen != epoch_.load() || stopping_) return;
-    display_detail::publishPreview(app_, std::move(result), gen, endpoint);
-    if (!quiet) app_.setStatus("Render failed: " + message);
+    display_detail::publishPreview(app_, std::move(result), gen, endpoint, {});
+    app_.setStatus("Render failed: " + message);
   } catch (...) {
     // Even sustained allocation failure must not escape the worker or retain
     // a successful raster as though this request succeeded. The shared request
@@ -301,7 +316,7 @@ void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef
         app_.displayRGBA.clear();
         app_.displayDirty = true;
       }
-      if (!quiet) { try { app_.setStatus("Render failed"); } catch (...) {} }
+      try { app_.setStatus("Render failed"); } catch (...) {}
     } catch (...) {}
   }
 }

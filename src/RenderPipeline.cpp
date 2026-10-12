@@ -33,10 +33,12 @@ void pumpDisplayUpload(App &app) {
   app.displayDirty = false;
 }
 
-static void presentation(const App &app, const EvaluationResult &result,
-                         std::vector<unsigned char> &rgba, int &w, int &h) {
-  w = h = 0;
-  if (result.state != EvaluationState::Available) return;
+display_detail::Presentation display_detail::preparePresentation(const App &app, const EvaluationResult &result) {
+  Presentation presentation;
+  auto &rgba = presentation.rgba;
+  auto &w = presentation.w;
+  auto &h = presentation.h;
+  if (result.state != EvaluationState::Available) return presentation;
   if (const auto *image = std::get_if<ImageValue>(&result.value)) {
     ColorEncoding encoding;
     {
@@ -58,34 +60,23 @@ static void presentation(const App &app, const EvaluationResult &result,
         rgba[i] = rgba[i + 1] = rgba[i + 2] = sample; rgba[i + 3] = 255;
       }
   }
+  return presentation;
 }
 
-// Runtime holds execution ownership and its publication gate. Display conversion
-// never takes the runtime lock itself, preserving the leaf-lock ordering.
-void display_detail::recolorDisplay(App &app) {
-  EvaluationResult result{{app.primarySource, ports::image}};
-  {
-    std::lock_guard<std::mutex> lock(app.displayMutex);
-    result = app.processed.result; // Shared immutable values; no raster copy.
-  }
-  std::vector<unsigned char> rgba;
-  int w, h;
-  presentation(app, result, rgba, w, h);
+void display_detail::commitDisplayRefresh(App &app, const App::PreviewPublication &snapshot, Presentation presentation) {
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  app.displayRGBA = std::move(rgba);
-  app.display = {w, h};
+  if (app.processed.generation != snapshot.generation || app.processed.request != snapshot.request) return;
+  app.displayRGBA = std::move(presentation.rgba);
+  app.display = {presentation.w, presentation.h};
   app.displayDirty = true;
 }
 
 void display_detail::publishPreview(App &app, EvaluationResult result, int generation,
-                                   std::shared_ptr<const OutputRef> request) {
-  std::vector<unsigned char> rgba;
-  int w, h;
-  presentation(app, result, rgba, w, h);
+                                   std::shared_ptr<const OutputRef> request, Presentation presentation) {
   std::lock_guard<std::mutex> lock(app.displayMutex);
   app.processed = {generation, std::move(request), std::move(result)};
-  app.display = {w, h};
-  app.displayRGBA = std::move(rgba);
+  app.display = {presentation.w, presentation.h};
+  app.displayRGBA = std::move(presentation.rgba);
   app.displayDirty = true;
 }
 

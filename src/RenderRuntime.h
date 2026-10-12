@@ -70,7 +70,7 @@ class RenderRuntime {
   void completeMutation(bool changed, bool interrupted) noexcept;
 
   void requestPreview(bool quiet);
-  void reportPreviewException(const std::shared_ptr<const OutputRef> &endpoint, int generation, bool quiet) noexcept;
+  void reportPreviewException(const std::shared_ptr<const OutputRef> &endpoint, int generation) noexcept;
   void queuePreview(bool quiet);        // mutex_ held; normal demand wins.
   bool cancelAndDrain(std::unique_lock<std::mutex> &lock);
 

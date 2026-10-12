@@ -978,6 +978,7 @@ static bool testExportPreviewStatus(ExportStatusResult result,
   }
   probe->cv.notify_all();
   if (!previewIdle(app)) return false;
+  const int publishedEpoch = renderState(app).epoch;
   app.renderer.shutdown();
   {
     std::lock_guard<std::mutex> lock(probe->mutex);
@@ -987,8 +988,9 @@ static bool testExportPreviewStatus(ExportStatusResult result,
   const std::string expectedStatus = action == ExportStatusPreview::ExplicitEdit ? "1×1 preview" : exportStatus;
   std::lock_guard<std::mutex> lock(app.displayMutex);
   if (action == ExportStatusPreview::Fail)
-    return app.getStatus() == exportStatus && app.processed.result.state == EvaluationState::Error &&
-           app.displayRGBA.empty() && app.displayDirty && app.processed.generation > 0;
+    return app.getStatus() == "Render failed — Processor render failed (-2): Self-test render failure" &&
+           app.processed.result.state == EvaluationState::Error && app.displayRGBA.empty() && app.displayDirty &&
+           app.processed.generation == publishedEpoch;
   Image expected = *app.preview;
   const float value = action == ExportStatusPreview::ExplicitEdit ? 0.5f : 0.25f;
   expected.px = {value, value, value, 1.0f};
@@ -1075,7 +1077,8 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
 }
 
 // Preview sizing occurs at the next graph operation, never as export cleanup.
-// Its failure must not undo successful file production or erase export status.
+// Its failure must not undo successful file production, but must report the
+// current preview failure even when restoration was requested quietly.
 static bool testPreviewSizingFailureAfterExport(bool asynchronous) {
   ExportTestFiles files;
   App app;
@@ -1097,7 +1100,8 @@ static bool testPreviewSizingFailureAfterExport(bool asynchronous) {
   if (exported.find("Exported ") != 0 || !exportHasRgb(files.output(), 0.125f) ||
       probe->width != 2 || probe->calls != 1 || !app.renderer.canEditParameters()) return false;
   app.renderer.start();
-  if (!previewIdle(app) || app.getStatus() != exported || probe->calls != 1) return false;
+  if (!previewIdle(app) || app.getStatus() != "Render failed — Graph operation failed: Self-test preview sizing failure" ||
+      probe->calls != 1) return false;
   {
     std::lock_guard<std::mutex> lock(app.displayMutex);
     if (app.processed.result.state != EvaluationState::Error || !app.displayRGBA.empty() ||

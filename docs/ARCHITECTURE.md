@@ -430,6 +430,11 @@ If a failed operation must restore preview work, that restoration should be
 quiet so routine preview progress does not erase the meaningful operation
 status.
 
+Quiet suppresses progress and Available-result messages only. A current Error,
+Unavailable result or unexpected preview exception reports its failure and
+clears stale presentation. Cancelled or superseded work publishes neither status
+nor a result.
+
 Status ownership should remain separate from image freshness.
 
 ## OpenFX constraints

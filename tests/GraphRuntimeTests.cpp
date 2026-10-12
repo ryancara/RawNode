@@ -57,11 +57,36 @@ struct Files {
   std::string path(const char *name) { return (dir / name).string(); }
 };
 
+// Test-owned barriers always have an independent release path. A failed
+// ownership/lock regression times out and fails instead of hanging selftest.
+struct Gate {
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool released = true;
+  int entered = 0;
+  void arm() { std::lock_guard<std::mutex> lock(mutex); released = false; }
+  void hold() {
+    std::unique_lock<std::mutex> lock(mutex);
+    if (released) return;
+    ++entered; cv.notify_all(); cv.wait(lock, [&] { return released; });
+  }
+  bool wait(int count) {
+    std::unique_lock<std::mutex> lock(mutex);
+    return cv.wait_for(lock, std::chrono::seconds(2), [&] { return entered >= count; });
+  }
+  void unblock() { { std::lock_guard<std::mutex> lock(mutex); released = true; } cv.notify_all(); }
+};
+struct GateWorkerGuard {
+  App &app; Gate &gate;
+  ~GateWorkerGuard() { gate.unblock(); app.renderer.shutdown(); }
+};
+
 class NumericProcessor final : public Processor {
  public:
   float gain = 1.0f, offset = 0.0f;
   std::atomic<int> calls{0}, width{0}, height{0};
   std::atomic<bool> fail{false};
+  Gate *renderGate = nullptr;
   const float *lastInput = nullptr;
   ProcessorBackend backend() const override { return ProcessorBackend::Native; }
   std::string identifier() const override { return "test.numeric"; }
@@ -73,6 +98,7 @@ class NumericProcessor final : public Processor {
   void setRenderSize(int w, int h) override { width = w; height = h; }
   ProcessorResult render(const Image &in, Image &out, const RenderCancellation &) override {
     ++calls; lastInput = in.px.data();
+    if (renderGate) renderGate->hold();
     if (fail) return ProcessorResult::failure(91, "runtime backend failure");
     out = in;
     for (size_t i = 0; i < out.px.size(); ++i) if (i % 4 != 3) out.px[i] = out.px[i] * gain + offset;
@@ -95,6 +121,7 @@ class Executor final : public graph_test::Executor {
   std::condition_variable cv;
   std::string blocked;
   bool release = true, exportMismatch = false, cancelled = false, blockAtPublication = false;
+  EvaluationState state = EvaluationState::Available;
   int entered = 0, calls = 0;
   void block(const NodeId &id, bool publishing = false) {
     std::lock_guard<std::mutex> lock(mutex); blocked = id.value; release = false; blockAtPublication = publishing;
@@ -116,6 +143,7 @@ class Executor final : public graph_test::Executor {
     ++calls;
     if (!blockAtPublication && node.id.value == blocked) { ++entered; cv.notify_all(); cv.wait(lock, [&] { return release; }); }
     if (cancelled) return {EvaluationState::Cancelled, {}, {}};
+    if (state != EvaluationState::Available) return {state, {}, "runtime inspection failure"};
     if (node.operation == NodeOperation::TestUnavailableMask || node.operation == NodeOperation::TestUnavailableImage)
       return {EvaluationState::Unavailable, {}, "runtime test data unavailable"};
     if (node.operation == NodeOperation::TestImage || node.operation == NodeOperation::TestMaskedImage)
@@ -337,6 +365,184 @@ static bool testWorkerExceptionBoundary() {
   return true;
 }
 
+static bool testPhotoSwitch(bool exporting) {
+  Files files; Gate gate; App app;
+  const auto photoA = files.path("photo-a.png"), photoB = files.path("photo-b.png");
+  const auto output = files.path("export-a.png"), expected = files.path("expected-a.png");
+  const ColorEncoding encoding{RgbGamut::Rec709, TransferFunction::Linear};
+  CHECK(writeImage(raster(7, 3, 0.2f), photoA, encoding, 92));
+  CHECK(writeImage(raster(4, 5, 0.8f), photoB, encoding, 92));
+  openPath(app, photoA, true);
+  const auto *pixelsA = app.full.px.data();
+  auto *processor = numeric(app, NodeId{"switch-barrier"}); CHECK(processor);
+  CHECK(writeImage(app.full, expected, app.outputEncoding, 92));
+  processor->renderGate = &gate; gate.arm();
+  struct MutationProbe {
+    App &app;
+    const float *pixelsA;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool observed = false, intact = false;
+  } probe{app, pixelsA};
+  RenderRuntimeTestAccess::observe(app.renderer, &probe, [](void *context, auto event) noexcept {
+    if (event != RenderRuntimeTestAccess::Event::MutationWaiting) return;
+    auto &probe = *static_cast<MutationProbe *>(context);
+    std::lock_guard<std::mutex> lock(probe.mutex);
+    // Runs on the control thread before mutation starts changing the document.
+    probe.intact = probe.app.full.px.data() == probe.pixelsA && probe.app.full.w == 7 && probe.app.full.h == 3;
+    probe.observed = true; probe.cv.notify_all();
+  });
+  GateWorkerGuard guard{app, gate};
+  if (exporting) CHECK(startExport(app, output));
+  app.renderer.start();
+  CHECK(gate.wait(1));
+  bool waited = false;
+  std::thread release([&] {
+    std::unique_lock<std::mutex> lock(probe.mutex);
+    waited = probe.cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe.observed; }) && probe.intact;
+    lock.unlock();
+    gate.unblock(); // Independent of the control thread blocked in openPath.
+  });
+  openPath(app, photoB, true);
+  release.join();
+  app.renderer.joinExport();
+  CHECK(waited && idle(app));
+  Image decodedB; ColorEncoding detected; bool raw;
+  CHECK(loadImage(photoB, decodedB, detected, raw));
+  CHECK(app.path == photoB && app.full.w == 4 && app.full.h == 5 && app.full.px == decodedB.px);
+  CHECK(app.nodes.size() == 1 && app.documentOutput == image(app.primarySource)); // Nested sidecar clear.
+  const auto frame = publication(app);
+  CHECK(frame.result.state == EvaluationState::Available && frame.result.requested == image(app.primarySource));
+  CHECK(std::get<ImageValue>(frame.result.value)->px == decodedB.px && app.getStatus() == "4×5 preview");
+  if (exporting) {
+    Image exported, reference;
+    CHECK(loadImage(output, exported, detected, raw) && loadImage(expected, reference, detected, raw));
+    CHECK(exported.w == 7 && exported.h == 3 && exported.px == reference.px);
+  }
+  return true;
+}
+static bool testExportPhotoSwitch() { return testPhotoSwitch(true); }
+static bool testPreviewPhotoSwitch() { return testPhotoSwitch(false); }
+
+static bool testPresentationGate(bool refresh) {
+  Executor executor; App app; source(app);
+  const NodeId effect{"presentation-image"}, maskNode{"presentation-mask"};
+  auto *processor = numeric(app, effect); CHECK(processor);
+  CHECK(add(app, maskNode, NodeOperation::TestImageToMask));
+  CHECK(graph::connect(app, image(app.primarySource), input(maskNode)).ok());
+  struct Probe {
+    App &app;
+    Gate gate;
+    std::mutex mutex;
+    bool checkNext = false, stale = false;
+    int generation = 0;
+    std::vector<unsigned char> bytes;
+  } probe{app};
+  RenderRuntimeTestAccess::evaluation(app.renderer, &executor, [](void *context) {
+    auto &probe = *static_cast<Probe *>(context);
+    std::lock_guard<std::mutex> lock(probe.mutex);
+    if (!probe.checkNext) return;
+    std::lock_guard<std::mutex> displayLock(probe.app.displayMutex);
+    probe.stale = probe.app.processed.generation != probe.generation || probe.app.displayRGBA != probe.bytes;
+    probe.checkNext = false;
+  }, &probe);
+  RenderRuntimeTestAccess::publication(app.renderer, [](void *context, const OutputRef &) {
+    static_cast<Probe *>(context)->gate.hold(); // Conversion is finished, commit has not begun.
+  }, &probe);
+  GateWorkerGuard guard{app, probe.gate}; app.renderer.start(); app.renderer.requestDocumentPreview();
+  CHECK(idle(app));
+  const auto calls = processor->calls.load();
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    probe.generation = app.processed.generation; probe.bytes = app.displayRGBA;
+  }
+  { std::lock_guard<std::mutex> lock(app.colorMutex); app.outputEncoding.gamma = TransferFunction::Linear; }
+  probe.gate.arm();
+  if (refresh) app.renderer.requestDisplayRefresh(); else app.renderer.requestPreview();
+  CHECK(probe.gate.wait(1));
+  { std::lock_guard<std::mutex> lock(probe.mutex); probe.checkNext = true; }
+  std::mutex responseMutex; std::condition_variable responseCv;
+  bool responded = false, responsive = false;
+  std::thread release([&] {
+    std::unique_lock<std::mutex> lock(responseMutex);
+    responsive = responseCv.wait_for(lock, std::chrono::seconds(2), [&] { return responded; });
+    lock.unlock(); probe.gate.unblock();
+  });
+  const bool editable = app.renderer.canEditParameters();
+  app.renderer.requestInspection(mask(maskNode));
+  { std::lock_guard<std::mutex> lock(responseMutex); responded = true; } responseCv.notify_all();
+  release.join();
+  CHECK(responsive && editable && idle(app));
+  { std::lock_guard<std::mutex> lock(probe.mutex); CHECK(!probe.stale && !probe.checkNext); }
+  CHECK(processor->calls == calls + (refresh ? 0 : 1));
+  CHECK(publication(app).result.requested == mask(maskNode));
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA == std::vector<unsigned char>({64,64,64,255})); }
+  app.renderer.requestDocumentPreview(); CHECK(idle(app));
+  CHECK(publication(app).result.requested == image(effect) && processor->calls == calls + (refresh ? 1 : 2));
+  std::vector<unsigned char> expected; toDisplayRGBA8(*app.preview, app.outputEncoding, expected);
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA == expected); }
+  return true;
+}
+static bool testPresentationResponsiveness() { return testPresentationGate(false) && testPresentationGate(true); }
+
+static bool testNoImageGuidance() {
+  Executor executor; App app;
+  const std::string guidance = "Open a photo to begin."; app.setStatus(guidance);
+  std::atomic<int> evaluations{0};
+  RenderRuntimeTestAccess::evaluation(app.renderer, nullptr, [](void *context) {
+    ++*static_cast<std::atomic<int> *>(context);
+  }, &evaluations);
+  WorkerGuard guard{app, executor}; app.renderer.start();
+  CHECK(addNativeExposureNode(app) && idle(app));
+  CHECK(app.getStatus() == guidance && evaluations == 0 && publication(app).generation == 0);
+  clearNodes(app); CHECK(idle(app));
+  CHECK(app.getStatus() == guidance && evaluations == 0 && publication(app).generation == 0);
+  return true;
+}
+
+static bool testQuietOutcomes() {
+  for (int outcome = 0; outcome < 5; ++outcome) {
+    Files files; Executor executor; App app; source(app);
+    const NodeId effect{"quiet-export"}, maskNode{"quiet-mask"};
+    CHECK(numeric(app, effect) && add(app, maskNode, NodeOperation::TestImageToMask));
+    CHECK(graph::connect(app, image(app.primarySource), input(maskNode)).ok());
+    struct Fault { std::atomic<int> attempts{0}, failAt{-1}; } fault;
+    RenderRuntimeTestAccess::evaluation(app.renderer, &executor, [](void *context) {
+      auto &fault = *static_cast<Fault *>(context);
+      if (++fault.attempts == fault.failAt) throw std::bad_alloc();
+    }, &fault);
+    WorkerGuard guard{app, executor}; app.renderer.start(); app.renderer.requestInspection(mask(maskNode));
+    CHECK(idle(app) && publication(app).result.state == EvaluationState::Available);
+    const auto before = publication(app).generation;
+    {
+      std::lock_guard<std::mutex> lock(executor.mutex);
+      if (outcome == 1) executor.state = EvaluationState::Error;
+      if (outcome == 2) executor.state = EvaluationState::Unavailable;
+      if (outcome == 4) executor.cancelled = true;
+    }
+    if (outcome == 3) fault.failAt = fault.attempts + 2; // Export succeeds; quiet preview throws outside evaluator.
+    CHECK(runExportJob(app, files.path("quiet.png")) && idle(app));
+    CHECK(std::filesystem::exists(files.path("quiet.png")));
+    const auto frame = publication(app);
+    if (outcome == 0 || outcome == 4) {
+      CHECK(app.getStatus().find("Exported quiet.png") == 0);
+      CHECK(frame.result.state == EvaluationState::Available);
+      CHECK(outcome == 0 ? frame.generation > before : frame.generation == before);
+    } else {
+      const auto state = outcome == 2 ? EvaluationState::Unavailable : EvaluationState::Error;
+      CHECK(frame.result.state == state && frame.result.valueType == ValueType::Mask);
+      CHECK(frame.generation > before && frame.generation == RenderRuntimeTestAccess::snapshot(app.renderer).epoch);
+      CHECK(frame.result.requested == mask(maskNode) && !frame.result.diagnostics.empty());
+      CHECK(app.getStatus().find(outcome == 2 ? "Preview unavailable" : "Render failed") == 0);
+      CHECK(std::holds_alternative<std::monostate>(frame.result.value));
+      { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA.empty() && app.display.w == 0); }
+    }
+    app.renderer.requestDocumentPreview(); CHECK(idle(app));
+    CHECK(publication(app).result.state == EvaluationState::Available && app.getStatus() == "1×1 preview");
+  }
+  return true;
+}
+
 static bool testNarrowV2Refusal() {
   Files files; App app; source(app);
   CHECK(addNativeExposureNode(app));
@@ -366,6 +572,11 @@ bool testGraphRuntime() {
       {"6D Image-to-Mask and Mask-to-Image endpoint supersession", testEndpointSupersession},
       {"6D full-resolution graph export, reachable warnings, refusal and resolution context", testExportPolicyAndContext},
       {"6D allocation-style worker exception publishes Error and worker survives mutation", testWorkerExceptionBoundary},
+      {"6D B1 async export retains Photo A while openPath waits to commit Photo B", testExportPhotoSwitch},
+      {"6D I1 photo switching drains active preview and keeps Source dimensions coherent", testPreviewPhotoSwitch},
+      {"6D I2 prepared preview/recolour remains responsive and rejects stale presentation", testPresentationResponsiveness},
+      {"6D I3 no-image processor edits preserve initial guidance without evaluation", testNoImageGuidance},
+      {"6D I4 quiet restoration reports current failures and preserves successful export status", testQuietOutcomes},
       {"6D narrow linear V2 refusal preserves the existing source sidecar", testNarrowV2Refusal},
   };
   for (const auto &test : cases) {
