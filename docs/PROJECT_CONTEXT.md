@@ -347,8 +347,8 @@ need.
 
 ## Current development phase
 
-**Step 5 — Settle the first mask/graph product contract — is current.**
-This is product/architecture decision work before graph implementation.
+**Step 6 — Explicit topology and the sequential DAG evaluator — is current.**
+Step 5's first mask/graph product contract is complete and guides this implementation.
 
 Steps 1–4 are complete: owned export execution, frozen parameter edits during
 export, centralized graph-edit transactions and encapsulated renderer ownership.
@@ -436,9 +436,11 @@ compositing or alpha-carrying I/O requires it.
 
 ## Near-term roadmap
 
-Current architecture/product-contract work:
+Current architecture implementation work:
 
-- Step 5: decide the first mask/graph product contract using the topics above.
+- Step 6: implement the approved explicit topology and sequential DAG evaluator.
+- Step 7: add versioned graph persistence.
+- Step 8: deliver the first concrete production mask path and remaining feature details.
 
 The checkpoint and immediate follow-ups are complete. No additional broad
 architecture cleanup is required before this discussion.
@@ -454,6 +456,44 @@ first concrete mask path with remaining implementation details in Step 8.
 
 Do not introduce speculative caches, schedulers or broad optimisation
 infrastructure merely because a future DAG could use them.
+
+## Quality and verification roadmap
+
+**Immediately (without interrupting Step 6):** every feature PR gets a
+proportionate readability/responsibility review; substantial features should
+have independently verifiable acceptance criteria and tests where practical.
+Reviewers challenge the test oracle and failure/boundary behaviour rather than
+treating passing author-written tests as proof. See `CLAUDE.md` and
+`docs/CODE_STYLE.md`.
+
+**After Step 6 stabilises:** schedule focused, small PRs for quality
+infrastructure rather than expanding the active graph cutover PR.
+Track the following as explicit follow-up work:
+
+- [ ] Review readability and responsibility boundaries in the new graph,
+      evaluator and render-runtime integration.
+- [ ] Make a fast reproducible CI build/self-test baseline for feasible platforms;
+      keep expensive sanitizer/stress runs separate where helpful.
+- [ ] Introduce focused static analysis (for example, clang-tidy) and compiler
+      warnings with an explicit baseline; prioritise defects over cosmetic churn.
+- [ ] Extend independent numerical and reference-image tests for colour
+      transforms, exposure, precision/alpha preservation, negative and >1 RGB,
+      graph equivalence and relevant export paths.
+- [ ] Add targeted robustness tests or fuzz/property tests for sidecar parsing,
+      graph validation and untrusted file boundaries, as warranted.
+- [ ] Establish lightweight performance/memory regression baselines where useful.
+
+**After Step 8's first production masks/compositing:** run a focused milestone
+readability/architecture checkpoint on the affected graph, processor and UI
+boundaries. Do not automatically repeat a whole-codebase pass after each feature.
+
+**Before a stable public release:** revisit cross-platform builds, file error
+handling, recovery, dependency/licensing, performance and remaining critical
+test gaps. An independent paid C++ specialist audit may be valuable later but
+is optional and budget-dependent, not a development gate.
+
+Review progress against these items when Step 6 closes so this roadmap does
+not become a forgotten note. Keep related implementation changes in focused PRs.
 
 ## Starting a future project conversation
 
