@@ -83,26 +83,25 @@ Finish with a clear judgement about whether the PR is safe to merge.
 
 ## Continuous PR quality review
 
-Every implementation PR review includes a proportionate human-readability check
-of changed and directly affected code. Check domain names, conceptual function
-and file organisation, ownership/lifetime and lock scopes, failure paths and
-subsystem responsibility boundaries. Raise meaningful issues at the appropriate
-severity; address small, relevant clarity problems in the PR. Keep unrelated or
-large behaviour-preserving cleanup in focused follow-ups rather than turning
-each feature PR into a repository-wide readability pass.
+Every implementation PR review includes a proportionate readability check of
+changed and directly affected code: names, file/function organisation, ownership
+and locks, failure paths and architectural responsibilities. Readability findings
+are normally minor and non-blocking. Escalate only where unclear code creates a
+real correctness, lifetime or maintainability risk. Do not demand renames or moves
+in untouched code; recommend small relevant fixes in the PR and defer unrelated
+cleanup.
 
-For substantial features, examine independently verifiable acceptance criteria
-and test evidence, not just the author's claim that tests pass. Challenge
-expected results and test oracles, boundary and failure behaviour, and whether
-the tests would detect a plausible wrong implementation. Where practical,
-verify a regression test fails when the behaviour it protects is removed.
-Identify important missing evidence without inventing unrelated scope.
+For substantial features, challenge the agreed acceptance criteria, expected
+results and test oracles independently of the implementation. Values copied
+from the implementation's own output are not independent evidence. Prefer
+published reference values, independently tested libraries (e.g. lcms),
+analytical invariants, and equivalence to an independently validated baseline,
+exercised through the production path. Check failure/boundary cases and whether
+a plausible incorrect implementation would fail the tests. See the existing
+review standard below for regression-test mutation checks.
 
-Schedule focused milestone readability/architecture checkpoints after Step 6
-(graph/evaluator) stabilises and after the first production mask/compositing
-milestone (Step 8). Review the affected subsystems, not the whole repository by
-default. The post-Step-6 quality-infrastructure checklist lives in
-`docs/PROJECT_CONTEXT.md`; do not block the active Step 6 work on new tooling.
+Milestone checkpoint timing and post-Step-6 infrastructure tasks are tracked in
+`docs/PROJECT_CONTEXT.md`; do not expand the active Step 6 PR to do this work.
 
 ## Development philosophy
 
