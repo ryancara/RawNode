@@ -116,6 +116,21 @@ If future readability work exposes a genuine architecture problem, record it
 and address it deliberately in a focused change. The post-Step-4 architecture
 checkpoint is complete; broad cleanup is no longer the current task.
 
+## Continuous and milestone review
+
+Include a proportionate readability review in every feature PR, alongside
+correctness review. Inspect changed and closely affected code for clear names,
+conceptual organisation, visible ownership/lock scopes and correct architectural
+responsibility. Resolve small, meaningful clarity issues as part of the PR;
+record unrelated or broad cleanups separately instead of creating cosmetic
+churn. A passing formatter is not a readability review.
+
+After substantial architectural milestones, run a dedicated review of the
+affected subsystems for accumulated complexity and responsibility drift.
+The next planned checkpoints are after Step 6's explicit graph/evaluator
+stabilises and after Step 8's first production mask/compositing work.
+Prefer behaviour-preserving, focused changes, backed by existing tests.
+
 ## Review standard
 
 A readability PR should still build and pass the full self-test suite. For
