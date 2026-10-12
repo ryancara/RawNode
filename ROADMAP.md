@@ -54,6 +54,10 @@ complete. Remaining focused findings are recorded in
 
 The completed stabilisation tasks are not extra migration steps.
 
+Post-Step-6 code quality, CI, verification and milestone readability follow-ups
+are tracked in `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
+The graph readability checkpoint is due before Step 7 settles the persistent format.
+
 ## Completed editing workflow milestone
 
 RawNode now supports:
