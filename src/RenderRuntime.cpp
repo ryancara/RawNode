@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <utility>
+#include <exception>
 
 RenderRuntime::RenderRuntime(App &app) noexcept : app_(app)
 #ifndef NDEBUG
@@ -67,6 +68,13 @@ RenderRuntime::Export RenderRuntime::acquireExport() {
   joinExport();
   std::unique_lock<std::mutex> lock(mutex_);
   if (stopping_) return Export(nullptr);
+  try {
+    pendingEndpoint_ = inspection_ ? inspection_ : std::make_shared<OutputRef>(app_.documentOutput);
+  } catch (...) {
+    // Acquisition has not closed dispatch or taken ownership yet.
+    try { app_.setStatus("Export failed: Could not allocate preview request"); } catch (...) {}
+    return Export(nullptr);
+  }
   // Keep dispatch closed across cancellation and acquisition, just as for a
   // document edit. No restored preview can overtake the export barrier.
   ++mutationDepth_;
@@ -137,13 +145,40 @@ void RenderRuntime::completeMutation(bool changed, bool interrupted) noexcept {
 void RenderRuntime::requestPreview(bool quiet) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_) return;
-  if (!app_.hasSerialNodes() || app_.preview.px.empty()) {
-    display_detail::showSourcePreview(app_);
-    return;
-  }
+  pendingEndpoint_ = inspection_ ? inspection_ : std::make_shared<OutputRef>(app_.documentOutput);
   ++epoch_;
   queuePreview(quiet);
   if (mutationDepth_ == 0) workCv_.notify_one();
+}
+
+void RenderRuntime::requestInspection(const OutputRef &endpoint) {
+  assertControlThread();
+  auto request = std::make_shared<OutputRef>(endpoint);
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (stopping_) return;
+  inspection_ = pendingEndpoint_ = std::move(request);
+  ++epoch_;
+  queuePreview(false);
+  if (mutationDepth_ == 0) workCv_.notify_one();
+}
+
+void RenderRuntime::requestDocumentPreview() {
+  assertControlThread();
+  auto request = std::make_shared<OutputRef>(app_.documentOutput);
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (stopping_) return;
+  inspection_.reset();
+  pendingEndpoint_ = std::move(request);
+  ++epoch_;
+  queuePreview(false);
+  if (mutationDepth_ == 0) workCv_.notify_one();
+}
+
+EvaluationResult RenderRuntime::evaluateOwned(const OutputRef &endpoint, const EvaluationContext &context,
+                                             ImageValue source, const RenderCancellation &cancellation) {
+  if (beforeEvaluation_) beforeEvaluation_(evaluationContext_);
+  return evaluateGraph({app_.nodes, app_.primarySource, app_.documentOutput}, endpoint, context,
+                        std::move(source), cancellation, testExecutor_);
 }
 
 void RenderRuntime::queuePreview(bool quiet) {
@@ -173,7 +208,8 @@ void RenderRuntime::runPreview() {
   };
   for (;;) {
     bool recolorOnly, quiet;
-    int gen = 0, width = 0, height = 0;
+    int gen;
+    std::shared_ptr<const OutputRef> endpoint;
     {
       std::unique_lock<std::mutex> lock(mutex_);
       workCv_.wait(lock, [&] {
@@ -183,38 +219,90 @@ void RenderRuntime::runPreview() {
         return ready;
       });
       if (stopping_) break;
-      recolorOnly = !previewPending_ && displayPending_; // Processor work wins.
+      recolorOnly = !previewPending_ && displayPending_;
       quiet = !recolorOnly && quietPending_;
       previewPending_ = quietPending_ = displayPending_ = false;
       previewBusy_ = true;
-      if (!recolorOnly) {
-        gen = ++epoch_;                // Cannot overtake a locked cancellation.
-        width = app_.preview.w;
-        height = app_.preview.h;
-      }
+      gen = recolorOnly ? epoch_.load() : ++epoch_;
+      endpoint = pendingEndpoint_;
     }
     BusyGuard busy{*this};
-    if (recolorOnly) {
-      display_detail::recolorDisplay(app_);
-      continue;
+    // Includes evaluator bookkeeping, display allocations and unexpected
+    // implementation exceptions, not just Processor::render exceptions.
+    try {
+      if (recolorOnly) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (gen == epoch_.load()) display_detail::recolorDisplay(app_);
+        continue;
+      }
+      if (!endpoint) continue;
+      if (!quiet) app_.setStatus("Rendering...");
+      const RenderCancellation cancellation(epoch_, gen);
+      const ImageValue source = app_.preview;
+      const EvaluationContext context{EvaluationPurpose::Preview, app_.full.w, app_.full.h,
+                                       source ? source->w : 0, source ? source->h : 0};
+      auto result = evaluateOwned(*endpoint, context, source, cancellation);
+      if (result.state == EvaluationState::Cancelled || cancellation.cancelled()) continue;
+      std::string status;
+      if (result.state == EvaluationState::Available) {
+        int w = 0, h = 0;
+        if (const auto *image = std::get_if<ImageValue>(&result.value)) { w = (*image)->w; h = (*image)->h; }
+        if (const auto *mask = std::get_if<MaskValue>(&result.value)) { w = (*mask)->w; h = (*mask)->h; }
+        status = std::to_string(w) + "×" + std::to_string(h) + " preview";
+      } else status = result.state == EvaluationState::Unavailable ? "Preview unavailable" : "Render failed";
+      for (const auto &diagnostic : result.diagnostics) status += " — " + diagnostic.message;
+      if (beforePublication_) beforePublication_(publicationContext_, *endpoint);
+      // This same gate records endpoint demand/generation and protects typed
+      // publication. An older Image or Mask cannot publish after a new request.
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (gen != epoch_.load() || stopping_) continue;
+      display_detail::publishPreview(app_, std::move(result), gen, endpoint);
+      if (!quiet) app_.setStatus(status);
+    } catch (...) {
+      reportPreviewException(endpoint, gen, quiet);
     }
-    if (!app_.hasSerialNodes() || app_.preview.px.empty()) continue;
-    for (auto &node : app_.nodes)
-      if (node.processor) node.processor->setRenderSize(width, height);
-    if (!quiet) app_.setStatus("Rendering...");
-    const RenderCancellation cancellation(epoch_, gen);
-    Image out;
-    const ProcessorResult result = renderChain(app_, app_.preview, out, cancellation);
-    if (cancellation.cancelled()) continue;
-    if (result.ok) {
-      const int ow = out.w, oh = out.h;
-      display_detail::publishPreview(app_, std::move(out), gen);
-      if (!quiet) app_.setStatus(std::to_string(ow) + "×" + std::to_string(oh) + " preview");
-    } else {
-      // Retain/recolour the last good result, without resurrecting demand.
-      display_detail::recolorDisplay(app_);
-      app_.setStatus("Render failed" + (result.message.empty() ? std::string() : ": " + result.message));
-    }
+  }
+}
+
+void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef> &endpoint, int gen, bool quiet) noexcept {
+  const auto error = std::current_exception();
+  try {
+    if (!endpoint) return;
+    std::string message = "Unexpected preview exception";
+    try { std::rethrow_exception(error); }
+    catch (const std::exception &e) { message = e.what(); }
+    catch (...) {}
+    EvaluationResult result{*endpoint, std::nullopt, EvaluationState::Error, {}, {}};
+    const auto *port = findOutput(GraphView{app_.nodes, app_.primarySource, app_.documentOutput}, *endpoint);
+    if (port) result.valueType = port->type;
+    result.diagnostics.push_back({DiagnosticLevel::Error, *endpoint, message});
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (gen != epoch_.load() || stopping_) return;
+    display_detail::publishPreview(app_, std::move(result), gen, endpoint);
+    if (!quiet) app_.setStatus("Render failed: " + message);
+  } catch (...) {
+    // Even sustained allocation failure must not escape the worker or retain
+    // a successful raster as though this request succeeded. The shared request
+    // identity can still be retained without allocating strings/diagnostics.
+    try {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (gen != epoch_.load() || stopping_) return;
+      {
+        std::lock_guard<std::mutex> displayLock(app_.displayMutex);
+        app_.processed.generation = gen;
+        app_.processed.request = endpoint;
+        app_.processed.result.state = EvaluationState::Error;
+        app_.processed.result.value = std::monostate{};
+        app_.processed.result.valueType.reset();
+        app_.processed.result.requested.nodeId.value.clear();
+        app_.processed.result.requested.outputPortId.value.clear();
+        app_.processed.result.diagnostics.clear();
+        app_.display = {};
+        app_.displayRGBA.clear();
+        app_.displayDirty = true;
+      }
+      if (!quiet) { try { app_.setStatus("Render failed"); } catch (...) {} }
+    } catch (...) {}
   }
 }
 

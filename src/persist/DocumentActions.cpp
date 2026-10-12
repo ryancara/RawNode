@@ -10,6 +10,7 @@
 #include "ui/ImGuiBackend.h"
 
 #include <filesystem>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
@@ -225,8 +226,13 @@ void saveCurrentInputSidecar(App &app) {
     inputEncoding = app.inputEncoding;
     inputIsRaw = app.inputIsRaw;
   }
-  saveInputSidecar(app.path, captureSidecarGui(app), captureChain(app),
-                   inputIsRaw ? &inputEncoding : nullptr);
+  try {
+    const auto chain = captureChain(app); // Refuse before opening/truncating a file.
+    saveInputSidecar(app.path, captureSidecarGui(app), chain,
+                     inputIsRaw ? &inputEncoding : nullptr);
+  } catch (const std::runtime_error &error) {
+    app.setStatus(error.what());
+  }
 }
 
 void persistWorkspace(App &app) {

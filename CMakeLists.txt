@@ -100,6 +100,7 @@ add_executable(OfxRawHost
   tests/GraphModelTests.cpp
   tests/GraphCommandsTests.cpp
   tests/GraphEvaluatorTests.cpp
+  tests/GraphRuntimeTests.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
   src/imgio/ImageLoad.cpp

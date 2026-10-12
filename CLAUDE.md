@@ -118,9 +118,10 @@ The original RawNode <-> vkdt audit and the post-Step-4 whole-architecture
 checkpoint and Step 5 product-contract work are complete. Codex and Claude
 independently found the direction **sound for the next stage** and again found
 the final Step 5 contract sound after small clarifications. No further broad
-architecture cleanup is justified before Step 6. The explicit graph is not yet
-implemented: current `App::nodes` execution is still serial. The authoritative
-target is in
+architecture cleanup is justified before Step 6. On the Step 6 draft feature
+branch, preview, inspection and export now share the explicit DAG evaluator.
+The remaining List View/V2 boundary work and final review precede merge.
+The authoritative target is in
 `docs/ARCHITECTURE.md`.
 
 The architectural north star is:

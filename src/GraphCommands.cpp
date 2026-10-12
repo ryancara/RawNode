@@ -133,7 +133,6 @@ static CommandResult editGraph(graph::Document document, Change change, Node *ad
 static std::string connectionError(GraphView graph, const OutputRef &producer, const InputAddress &destination);
 static bool unaryImageNode(const Node &node);
 static std::string imageOutputError(GraphView graph, const OutputRef &output);
-static std::string imageSpine(GraphView graph, std::vector<NodeId> &spine);
 
 namespace graph {
 
@@ -397,7 +396,10 @@ static std::string imageOutputError(GraphView graph, const OutputRef &output) {
   return {};
 }
 
-static std::string imageSpine(GraphView graph, std::vector<NodeId> &spine) {
+std::string graph::imageSpine(GraphView graph, std::vector<NodeId> &spine) {
+  spine.clear();
+  const auto error = graphStructureError(graph);
+  if (!error.empty()) return error;
   OutputRef current = graph.documentOutput;
   while (current.nodeId != graph.primarySource) {
     const Node *node = findNode(graph, current.nodeId);

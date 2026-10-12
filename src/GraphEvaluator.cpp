@@ -29,8 +29,9 @@ static bool rasterShape(int w, int h, size_t channels, size_t samples) {
   return width * height * channels == samples;
 }
 
-// One call owns the memo and all intermediate values. Keeping them until the
-// call returns avoids consumer-count machinery while preserving fan-out lifetime.
+// One call owns memo identity and remaining uses. A consumed raster leaves the
+// memo at its last use; the consumer's local shared value owns it through that
+// operation. Completed metadata stays memoized so work/diagnostics never repeat.
 class Evaluation {
  public:
   Evaluation(GraphView graph, const EvaluationContext &context, ImageValue source,
@@ -57,6 +58,8 @@ class Evaluation {
       return finish(result, failure({graph_.primarySource, ports::image}, "Invalid Source Image raster"));
     if (source_->w != context_.evalSourceW || source_->h != context_.evalSourceH)
       return finish(result, failure(requested, "Evaluation context does not match Source raster dimensions"));
+    requested_ = requested;
+    plan(requested);
     return finish(result, visit(requested));
   }
 
@@ -64,7 +67,71 @@ class Evaluation {
   EvaluationResult finish(EvaluationResult result, Outcome outcome) {
     result.state = outcome.state;
     result.value = std::move(outcome.value);
-    result.diagnostics = std::move(diagnostics_);
+    if (result.state != EvaluationState::Cancelled) result.diagnostics = std::move(diagnostics_);
+    return result;
+  }
+  void plan(const OutputRef &output) {
+    if (!planned_.insert(output).second) return;
+    const Node &node = *findNode(graph_, output.nodeId);
+    // Enabled bundle execution consumes its inputs once, even when several
+    // distinct outputs are requested. Bypass executes each pass-through output.
+    if (node.operation == NodeOperation::TestMultipleOutputs && node.enabled &&
+        !plannedBundles_.insert(node.id.value).second) return;
+    const auto dependency = [&](const OutputRef &producer) {
+      ++remaining_[producer];
+      plan(producer);
+    };
+    const auto connected = [&](const PortId &port, std::optional<SlotId> slot = std::nullopt) {
+      const auto *binding = findInput(graph_, {node.id, slot, port});
+      if (binding && *binding) dependency(**binding);
+    };
+    switch (node.operation) {
+      case NodeOperation::ImageProcessor:
+      case NodeOperation::TestImage:
+      case NodeOperation::TestImageToMask:
+      case NodeOperation::TestMultipleOutputs:
+        connected(ports::image);
+        break;
+      case NodeOperation::TestMaskedImage:
+        connected(ports::image);
+        if (node.enabled) connected(ports::mask);
+        break;
+      case NodeOperation::TestMaskProcessor:
+        connected(ports::mask);
+        break;
+      case NodeOperation::TestReferenceMask: {
+        const auto *reference = findInput(graph_, {node.id, std::nullopt, ports::reference});
+        if (*reference) dependency(**reference);
+        else dependency({graph_.primarySource, ports::image});
+        break;
+      }
+      case NodeOperation::TestSlotted:
+        if (node.enabled) connected(ports::reference);
+        for (const auto &slot : node.slots) {
+          if (!slot.settings.enabled) continue;
+          connected(ports::image, slot.id);
+          if (!node.enabled) break;
+          connected(ports::mask, slot.id);
+        }
+        break;
+      case NodeOperation::Source:
+      case NodeOperation::TestUnavailableImage:
+      case NodeOperation::TestUnavailableMask:
+        break;
+    }
+  }
+  void releaseUnused(const OutputRef &output) {
+    if (output == *requested_) return;
+    const auto uses = remaining_.find(output);
+    if (uses != remaining_.end() && uses->second != 0) return;
+    const auto cached = memo_.find(output);
+    if (cached != memo_.end()) cached->second.value = std::monostate{};
+  }
+  Outcome dependency(const OutputRef &output) {
+    auto result = visit(output);
+    auto uses = remaining_.find(output);
+    if (uses != remaining_.end() && uses->second != 0) --uses->second;
+    releaseUnused(output);
     return result;
   }
   void diagnose(DiagnosticLevel level, const OutputRef &endpoint, std::string message) {
@@ -102,7 +169,7 @@ class Evaluation {
     const auto *declaration = findInputDeclaration(graph_, address);
     const auto *binding = findInput(graph_, address);
     if (!declaration || !binding) return failure(consumer, "Input storage does not exist");
-    if (*binding) return visit(**binding);
+    if (*binding) return dependency(**binding);
     if (declaration->required) {
       const std::string location = slot ? "[Slot " + std::to_string(slot->value) + "]" : "";
       return failure(consumer, "Missing required input: " + consumer.nodeId.value + location + "." + port.value);
@@ -159,7 +226,7 @@ class Evaluation {
       case NodeOperation::TestReferenceMask: {
         auto frame = input(output, ports::reference);
         if (stopped(frame)) return frame; // Connected unavailable Reference never defaults to Source.
-        if (std::holds_alternative<std::monostate>(frame.value)) frame = visit({graph_.primarySource, ports::image});
+        if (std::holds_alternative<std::monostate>(frame.value)) frame = dependency({graph_.primarySource, ports::image});
         if (stopped(frame)) return frame;
         inputs.reference = std::get<ImageValue>(frame.value);
         if (!node.enabled) return whiteMask(inputs.reference);
@@ -243,8 +310,11 @@ class Evaluation {
     // Public and memo identity remain OutputRef even when one execution naturally
     // produces several outputs. Secondary values are checked when requested.
     for (auto &entry : result.outputs)
-      if (entry.first != output.outputPortId)
-        memo_.emplace(OutputRef{node.id, entry.first}, Outcome{EvaluationState::Available, std::move(entry.second)});
+      if (entry.first != output.outputPortId) {
+        const OutputRef secondary{node.id, entry.first};
+        memo_.emplace(secondary, Outcome{EvaluationState::Available, std::move(entry.second)});
+        releaseUnused(secondary);
+      }
     return {EvaluationState::Available, std::move(requested->second)};
   }
 
@@ -289,6 +359,10 @@ class Evaluation {
   RenderCancellation cancellation_;
   graph_test::Executor *executor_;
   std::map<OutputRef, Outcome, OutputLess> memo_;
+  std::optional<OutputRef> requested_;
+  std::map<OutputRef, size_t, OutputLess> remaining_;
+  std::set<OutputRef, OutputLess> planned_;
+  std::set<std::string> plannedBundles_;
   std::set<OutputRef, OutputLess> visiting_;
   std::vector<EvaluationDiagnostic> diagnostics_;
 };

@@ -42,17 +42,19 @@ static bool testDocumentIdentity() {
   if (first == second || first == sourceId || second == sourceId) return false;
   app.documentOutput = {first, ports::image};
   moveNode(app, 2, 1);
-  if (app.nodes[1].id != second || app.nodes[2].id != first ||
+  // An off-spine node cannot be moved by the current spine controls.
+  if (app.nodes[1].id != first || app.nodes[2].id != second ||
       app.documentOutput != OutputRef{first, ports::image}) return false;
   // Move Source too, proving identity/output lookups do not depend on position.
   std::reverse(app.nodes.begin(), app.nodes.end());
-  if (findNode(app, first) != &app.nodes[0] || !findNode(app, second) ||
+  if (findNode(app, first) != &app.nodes[1] || !findNode(app, second) ||
       !findOutput(app, app.documentOutput) || !documentStateError(app).empty()) return false;
   destroyNode(app, 2);  // Source is now at the end.
   if (app.nodes.size() != 3 || app.documentOutput != OutputRef{first, ports::image}) return false;
-  destroyNode(app, 0);  // Deleting the selected output preserves a valid default.
+  destroyNode(app, 1);  // Splice deletion also rewires the stored downstream node.
   if (findNode(app, first) || app.documentOutput != sourceImage ||
       !documentStateError(app).empty()) return false;
+  app.documentOutput = {second, ports::image}; // Capture the remaining complete linear graph.
   const PersistChain chain = captureChain(app);
   clearNodes(app);
   if (app.nodes.size() != 1 || app.primarySource != sourceId || app.documentOutput != sourceImage) return false;
@@ -72,7 +74,7 @@ static bool testDocumentIdentity() {
   applyChain(app, foreign);
   return app.nodes.size() == 2 && app.nodes[0].operation == NodeOperation::Source &&
          app.nodes[1].operation == NodeOperation::ImageProcessor && app.nodes[1].isMissingProcessor() &&
-         app.nodes[1].id != sourceId && app.documentOutput == sourceImage && documentStateError(app).empty();
+         app.nodes[1].id != sourceId && app.documentOutput == OutputRef{app.nodes[1].id, ports::image} && documentStateError(app).empty();
 }
 
 static bool testPortsAndReferences() {

@@ -299,13 +299,21 @@ static bool testFanoutBundleAndLifetime() {
   exec.settings[a.value].add = 1.0f; exec.settings[b.value].add = 2.0f;
   const auto one = graph::addSlot(f.document(), join).addedSlot, two = graph::addSlot(f.document(), join).addedSlot;
   CHECK(one && two && f.connect(image(a), input(join, ports::image, one)) && f.connect(image(b), input(join, ports::image, two)));
+  bool firstAlive = false, lastAlive = false, releasedBeforeJoin = false;
+  exec.settings[a.value].duringExecution = [&] { firstAlive = !exec.images[0].expired(); };
+  exec.settings[b.value].duringExecution = [&] { lastAlive = !exec.images[0].expired(); };
+  exec.settings[join.value].duringExecution = [&] {
+    releasedBeforeJoin = exec.images[0].expired() && !exec.images[1].expired() && !exec.images[2].expired();
+  };
   {
     const auto result = f.evaluate(image(join), &exec);
     CHECK(pixels(result)->px[0] == 3.5f && exec.calls[shared.value] == 1);
     CHECK(result.diagnostics.size() == 1 && result.diagnostics[0].endpoint == image(missing));
     CHECK(exec.images.size() == 4);
+    CHECK(firstAlive && lastAlive && releasedBeforeJoin);
     CHECK(exec.images[0].expired() && exec.images[1].expired() && exec.images[2].expired() && !exec.images[3].expired());
   }
+  for (const auto &id : {a, b, join}) exec.settings[id.value].duringExecution = {};
   CHECK(std::all_of(exec.images.begin(), exec.images.end(), [](const auto &p) { return p.expired(); }));
   CHECK(f.evaluate(image(join), &exec).state == EvaluationState::Available && exec.calls[shared.value] == 2);
   CHECK(f.connect(image(f.source), input(bundle)));
@@ -320,27 +328,74 @@ static bool testFanoutBundleAndLifetime() {
   return true;
 }
 
+static bool testLongChainRelease() {
+  Fixture f; ToyExecutor exec;
+  OutputRef previous = image(f.source);
+  NodeId last;
+  for (int i = 0; i < 40; ++i) {
+    last = NodeId{"linear-" + std::to_string(i)};
+    CHECK(f.add(last) && f.connect(previous, input(last)));
+    previous = image(last);
+  }
+  bool releasedAtLastExecution = false;
+  exec.settings[last.value].duringExecution = [&] {
+    releasedAtLastExecution = exec.images.size() == 39 && !exec.images.back().expired() &&
+        std::all_of(exec.images.begin(), exec.images.end() - 1, [](const auto &image) { return image.expired(); });
+  };
+  const auto result = f.evaluate(previous, &exec);
+  CHECK(result.state == EvaluationState::Available && releasedAtLastExecution);
+  CHECK(pixels(result)->px == f.sourcePixels->px);
+
+  Fixture bundle; ToyExecutor bundled;
+  const NodeId upstream{"owned-input"}, multi{"outputs"}, join{"joined-outputs"};
+  CHECK(bundle.add(upstream) && bundle.add(multi, NodeOperation::TestMultipleOutputs) &&
+        bundle.add(join, NodeOperation::TestSlotted));
+  CHECK(bundle.connect(image(bundle.source), input(upstream)) && bundle.connect(image(upstream), input(multi)));
+  const auto first = graph::addSlot(bundle.document(), join).addedSlot;
+  const auto second = graph::addSlot(bundle.document(), join).addedSlot;
+  CHECK(first && second && bundle.connect(image(multi), input(join, ports::image, first)) &&
+        bundle.connect({multi, PortId{"original"}}, input(join, ports::image, second)));
+  bool bundleAlive = false;
+  bundled.settings[join.value].duringExecution = [&] {
+    bundleAlive = !bundled.images[0].expired() && !bundled.images[1].expired() && bundled.masks[0].expired();
+  };
+  CHECK(bundle.evaluate(image(join), &bundled).state == EvaluationState::Available && bundleAlive && bundled.calls[multi.value] == 1);
+  return true;
+}
+
+// Historical linear reference belongs only in this pixel test, never production.
+static ProcessorResult serialReference(App &app, const Image &source, Image &out) {
+  out = source;
+  for (const auto &node : app.nodes) {
+    if (node.operation != NodeOperation::ImageProcessor || !node.enabled || !node.processor) continue;
+    Image next;
+    const auto result = node.processor->render(out, next, {});
+    if (!result.ok) return result;
+    out = std::move(next);
+  }
+  return ProcessorResult::success();
+}
+
 static bool testProcessorAndSerialEquivalence() {
   App app;
   CHECK(addNativeExposureNode(app) && addNativeExposureNode(app));
   CHECK(app.nodes[1].processor->setParameterValue("exposure", 1.0));
   CHECK(app.nodes[2].processor->setParameterValue("exposure", -0.5));
   const auto a = app.nodes[1].id, b = app.nodes[2].id;
-  CHECK(graph::connect(app, image(app.primarySource), input(a)).ok());
-  CHECK(graph::connect(app, image(a), input(b)).ok());
+
   const auto source = raster(2, 2);
   const EvaluationContext context{EvaluationPurpose::Export, 2, 2, 2, 2};
   Image serial;
-  CHECK(renderChain(app, *source, serial).ok);
+  CHECK(serialReference(app, *source, serial).ok);
   auto result = evaluateGraph({app.nodes, app.primarySource, app.documentOutput}, image(b), context, source);
   CHECK(result.state == EvaluationState::Available && pixels(result)->px == serial.px);
   CHECK(pixels(result)->px[1] < 0.0f && pixels(result)->px[2] > 1.0f && pixels(result)->px[3] == source->px[3]);
   app.nodes[1].enabled = false;
-  CHECK(renderChain(app, *source, serial).ok);
+  CHECK(serialReference(app, *source, serial).ok);
   result = evaluateGraph({app.nodes, app.primarySource, app.documentOutput}, image(b), context, source);
   CHECK(pixels(result)->px == serial.px && result.diagnostics.empty());
   app.nodes[1].enabled = true; app.nodes[1].processor.reset(); app.nodes[1].storedIdentifier = "missing-backend-id";
-  CHECK(renderChain(app, *source, serial).ok);
+  CHECK(serialReference(app, *source, serial).ok);
   result = evaluateGraph({app.nodes, app.primarySource, app.documentOutput}, image(b), context, source);
   CHECK(pixels(result)->px == serial.px && message(result, "missing-backend-id"));
   const auto missing = evaluateGraph({app.nodes, app.primarySource, app.documentOutput}, image(a), context, source);
@@ -538,14 +593,22 @@ static bool testSlots() {
   CHECK(required.state == EvaluationState::Error && message(required, "[Slot 2].image"));
   f.node(join)->findSlot(ids[1])->settings.enabled = false;
   CHECK(f.evaluate(image(join), &exec).state == EvaluationState::Available);
+  const NodeId unavailable{"unavailable-slot-mask"}, partial{"other-slot-mask"};
+  CHECK(f.add(unavailable, NodeOperation::TestUnavailableMask) && f.add(partial, NodeOperation::TestReferenceMask));
+  exec.settings[partial.value].maskValue = 0.5f;
+  CHECK(f.connect(mask(unavailable), input(join, ports::mask, ids[2])) && f.connect(mask(partial), input(join, ports::mask, ids[0])));
+  const auto failOpen = f.evaluate(image(join), &exec);
+  CHECK(failOpen.state == EvaluationState::Available && pixels(failOpen)->px[0] == 30.5f);
+  CHECK(message(failOpen, "using full coverage for Slot 3") && !message(failOpen, "using full coverage for Slot 1"));
   return true;
 }
 
 static bool testCancellationAndFailures() {
   Fixture f; ToyExecutor exec;
-  const NodeId a{"counted-upstream"}, b{"suppressed-downstream"}, p{"backend"};
-  CHECK(f.add(a) && f.add(b) && f.add(p, NodeOperation::ImageProcessor));
-  CHECK(f.connect(image(f.source), input(a)) && f.connect(image(a), input(b)) && f.connect(image(f.source), input(p)));
+  const NodeId a{"counted-upstream"}, b{"suppressed-downstream"}, p{"backend"}, warning{"warning-before-cancel"};
+  CHECK(f.add(a) && f.add(b) && f.add(p, NodeOperation::ImageProcessor) && f.add(warning, NodeOperation::ImageProcessor));
+  CHECK(f.connect(image(f.source), input(warning)) && f.connect(image(warning), input(a)) &&
+        f.connect(image(a), input(b)) && f.connect(image(f.source), input(p)));
   std::atomic<int> epoch{1}; const auto token = RenderCancellationTestAccess::token(epoch, 1);
   exec.settings[a.value].duringExecution = [&] { epoch.fetch_add(1); };
   auto result = f.evaluate(image(b), &exec, token);
@@ -587,6 +650,7 @@ bool testGraphEvaluator() {
       {"6C Source sharing, requested endpoints and malformed graph rejection", testSourceAndValidation},
       {"6C linear evaluation, storage independence and reachable-only diagnostics", testLinearStorageAndReachability},
       {"6C fan-out memoization, distinct output bundles and intermediate lifetime", testFanoutBundleAndLifetime},
+      {"6D long linear chain releases old intermediates before the last operation", testLongChainRelease},
       {"6C native Processor execution matches serial pixels, alpha and missing/bypass behaviour", testProcessorAndSerialEquivalence},
       {"6C scalar Mask coverage, clamping, Invert, bypass and malformed values", testMaskValidationAndBypass},
       {"6C bypass-aware readiness skips unused incomplete dependencies", testBypassAwareDependencies},

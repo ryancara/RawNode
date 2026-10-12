@@ -3,8 +3,8 @@
 #include "AppState.h"
 #include "persist/ProjectPersist.h"
 
-// App::nodes is the single graph storage, including Source. Execution remains
-// serial temporarily; these lookups never interpret storage position as an ID.
+// App::nodes is the single graph storage, including Source. Execution follows
+// topology; these lookups never interpret storage position as an ID.
 Node *findNode(App &app, const NodeId &id);
 const Node *findNode(const App &app, const NodeId &id);
 const PortDeclaration *findOutput(const App &app, const OutputRef &output);
@@ -14,7 +14,8 @@ const std::optional<OutputRef> *findInput(const App &app, const InputAddress &in
 // Empty means valid; otherwise the first invariant violation is returned.
 std::string documentStateError(const App &app);
 
-// Legacy List View commands still take storage indices until Phase 5.
+// Storage-index compatibility for current selection/controls; order is derived
+// from topology and moves/deletes call graph splice commands.
 Node *selectedNode(App &app);
 std::string nodeDisplayName(const Node &node);
 // Structural operations run on the single control thread. Each owns execution
@@ -30,6 +31,8 @@ void setNodeEnabled(App &app, int index, bool enabled);
 
 // Capture preserves unavailable processors and opaque parameter values.
 bool captureNode(const App &app, int index, PersistNode &out);
+// Narrow 6D guard: capture only an ordinary complete linear processor spine.
+// Throws runtime_error before output is written when V2 would lose topology.
 PersistChain captureChain(const App &app);
 
 // Restoring persisted nodes uses the same structural transaction boundary.

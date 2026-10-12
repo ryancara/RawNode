@@ -5,8 +5,9 @@
 This document records the architecture approved after the RawNode <-> vkdt
 architecture audit and independent Claude review. Steps 1–4 and the
 post-Step-4 stabilisation/checkpoint gate and Step 5 product-contract work are
-complete. Current execution still uses a serial node chain. Step 6 is current:
-the explicit graph/evaluator implementation transition.
+complete. Step 6 is current. On its draft feature branch, preview, inspection
+and export now use the explicit sequential DAG evaluator. List View and V2
+boundary hardening and the final whole-Step-6 review remain before merge.
 
 Read this together with:
 
@@ -178,8 +179,9 @@ The render runtime must not become a general-purpose job system.
 
 ### Display path
 
-The display path consumes the last successful processed result and converts it
-for presentation.
+The display path consumes the published requested result. Available Image and
+Mask values are converted for presentation; unavailable/error results retain
+their identity and diagnostics without presenting a stale successful raster.
 
 Display/monitor changes should not rerun expensive image processors when the
 processed result itself is still valid.
@@ -263,8 +265,9 @@ mutation transactions that would wait on their own execution ownership.
 
 ## Graph target
 
-The current source still evaluates an ordered vector chain. The target graph
-adds only the topology needed for future masks/compositing.
+The explicit graph adds only the topology needed for future masks/compositing.
+Storage order has no execution meaning; the current simple List View projects
+the main unary Image spine. Arbitrary-DAG presentation remains deferred.
 
 The first graph-capable representation should provide:
 

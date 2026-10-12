@@ -1,7 +1,7 @@
 #pragma once
 
 #include "imgio/ImageIO.h"
-#include "GraphModel.h"
+#include "GraphEvaluator.h"
 #include "RenderRuntime.h"
 
 #include <GLFW/glfw3.h>
@@ -67,7 +67,10 @@ struct App {
   unsigned int tex = 0;
   int texW = 0, texH = 0;
 
-  Image full, preview;
+  Image full;
+  // Rebuild by replacing this owner under DocumentMutation, never by changing
+  // a published frame's pixels. Evaluations and Source publications share it.
+  ImageValue preview = std::make_shared<Image>();
   std::string path, status = "Open an image. Source is fed to the plugin as scene-linear.";
   // If a sidecar exists but cannot be safely read, never overwrite it on
   // automatic image switching. Reopening after the file is fixed/removed
@@ -110,12 +113,8 @@ struct App {
   std::vector<Node> nodes;
   NodeId primarySource{"source"};
   OutputRef documentOutput{primarySource, ports::image};
-  // Temporary serial compatibility until the evaluator/List View cutover.
-  // It does not infer documentOutput or maintain another topology.
-  bool hasSerialNodes() const {
-    return std::any_of(nodes.begin(), nodes.end(), [](const Node &node) {
-      return node.operation == NodeOperation::ImageProcessor;
-    });
+  bool hasProcessingOutput() const {
+    return documentOutput.nodeId != primarySource || documentOutput.outputPortId != ports::image;
   }
   int selectedNode = -1;
 
@@ -150,11 +149,15 @@ struct App {
   // Application/thumbnail intent is independent of renderer shutdown.
   std::atomic<bool> quit{false};
   // Presentation storage: only display_detail/pumpDisplayUpload publish/consume.
-  Image display;  // latest rendered (bottom-up float), guarded by displayMutex
+  struct { int w = 0, h = 0; } display;  // Presentation dimensions, not a second raster.
+  struct PreviewPublication {
+    int generation = 0;
+    std::shared_ptr<const OutputRef> request;  // Retained even if error reporting cannot allocate.
+    EvaluationResult result;
+  } processed{0, {}, EvaluationResult{{primarySource, ports::image}}};
   std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
   std::mutex displayMutex;
   bool displayDirty = false;
-  int displayGen = 0;
 
   std::mutex statusMutex;
   void setStatus(const std::string &s) {

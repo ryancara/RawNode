@@ -3,11 +3,13 @@
 #include "GraphModelTests.h"
 #include "GraphCommandsTests.h"
 #include "GraphEvaluatorTests.h"
+#include "GraphRuntimeTests.h"
 
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
 #include "color/LinearColorTransform.h"
 #include "NodeGraph.h"
+#include "GraphCommands.h"
 #include "RenderPipeline.h"
 #include "DocumentMutation.h"
 #include "Export.h"
@@ -53,6 +55,31 @@ namespace fs = std::filesystem;
 using document_detail::DocumentMutation;
 using RuntimeAccess = RenderRuntimeTestAccess;
 using RuntimeEvent = RuntimeAccess::Event;
+
+// Fixtures construct actual topology before execution. These helpers do not
+// emulate rendering or mutate runtime demand/gates.
+static void setTestPreview(App &app, Image image) {
+  if (app.full.px.empty()) app.full = image;
+  app.preview = std::make_shared<Image>(std::move(image));
+}
+static void appendTestNode(App &app, Node node) {
+  if (app.full.px.empty()) app.full = *app.preview;
+  if (node.id.value.empty()) node.id = NodeId{"fixture-node-" + std::to_string(app.nodes.size())};
+  const auto result = graph::insertImageNode(graph::Document{app.nodes, app.primarySource, app.documentOutput}, std::move(node));
+  if (!result.ok()) throw std::runtime_error(result.error);
+}
+static Image &testDisplay(App &app) {
+  static Image empty;
+  const auto *value = std::get_if<ImageValue>(&app.processed.result.value);
+  return value && *value ? const_cast<Image &>(**value) : empty;
+}
+static void seedTestDisplay(App &app, Image image) {
+  const OutputRef endpoint{NodeId{"fixture-processed"}, ports::image};
+  app.display = {image.w, image.h};
+  app.processed = {0, std::make_shared<OutputRef>(endpoint),
+                   {endpoint, ValueType::Image, EvaluationState::Available,
+                    ImageValue(std::make_shared<Image>(std::move(image))), {}}};
+}
 
 static auto renderState(const App &app) { return RuntimeAccess::snapshot(app.renderer); }
 static bool previewIdle(App &app) {
@@ -213,7 +240,7 @@ static bool testExportPreservesSourceSidecar(bool crossImage) {
   App app;
   app.path = (files.dir / "DSC_0001.NEF").string();
   app.inputIsRaw = true;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
   if (!addNativeExposureNode(app) ||
       !app.nodes[1].processor->setParameterValue("exposure", 1.0)) return false;
@@ -251,10 +278,10 @@ static bool testExportPreservesSourceSidecar(bool crossImage) {
 
 static bool testRuntimeIdleLifecycle(bool started, bool pending) {
   App app;
-  app.preview = {{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1});
   Node node;
   node.processor = std::make_unique<NativeExposureProcessor>();
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   RuntimeEvents events(app);
   std::optional<DocumentMutation> gate;
   gate.emplace(app);
@@ -318,15 +345,15 @@ static bool testRuntimeActiveShutdown(bool exporting, bool destroy,
   RenderLifetimeFacts facts;
   auto owner = std::make_unique<App>();
   App &app = *owner;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
-  app.display = app.preview;
+  seedTestDisplay(app, *app.preview);
   auto processor = std::make_unique<LifetimeSelfTestProcessor>(facts);
   auto *probe = processor.get();
   probe->exportFailure = failure;
   Node node;
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   // This callback owns no App data and remains alive through App destruction.
   struct StopObservation {
     std::mutex mutex;
@@ -391,10 +418,10 @@ static bool testRuntimeActiveShutdown(bool exporting, bool destroy,
 // outer completion that requests its final preview only after opening the gate.
 static bool testSingleMutationCompletionDemand(bool changed) {
   App app;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   Node node;
   node.processor = std::make_unique<NativeExposureProcessor>();
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   RuntimeEvents events(app);
   if (!changed) {
     app.renderer.requestPreview();     // Real demand for beginMutation to interrupt.
@@ -420,10 +447,10 @@ static bool testSingleMutationCompletionDemand(bool changed) {
 
 static bool testNormalPreviewDominatesQuiet(bool observe) {
   App app;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   Node node;
   node.processor = std::make_unique<NativeExposureProcessor>();
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   RuntimeEvents events(app);
   if (!observe) RuntimeAccess::observe(app.renderer, nullptr, nullptr);
   app.renderer.requestPreview();
@@ -450,24 +477,24 @@ static bool testNormalPreviewDominatesQuiet(bool observe) {
   if (!previewIdle(app) || app.getStatus() != "1×1 preview") return false;
   const auto completed = renderState(app);
   return !completed.previewPending && !completed.quietPending && completed.epoch == state.epoch + 1 &&
-         app.displayGen == completed.epoch && app.displayDirty && app.display.px == app.preview.px;
+         app.processed.generation == completed.epoch && app.displayDirty && testDisplay(app).px == app.preview->px;
 }
 
 static bool testRuntimeCancellation() {
   App app, independent;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
-  app.display = app.preview;
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
+  seedTestDisplay(app, *app.preview);
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   Node node;
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   auto following = std::make_unique<SchedulingSelfTestProcessor>();
   auto *next = following.get();
   next->release = true;
   Node nextNode;
   nextNode.processor = std::move(following);
-  app.nodes.push_back(std::move(nextNode));
+  appendTestNode(app, std::move(nextNode));
   SchedulingWorkerGuard guard{app, *probe};
   app.renderer.start();
   app.renderer.requestPreview();
@@ -502,7 +529,7 @@ static bool testRuntimeCancellation() {
     std::lock_guard<std::mutex> lock(next->mutex);
     if (next->calls != 0) return false;
   }
-  if (app.displayDirty || app.display.px != app.preview.px) return false;
+  if (app.displayDirty || testDisplay(app).px != app.preview->px) return false;
   {
     std::lock_guard<std::mutex> lock(probe->mutex);
     probe->release = true;
@@ -510,7 +537,7 @@ static bool testRuntimeCancellation() {
   probe->cv.notify_all();
   if (!previewIdle(app)) return false;
   return next->calls == 1 && probe->cancelledCalls.size() == 2 && !probe->cancelledCalls[1] &&
-         app.displayDirty && app.displayGen > epoch;
+         app.displayDirty && app.processed.generation > epoch;
 }
 
 #if !defined(NDEBUG) && !defined(_WIN32)
@@ -548,17 +575,16 @@ static bool testControlThreadAssertions() {
 
 static bool testRenderScheduling(bool busy, bool recolorFirst, bool queueFull = true, bool failRender = false) {
   App app;
-  app.preview.w = app.preview.h = 1;
-  app.preview.px = {0.18f, 0.18f, 0.18f, 1.0f};
-  app.display = app.preview;
-  app.display.px = {0.05f, 0.05f, 0.05f, 1.0f};
-  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  setTestPreview(app, Image{{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1});
+  seedTestDisplay(app, *app.preview);
+  testDisplay(app).px = {0.05f, 0.05f, 0.05f, 1.0f};
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->failRender = failRender;
   Node node;
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
 
   SchedulingWorkerGuard guard{app, *probe};
 
@@ -603,33 +629,34 @@ static bool testRenderScheduling(bool busy, bool recolorFirst, bool queueFull = 
     std::lock_guard<std::mutex> lock(probe->mutex);
     if (probe->calls != expectedCalls) return false;
   }
-  Image expected = app.preview;
-  expected.px = failRender ? std::vector<float>{0.05f, 0.05f, 0.05f, 1.0f}
-                           : std::vector<float>{0.25f * expectedCalls, 0.25f * expectedCalls,
-                                                0.25f * expectedCalls, 1.0f};
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  if (failRender)
+    return generationUnchanged && app.processed.result.state == EvaluationState::Error &&
+           std::holds_alternative<std::monostate>(app.processed.result.value) && app.displayRGBA.empty() &&
+           app.displayDirty && app.processed.generation >= requiredGen &&
+           app.getStatus().find("Self-test render failure") != std::string::npos;
+  Image expected = *app.preview;
+  expected.px = {0.25f * expectedCalls, 0.25f * expectedCalls, 0.25f * expectedCalls, 1.0f};
   std::vector<unsigned char> expectedRGBA;
   toDisplayRGBA8(expected, app.outputEncoding, expectedRGBA);
-  std::lock_guard<std::mutex> lock(app.displayMutex);
-  return generationUnchanged && app.display.px == expected.px &&
-         app.displayRGBA == expectedRGBA && app.displayDirty &&
-         (failRender ? app.displayGen == 0 && app.getStatus() == "Render failed: Self-test render failure"
-                     : app.displayGen >= requiredGen);
+  return generationUnchanged && testDisplay(app).px == expected.px && app.displayRGBA == expectedRGBA &&
+         app.displayDirty && app.processed.generation >= requiredGen;
 }
 
 // Display-only demand stays behind real nested document scopes and never
 // creates processor work. Shutdown cancels it without a restoration request.
 static bool testRecolorMutationGate(bool cancel) {
   App app;
-  app.preview = {{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1};
-  app.display = app.preview;
-  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  setTestPreview(app, Image{{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1});
+  seedTestDisplay(app, *app.preview);
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   const auto originalRGBA = app.displayRGBA;
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->release = true;
   Node node;
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
   std::optional<DocumentMutation> outer, inner;
@@ -651,9 +678,9 @@ static bool testRecolorMutationGate(bool cancel) {
   if (!previewIdle(app)) return false;
   state = renderState(app);
   std::vector<unsigned char> expectedRGBA;
-  toDisplayRGBA8(app.display, app.outputEncoding, expectedRGBA);
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, expectedRGBA);
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  return probe->calls == 0 && app.display.px == app.preview.px && app.displayGen == 0 &&
+  return probe->calls == 0 && testDisplay(app).px == app.preview->px && app.processed.generation == 0 &&
          app.displayDirty == !cancel && app.displayRGBA == (cancel ? originalRGBA : expectedRGBA) &&
          state.epoch == generation + (cancel ? 1 : 0);
 }
@@ -662,13 +689,11 @@ static bool testRecolorMutationGate(bool cancel) {
 // F5: a document barrier cancels a recolour, then the expected full render fails.
 static bool testFailedRenderWithoutPendingRecolor(bool cancelRecolor) {
   App app;
-  app.preview.w = app.preview.h = 1;
-  app.preview.px = {0.18f, 0.18f, 0.18f, 1.0f};
-  app.display = app.preview;
-  app.display.px = {0.05f, 0.05f, 0.05f, 1.0f};
-  app.displayGen = 17;
-  const Image lastGood = app.display;
-  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  setTestPreview(app, Image{{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1});
+  seedTestDisplay(app, *app.preview);
+  testDisplay(app).px = {0.05f, 0.05f, 0.05f, 1.0f};
+  app.processed.generation = 17;
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   const auto originalRGBA = app.displayRGBA;
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
@@ -676,7 +701,7 @@ static bool testFailedRenderWithoutPendingRecolor(bool cancelRecolor) {
   probe->failFromCall = cancelRecolor ? 1 : 2;
   Node node;
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   SchedulingWorkerGuard guard{app, *probe};
 
   std::optional<DocumentMutation> gate;
@@ -720,13 +745,13 @@ static bool testFailedRenderWithoutPendingRecolor(bool cancelRecolor) {
   probe->cv.notify_all();
   if (cancelRecolor) gate.reset();
   if (!previewIdle(app)) return false;
+  const int completedEpoch = renderState(app).epoch;
   app.renderer.shutdown();
-  std::vector<unsigned char> expectedRGBA;
-  toDisplayRGBA8(lastGood, app.outputEncoding, expectedRGBA);
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  return probe->calls == (cancelRecolor ? 1 : 2) && app.display.px == lastGood.px &&
-         app.displayGen == 17 && app.displayDirty && expectedRGBA != originalRGBA &&
-         app.displayRGBA == expectedRGBA && app.getStatus() == "Render failed: Self-test render failure";
+  return probe->calls == (cancelRecolor ? 1 : 2) && app.processed.result.state == EvaluationState::Error &&
+         std::holds_alternative<std::monostate>(app.processed.result.value) && app.displayRGBA.empty() &&
+         app.displayDirty && app.processed.generation == completedEpoch &&
+         app.getStatus().find("Self-test render failure") != std::string::npos;
 }
 
 // Use the production export job and a processor barrier, rather than
@@ -740,21 +765,21 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
   ExportTestFiles files;
   App app;
   if (!app.renderer.canEditParameters()) return false;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
-  app.display = app.preview;
-  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  seedTestDisplay(app, *app.preview);
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   const auto oldRGBA = app.displayRGBA;
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->preserveInput = true;
   Node barrier;
   barrier.processor = std::move(processor);
-  app.nodes.push_back(std::move(barrier));
+  appendTestNode(app, std::move(barrier));
   Node node;
   node.processor = std::make_unique<NativeExposureProcessor>();
   node.processor->setParameterValue("exposure", 1.0);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   if (ofxPluginIndex >= 0 && !addNode(app, ofxPluginIndex)) return false;
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
@@ -842,7 +867,7 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
   bool decodedRaw = false;
   if (!loadImage(files.output(), exported, exportedEncoding, decodedRaw) || exported.w != 2 ||
       exported.h != 1 || !hasNoExportSidecar(files.output())) return false;
-  if (probe->width != 1 || probe->height != 1 ||
+  if (probe->width != (expectPreview ? 1 : 2) || probe->height != 1 ||
       probe->calls != activeCalls + 1 + (expectPreview ? 1 : 0)) return false;
   const auto &fullCall = probe->history[activeCalls];
   if (fullCall.width != 2 || fullCall.height != 1 || fullCall.interactive) return false;
@@ -850,16 +875,16 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
     const auto &previewCall = probe->history.back();
     if (previewCall.width != 1 || previewCall.height != 1 || !previewCall.interactive) return false;
   }
-  Image expected = app.preview;
+  Image expected = *app.preview;
   if (expectPreview) {
     const float value = (mutateDuring || ending == ExportPreviewEnd::Mutate) ? 0.5f : 0.25f;
     expected.px = {value, value, value, 1.0f};
   }
   std::vector<unsigned char> expectedRGBA;
   toDisplayRGBA8(expected, app.outputEncoding, expectedRGBA);
-  return app.display.w == 1 && app.display.h == 1 && app.display.px == expected.px &&
+  return app.display.w == 1 && app.display.h == 1 && testDisplay(app).px == expected.px &&
          app.displayRGBA == expectedRGBA && app.displayDirty == expectPreview &&
-         (expectPreview ? app.displayGen > 0 && app.displayRGBA != oldRGBA : app.displayGen == 0);
+         (expectPreview ? app.processed.generation > 0 && app.displayRGBA != oldRGBA : app.processed.generation == 0);
 }
 
 enum class ExportStatusPreview { Preserve, Fail, ExplicitEdit };
@@ -869,41 +894,40 @@ static bool testExportPreviewStatus(ExportStatusResult result,
                                     ExportStatusPreview action = ExportStatusPreview::Preserve) {
   ExportTestFiles files;
   App app;
-  app.preview.w = app.preview.h = 1;
-  app.preview.px = {0.125f, 0.125f, 0.125f, 1.0f};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full.w = 2;
   app.full.h = 1;
   app.full.px = {0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f};
-  app.display = app.preview;
-  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  seedTestDisplay(app, *app.preview);
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->preserveInput = true;
   if (result == ExportStatusResult::Failure) probe->exportFailure = ExportFailure::Result;
   Node barrier;
   barrier.processor = std::move(processor);
-  app.nodes.push_back(std::move(barrier));
+  appendTestNode(app, std::move(barrier));
   Node exposure;
   exposure.processor = std::make_unique<NativeExposureProcessor>();
   exposure.processor->setParameterValue("exposure", 1.0);
-  app.nodes.push_back(std::move(exposure));
+  appendTestNode(app, std::move(exposure));
   if (result == ExportStatusResult::Warnings) {
     Node missing;
     missing.id = NodeId{"missing-node"};
     missing.storedBackend = "native";
     missing.storedIdentifier = "org.rawnode.selftest.missing";
-    app.nodes.push_back(std::move(missing));
+    appendTestNode(app, std::move(missing));
     app.outputEncoding.gamma = TransferFunction::DaVinciIntermediate;
   }
   const std::string outPath = result == ExportStatusResult::WriteFailure
       ? (files.dir / "absent" / "test.png").string() : files.output();
   std::string exportStatus = "Exported test.png (2×1)";
   if (result == ExportStatusResult::Warnings)
-    exportStatus += " — missing processors were bypassed"
+    exportStatus += " — Missing Image processor; passing input through: org.rawnode.selftest.missing"
         " — warning: ICC cannot fully represent DaVinci Intermediate scene values above 1.0;"
         " external apps may clip highlights";
-  if (result == ExportStatusResult::Failure) exportStatus = "Export failed: Self-test export failure";
-  if (result == ExportStatusResult::WriteFailure) exportStatus = "Export failed";
+  if (result == ExportStatusResult::Failure) exportStatus = "Export failed — Processor render failed (-2): Self-test export failure";
+  if (result == ExportStatusResult::WriteFailure) exportStatus = "Export failed: Could not write image";
 
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
@@ -960,28 +984,28 @@ static bool testExportPreviewStatus(ExportStatusResult result,
     if (probe->calls != (action == ExportStatusPreview::ExplicitEdit ? 3 : 2)) return false;
     if (probe->history.back().width != 1 || !probe->history.back().interactive) return false;
   }
-  const std::string expectedStatus = action == ExportStatusPreview::Fail
-      ? "Render failed: Self-test render failure"
-      : action == ExportStatusPreview::ExplicitEdit ? "1×1 preview" : exportStatus;
-  Image expected = app.preview;
-  const float value = action == ExportStatusPreview::Fail ? 0.125f
-                    : action == ExportStatusPreview::ExplicitEdit ? 0.5f : 0.25f;
+  const std::string expectedStatus = action == ExportStatusPreview::ExplicitEdit ? "1×1 preview" : exportStatus;
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  if (action == ExportStatusPreview::Fail)
+    return app.getStatus() == exportStatus && app.processed.result.state == EvaluationState::Error &&
+           app.displayRGBA.empty() && app.displayDirty && app.processed.generation > 0;
+  Image expected = *app.preview;
+  const float value = action == ExportStatusPreview::ExplicitEdit ? 0.5f : 0.25f;
   expected.px = {value, value, value, 1.0f};
   std::vector<unsigned char> expectedRGBA;
   toDisplayRGBA8(expected, app.outputEncoding, expectedRGBA);
-  std::lock_guard<std::mutex> lock(app.displayMutex);
   return app.getStatus() == expectedStatus && app.display.w == 1 && app.display.h == 1 &&
-         app.display.px == expected.px && app.displayRGBA == expectedRGBA && app.displayDirty &&
-         (action == ExportStatusPreview::Fail ? app.displayGen == 0 : app.displayGen > 0);
+         testDisplay(app).px == expected.px && app.displayRGBA == expectedRGBA && app.displayDirty &&
+         app.processed.generation > 0;
 }
 
 static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
   ExportTestFiles files;
   App app;
   if (!app.renderer.canEditParameters()) return false;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
-  app.display = app.preview;
+  seedTestDisplay(app, *app.preview);
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->release = probe->preserveInput = true;
@@ -989,18 +1013,18 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
   probe->exportFailure = failure;
   Node first;
   first.processor = std::move(processor);
-  app.nodes.push_back(std::move(first));
+  appendTestNode(app, std::move(first));
   auto following = std::make_unique<SchedulingSelfTestProcessor>();
   auto *nextProbe = following.get();
   nextProbe->release = nextProbe->preserveInput = true;
   nextProbe->setRenderSize(1, 1);
   Node second;
   second.processor = std::move(following);
-  app.nodes.push_back(std::move(second));
+  appendTestNode(app, std::move(second));
   Node exposure;
   exposure.processor = std::make_unique<NativeExposureProcessor>();
   exposure.processor->setParameterValue("exposure", 1.0);
-  app.nodes.push_back(std::move(exposure));
+  appendTestNode(app, std::move(exposure));
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
 
@@ -1020,7 +1044,10 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
     case ExportFailure::RestoreException: message = "Self-test preview sizing failure"; break;
     default: return false;
   }
-  const std::string failureStatus = "Export failed: " + message;
+  const std::string failureStatus = failure == ExportFailure::Result
+      ? "Export failed — Processor render failed (-2): " + message
+      : failure == ExportFailure::UnknownException ? "Export failed — Graph operation failed with an unknown exception"
+                                                   : "Export failed — Graph operation failed: " + message;
   if (!app.renderer.canEditParameters() || events.failed || events.releasedStatus != failureStatus) return false;
   {
     if (renderState(app).exportBusy || renderState(app).previewBusy || !renderState(app).previewPending || !renderState(app).quietPending)
@@ -1030,27 +1057,63 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
       fs::exists(files.output()) || !hasNoExportSidecar(files.output())) return false;
   for (auto *sizingProbe : {probe, nextProbe}) {
     std::lock_guard<std::mutex> lock(sizingProbe->mutex);
-    if (sizingProbe->width != 1 || sizingProbe->height != 1) return false;
+    if (sizingProbe->width != (sizingProbe == probe ? 2 : 1) || sizingProbe->height != 1) return false;
   }
   app.renderer.start();
   auto waitForPreview = [&] { return previewIdle(app); };
   if (!waitForPreview() || app.getStatus() != failureStatus) return false;
   {
     std::lock_guard<std::mutex> lock(app.displayMutex);
-    if (app.display.px[0] != 0.25f || app.displayGen == 0) return false;
+    if (testDisplay(app).px[0] != 0.25f || app.processed.generation == 0) return false;
   }
   // A later explicit edit uses normal preview status again.
   app.nodes[3].processor->setParameterValue("exposure", 2.0);
   app.renderer.requestPreview();
   if (!waitForPreview() || app.getStatus() != "1×1 preview") return false;
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  return app.display.px[0] == 0.5f;
+  return testDisplay(app).px[0] == 0.5f;
+}
+
+// Preview sizing occurs at the next graph operation, never as export cleanup.
+// Its failure must not undo successful file production or erase export status.
+static bool testPreviewSizingFailureAfterExport(bool asynchronous) {
+  ExportTestFiles files;
+  App app;
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
+  app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
+  auto processor = std::make_unique<SchedulingSelfTestProcessor>();
+  auto *probe = processor.get();
+  probe->release = probe->preserveInput = true;
+  probe->setRenderSize(1, 1);
+  probe->exportFailure = ExportFailure::RestoreException;
+  Node node; node.processor = std::move(processor);
+  appendTestNode(app, std::move(node));
+  SchedulingWorkerGuard guard{app, *probe};
+  if (asynchronous) {
+    if (!startExport(app, files.output())) return false;
+    app.renderer.joinExport();
+  } else if (!runExportJob(app, files.output())) return false;
+  const std::string exported = app.getStatus();
+  if (exported.find("Exported ") != 0 || !exportHasRgb(files.output(), 0.125f) ||
+      probe->width != 2 || probe->calls != 1 || !app.renderer.canEditParameters()) return false;
+  app.renderer.start();
+  if (!previewIdle(app) || app.getStatus() != exported || probe->calls != 1) return false;
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    if (app.processed.result.state != EvaluationState::Error || !app.displayRGBA.empty() ||
+        app.processed.result.diagnostics.empty() ||
+        app.processed.result.diagnostics.back().message.find("Self-test preview sizing failure") == std::string::npos) return false;
+  }
+  app.renderer.requestPreview();
+  if (!previewIdle(app) || app.getStatus() != "1×1 preview" || probe->calls != 2 || probe->width != 1) return false;
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  return app.processed.result.state == EvaluationState::Available;
 }
 
 static bool testExportThreadLifecycle(bool stopDuring) {
   ExportTestFiles files;
   App app;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
   app.path = (files.dir / "source.nef").string();
   app.inputIsRaw = true;
@@ -1061,7 +1124,7 @@ static bool testExportThreadLifecycle(bool stopDuring) {
   Node node;
   node.id = NodeId{"export-probe"};
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
   if (stopDuring) app.renderer.start();
@@ -1117,18 +1180,17 @@ static bool testExportThreadLifecycle(bool stopDuring) {
     if (!exportHasRgb(second, 0.125f) || !hasNoExportSidecar(second)) return false;
   }
   app.renderer.shutdown();
-  return probe->calls == (stopDuring ? 1 : 2) && probe->width == 1 && probe->height == 1 &&
+  return probe->calls == (stopDuring ? 1 : 2) && probe->width == 2 && probe->height == 1 &&
          std::all_of(probe->history.begin(), probe->history.end(), [](const auto &call) {
            return call.width == 2 && call.height == 1 && !call.interactive;
          });
 }
 
 static void graphPreviewSource(App &app) {
-  app.preview.w = app.preview.h = 1;
-  app.preview.px = {0.125f, 0.125f, 0.125f, 0.75f};
-  app.full = app.preview;
-  app.display = app.preview;
-  app.display.px = {0.01f, 0.01f, 0.01f, 0.75f};  // Stale last-good image.
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 0.75f}, 1, 1});
+  app.full = *app.preview;
+  seedTestDisplay(app, *app.preview);
+  testDisplay(app).px = {0.01f, 0.01f, 0.01f, 0.75f};  // Stale last-good image.
 }
 
 struct PreviewWorkerGuard {
@@ -1152,16 +1214,17 @@ static bool finishGraphPreview(App &app, int before, float expected, bool quiet 
   if (!previewIdle(app)) return false;
   std::lock_guard<std::mutex> lock(app.displayMutex);
   if (app.display.w != width || app.display.h != height ||
-      app.display.px.size() != (size_t)width * height * 4 ||
-      !app.displayDirty || app.displayGen <= before) return false;
-  for (size_t i = 0; i < app.display.px.size(); i += 4) {
-    if (std::fabs(app.display.px[i + 3] - 0.75f) > 2e-6f) return false;
+      testDisplay(app).px.size() != (size_t)width * height * 4 ||
+      !app.displayDirty || app.processed.generation <= before) return false;
+  for (size_t i = 0; i < testDisplay(app).px.size(); i += 4) {
+    if (std::fabs(testDisplay(app).px[i + 3] - 0.75f) > 2e-6f) return false;
     for (int c = 0; c < 3; ++c)
-      if (std::fabs(app.display.px[i + c] - expected) > 2e-6f) return false;
+      if (std::fabs(testDisplay(app).px[i + c] - expected) > 2e-6f) return false;
   }
   std::vector<unsigned char> rgba;
-  toDisplayRGBA8(app.display, app.outputEncoding, rgba);
-  const std::string normalStatus = std::to_string(width) + "×" + std::to_string(height) + " preview";
+  toDisplayRGBA8(testDisplay(app), app.documentOutput == OutputRef{app.primarySource, ports::image} ? app.inputEncoding : app.outputEncoding, rgba);
+  std::string normalStatus = std::to_string(width) + "×" + std::to_string(height) + " preview";
+  for (const auto &diagnostic : app.processed.result.diagnostics) normalStatus += " — " + diagnostic.message;
   return app.displayRGBA == rgba && app.getStatus() == (quiet ? status : normalStatus);
 }
 
@@ -1202,7 +1265,8 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       break;
     case GraphEditCase::Reorder:
       moveNode(app, 2, 1);
-      if (app.nodes[1].id.value != "cst" || app.nodes[2].id.value != "exposure" || app.selectedNode != 1) return false;
+      if (app.nodes[1].id.value != "exposure" || app.nodes[2].id.value != "cst" || app.selectedNode != 2 ||
+          captureChain(app).nodes[0].id != "cst") return false;
       expected = 2.0f * (float)encodeTransfer(0.125, TransferFunction::SRGB);
       break;
     case GraphEditCase::Disable:
@@ -1226,13 +1290,13 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
         pasted.enabled = false;
       }
       if (!appendPersistedNode(app, pasted, 1) || app.nodes.size() != 4 ||
-          app.selectedNode != 2 || app.nodes[2].id.value == exposure.id || app.nodes[3].id.value != "cst" ||
+          app.selectedNode != 3 || app.nodes[3].id.value == exposure.id || app.nodes[2].id.value != "cst" ||
           captureChain(app).nodes[1].paramsJson.at("unknown") != pasted.paramsJson.at("unknown") ||
-          !app.nodes[2].groupOpen.at("group")) return false;
+          !app.nodes[3].groupOpen.at("group")) return false;
       if (edit == GraphEditCase::AppendMissing) {
-        if (app.nodes[2].processor || app.nodes[2].enabled) return false;
+        if (app.nodes[3].processor || app.nodes[3].enabled) return false;
       } else {
-        if (!app.nodes[2].processor) return false;
+        if (!app.nodes[3].processor) return false;
         expected = (float)encodeTransfer(2.0, TransferFunction::SRGB);
       }
       break;
@@ -1278,10 +1342,11 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       if (edit == GraphEditCase::RemoveLast) destroyNode(app, 1);
       else clearNodes(app);
       std::vector<unsigned char> sourceRGBA;
-      toDisplayRGBA8(app.preview, app.inputEncoding, sourceRGBA);
-      return !app.hasSerialNodes() && app.selectedNode == -1 && !renderState(app).previewPending &&
-             renderState(app).mutationDepth == 0 && renderState(app).epoch == lastBefore + 1 &&
-             app.displayDirty && app.display.px == app.preview.px && app.displayRGBA == sourceRGBA;
+      toDisplayRGBA8(*app.preview, app.inputEncoding, sourceRGBA);
+      if (!previewIdle(app)) return false;
+      return !app.hasProcessingOutput() && app.selectedNode == -1 && !renderState(app).previewPending &&
+             renderState(app).mutationDepth == 0 && renderState(app).epoch >= lastBefore + 2 &&
+             app.displayDirty && testDisplay(app).px == app.preview->px && app.displayRGBA == sourceRGBA;
     }
   }
   return finishGraphPreview(app, before, expected);
@@ -1297,16 +1362,16 @@ static bool testIdlePreviewRebuild() {
     for (int c = 0; c < 3; ++c) app.full.px[i + c] = 0.125f;
     app.full.px[i + 3] = 0.75f;
   }
-  app.preview = app.full;
+  setTestPreview(app, app.full);
   app.previewRes = 3;
   Node node;
   node.processor = std::make_unique<NativeExposureProcessor>();
   node.processor->setParameterValue("exposure", 1.0);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   app.previewRes = 0;  // Production 720p selection: cap the long edge at 1280.
   const int before = renderState(app).epoch;
   rebuildPreview(app);
-  if (app.full.w != 2560 || app.full.h != 2 || app.preview.w != 1280 || app.preview.h != 1)
+  if (app.full.w != 2560 || app.full.h != 2 || app.preview->w != 1280 || app.preview->h != 1)
     return false;
   return finishGraphPreview(app, before, 0.25f, false, 1280, 1);
 }
@@ -1473,8 +1538,8 @@ static bool testOfxRuntimeCancellation(bool threaded = false) {
   AbortOfxFixture fixture;
   fixture.threaded = threaded;
   App app;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
-  app.full = app.preview;
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
+  app.full = *app.preview;
   if (!addNode(app, fixture.index)) return false;
   struct Guard {
     App &app;
@@ -1531,13 +1596,13 @@ static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true,
   node.id = NodeId{"exposure"};
   node.processor = std::make_unique<NativeExposureProcessor>();
   node.processor->setParameterValue("exposure", 1.0);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   if (pending && !recolorOnly) app.renderer.requestPreview();
   if (!pending || recolorOnly) {
     // Idle failure starts with a valid cached preview and must retain it.
-    app.display = app.preview;
-    for (int i = 0; i < 3; ++i) app.display.px[i] = 0.25f;
-    toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+    seedTestDisplay(app, *app.preview);
+    for (int i = 0; i < 3; ++i) testDisplay(app).px[i] = 0.25f;
+    toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   }
   if (recolorOnly) {
     app.renderer.requestDisplayRefresh();
@@ -1547,8 +1612,8 @@ static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true,
   app.inputIsRaw = true;
   app.inputEncoding = {RgbGamut::Rec709, TransferFunction::Linear};
   app.rawWorkingEncoding = {RgbGamut::Rec2020, TransferFunction::Linear};
-  const Image oldFull = app.full, oldPreview = app.preview;
-  const Image oldDisplay = app.display;
+  const Image oldFull = app.full, oldPreview = *app.preview;
+  const Image oldDisplay = testDisplay(app);
   const auto oldRGBA = app.displayRGBA;
   const ColorEncoding oldInput = app.inputEncoding, oldDefault = app.rawWorkingEncoding;
   const ColorEncoding oldOutput = app.outputEncoding;
@@ -1588,14 +1653,14 @@ static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true,
   }
   if (app.getStatus() != error || app.nodes.size() != 2 || app.nodes[1].id.value != oldId ||
       app.full.w != oldFull.w || app.full.h != oldFull.h || app.full.px != oldFull.px ||
-      app.preview.w != oldPreview.w || app.preview.h != oldPreview.h || app.preview.px != oldPreview.px ||
+      app.preview->w != oldPreview.w || app.preview->h != oldPreview.h || app.preview->px != oldPreview.px ||
       app.inputEncoding != oldInput || !app.inputIsRaw || app.rawWorkingEncoding != oldDefault ||
       app.outputEncoding != oldOutput || fs::exists(inputSidecarPath(app.path))) return false;
   if (renderState(app).displayPending) return false;
   if (!pending && !recolorOnly)
     return renderState(app).epoch == before + 1 && !renderState(app).previewPending &&
            !renderState(app).quietPending && renderState(app).mutationDepth == 0 &&
-           app.display.px == oldDisplay.px && app.displayRGBA == oldRGBA;
+           testDisplay(app).px == oldDisplay.px && app.displayRGBA == oldRGBA;
   return finishGraphPreview(app, before, 0.25f, true);
 }
 
@@ -1623,11 +1688,12 @@ static bool testUnavailableProcessorRestore(bool append, bool ctl) {
   } else {
     applyChain(app, replacement);
   }
-  if (app.nodes.size() != 4 || app.selectedNode != 2 || app.nodes[2].processor ||
-      app.nodes[2].enabled || (app.nodes[2].id.value == missing.id) == append ||
-      app.nodes[2].storedBackend != missing.backend ||
+  const int restored = append ? 3 : 2;
+  if (app.nodes.size() != 4 || app.selectedNode != restored || app.nodes[restored].processor ||
+      app.nodes[restored].enabled || (app.nodes[restored].id.value == missing.id) == append ||
+      app.nodes[restored].storedBackend != missing.backend ||
       captureChain(app).nodes[1].paramsJson.at("opaque") != missing.paramsJson.at("opaque") ||
-      !app.nodes[2].groupOpen.at("group")) return false;
+      !app.nodes[restored].groupOpen.at("group")) return false;
   return finishGraphPreview(app, before, 0.25f);
 }
 
@@ -1638,14 +1704,14 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
   App app;
   graphPreviewSource(app);
   app.full.w = 2;
-  app.full.px.insert(app.full.px.end(), app.preview.px.begin(), app.preview.px.end());
+  app.full.px.insert(app.full.px.end(), app.preview->px.begin(), app.preview->px.end());
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->preserveInput = true;
   Node barrier;
   barrier.id = NodeId{"barrier"};
   barrier.processor = std::move(processor);
-  app.nodes.push_back(std::move(barrier));
+  appendTestNode(app, std::move(barrier));
   if (!addNativeExposureNode(app) ||
       !app.nodes[2].processor->setParameterValue("exposure", 1.0)) return false;
   RuntimeEvents events(app);
@@ -1694,7 +1760,7 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
   }
   const float expected = edit == ActiveGraphEdit::Remove || edit == ActiveGraphEdit::Disable ? 0.125f : 0.25f;
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  return app.display.px.size() == 4 && app.display.px[0] == expected && app.displayDirty &&
+  return testDisplay(app).px.size() == 4 && testDisplay(app).px[0] == expected && app.displayDirty &&
          (edit == ActiveGraphEdit::FailCtl ? app.getStatus().find("Could not load CTL:") == 0
                                          : app.getStatus() == "1×1 preview");
 }
@@ -1802,6 +1868,7 @@ int runSelfTests() {
   if (!testGraphModel()) return fail("Step 6A graph model");
   if (!testGraphCommands()) return fail("Step 6B topology commands");
   if (!testGraphEvaluator()) return fail("Step 6C graph evaluator");
+  if (!testGraphRuntime()) return fail("Step 6D graph runtime cutover");
 #if !defined(NDEBUG) && !defined(_WIN32)
   if (!testControlThreadAssertions()) return fail("renderer control-thread assertions");
   printf("ok  Debug control-thread contract (8 expected child assertions)\n");
@@ -2368,7 +2435,7 @@ int runSelfTests() {
     if (!testRenderScheduling(false, true, true, true) ||
         !testRenderScheduling(false, false, true, true))
       return fail("failed full render must recolour cached display");
-    printf("ok  Failed full render recolour fallback (both queue orders)\n");
+    printf("ok  Failed full render publishes current Error without a stale raster (both queue orders)\n");
     const bool supersededRecolor = testFailedRenderWithoutPendingRecolor(false);
     const bool cancelledRecolor = testFailedRenderWithoutPendingRecolor(true);
     if (!supersededRecolor || !cancelledRecolor) {
@@ -2389,12 +2456,15 @@ int runSelfTests() {
       return fail("export must preserve same-source and cross-image sidecars byte-for-byte");
     printf("ok  PNG/JPEG exports preserve source sidecars without creating derivative sidecars (2 collision cases)\n");
     for (auto failure : {ExportFailure::RenderException, ExportFailure::UnknownException,
-                         ExportFailure::SizeException, ExportFailure::RestoreException,
+                         ExportFailure::SizeException,
                          ExportFailure::Result})
       for (bool asynchronous : {false, true})
         if (!testExportFailureCleanup(failure, asynchronous))
           return fail("production export failure/exception cleanup");
-    printf("ok  Production export failure/exception cleanup and parameter editability (10 deterministic cases)\n");
+    printf("ok  Production export failure/exception cleanup and parameter editability (8 deterministic cases)\n");
+    if (!testPreviewSizingFailureAfterExport(false) || !testPreviewSizingFailureAfterExport(true))
+      return fail("successful export survives the next preview's size setter failure");
+    printf("ok  6D successful export survives preview sizing failures (2 cases)\n");
     if (!testExportThreadLifecycle(false) || !testExportThreadLifecycle(true))
       return fail("owned export thread restart/shutdown");
     printf("ok  Owned export thread restart/shutdown and parameter editability\n");

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RenderCancellation.h"
+#include "GraphEvaluator.h"
 
 #include <condition_variable>
 #include <functional>
@@ -26,8 +26,14 @@ class RenderRuntime {
   void start();                         // Optional; tests may evaluate without a worker.
   void shutdown() noexcept;            // Terminal and idempotent; drains both workers.
   void requestPreview();
+  void requestInspection(const OutputRef &endpoint);
+  void requestDocumentPreview();
   void requestDisplayRefresh();
   bool canEditParameters() const;      // Same control thread as export acquisition.
+  // Caller already owns preview/export execution exclusion. This is the one
+  // evaluator invocation seam; test hooks are configured before execution only.
+  EvaluationResult evaluateOwned(const OutputRef &endpoint, const EvaluationContext &context,
+                                 ImageValue source, const RenderCancellation &cancellation = {});
 
   // Export-specific execution ownership, also used by synchronous export.
   // The export path captures its request and publishes final status while the
@@ -64,6 +70,7 @@ class RenderRuntime {
   void completeMutation(bool changed, bool interrupted) noexcept;
 
   void requestPreview(bool quiet);
+  void reportPreviewException(const std::shared_ptr<const OutputRef> &endpoint, int generation, bool quiet) noexcept;
   void queuePreview(bool quiet);        // mutex_ held; normal demand wins.
   bool cancelAndDrain(std::unique_lock<std::mutex> &lock);
 
@@ -91,12 +98,18 @@ class RenderRuntime {
   bool previewPending_ = false, quietPending_ = false;
   bool displayPending_ = false;
   bool previewBusy_ = false, exportBusy_ = false;
+  std::shared_ptr<const OutputRef> inspection_, pendingEndpoint_;
   int mutationDepth_ = 0;
 
   // Evaluation reads cancellation without taking mutex_. Thread handles are
   // moved under mutex_ and joined outside it so workers can finish.
   std::atomic<int> epoch_{0};
   std::thread previewThread_, exportThread_;
+  graph_test::Executor *testExecutor_ = nullptr;
+  void (*beforeEvaluation_)(void *) = nullptr;
+  void *evaluationContext_ = nullptr;
+  void (*beforePublication_)(void *, const OutputRef &) = nullptr;
+  void *publicationContext_ = nullptr;
 #ifndef NDEBUG
   const std::thread::id controlThread_;
 #endif

@@ -527,13 +527,14 @@ static bool testAppAndSourceMove() {
   moveNode(serial, 0, 2);
   CHECK(serial.nodes[0].id == first && serial.nodes[1].id == serial.primarySource && serial.nodes[2].id == second);
   CHECK(!graph::moveImageNode(serial, first, serial.primarySource).ok());
-  // Current add/move/load paths never synthesize shadow graph connections.
-  CHECK(!serial.nodes[0].fixedInputs.at(ports::image) && !serial.nodes[2].fixedInputs.at(ports::image) &&
-        serial.documentOutput == image(serial.primarySource));
+  // Active add/move/load semantics now produce one authoritative topology.
+  CHECK(serial.nodes[0].fixedInputs.at(ports::image) == image(second) &&
+        serial.nodes[2].fixedInputs.at(ports::image) == image(serial.primarySource) && serial.documentOutput == image(first));
   const auto chain = captureChain(serial);
   applyChain(serial, chain);
-  CHECK(serial.documentOutput == image(serial.primarySource) &&
-        !serial.nodes[1].fixedInputs.at(ports::image) && !serial.nodes[2].fixedInputs.at(ports::image));
+  CHECK(serial.documentOutput == image(first) && serial.nodes[1].id == second && serial.nodes[2].id == first &&
+        serial.nodes[1].fixedInputs.at(ports::image) == image(serial.primarySource) &&
+        serial.nodes[2].fixedInputs.at(ports::image) == image(second));
   return true;
 }
 

@@ -14,11 +14,12 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
 void doExport(App &app) {
-  if (app.full.px.empty() || !app.hasSerialNodes()) return;
+  if (app.full.px.empty() || !app.hasProcessingOutput()) return;
   const char *exts[] = {".png", ".jpg"};
   const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg"};
   std::string def = fs::path(app.path).stem().string() + exts[app.exportFormat];
@@ -43,8 +44,10 @@ static bool copySelectedNode(App &app) {
 }
 
 static bool copyGrade(App &app) {
-  if (!app.hasSerialNodes()) return false;
-  const PersistChain transfer = captureChain(app);
+  if (!app.hasProcessingOutput()) return false;
+  PersistChain transfer;
+  try { transfer = captureChain(app); }
+  catch (const std::runtime_error &error) { app.setStatus(error.what()); return false; }
   const bool colourProtected =
       (!app.path.empty() && app.sidecarWriteBlockedPath == app.path) || app.workspaceWriteBlocked;
   if (colourProtected) {
@@ -60,6 +63,7 @@ static bool copyGrade(App &app) {
   app.setStatus("Copied full grade");
   return true;
 }
+
 
 static bool pasteFromClipboard(App &app) {
   const char *clipboard = ImGui::GetClipboardText();
@@ -141,8 +145,10 @@ static bool saveNodePreset(App &app) {
 }
 
 static bool saveGradePreset(App &app) {
-  if (!app.hasSerialNodes()) return false;
-  const PersistChain preset = captureChain(app);
+  if (!app.hasProcessingOutput()) return false;
+  PersistChain preset;
+  try { preset = captureChain(app); }
+  catch (const std::runtime_error &error) { app.setStatus(error.what()); return false; }
   const bool colourProtected =
       (!app.path.empty() && app.sidecarWriteBlockedPath == app.path) || app.workspaceWriteBlocked;
 
@@ -169,6 +175,7 @@ static bool saveGradePreset(App &app) {
     app.setStatus("Saved full-grade preset: " + std::filesystem::path(path).filename().string());
   return true;
 }
+
 
 static bool loadPreset(App &app) {
   auto dialog = pfd::open_file(
@@ -296,7 +303,7 @@ void DrawUiFrame(App &app) {
 #else
       const char *copyGradeShortcut = "Ctrl+Shift+C";
 #endif
-      if (ImGui::MenuItem("Copy Full Grade", copyGradeShortcut, false, app.hasSerialNodes()))
+      if (ImGui::MenuItem("Copy Full Grade", copyGradeShortcut, false, app.hasProcessingOutput()))
         copyGrade(app);
       if (ImGui::MenuItem("Paste", pasteShortcut))
         pasteFromClipboard(app);
@@ -304,7 +311,7 @@ void DrawUiFrame(App &app) {
       if (ImGui::BeginMenu("Presets")) {
         if (ImGui::MenuItem("Save Node Preset…", nullptr, false, canCopyNode))
           saveNodePreset(app);
-        if (ImGui::MenuItem("Save Full Grade Preset…", nullptr, false, app.hasSerialNodes()))
+        if (ImGui::MenuItem("Save Full Grade Preset…", nullptr, false, app.hasProcessingOutput()))
           saveGradePreset(app);
         ImGui::Separator();
         if (ImGui::MenuItem("Load Preset…"))

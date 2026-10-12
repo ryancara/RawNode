@@ -3,11 +3,29 @@
 #include "RenderRuntime.h"
 
 #include <chrono>
+#include <cassert>
 
-// Observation only. No flag setters, worker entry points or cancellation/gate
-// operations: tests drive the same requests, leases and document edits as UI.
+// Observation plus narrow executor/fault/publication barriers configured before
+// execution. No flag setters, worker entry points or cancellation/gate commands:
+// tests drive the same requests, leases and document edits as UI.
 class RenderRuntimeTestAccess {
  public:
+  // Narrow executor/fault injection only, configured before worker execution.
+  // No request/gate/epoch setters are exposed.
+  static void evaluation(RenderRuntime &runtime, graph_test::Executor *executor,
+                         void (*before)(void *) = nullptr, void *context = nullptr) {
+    std::lock_guard<std::mutex> lock(runtime.mutex_);
+    assert(!runtime.previewThread_.joinable() && !runtime.previewBusy_ && !runtime.exportBusy_);
+    runtime.testExecutor_ = executor;
+    runtime.beforeEvaluation_ = before;
+    runtime.evaluationContext_ = context;
+  }
+  static void publication(RenderRuntime &runtime, void (*before)(void *, const OutputRef &), void *context) {
+    std::lock_guard<std::mutex> lock(runtime.mutex_);
+    assert(!runtime.previewThread_.joinable() && !runtime.previewBusy_ && !runtime.exportBusy_);
+    runtime.beforePublication_ = before;
+    runtime.publicationContext_ = context;
+  }
   using Event = RenderRuntime::Event;
   struct Snapshot {
     bool previewPending, quietPending, displayPending, previewBusy, exportBusy;

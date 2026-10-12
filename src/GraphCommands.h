@@ -22,6 +22,10 @@ struct CommandResult {
   bool ok() const { return error.empty(); }
 };
 
+// Minimal linear presentation/transfer projection. Derived from topology;
+// excludes Source and refuses a disconnected or non-unary main Image spine.
+std::string imageSpine(GraphView graph, std::vector<NodeId> &spine);
+
 CommandResult connect(Document document, const OutputRef &producer, const InputAddress &destination);
 CommandResult reconnect(Document document, const OutputRef &producer, const InputAddress &destination);
 CommandResult disconnect(Document document, const InputAddress &destination);

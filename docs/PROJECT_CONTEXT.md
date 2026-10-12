@@ -156,11 +156,14 @@ exclusivity and shutdown. Ordinary UI/document/export callers use semantic
 requests rather than renderer mutexes, pending/busy flags or
 wait/mutate/reschedule protocol.
 
-Presentation buffers remain part of the display path, export file production
-remains in the export path, and `renderChain()` still evaluates `App::nodes`
-as an ordered serial chain. Explicit topology and graph evaluation remain
-Step 6 work. The runtime owns **when** evaluation may execute safely, not what
-the document or export means.
+On the Step 6 draft feature branch, preview, inspection and export share the
+sequential GraphEvaluator. Typed publication retains request generation,
+endpoint, value kind, state and diagnostics. Preview Source frames use shared
+ownership; per-evaluation consumer counts bound intermediate raster lifetime.
+Presentation buffers remain in the display path and file production in export.
+The runtime owns **when** evaluation may execute safely, not what the document
+or export means. The remaining List View/V2 boundary work and whole-Step-6 review
+must complete before merge.
 
 ## Architectural direction
 
@@ -333,8 +336,6 @@ These are known but are not reasons to expand unrelated focused PRs:
 - thumbnail worker exceptional-unwind lifetime, the macOS pthread-to-joiner
   exception gap, and `makePreview` partial helper-thread launch remain focused
   lifetime/exception-safety follow-ups; normal thumbnail shutdown is safe;
-- the dead `uploadTexture` path should be removed when the evaluator/display
-  boundary is touched in Step 6 unless a use appears earlier;
 - source sidecar writes remain in-place rather than atomic, and Sidecar V2 still
   includes some GUI preferences; persistence hardening/document-state cleanup
   belongs with Step 7;
@@ -347,8 +348,10 @@ need.
 
 ## Current development phase
 
-**Step 5 — Settle the first mask/graph product contract — is current.**
-This is product/architecture decision work before graph implementation.
+**Step 6 — Explicit topology and sequential DAG evaluation — is current.**
+Step 5's product/architecture contract is complete. The draft feature branch
+has completed the runtime cutover and minimum linear edit/load/view migration;
+full List View/V2 boundary hardening remains the next task.
 
 Steps 1–4 are complete: owned export execution, frozen parameter edits during
 export, centralized graph-edit transactions and encapsulated renderer ownership.
@@ -366,12 +369,12 @@ a practical composition root; the remaining thread-launch/lifetime findings are
 focused implementation follow-ups, not reasons to reopen the architecture audit.
 See `docs/ARCHITECTURE_AUDIT.md` for the candidate dispositions.
 
-Current execution still uses a serial node chain. The remaining sequence is:
+The remaining sequence is:
 
-    Step 5: First mask/graph product contract       [current; decisions]
+    Step 5: First mask/graph product contract       [complete]
           |
           v
-    Step 6: Explicit topology + sequential DAG evaluator
+    Step 6: Explicit topology + sequential DAG evaluator [current]
           |
           v
     Step 7: Versioned graph persistence
@@ -438,10 +441,10 @@ compositing or alpha-carrying I/O requires it.
 
 Current architecture/product-contract work:
 
-- Step 5: decide the first mask/graph product contract using the topics above.
+- Step 6: finish List View/V2 boundary hardening and whole-transition validation.
 
-The checkpoint and immediate follow-ups are complete. No additional broad
-architecture cleanup is required before this discussion.
+The checkpoint, immediate follow-ups and Step 5 contract are complete. No
+additional broad architecture cleanup is required before finishing Step 6.
 
 Colour-management design and DCTL/LUT or other processor work may continue
 independently when appropriate. Step 5 is not a prerequisite for that unrelated

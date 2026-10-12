@@ -3,6 +3,7 @@
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
 #include "NodeGraph.h"
+#include "GraphCommands.h"
 #include "color/LinearColorTransform.h"
 #include "color/TransferFunction.h"
 #include "DocumentMutation.h"
@@ -201,7 +202,14 @@ void drawLeftPanel(App &app) {
   }
 
   ImGui::BeginChild("nodeList", ImVec2(0, 0), ImGuiChildFlags_Borders);
-  if (!app.hasSerialNodes()) ImGui::TextDisabled("No nodes yet.\nAdd a processor to build a chain.");
+  std::vector<NodeId> spine;
+  const auto projectionError = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
+  if (!projectionError.empty()) { spine.clear(); ImGui::TextDisabled("%s", projectionError.c_str()); }
+  else if (spine.empty()) ImGui::TextDisabled("No nodes yet.\nAdd a processor to build a chain.");
+  const auto storageIndex = [&](const NodeId &id) {
+    for (int i = 0; i < static_cast<int>(app.nodes.size()); ++i) if (app.nodes[i].id == id) return i;
+    return -1;
+  };
   const float btnH = ImGui::GetFrameHeight();
   const float btnGap = ImGui::GetStyle().ItemSpacing.x;
   const float btnsW = 4.0f * btnH + 3.0f * btnGap;
@@ -209,10 +217,11 @@ void drawLeftPanel(App &app) {
   int moveFrom = -1, moveTo = -1;
   int enableAt = -1;
   bool enabled = false;
-  for (int i = 0; i < (int)app.nodes.size(); ++i) {
+  for (size_t row = 0; row < spine.size(); ++row) {
+    const int i = storageIndex(spine[row]);
     const Node &node = app.nodes[i];
     if (node.operation != NodeOperation::ImageProcessor) continue;
-    ImGui::PushID(i);
+    ImGui::PushID(node.id.value.data(), node.id.value.data() + node.id.value.size());
     const bool selected = app.selectedNode == i;
     const std::string label = nodeDisplayName(node);
     if (!node.enabled) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
@@ -222,13 +231,13 @@ void drawLeftPanel(App &app) {
     }
     if (!node.enabled) ImGui::PopStyleVar();
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-      ImGui::SetDragDropPayload("NODE_IDX", &i, sizeof(i));
+      ImGui::SetDragDropPayload("NODE_ID", node.id.value.c_str(), node.id.value.size() + 1);
       ImGui::Text("%s", label.c_str());
       ImGui::EndDragDropSource();
     }
     if (ImGui::BeginDragDropTarget()) {
-      if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("NODE_IDX")) {
-        moveFrom = *(const int *)payload->Data;
+      if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("NODE_ID")) {
+        moveFrom = storageIndex(NodeId{std::string(static_cast<const char *>(payload->Data), payload->DataSize - 1)});
         moveTo = i;
       }
       ImGui::EndDragDropTarget();
@@ -241,16 +250,14 @@ void drawLeftPanel(App &app) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
       ImGui::SetTooltip(node.enabled ? "Disable processing" : "Enable processing");
     ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##up", ICON_FA_ARROW_UP) && i > 0 &&
-        app.nodes[i - 1].operation == NodeOperation::ImageProcessor) {
+    if (iconBtn("##up", ICON_FA_ARROW_UP) && row > 0) {
       moveFrom = i;
-      moveTo = i - 1;
+      moveTo = storageIndex(spine[row - 1]);
     }
     ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && i + 1 < (int)app.nodes.size() &&
-        app.nodes[i + 1].operation == NodeOperation::ImageProcessor) {
+    if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && row + 1 < spine.size()) {
       moveFrom = i;
-      moveTo = i + 1;
+      moveTo = storageIndex(spine[row + 1]);
     }
     ImGui::SameLine(0.0f, btnGap);
     if (iconBtn("##rm", ICON_FA_XMARK)) removeAt = i;
@@ -258,7 +265,7 @@ void drawLeftPanel(App &app) {
   }
   ImGui::EndChild();
   // Apply one row-control intent after all references into the node list have
-  // expired. Indices still describe the list that produced the intent.
+  // expired. These transient indices address storage, never processing order.
   if (removeAt >= 0) destroyNode(app, removeAt);
   else if (moveFrom >= 0) moveNode(app, moveFrom, moveTo);
   else if (enableAt >= 0) setNodeEnabled(app, enableAt, enabled);
