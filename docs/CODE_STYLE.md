@@ -118,18 +118,22 @@ checkpoint is complete; broad cleanup is no longer the current task.
 
 ## Continuous and milestone review
 
-Include a proportionate readability review in every feature PR, alongside
-correctness review. Inspect changed and closely affected code for clear names,
-conceptual organisation, visible ownership/lock scopes and correct architectural
-responsibility. Resolve small, meaningful clarity issues as part of the PR;
-record unrelated or broad cleanups separately instead of creating cosmetic
-churn. A passing formatter is not a readability review.
+Include a proportionate readability check with correctness review in every
+implementation PR. Review changed and closely affected names, conceptual
+organisation, ownership/locking and responsibility boundaries. Readability
+findings are normally minor and non-blocking; escalate only where they create
+meaningful correctness, lifetime or maintenance risk. Avoid cosmetic changes to
+untouched code and broad refactors during feature work.
 
-After substantial architectural milestones, run a dedicated review of the
-affected subsystems for accumulated complexity and responsibility drift.
-The next planned checkpoints are after Step 6's explicit graph/evaluator
-stabilises and after Step 8's first production mask/compositing work.
-Prefer behaviour-preserving, focused changes, backed by existing tests.
+Recommend fixing small relevant issues in the current PR. Track substantial
+deferred risks in `docs/PROJECT_CONTEXT.md` (Known deferred issues); minor
+cleanup can wait for the next relevant milestone review. A formatter passing
+is not a readability review.
+
+At architectural milestones, inspect the affected subsystems for accumulated
+complexity and responsibility drift. Use the checkpoint schedule in
+`docs/PROJECT_CONTEXT.md`, and keep any cleanup focused and
+behaviour-preserving.
 
 ## Review standard
 
