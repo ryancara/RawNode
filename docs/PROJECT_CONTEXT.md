@@ -67,6 +67,11 @@ The preferred development workflow is:
 8. If a durable project decision changed, update the relevant project
    documentation before considering the work complete.
 
+For substantial features, agree acceptance criteria and expected results, with
+their independent source or rationale, before implementation. Include these in
+the Codex task/PR so reviews can test the intended behaviour rather than merely
+confirm what the new implementation happened to produce.
+
 ChatGPT is the long-running product/architecture discussion partner. Codex is the
 primary implementation agent. Claude Code is primarily the independent,
 adversarial reviewer.
@@ -97,6 +102,8 @@ Document responsibilities are:
   reconciliation that led to the approved architecture.
 - `docs/CODE_STYLE.md` — human-readability and source-organisation principles.
 - `CLAUDE.md` — Claude Code's persistent review/development instructions.
+- `AGENTS.md` — Codex discovery/pointer to authoritative project documents.
+- `ROADMAP.md` — feature and product roadmap; detailed quality follow-ups live here.
 - Git history and pull requests — implementation history and per-change detail.
 
 Do not turn `PROJECT_CONTEXT.md` into a chronological diary. Do not copy every
@@ -347,8 +354,8 @@ need.
 
 ## Current development phase
 
-**Step 6 — Explicit topology and the sequential DAG evaluator — is current.**
-Step 5's first mask/graph product contract is complete and guides this implementation.
+**Step 5 — Settle the first mask/graph product contract — is current.**
+This is product/architecture decision work before graph implementation.
 
 Steps 1–4 are complete: owned export execution, frozen parameter edits during
 export, centralized graph-edit transactions and encapsulated renderer ownership.
@@ -436,11 +443,9 @@ compositing or alpha-carrying I/O requires it.
 
 ## Near-term roadmap
 
-Current architecture implementation work:
+Current architecture/product-contract work:
 
-- Step 6: implement the approved explicit topology and sequential DAG evaluator.
-- Step 7: add versioned graph persistence.
-- Step 8: deliver the first concrete production mask path and remaining feature details.
+- Step 5: decide the first mask/graph product contract using the topics above.
 
 The checkpoint and immediate follow-ups are complete. No additional broad
 architecture cleanup is required before this discussion.
@@ -459,41 +464,49 @@ infrastructure merely because a future DAG could use them.
 
 ## Quality and verification roadmap
 
-**Immediately (without interrupting Step 6):** every feature PR gets a
-proportionate readability/responsibility review; substantial features should
-have independently verifiable acceptance criteria and tests where practical.
-Reviewers challenge the test oracle and failure/boundary behaviour rather than
-treating passing author-written tests as proof. See `CLAUDE.md` and
-`docs/CODE_STYLE.md`.
+**Immediately, without interrupting Step 6:** apply proportionate readability
+checks to every implementation PR. For substantial features, define verifiable
+acceptance criteria and independent expected results before implementation;
+challenge those test oracles and boundary cases during review. See
+`CLAUDE.md`, `docs/CODE_STYLE.md` and the workflow above.
 
-**After Step 6 stabilises:** schedule focused, small PRs for quality
-infrastructure rather than expanding the active graph cutover PR.
-Track the following as explicit follow-up work:
+**Step 6 completion gate:** The PR that declares all of Step 6 complete must
+review and update this checklist. Perform a focused graph/evaluator/runtime
+readability and responsibility checkpoint **before Step 7 locks node, port and
+operation names into persistent graph data**. Start from findings already
+deferred during Step 6's own reviews; no changes may be needed. Other quality
+tooling below can proceed alongside Step 7, and need not block it.
 
-- [ ] Review readability and responsibility boundaries in the new graph,
-      evaluator and render-runtime integration.
-- [ ] Make a fast reproducible CI build/self-test baseline for feasible platforms;
-      keep expensive sanitizer/stress runs separate where helpful.
-- [ ] Introduce focused static analysis (for example, clang-tidy) and compiler
-      warnings with an explicit baseline; prioritise defects over cosmetic churn.
-- [ ] Extend independent numerical and reference-image tests for colour
-      transforms, exposure, precision/alpha preservation, negative and >1 RGB,
-      graph equivalence and relevant export paths.
-- [ ] Add targeted robustness tests or fuzz/property tests for sidecar parsing,
-      graph validation and untrusted file boundaries, as warranted.
-- [ ] Establish lightweight performance/memory regression baselines where useful.
+- [ ] Complete the focused post-Step-6 graph/evaluator/runtime readability
+      checkpoint before Step 7's persistent-format decisions.
+- [ ] Extend the existing Linux PR CI (build + self-test already implemented):
+      add a macOS PR build + self-test and a separate ASan/UBSan job. Keep
+      TSan/stress manual initially where automation is impractical.
+- [ ] Enable meaningful compiler warnings for RawNode-owned sources first
+      (not vendored `third_party`), then trial a narrow clang-tidy profile.
+      Establish a baseline and prioritise real defects over cosmetic churn.
+- [ ] Expand independent numerical/reference-image tests **beyond Step 6's
+      existing graph-equivalence tests** for colour transforms, exposure,
+      preservation of precision/alpha and negative or >1 RGB values, and
+      relevant export paths. Define numerical tolerances for compiler/platform
+      differences rather than demanding byte-identical output.
+- [ ] Consider focused fuzz/property testing for graph validation and the Step 7
+      graph-native sidecar reader plus the legacy Sidecar V2 migration reader,
+      and for other untrusted file-input boundaries when practical.
+- [ ] Establish lightweight image-processing performance/memory baselines as
+      useful.
 
-**After Step 8's first production masks/compositing:** run a focused milestone
-readability/architecture checkpoint on the affected graph, processor and UI
-boundaries. Do not automatically repeat a whole-codebase pass after each feature.
+**After Step 8's first concrete production Mask path:** perform another focused
+readability/architecture checkpoint for the affected graph, processor and UI
+boundaries. Do not default to a whole-repository pass after every feature.
 
-**Before a stable public release:** revisit cross-platform builds, file error
-handling, recovery, dependency/licensing, performance and remaining critical
-test gaps. An independent paid C++ specialist audit may be valuable later but
-is optional and budget-dependent, not a development gate.
+**Before a stable public release:** review cross-platform builds, input/file
+errors, recovery, dependency/licensing obligations, performance and remaining
+critical test gaps. An independent paid C++ audit may be worthwhile when
+affordable but is optional, not a development gate.
 
-Review progress against these items when Step 6 closes so this roadmap does
-not become a forgotten note. Keep related implementation changes in focused PRs.
+Keep the above checklist current as work lands in focused PRs. GitHub Issues
+are currently disabled, so this document is the follow-up tracker.
 
 ## Starting a future project conversation
 
