@@ -550,6 +550,19 @@ layout-persistence requirement under "Graph / List interface" in `ROADMAP.md`.
   to preserve unknown nodes;
 - relevant external asset references.
 
+**Future workflow compatibility (not additional Step 7 implementations):**
+reserve a simple optional per-source metadata home for Pick/Reject/Unmarked
+state, independent of the saved processing grade. The reader must distinguish
+no saved grade, an explicitly saved empty grade, and an unreadable/invalid
+sidecar; an invalid sidecar must not be silently treated as an unedited source.
+A future global default full-grade preset applies only when there is no saved
+grade and becomes the source's own editable graph without overwriting existing
+work. Graph-native full-grade presets and multi-photo grade application should
+reuse the same graph capture, validation and reconstruction semantics rather
+than a competing linear representation. Exact schema/envelope details remain
+Step 7 design decisions; default-preset UI, culling, multi-photo operations and
+workspace export are later feature work.
+
 **Accepted sidecar/layout direction (D048):** each editable source photograph
 uses one versioned, human-readable sidecar containing its processing graph and
 parameters plus minimal Graph View layout metadata. Store compact X/Y node
