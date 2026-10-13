@@ -383,11 +383,6 @@ These are known but are not reasons to expand unrelated focused PRs:
   belongs with Step 7;
 - exporting over the exact path of an editable raster source can overwrite the
   source image itself; this pre-existing hazard is separate from export sidecars.
-- pre-merge Step 6 status prose remains in `docs/ARCHITECTURE.md`,
-  `docs/ARCHITECTURE_AUDIT.md`, `docs/DECISIONS.md` and
-  `docs/STEP6_IMPLEMENTATION_PLAN.md`. Current status is recorded below;
-  complete a separate status-only cleanup before Step 7 planning, preserving
-  completed reviews and accepted architectural contracts.
 
 Address remaining renderer-related deferred issues within the approved staged
 architecture rather than layering more scheduler state onto the design without
@@ -537,7 +532,7 @@ and ownership can be persisted reliably and understood without unnecessary
 architectural changes. Begin with the accepted Step 5 contract and completed
 Step 6 review findings, including the transition limitations in
 `docs/ARCHITECTURE.md`. Use `docs/STEP5_GRAPH_CONTRACT.md` ("Step 7 graph
-persistence target"), D045 and D047 in `docs/DECISIONS.md`, and the minimal
+persistence target"), D045, D047 and D048 in `docs/DECISIONS.md`, and the minimal
 layout-persistence requirement under "Graph / List interface" in `ROADMAP.md`.
 
 **Persistent identity and reconstruction:** verify the expected handling of:
@@ -555,13 +550,13 @@ layout-persistence requirement under "Graph / List interface" in `ROADMAP.md`.
   to preserve unknown nodes;
 - relevant external asset references.
 
-**Accepted sidecar/layout direction:** each photograph uses one versioned,
-human-readable sidecar containing its processing graph and parameters plus
-minimal Graph View layout metadata. Store compact X/Y node positions associated
-with stable NodeIds. Keep layout logically separate from executable graph data
+**Accepted sidecar/layout direction (D048):** each editable source photograph
+uses one versioned, human-readable sidecar containing its processing graph and
+parameters plus minimal Graph View layout metadata. Store compact X/Y node
+positions associated with stable NodeIds. Keep layout logically separate from executable graph data
 within that sidecar; the renderer and evaluator must not depend on positions.
 Repositioning nodes must not change connections or processing results, and
-reopening a photograph should restore its saved arrangement.
+reopening the editable source photograph should restore its saved arrangement.
 
 Photo-specific graph/parameters, connections, stable identities, RAW/output
 colour settings and minimal node positions belong in the sidecar. Preferred
@@ -579,14 +574,13 @@ minimise file size. Binary serialization, compression or an elaborate
 persistence framework needs a demonstrated requirement.
 
 The exact serialization schema, field names and optional-field handling remain
-Step 7 design decisions. Record remaining decisions before establishing the
-format, including a concise formal entry for the accepted sidecar/layout
-direction in `docs/DECISIONS.md` during separate pre-Step-7 preparation, before
-implementation begins. Step 7 persistence should support the subsequent
+Step 7 design decisions; record them before establishing the format and beginning
+implementation. D048 in `docs/DECISIONS.md` records the accepted sidecar/layout
+direction. Step 7 persistence should support the subsequent
 Graph/List milestone (D047), without implementing Graph View as part of Step 7.
 Keep this design checkpoint focused on persistence; the completed
-whole-application architecture review remains closed. If the existing design is
-sound, record that conclusion and proceed without refactoring.
+whole-Step-6 review remains closed. If the existing design is sound, record that
+conclusion and proceed without refactoring.
 
 The remaining quality improvements are tracked work, not automatic blockers for
 unrelated features; tooling can proceed alongside Step 7 where practical.

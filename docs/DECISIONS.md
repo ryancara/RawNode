@@ -257,10 +257,10 @@ focused, non-blocking follow-ups; see `docs/ARCHITECTURE_AUDIT.md`.
 
 **Step 5 is complete:** the first mask/graph product contract was independently
 reviewed by Codex and Claude and closed without another broad architecture
-refactor. Execution on main remains a serial node chain until Step 6 lands;
-the explicit topology/evaluator transition is implemented and independently
-reviewed on the Step 6 branch. macOS/NEF validation and merge remain pending;
-PR #58 is still draft and unmerged.
+refactor. Step 6's explicit topology/evaluator transition and independent
+whole-Step-6 review are complete and merged in PR #58 (`6294a034`). Complete
+per-check macOS/native-dialog and NEF validation evidence is not recorded; see
+`docs/STEP6_MANUAL_VALIDATION.md`.
 
 ## D038 — Sidecars belong to editable source documents only
 
@@ -418,6 +418,26 @@ between existing architecture steps, not a ninth architecture step.
 Both views edit the same authoritative document graph and share stable NodeId
 selection. Switching views introduces no additional renderer or execution model.
 
+## D048 — Graph and minimal node layout share one source sidecar
+
+**Status:** Accepted
+
+Use one versioned, human-readable sidecar per editable source photograph to
+persist the authoritative processing graph, parameters, stable identities and
+connections. Store minimal node X/Y layout positions keyed by NodeId in that same
+sidecar, logically separate from executable graph data. Positions must not affect
+connections, rendering or graph evaluation; reopening the editable source
+photograph restores its saved node arrangement.
+
+Do not persist rendered images, intermediate buffers, caches or unnecessary
+transient UI state. Keep the format simple and readable; a separate project
+database, compression or binary serialization requires a demonstrated need.
+
+Exact schema details, field names and optional-field handling remain Step 7
+design decisions. The Graph View itself remains the UI milestone between Steps
+7 and 8 (D047), sharing the authoritative graph and NodeId selection with List
+View.
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:
@@ -447,8 +467,7 @@ The D037 stabilisation gate and immediate checkpoint follow-ups are complete.
 
 5. Settle the first mask/graph product contract — complete.
 6. Introduce topology and sequential DAG evaluation together — implementation and
-   independent whole-Step-6 review complete on the feature branch. macOS/NEF
-   validation and merge pending; PR #58 remains draft and unmerged.
+   independent whole-Step-6 review complete and merged in PR #58.
 7. Add versioned graph persistence.
 
    Then add the switchable Graph/List editor UI milestone (D047), before Step 8.

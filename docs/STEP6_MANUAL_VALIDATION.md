@@ -1,13 +1,19 @@
 # Step 6 macOS validation
 
-**Status:** Pending user validation on macOS; automated Linux validation proceeds
-independently.
+**Status:** Step 6 implementation and independent whole-Step-6 review are complete
+and merged in PR #58 (`6294a034`). Reported macOS testing found normal operation,
+but complete per-check native-dialog and Nikon NEF validation evidence is not
+recorded. Unverified checks below remain unchecked; evidence or an explicit
+documented waiver is tracked in `docs/PROJECT_CONTEXT.md` before Step 7 replaces
+the relevant capture/sidecar paths.
+
 The implementation environment is Linux. No suitable Nikon NEF/RAW fixture was
 available there, so successful camera-RAW grade application (T3) is not claimed
 as automated coverage. Synthetic raster tests do not replace this check.
 
-Use the final PR #58 head, working copies of two visibly different Nikon NEFs
-(A and B), and a separate export folder. Include the Nikon models/compression
+Use merged Step 6 (`6294a034`) or later `main` and record the tested commit.
+Use working copies of two visibly different Nikon NEFs (A and B), and a separate
+export folder. Include the Nikon models/compression
 modes used in normal editing; record any unsupported decode separately. Run
 `build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest` as a platform check.
 
