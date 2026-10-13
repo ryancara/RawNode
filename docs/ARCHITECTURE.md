@@ -5,11 +5,11 @@
 This document records the architecture approved after the RawNode <-> vkdt
 architecture audit and independent Claude review. Steps 1–4 and the
 post-Step-4 stabilisation/checkpoint gate and Step 5 product-contract work are
-complete. Step 6 implementation is complete on its draft feature branch:
-preview, inspection, export and List View use one explicit document graph.
-Independent whole-Step-6 review is complete. macOS/NEF manual validation and
-merge remain pending; PR #58 is still draft and unmerged. Graph-native
-persistence is Step 7 work.
+complete. Step 6 implementation and independent whole-Step-6 review are complete
+and merged in PR #58 (`6294a034`). Preview, inspection, export and List View use
+one explicit document graph. Complete per-check macOS/native-dialog and NEF
+manual-validation evidence is not recorded; see `docs/STEP6_MANUAL_VALIDATION.md`.
+Graph-native persistence is Step 7 work.
 
 Read this together with:
 
@@ -583,14 +583,14 @@ See `docs/ARCHITECTURE_AUDIT.md` for evidence and non-blocking dispositions.
 
 These are stabilisation/review gates, **not additional numbered architecture
 steps**. Steps 1–4 are complete. Step 6 implementation and independent
-whole-transition review are complete on the draft branch; macOS/NEF validation
-and merge remain pending.
+whole-Step-6 review are complete and merged in PR #58. Outstanding manual
+validation evidence is tracked separately in `docs/PROJECT_CONTEXT.md`.
 
 5. **Settle the first mask/graph product contract — complete.**
    The accepted contract is summarized in `docs/DECISIONS.md` and detailed in
    `docs/STEP5_GRAPH_CONTRACT.md`.
 
-6. **Introduce explicit topology and sequential DAG evaluation together — implemented and independently reviewed.**
+6. **Introduce explicit topology and sequential DAG evaluation together — complete, independently reviewed and merged.**
    One authoritative graph has static named typed ports,
    consumer-owned input references, ordered stable Slots, explicit Source and
    document output, requested Image/Mask endpoint evaluation, fan-out, joins,

@@ -1,8 +1,8 @@
 # Step 6 Explicit Graph / Sequential DAG Implementation Plan
 
-**Status:** Step 6 implementation and independent whole-transition review are
-complete on `codex/step6-explicit-graph`. macOS/NEF validation and merge remain
-pending; PR #58 is draft and unmerged.
+**Status:** Step 6 implementation and independent whole-Step-6 review are complete
+and merged in PR #58 (`6294a034`). Complete per-check macOS/native-dialog and NEF
+validation evidence is not recorded; see `docs/STEP6_MANUAL_VALIDATION.md`.
 
 **Step 5 contract:** complete in `docs/STEP5_GRAPH_CONTRACT.md`.  
 **Goal:** replace RawNode's implicit serial `App::nodes` execution with one authoritative explicit graph and a sequential requested-endpoint evaluator, while preserving existing runtime/lifetime guarantees and equivalent linear behaviour.

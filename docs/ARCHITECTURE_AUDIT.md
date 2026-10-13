@@ -3,9 +3,9 @@
 **Status:** Original audit, post-Step-4 whole-architecture checkpoint and
 Step 5 product-contract work are complete, independently reviewed and
 reconciled. Step 6 explicit topology/evaluator implementation and independent
-whole-transition review are complete on the feature branch. macOS/NEF validation
-and merge remain pending; PR #58 is draft and unmerged. The approved target
-architecture lives in
+whole-Step-6 review are complete and merged in PR #58 (`6294a034`). Complete
+per-check macOS/native-dialog and NEF validation evidence is not recorded; see
+`docs/STEP6_MANUAL_VALIDATION.md`. The approved target architecture lives in
 `docs/ARCHITECTURE.md` and accepted decisions live in `docs/DECISIONS.md`.
 
 **RawNode audit baseline:** `07808451f72bba9bc59a6e9a6889ec5a4f7c07de`
@@ -322,7 +322,7 @@ architecture decisions beyond the accepted target and D019–D038.
 | Source/export sidecar question | Superseded by D038 and PR #53: sidecars belong only to editable source documents; exported derivatives receive none. There is no future source/export capture-convergence task. |
 | `runExportJob` test seam | Retain the useful synchronous production export test seam; no present reason to remove or redesign it. |
 | Single-level mutation-completion regression | Complete in PR #54. Changed edits queue normal demand and interrupted unchanged edits queue quiet recovery before the mutation gate opens; deterministic coverage now protects both. |
-| `uploadTexture` | The checkpoint recommended removing this dead path with the Step 6 evaluator/display boundary; that cleanup is complete on draft PR #58. |
+| `uploadTexture` | The checkpoint recommended removing this dead path with the Step 6 evaluator/display boundary; that cleanup is complete in merged PR #58. |
 | Alpha | Global alpha association remains deliberately unresolved; masks are not image alpha. Source alpha differs across formats. Revisit TIFF, EXR, OpenFX and JPEG flattening before transparent compositing/alpha-carrying workflows, not as an invented Step 5 global contract. |
 | Spatial semantics | Preview/full-resolution pixel-unit and render-scale differences need a contract before spatial masks/native operations. If the first mask is geometric, Step 5 should decide coordinates, preferably resolution-independent document semantics. |
 | Persistence reliability | Source sidecars still use in-place writes, not atomic replacement. Persistence hardening belongs with Step 7 and does not block Step 5; not fixed. |
