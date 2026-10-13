@@ -386,8 +386,8 @@ These are known but are not reasons to expand unrelated focused PRs:
 - pre-merge Step 6 status prose remains in `docs/ARCHITECTURE.md`,
   `docs/ARCHITECTURE_AUDIT.md`, `docs/DECISIONS.md` and
   `docs/STEP6_IMPLEMENTATION_PLAN.md`. Current status is recorded below;
-  synchronising those status summaries need not reopen completed reviews or
-  change their accepted architectural contracts.
+  complete a separate status-only cleanup before Step 7 planning, preserving
+  completed reviews and accepted architectural contracts.
 
 Address remaining renderer-related deferred issues within the approved staged
 architecture rather than layering more scheduler state onto the design without
@@ -399,12 +399,14 @@ need.
 `6294a034d30168063e2aa92e984a51666f56ca22`.** Step 5's product/architecture
 contract is complete. The full graph transition, NodeId selection, topology List
 View and minimal linear capture / transactional grade safety are implemented.
-Step 7 graph-native persistence is the next stage; it has not started here.
+Step 7 graph-native persistence is the next stage.
 
-The retained `docs/STEP6_MANUAL_VALIDATION.md` checklist describes macOS
-native-dialog and successful camera-RAW (NEF) grade re-decode checks whose results
-are not recorded in the repository. This documentation update claims no new
-platform coverage and does not reopen completed Step 6 implementation or review.
+Reported macOS testing found normal operation. No complete macOS/NEF
+manual-validation results are recorded for `docs/STEP6_MANUAL_VALIDATION.md`,
+including native-dialog and successful Nikon NEF full-grade re-decode checks
+across differing RAW colour settings. Record per-check evidence and remaining
+unverified checks through the quality checklist below; completed Step 6
+implementation and independent architecture review remain closed.
 
 Steps 1–4 are complete: owned export execution, frozen parameter edits during
 export, centralized graph-edit transactions and encapsulated renderer ownership.
@@ -529,22 +531,73 @@ verification checks to implementation PRs. Follow the design/acceptance workflow
 above, `CLAUDE.md` for review expectations and `docs/CODE_STYLE.md` for source
 guidance.
 
-**Completed review:** the whole-Step-6 independent implementation and
-architecture review is complete. Do not repeat it to satisfy the former Step 6
-completion-gate instruction.
-
 **Before Step 7 finalises the persistent graph format:** perform a focused
-checkpoint on the existing graph model, identifiers, interfaces, ownership and
-naming to confirm they are understandable and stable enough to persist. Begin
-with findings already identified in Step 6's reviews, including the accepted
-transition limitations in `docs/ARCHITECTURE.md` and the near-term roadmap above.
-This is not another broad audit or a reason to refactor working code without a
-demonstrated problem. If the design is sound, record that conclusion and proceed.
+design checkpoint on whether the existing graph model, identifiers, interfaces
+and ownership can be persisted reliably and understood without unnecessary
+architectural changes. Begin with the accepted Step 5 contract and completed
+Step 6 review findings, including the transition limitations in
+`docs/ARCHITECTURE.md`. Use `docs/STEP5_GRAPH_CONTRACT.md` ("Step 7 graph
+persistence target"), D045 and D047 in `docs/DECISIONS.md`, and the minimal
+layout-persistence requirement under "Graph / List interface" in `ROADMAP.md`.
+
+**Persistent identity and reconstruction:** verify the expected handling of:
+
+- stable NodeIds and node-local SlotIds, including allocation/high-water marks
+  across save/reopen cycles so later allocation cannot reuse preserved identities;
+- stable node-kind/backend identities and typed port identifiers, with relevant
+  schema/interface versions. Processor or port display-name changes must not
+  break saved photographs; identifier renames need explicit aliases/migration, not
+  positional guessing;
+- document Source/output endpoints, fixed input references and ordered Slot
+  arrays with their slot-local settings. Storage order is not execution order;
+- processor parameters and necessary generic node controls;
+- missing/unavailable processor state and saved interface information sufficient
+  to preserve unknown nodes;
+- relevant external asset references.
+
+**Accepted sidecar/layout direction:** each photograph uses one versioned,
+human-readable sidecar containing its processing graph and parameters plus
+minimal Graph View layout metadata. Store compact X/Y node positions associated
+with stable NodeIds. Keep layout logically separate from executable graph data
+within that sidecar; the renderer and evaluator must not depend on positions.
+Repositioning nodes must not change connections or processing results, and
+reopening a photograph should restore its saved arrangement.
+
+Photo-specific graph/parameters, connections, stable identities, RAW/output
+colour settings and minimal node positions belong in the sidecar. Preferred
+default Graph/List View, theme, keyboard shortcuts and other preferences
+unrelated to the photograph's edit remain global application preferences.
+Decide graph viewport zoom/pan persistence with Graph View; temporary viewport
+state should not expand Step 7.
+
+Keep one authoritative graph shared by List View, Graph View, preview and export.
+Do not add a separate project file, catalogue/database, duplicate graph topology
+or unnecessary repeated data. Do not persist rendered images, intermediates,
+caches or unnecessary transient UI state. Keep the format simple and readable:
+a little readable metadata is preferable to complexity introduced merely to
+minimise file size. Binary serialization, compression or an elaborate
+persistence framework needs a demonstrated requirement.
+
+The exact serialization schema, field names and optional-field handling remain
+Step 7 design decisions. Record remaining decisions before establishing the
+format, including a concise formal entry for the accepted sidecar/layout
+direction in `docs/DECISIONS.md` during separate pre-Step-7 preparation, before
+implementation begins. Step 7 persistence should support the subsequent
+Graph/List milestone (D047), without implementing Graph View as part of Step 7.
+Keep this design checkpoint focused on persistence; the completed
+whole-application architecture review remains closed. If the existing design is
+sound, record that conclusion and proceed without refactoring.
 
 The remaining quality improvements are tracked work, not automatic blockers for
 unrelated features; tooling can proceed alongside Step 7 where practical.
 
 - [x] Complete the whole-Step-6 independent implementation/architecture review.
+- [ ] Record macOS manual-validation results from
+      `docs/STEP6_MANUAL_VALIDATION.md`, confirming native-dialog behaviour and
+      successful Nikon NEF full-grade re-decode across differing RAW colour
+      settings; identify individual checks still unverified. Before Step 7
+      replaces the relevant capture/sidecar paths, record the outstanding
+      results or an explicit, documented waiver for the unverified checks.
 - [ ] Record the focused pre-persistence checkpoint before Step 7 finalises the
       graph format.
 - [ ] Extend CI where practical (Linux build + self-test already implemented):

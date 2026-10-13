@@ -95,17 +95,24 @@ Minor stylistic preferences should not block a PR or prompt unrelated cleanup.
 For substantial features, challenge the agreed acceptance criteria, expected
 results and test oracles independently of the implementation. Values copied
 from the implementation's own output are not independent evidence. Prefer
-analytical or mathematical reference values, independently validated libraries
-(e.g. lcms), established reference images/results, implementation-independent
+analytical or mathematical reference values, independently validated libraries,
+established reference images/results, implementation-independent
 invariants, and equivalence to an independently validated baseline,
 exercised through the production path. Check failure/boundary cases and whether
 a plausible incorrect implementation would fail the tests. See the existing
 review standard below for regression-test mutation checks.
 
+Reference implementations must be independent of the specific code path under
+test. Appropriately configured lcms2 can independently reference native
+colour-space conversion maths, but is not an independent oracle for RawNode's
+ICC-processing path that already uses lcms2. Extended-range tests need
+floating-point, unclipped reference transforms; integer or clipping transforms
+cannot establish preservation of negative RGB or values above 1.0.
+
 Tests should explain the behaviour they establish, why expected results are
-correct and why numerical tolerances are appropriate. For colour/image work,
-check floating-point precision, negative and above-1 RGB values, and alpha
-preservation. Keep test support proportionate and understandable.
+correct and justify numerical tolerances for the behaviour under test. For
+colour/image work, check floating-point precision, negative and above-1 RGB
+values, and alpha preservation. Keep test support proportionate and understandable.
 
 Milestone checkpoint timing and post-Step-6 infrastructure tasks are tracked in
 `docs/PROJECT_CONTEXT.md`. The whole-Step-6 review is complete; the focused
@@ -140,6 +147,12 @@ See `docs/CODE_STYLE.md`.
 
 Keep refactoring focused on demonstrated correctness, maintenance or
 architectural problems; avoid broad unrelated cleanup in bug-fix or feature PRs.
+Keep substantial refactors in their own focused PR unless required for
+correctness. Address small, directly relevant maintainability improvements during
+feature development and review. Do not postpone genuine correctness or important
+maintainability problems solely to avoid necessary changes. Cosmetic restructuring
+of understandable code and speculative future-proofing do not justify broad
+refactoring or new abstractions.
 
 ## Architectural direction
 
