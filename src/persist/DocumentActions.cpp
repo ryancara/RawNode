@@ -136,17 +136,6 @@ static bool resolveGradeColor(const PersistGradeColor &color, std::optional<Colo
          resolve(color.rawColorSpace, color.rawGamma, raw);
 }
 
-bool applyGradeColor(App &app, const PersistGradeColor &color) {
-  std::optional<ColorEncoding> output, raw;
-  if (!resolveGradeColor(color, output, raw)) return false;
-  if (raw && !reloadCurrentRawEncoding(app, *raw, false, false)) return false;
-  if (output) {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    app.outputEncoding = *output;
-  }
-  return true;
-}
-
 bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color) {
   std::optional<ColorEncoding> output, raw;
   if (!resolveGradeColor(color, output, raw)) {

@@ -5,9 +5,10 @@
 This document records the architecture approved after the RawNode <-> vkdt
 architecture audit and independent Claude review. Steps 1–4 and the
 post-Step-4 stabilisation/checkpoint gate and Step 5 product-contract work are
-complete. Step 6 is current. On its draft feature branch, preview, inspection
-and export now use the explicit sequential DAG evaluator. List View and V2
-boundary hardening and the final whole-Step-6 review remain before merge.
+complete. Step 6 implementation is complete on its draft feature branch:
+preview, inspection, export and List View use one explicit document graph.
+Final whole-Step-6 independent approval is required before merge. macOS/RAW
+manual validation remains outstanding. Graph-native persistence is Step 7 work.
 
 Read this together with:
 
@@ -247,6 +248,50 @@ Required invariants include:
 
 These invariants are more important than preserving the current implementation
 shape.
+
+## Completed Step 6 implementation
+
+`App::nodes`, including the primary Source, is the authoritative graph storage.
+Static named Image/Mask ports and consumer-owned upstream references define
+topology; node storage order has no processing meaning. Ordered node-owned Slots
+retain stable SlotIds. Validation covers every stored connection and cycle,
+including disabled, unavailable and unreachable nodes.
+
+`GraphEvaluator` borrows that graph without depending on App, UI or scheduling.
+One sequential requested-endpoint evaluation owns its memo and consumer-counted
+intermediate lifetime. Preview, inspection and full-resolution export use this
+evaluator under the existing RenderRuntime execution ownership. Publication
+retains endpoint, generation, value kind and diagnostics; display-only refresh
+converts the retained result without rerunning processors.
+
+Graph commands stage and validate before acquiring DocumentMutation for an
+actual commit. Rejected/unchanged commands preserve active preview/export work.
+Source replacement drains the same ownership before replacing full/preview
+pixels. Backend parameter edits retain their synchronization and export exclusion.
+
+UI selection has one authoritative optional NodeId. List View derives its main
+unary Image spine from documentOutput; other nodes remain visible and accessible.
+Splice/move controls use stable identities and validated graph commands. The
+projection neither changes connections nor supplies another execution order.
+
+Current linear capture requires a complete spine containing every non-Source
+node and only ordinary Image processors. Unsupported sidecar/clipboard/preset
+capture refuses before writing. Full-grade application prepares incoming nodes,
+colour state and any required RAW decode/preview before live replacement;
+selection/filter and inspection state are reset even when NodeIds are reused.
+
+Accepted transition limitations:
+
+- Processor creation failures may conservatively enter DocumentMutation and
+  restore interrupted preview work quietly.
+- Graph staging assumes control-thread-only topology mutation and immutable
+  port interfaces; it is not a concurrent editing protocol.
+- No-op comparison must match committed fields, including ordered SlotIds,
+  bindings, ID high-water marks and every future SlotSettings field.
+- Arbitrary-graph editing still needs a suitable UX for disconnected required
+  dependencies. The current List View exposes nodes without guessing repairs.
+- Sidecar-loading exception handling, atomic file replacement and persistence
+  GUI-state cleanup remain Step 7 work.
 
 ## Control-thread contract
 
@@ -536,22 +581,26 @@ sidecars) and #54 (mutation-completion ordering regression) are complete.
 See `docs/ARCHITECTURE_AUDIT.md` for evidence and non-blocking dispositions.
 
 These are stabilisation/review gates, **not additional numbered architecture
-steps**. Steps 1–4 are complete; this target does not imply that the Step 6
-explicit graph is already implemented.
+steps**. Steps 1–4 are complete; the Step 6 implementation on the draft branch
+still requires final whole-transition approval before merge.
 
 5. **Settle the first mask/graph product contract — complete.**
    The accepted contract is summarized in `docs/DECISIONS.md` and detailed in
    `docs/STEP5_GRAPH_CONTRACT.md`.
 
-6. **Introduce explicit topology and sequential DAG evaluation together — current.**
-   Implement one authoritative graph with static named typed ports,
+6. **Introduce explicit topology and sequential DAG evaluation together — implemented; final review pending.**
+   One authoritative graph has static named typed ports,
    consumer-owned input references, ordered stable Slots, explicit Source and
    document output, requested Image/Mask endpoint evaluation, fan-out, joins,
    cycle rejection, shared-upstream evaluation and per-evaluation value lifetime.
-   Preserve equivalent linear behaviour first. The first concrete production
+   Equivalent linear behaviour is preserved. The first concrete production
    Mask application remains Step 8.
 
 7. **Add versioned graph persistence.**
+
+   After graph persistence, add the switchable Graph/List editor before Step 8.
+   Both views must edit the same document graph; no separate renderer or list
+   execution model is introduced.
 
 8. **Settle remaining concrete mask details and add the first mask path.**
    Implement the Step 5 contract; settle remaining representation, range,

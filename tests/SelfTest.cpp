@@ -1443,6 +1443,56 @@ struct TestClipboard {
   ~TestClipboard() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
 };
 
+static bool testReusedNodeIdGradePaste() {
+  TestClipboard clipboard;
+  App app; graphPreviewSource(app);
+  if (!addNativeExposureNode(app) || !selectedNode(app)->processor->setParameterValue("exposure", 1.0)) return false;
+  const NodeId shared = *app.selectedNodeId;
+  const auto *previousProcessor = selectedNode(app)->processor.get();
+  app.paramFilter[0] = 'e';
+  app.renderer.requestInspection({shared, ports::image});
+  PreviewWorkerGuard guard{app}; app.renderer.start();
+  if (!previewIdle(app)) return false;
+  int generation;
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    if (app.processed.result.requested != OutputRef{shared, ports::image} || testDisplay(app).px[0] != 0.25f) return false;
+    generation = app.processed.generation;
+  }
+
+  App incoming;
+  if (!addNativeCstNode(incoming)) return false;
+  Processor &cst = *selectedNode(incoming)->processor;
+  if (!cst.setParameterValue("input_space", (int)RgbGamut::Rec709) ||
+      !cst.setParameterValue("input_gamma", (int)TransferFunction::Linear) ||
+      !cst.setParameterValue("output_space", (int)RgbGamut::Rec709) ||
+      !cst.setParameterValue("output_gamma", (int)TransferFunction::SRGB) ||
+      !addNativeExposureNode(incoming) || !selectedNode(incoming)->processor->setParameterValue("exposure", 1.0)) return false;
+  PersistChain grade = captureChain(incoming);
+  grade.nodes[0].id = shared.value;
+  grade.nodes[1].id = "grade-output";
+  grade.selectedNodeId = shared.value;
+  const auto color = captureGradeColor(incoming);
+  clipboard.text = serializeTransferPayload("grade", grade, &color);
+  if (!pasteFromClipboard(app) || !previewIdle(app)) return false;
+  const Node *replacement = selectedNode(app);
+  if (app.selectedNodeId != shared || !replacement || replacement != findNode(app, shared) ||
+      !replacement->processor || replacement->processor.get() == previousProcessor ||
+      replacement->processor->identifier() != NativeCstProcessor::kIdentifier ||
+      app.paramFilter[0] != '\0' || app.nodes.size() != 3 ||
+      app.documentOutput != OutputRef{NodeId{"grade-output"}, ports::image}) return false;
+  // The old inspected ID still exists. Only an explicit replacement reset can
+  // publish documentOutput instead, including its downstream Exposure result.
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  const auto &result = app.processed.result;
+  const auto *pixels = std::get_if<ImageValue>(&result.value);
+  const double expected = 2.0 * encodeTransfer(0.125, TransferFunction::SRGB);
+  return app.processed.generation > generation && result.requested == app.documentOutput &&
+         result.state == EvaluationState::Available && result.valueType == ValueType::Image && pixels && *pixels &&
+         (*pixels)->w == 1 && (*pixels)->h == 1 && (*pixels)->px.size() == 4 &&
+         std::abs((*pixels)->px[0] - expected) < 1e-6 && (*pixels)->px[3] == 0.75f;
+}
+
 static bool testCaptureRefusalPreservesDestinations() {
   TestClipboard clipboard;
   ExportTestFiles files;
@@ -1785,7 +1835,9 @@ static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true,
       color.rawGamma = transferFunctionId(requested.gamma);
       color.outputColorSpace = "display-p3";
       color.outputGamma = "srgb";
-      if (applyGradeColor(app, color)) return false;
+      PersistChain grade = captureChain(app);
+      grade.nodes.front().paramsJson["exposure"] = "4";
+      if (applyGrade(app, grade, color)) return false;
       error = "Could not reload RAW in " + colorEncodingName(requested);
       break;
     }
@@ -2013,6 +2065,8 @@ int runSelfTests() {
   if (!testGraphCommands()) return fail("Step 6B topology commands");
   if (!testGraphEvaluator()) return fail("Step 6C graph evaluator");
   if (!testGraphRuntime()) return fail("Step 6D graph runtime cutover");
+  if (!testReusedNodeIdGradePaste()) return fail("6F T2 grade paste must replace reused NodeId processor, filter and inspection");
+  printf("ok  6F T2 real full-grade paste replaces a selected processor with the same NodeId\n");
   if (!testNodeList()) return fail("Step 6E.1 List View and NodeId selection");
   if (!testCaptureRefusalPreservesDestinations()) return fail("6E.2 unsupported capture must preserve sidecar, presets and clipboard");
   printf("ok  6E.2 unsupported graph capture preserves sidecar, preset files and real UI clipboard\n");

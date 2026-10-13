@@ -104,6 +104,13 @@ class StagedEdit {
   std::string error;
 
  private:
+  // Compare node membership/document output and exactly the fields committed
+  // by swapTopology: bindings, ordered Slots and their ID high-water mark.
+  // Slot identity/order is semantic even when bindings/settings are identical.
+  // Every future SlotSettings field must participate here; swapping the Slot
+  // vector already commits those fields. Retained node operation/enabled/processor
+  // are not changed by these swaps. Keep comparison and commit aligned when
+  // extending this boundary for Graph View.
   bool unchanged() const {
     if (output_ != document_.documentOutput || nodes_.size() != document_.nodes.size()) return false;
     for (size_t i = 0; i < nodes_.size(); ++i) {

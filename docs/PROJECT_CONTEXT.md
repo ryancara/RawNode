@@ -131,6 +131,13 @@ Important implemented foundations include:
 - distinct processor-render and display-conversion refresh behaviour;
 - preview restoration after full-resolution export.
 
+On the Step 6 draft branch, explicit consumer-owned topology and a sequential
+requested-endpoint evaluator now drive preview, Image/Mask inspection and export.
+List View derives topology order and keeps off-spine nodes accessible; selection
+uses stable NodeIds. Unsupported linear sidecar/clipboard/preset capture refuses
+before writing, and full-grade application stages graph/colour/source changes
+before committing. Final whole-Step-6 approval remains outstanding.
+
 The renderer/concurrency baseline established by PRs #32-#34 is important:
 
 - PR #32 fixed processor lifetime/use-after-free races between rendering and
@@ -348,10 +355,13 @@ need.
 
 ## Current development phase
 
-**Step 6 — Explicit topology and sequential DAG evaluation — is current.**
-Step 5's product/architecture contract is complete. The draft feature branch
-has completed the runtime cutover and minimum linear edit/load/view migration;
-full List View/V2 boundary hardening remains the next task.
+**Step 6 implementation is complete on the draft feature branch; final review is
+pending.** Step 5's product/architecture contract is complete. The full graph
+transition, NodeId selection, topology List View and minimal linear capture /
+transactional grade safety are implemented. The complete PR still needs
+independent Claude approval before merge. macOS native-dialog and successful
+camera-RAW grade re-decode validation require a platform session; see
+`docs/STEP6_MANUAL_VALIDATION.md`.
 
 Steps 1–4 are complete: owned export execution, frozen parameter edits during
 export, centralized graph-edit transactions and encapsulated renderer ownership.
@@ -374,10 +384,13 @@ The remaining sequence is:
     Step 5: First mask/graph product contract       [complete]
           |
           v
-    Step 6: Explicit topology + sequential DAG evaluator [current]
+    Step 6: Explicit topology + sequential DAG evaluator [implemented; final review pending]
           |
           v
     Step 7: Versioned graph persistence
+          |
+          v
+    Switchable Graph/List editor
           |
           v
     Step 8: Concrete first mask path + remaining implementation details
@@ -441,7 +454,10 @@ compositing or alpha-carrying I/O requires it.
 
 Current architecture/product-contract work:
 
-- Step 6: finish List View/V2 boundary hardening and whole-transition validation.
+- Step 6: complete final independent whole-transition review and outstanding
+  macOS/RAW manual validation; keep PR #58 draft until approval.
+- Then Step 7 graph persistence, the switchable Graph/List editor, and Step 8
+  masking, in that order.
 
 The checkpoint, immediate follow-ups and Step 5 contract are complete. No
 additional broad architecture cleanup is required before finishing Step 6.
@@ -451,9 +467,13 @@ independently when appropriate. Step 5 is not a prerequisite for that unrelated
 work, provided it does not pre-empt the unsettled graph/mask contract or introduce
 conflicting architecture.
 
-The architecture track proceeds from the Step 5 contract to generic explicit
-topology/evaluation in Step 6, versioned topology persistence in Step 7, and the
-first concrete mask path with remaining implementation details in Step 8.
+The Step 6 implementation retains the existing ownership boundary and sequential
+whole-graph invalidation. Processor creation may enter a mutation even on failure;
+staging assumes one control thread and fixed port interfaces. Future SlotSettings
+fields must be included in no-op comparison, and arbitrary editing needs a UX for
+disconnected required inputs. Sidecar-loading exceptions and persistence atomicity
+remain Step 7 work. No further compatibility infrastructure is required for the
+historical linear format.
 
 Do not introduce speculative caches, schedulers or broad optimisation
 infrastructure merely because a future DAG could use them.

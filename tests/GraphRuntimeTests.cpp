@@ -620,6 +620,46 @@ static bool testUnchangedCommandsRetainDemand() {
   return true;
 }
 
+static bool testIdenticalSlotReorder() {
+  for (bool connected : {false, true}) {
+    App app; source(app);
+    CHECK(addNativeExposureNode(app));
+    const NodeId owner{"ordered-slots"};
+    CHECK(add(app, owner, NodeOperation::TestSlotted));
+    const auto first = graph::addSlot(app, owner).addedSlot;
+    const auto second = graph::addSlot(app, owner).addedSlot;
+    CHECK(first && second && *first != *second);
+    if (connected) {
+      CHECK(graph::connect(app, image(app.primarySource), {owner, first, ports::image}).ok());
+      CHECK(graph::connect(app, image(app.primarySource), {owner, second, ports::image}).ok());
+    }
+    // Declared inputs are either all disconnected or have the same producer;
+    // settings also match. SlotId order alone must make this a real edit.
+    const auto bindings = findNode(app, owner)->slots.front().inputs;
+    CHECK(bindings == findNode(app, owner)->slots.back().inputs);
+    app.renderer.requestDocumentPreview(); app.renderer.start(); CHECK(idle(app));
+    const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+    const auto frame = publication(app);
+    CHECK(graph::reorderSlot(app, owner, *second, first).ok());
+    const auto &slots = findNode(app, owner)->slots;
+    CHECK(slots.size() == 2 && slots[0].id == *second && slots[1].id == *first);
+    CHECK(slots[0].inputs == bindings && slots[1].inputs == bindings &&
+          slots[0].settings.enabled && slots[1].settings.enabled);
+    CHECK(documentStateError(app).empty() && idle(app));
+    CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch > before.epoch &&
+          publication(app).generation > frame.generation && publication(app).result.state == EvaluationState::Available);
+    const auto unchanged = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(graph::reorderSlot(app, owner, *second, first).ok()); // Already before.
+    CHECK(graph::reorderSlot(app, owner, *first).ok()); // Already last.
+    CHECK(graph::reorderSlot(app, owner, *second, second).ok()); // Same Slot.
+    const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(after.epoch == unchanged.epoch && after.mutationDepth == 0 &&
+          !after.previewPending && !after.previewBusy && !after.displayPending);
+    CHECK(findNode(app, owner)->slots[0].id == *second && findNode(app, owner)->slots[1].id == *first);
+  }
+  return true;
+}
+
 static bool testNarrowV2Refusal() {
   Files files; App app; source(app);
   CHECK(addNativeExposureNode(app));
@@ -656,6 +696,7 @@ bool testGraphRuntime() {
       {"6D I4 quiet restoration reports current failures and preserves successful export status", testQuietOutcomes},
       {"6D narrow linear V2 refusal preserves the existing source sidecar", testNarrowV2Refusal},
       {"6E.2 rejected/no-op graph commands preserve idle/pending/active preview and active export", testUnchangedCommandsRetainDemand},
+      {"6F T1 identical/disconnected Slot bindings retain real order changes and detect no-ops", testIdenticalSlotReorder},
   };
   for (const auto &test : cases) {
     if (!test.test()) { std::fprintf(stderr, "selftest FAILED: %s\n", test.name); return false; }
