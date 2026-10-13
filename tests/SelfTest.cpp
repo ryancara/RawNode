@@ -4,6 +4,7 @@
 #include "GraphCommandsTests.h"
 #include "GraphEvaluatorTests.h"
 #include "GraphRuntimeTests.h"
+#include "NodeListTests.h"
 
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
@@ -1257,29 +1258,29 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
   float expected = (float)encodeTransfer(0.25, TransferFunction::SRGB);
   switch (edit) {
     case GraphEditCase::AddExposure:
-      if (!addNativeExposureNode(app) || app.nodes.size() != 4 || app.selectedNode != 3) return false;
+      if (!addNativeExposureNode(app) || app.nodes.size() != 4 || app.selectedNodeId != app.nodes[3].id) return false;
       break;
     case GraphEditCase::AddCst:
       if (!addNativeCstNode(app) || app.nodes.size() != 4) return false;
       break;
     case GraphEditCase::Remove:
-      destroyNode(app, 2);
+      destroyNode(app, app.nodes[2].id);
       if (app.nodes.size() != 2 || app.nodes[1].id.value != "exposure") return false;
       expected = 0.25f;
       break;
     case GraphEditCase::Reorder:
-      moveNode(app, 2, 1);
-      if (app.nodes[1].id.value != "exposure" || app.nodes[2].id.value != "cst" || app.selectedNode != 2 ||
+      moveNode(app, app.nodes[2].id, app.nodes[1].id);
+      if (app.nodes[1].id.value != "exposure" || app.nodes[2].id.value != "cst" || app.selectedNodeId != app.nodes[2].id ||
           captureChain(app).nodes[0].id != "cst") return false;
       expected = 2.0f * (float)encodeTransfer(0.125, TransferFunction::SRGB);
       break;
     case GraphEditCase::Disable:
-      setNodeEnabled(app, 1, false);
+      setNodeEnabled(app, app.nodes[1].id, false);
       if (app.nodes[1].enabled) return false;
       expected = (float)encodeTransfer(0.125, TransferFunction::SRGB);
       break;
     case GraphEditCase::Enable:
-      setNodeEnabled(app, 1, true);
+      setNodeEnabled(app, app.nodes[1].id, true);
       if (!app.nodes[1].enabled) return false;
       break;
     case GraphEditCase::Append:
@@ -1293,8 +1294,8 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
         pasted.identifier = "missing.dctl";
         pasted.enabled = false;
       }
-      if (!appendPersistedNode(app, pasted, 1) || app.nodes.size() != 4 ||
-          app.selectedNode != 3 || app.nodes[3].id.value == exposure.id || app.nodes[2].id.value != "cst" ||
+      if (!appendPersistedNode(app, pasted, app.nodes[1].id) || app.nodes.size() != 4 ||
+          app.selectedNodeId != app.nodes[3].id || app.nodes[3].id.value == exposure.id || app.nodes[2].id.value != "cst" ||
           captureChain(app).nodes[1].paramsJson.at("unknown") != pasted.paramsJson.at("unknown") ||
           !app.nodes[3].groupOpen.at("group")) return false;
       if (edit == GraphEditCase::AppendMissing) {
@@ -1322,7 +1323,7 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       }
       replacement.selectedNodeId = "restored-5";
       applyChain(app, replacement);
-      if (app.nodes.size() != 11 || app.selectedNode != 6) return false;
+      if (app.nodes.size() != 11 || app.selectedNodeId != app.nodes[6].id) return false;
       for (int i = 0; i < 10; ++i)
         if (app.nodes[i + 1].id.value != replacement.nodes[i].id) return false;
       if (edit == GraphEditCase::ReplaceMissing &&
@@ -1332,7 +1333,7 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       break;
     }
     case GraphEditCase::RemoveLast:
-      destroyNode(app, 2);
+      destroyNode(app, app.nodes[2].id);
       // The last removal must show the unprocessed source without processor work.
       [[fallthrough]];
     case GraphEditCase::Clear: {
@@ -1343,12 +1344,12 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       if (renderState(app).previewPending || renderState(app).previewBusy || renderState(app).displayPending) return false;
       app.displayDirty = false;
       const int lastBefore = renderState(app).epoch;
-      if (edit == GraphEditCase::RemoveLast) destroyNode(app, 1);
+      if (edit == GraphEditCase::RemoveLast) destroyNode(app, app.nodes[1].id);
       else clearNodes(app);
       std::vector<unsigned char> sourceRGBA;
       toDisplayRGBA8(*app.preview, app.inputEncoding, sourceRGBA);
       if (!previewIdle(app)) return false;
-      return !app.hasProcessingOutput() && app.selectedNode == -1 && !renderState(app).previewPending &&
+      return !app.hasProcessingOutput() && !app.selectedNodeId && !renderState(app).previewPending &&
              renderState(app).mutationDepth == 0 && renderState(app).epoch >= lastBefore + 2 &&
              app.displayDirty && testDisplay(app).px == app.preview->px && app.displayRGBA == sourceRGBA;
     }
@@ -1391,11 +1392,11 @@ static bool testGraphEditNoops() {
   graphPreviewSource(app);
   if (!addNativeExposureNode(app)) return false;
   const int before = renderState(app).epoch;
-  moveNode(app, 1, 1);
-  moveNode(app, 1, 4);
-  destroyNode(app, -1);
-  setNodeEnabled(app, 1, true);
-  setNodeEnabled(app, 3, false);
+  moveNode(app, app.nodes[1].id, app.nodes[1].id);
+  moveNode(app, app.nodes[1].id, NodeId{"not-found"});
+  destroyNode(app, NodeId{"not-found"});
+  setNodeEnabled(app, app.nodes[1].id, true);
+  setNodeEnabled(app, NodeId{"not-found"}, false);
   if (addNode(app, -1)) return false;
   return renderState(app).epoch == before && renderState(app).previewPending && !renderState(app).quietPending &&
          app.nodes.size() == 2 && app.nodes[1].enabled;
@@ -1688,12 +1689,12 @@ static bool testUnavailableProcessorRestore(bool append, bool ctl) {
   replacement.selectedNodeId = missing.id;
   const int before = renderState(app).epoch;
   if (append) {
-    if (!appendPersistedNode(app, missing, 1)) return false;
+    if (!appendPersistedNode(app, missing, app.nodes[1].id)) return false;
   } else {
     applyChain(app, replacement);
   }
   const int restored = append ? 3 : 2;
-  if (app.nodes.size() != 4 || app.selectedNode != restored || app.nodes[restored].processor ||
+  if (app.nodes.size() != 4 || app.selectedNodeId != app.nodes[restored].id || app.nodes[restored].processor ||
       app.nodes[restored].enabled || (app.nodes[restored].id.value == missing.id) == append ||
       app.nodes[restored].storedBackend != missing.backend ||
       captureChain(app).nodes[1].paramsJson.at("opaque") != missing.paramsJson.at("opaque") ||
@@ -1742,9 +1743,9 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
   bool operationOk = true;
   switch (edit) {
     case ActiveGraphEdit::Add: operationOk = addNativeExposureNode(app); break;
-    case ActiveGraphEdit::Remove: destroyNode(app, 2); break;
-    case ActiveGraphEdit::Reorder: moveNode(app, 2, 1); break;
-    case ActiveGraphEdit::Disable: setNodeEnabled(app, 2, false); break;
+    case ActiveGraphEdit::Remove: destroyNode(app, app.nodes[2].id); break;
+    case ActiveGraphEdit::Reorder: moveNode(app, app.nodes[2].id, app.nodes[1].id); break;
+    case ActiveGraphEdit::Disable: setNodeEnabled(app, app.nodes[2].id, false); break;
     case ActiveGraphEdit::FailCtl:
       operationOk = !addCtlNode(app, (files.dir / "missing.ctl").string());
       break;
@@ -1873,6 +1874,7 @@ int runSelfTests() {
   if (!testGraphCommands()) return fail("Step 6B topology commands");
   if (!testGraphEvaluator()) return fail("Step 6C graph evaluator");
   if (!testGraphRuntime()) return fail("Step 6D graph runtime cutover");
+  if (!testNodeList()) return fail("Step 6E.1 List View and NodeId selection");
 #if !defined(NDEBUG) && !defined(_WIN32)
   if (!testControlThreadAssertions()) return fail("renderer control-thread assertions");
   printf("ok  Debug control-thread contract (8 expected child assertions)\n");
@@ -2503,7 +2505,7 @@ int runSelfTests() {
     copyApp.nodes[1].enabled = false;
 
     PersistNode copied;
-    if (!captureNode(copyApp, 1, copied) ||
+    if (!captureNode(copyApp, copyApp.nodes[1].id, copied) ||
         copied.backend != "native" ||
         copied.identifier != NativeExposureProcessor::kIdentifier ||
         copied.paramsJson.at("exposure") != "2.25")
@@ -2522,8 +2524,8 @@ int runSelfTests() {
       return fail("node copy transfer payload");
 
     const std::string originalId = copyApp.nodes[1].id.value;
-    if (!appendPersistedNode(copyApp, decoded.nodes[0], 1) ||
-        copyApp.nodes.size() != 3 || copyApp.selectedNode != 2 ||
+    if (!appendPersistedNode(copyApp, decoded.nodes[0], copyApp.nodes[1].id) ||
+        copyApp.nodes.size() != 3 || copyApp.selectedNodeId != copyApp.nodes[2].id ||
         copyApp.nodes[2].id.value == originalId ||
         copyApp.nodes[2].enabled ||
         !copyApp.nodes[2].processor ||
@@ -2548,8 +2550,8 @@ int runSelfTests() {
     future.label = "Future Node";
     future.enabled = true;
     future.paramsJson["future"] = "{\"curve\":[0,0.5,1]}";
-    if (!appendPersistedNode(copyApp, future, copyApp.selectedNode) ||
-        copyApp.nodes.size() != 4 || copyApp.selectedNode != 3 ||
+    if (!appendPersistedNode(copyApp, future, copyApp.selectedNodeId) ||
+        copyApp.nodes.size() != 4 || copyApp.selectedNodeId != copyApp.nodes[3].id ||
         copyApp.nodes[3].processor ||
         copyApp.nodes[3].id.value == "foreign-id" ||
         copyApp.nodes[3].storedBackend != "dctl" ||
@@ -2574,7 +2576,7 @@ int runSelfTests() {
         !sourceGrade.nodes[2].processor->setParameterValue("output_space", 5))
       return fail("full grade copy setup");
     sourceGrade.nodes[1].enabled = false;
-    sourceGrade.selectedNode = 2;
+    selectNode(sourceGrade, sourceGrade.nodes[2].id);
     {
       std::lock_guard<std::mutex> lock(sourceGrade.colorMutex);
       sourceGrade.outputEncoding = {RgbGamut::DisplayP3, TransferFunction::Rec709};
@@ -2615,7 +2617,7 @@ int runSelfTests() {
     if (pastedOutput != ColorEncoding{RgbGamut::DisplayP3, TransferFunction::Rec709})
       return fail("full grade output colour restore");
 
-    if (destinationGrade.nodes.size() != 3 || destinationGrade.selectedNode != 2 ||
+    if (destinationGrade.nodes.size() != 3 || destinationGrade.selectedNodeId != destinationGrade.nodes[2].id ||
         destinationGrade.nodes[1].id.value != sourceGrade.nodes[1].id.value ||
         destinationGrade.nodes[2].id.value != sourceGrade.nodes[2].id.value ||
         destinationGrade.nodes[1].enabled ||
@@ -2661,10 +2663,10 @@ int runSelfTests() {
         !presetSource.nodes[2].processor->setParameterValue("output_gamma", 3))
       return fail("preset source setup");
     presetSource.nodes[1].enabled = false;
-    presetSource.selectedNode = 1;
+    selectNode(presetSource, presetSource.nodes[1].id);
 
     PersistNode nodeState;
-    if (!captureNode(presetSource, 1, nodeState))
+    if (!captureNode(presetSource, presetSource.nodes[1].id, nodeState))
       return fail("node preset capture");
     PersistChain nodePreset;
     nodePreset.selectedNodeId = nodeState.id;

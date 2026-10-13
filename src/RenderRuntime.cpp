@@ -127,6 +127,11 @@ bool RenderRuntime::beginMutation() {
 void RenderRuntime::completeMutation(bool changed, bool interrupted) noexcept {
   assertControlThread();
   try {
+    if (changed) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (inspection_ && !findOutput(GraphView{app_.nodes, app_.primarySource, app_.documentOutput}, *inspection_))
+        inspection_.reset();
+    }
     if (changed || interrupted) requestPreview(!changed);
   } catch (...) {
     // Source conversion may allocate. Recovery failure must not strand the
@@ -172,6 +177,12 @@ void RenderRuntime::requestDocumentPreview() {
   ++epoch_;
   queuePreview(false);
   if (mutationDepth_ == 0) workCv_.notify_one();
+}
+
+void RenderRuntime::resetInspection() {
+  assertControlThread();
+  std::lock_guard<std::mutex> lock(mutex_);
+  inspection_.reset();
 }
 
 EvaluationResult RenderRuntime::evaluateOwned(const OutputRef &endpoint, const EvaluationContext &context,

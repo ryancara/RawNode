@@ -32,7 +32,11 @@ void doExport(App &app) {
 
 static bool copySelectedNode(App &app) {
   PersistNode node;
-  if (!captureNode(app, app.selectedNode, node)) return false;
+  if (!app.selectedNodeId) return false;
+  if (!captureNode(app, *app.selectedNodeId, node)) {
+    app.setStatus("Node copy is unavailable for this graph in the current file format");
+    return false;
+  }
 
   PersistChain transfer;
   transfer.selectedNodeId = node.id;
@@ -85,8 +89,8 @@ static bool pasteFromClipboard(App &app) {
       app.setStatus("Invalid RawNode node payload");
       return false;
     }
-    if (!appendPersistedNode(app, transfer.nodes.front(), app.selectedNode)) {
-      app.setStatus("Could not paste node");
+    if (!appendPersistedNode(app, transfer.nodes.front(), app.selectedNodeId)) {
+      app.setStatus("Could not paste node: " + app.getStatus());
       return false;
     }
     if (Node *node = selectedNode(app); node && node->isMissingProcessor())
@@ -124,7 +128,11 @@ static std::string ensurePresetExtension(std::string path) {
 
 static bool saveNodePreset(App &app) {
   PersistNode node;
-  if (!captureNode(app, app.selectedNode, node)) return false;
+  if (!app.selectedNodeId) return false;
+  if (!captureNode(app, *app.selectedNodeId, node)) {
+    app.setStatus("Node preset capture is unavailable for this graph in the current file format");
+    return false;
+  }
 
   PersistChain preset;
   preset.selectedNodeId = node.id;
@@ -197,8 +205,8 @@ static bool loadPreset(App &app) {
       app.setStatus("Invalid node preset");
       return false;
     }
-    if (!appendPersistedNode(app, preset.nodes.front(), app.selectedNode)) {
-      app.setStatus("Could not apply node preset");
+    if (!appendPersistedNode(app, preset.nodes.front(), app.selectedNodeId)) {
+      app.setStatus("Could not apply node preset: " + app.getStatus());
       return false;
     }
     if (Node *node = selectedNode(app); node && node->isMissingProcessor())
@@ -295,7 +303,8 @@ void DrawUiFrame(App &app) {
       const char *copyShortcut = "Ctrl+C";
       const char *pasteShortcut = "Ctrl+V";
 #endif
-      const bool canCopyNode = selectedNode(app) != nullptr;
+      const Node *selection = selectedNode(app);
+      const bool canCopyNode = selection && selection->operation == NodeOperation::ImageProcessor;
       if (ImGui::MenuItem("Copy Node", copyShortcut, false, canCopyNode))
         copySelectedNode(app);
 #ifdef __APPLE__

@@ -14,9 +14,11 @@ const std::optional<OutputRef> *findInput(const App &app, const InputAddress &in
 // Empty means valid; otherwise the first invariant violation is returned.
 std::string documentStateError(const App &app);
 
-// Storage-index compatibility for current selection/controls; order is derived
-// from topology and moves/deletes call graph splice commands.
+// Selection is view-only. Resolve identity at use time; never retain a node
+// pointer across a graph edit. Source is not a selectable processing node.
 Node *selectedNode(App &app);
+const Node *selectedNode(const App &app);
+bool selectNode(App &app, std::optional<NodeId> id);
 std::string nodeDisplayName(const Node &node);
 // Structural operations run on the single control thread. Each owns execution
 // safety and its final preview decision; callers need no renderer protocol.
@@ -25,18 +27,18 @@ bool addNode(App &app, int pluginIndex);  // OFX plugin
 bool addNativeExposureNode(App &app);
 bool addNativeCstNode(App &app);
 bool addCtlNode(App &app, const std::string &path);
-void destroyNode(App &app, int index);
-void moveNode(App &app, int from, int to);
-void setNodeEnabled(App &app, int index, bool enabled);
+bool destroyNode(App &app, const NodeId &id);
+bool moveNode(App &app, const NodeId &from, const NodeId &to);
+void setNodeEnabled(App &app, const NodeId &id, bool enabled);
 
 // Capture preserves unavailable processors and opaque parameter values.
-bool captureNode(const App &app, int index, PersistNode &out);
+bool captureNode(const App &app, const NodeId &id, PersistNode &out);
 // Narrow 6D guard: capture only an ordinary complete linear processor spine.
 // Throws runtime_error before output is written when V2 would lose topology.
 PersistChain captureChain(const App &app);
 
 // Restoring persisted nodes uses the same structural transaction boundary.
-bool appendPersistedNode(App &app, const PersistNode &node, int insertAfter = -1);
+bool appendPersistedNode(App &app, const PersistNode &node, std::optional<NodeId> insertAfter = std::nullopt);
 void applyChain(App &app, const PersistChain &chain);
 
 bool hasUnknownProcessorChoiceIds(const App &app);

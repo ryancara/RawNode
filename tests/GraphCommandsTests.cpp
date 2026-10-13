@@ -507,10 +507,10 @@ static bool testAppAndSourceMove() {
   CHECK(graph::deleteSlot(app, slots, *one).ok());
   CHECK(graph::setDocumentOutput(app, image(a)).ok());
   CHECK(graph::moveImageNode(app, a).ok());
-  app.selectedNode = 2;
+  selectNode(app, app.nodes[2].id);
   CHECK(graph::deleteNode(app, a, image(app.primarySource)).ok());
-  CHECK(app.selectedNode == 1 && app.nodes[1].id == b && !findNode(app, a));
-  CHECK(graph::deleteNode(app, b).ok() && app.selectedNode == -1);
+  CHECK(app.selectedNodeId == app.nodes[1].id && app.nodes[1].id == b && !findNode(app, a));
+  CHECK(graph::deleteNode(app, b).ok() && !app.selectedNodeId);
   CHECK(documentStateError(app).empty());
   Node tail; tail.id = NodeId{"live-tail"};
   CHECK(graph::insertImageNode(app, std::move(tail)).ok());
@@ -519,12 +519,12 @@ static bool testAppAndSourceMove() {
   App serial;
   CHECK(addNativeExposureNode(serial) && addNativeCstNode(serial));
   const auto first = serial.nodes[1].id, second = serial.nodes[2].id;
-  moveNode(serial, 1, 0);
+  moveNode(serial, serial.nodes[1].id, serial.nodes[0].id);
   CHECK(serial.nodes[0].id == serial.primarySource && serial.nodes[1].id == first && serial.nodes[2].id == second);
-  moveNode(serial, 0, 2);
+  moveNode(serial, serial.nodes[0].id, serial.nodes[2].id);
   CHECK(serial.nodes[0].id == serial.primarySource && serial.nodes[1].id == first);
   std::swap(serial.nodes[0], serial.nodes[1]); // Source now separates processors.
-  moveNode(serial, 0, 2);
+  moveNode(serial, serial.nodes[0].id, serial.nodes[2].id);
   CHECK(serial.nodes[0].id == first && serial.nodes[1].id == serial.primarySource && serial.nodes[2].id == second);
   CHECK(!graph::moveImageNode(serial, first, serial.primarySource).ok());
   // Active add/move/load semantics now produce one authoritative topology.

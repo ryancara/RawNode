@@ -168,21 +168,21 @@ static bool testTopologyAndV2() {
   CHECK(app.nodes[1].fixedInputs.at(ports::image) == image(app.primarySource));
   CHECK(app.nodes[2].fixedInputs.at(ports::image) == image(first) && app.documentOutput == image(second));
   auto saved = captureChain(app);
-  moveNode(app, 2, 1);
+  moveNode(app, app.nodes[2].id, app.nodes[1].id);
   CHECK(app.nodes[1].id == first && app.nodes[2].id == second && app.documentOutput == image(first));
-  CHECK(app.nodes[1].fixedInputs.at(ports::image) == image(second) && app.selectedNode == 2);
+  CHECK(app.nodes[1].fixedInputs.at(ports::image) == image(second) && app.selectedNodeId == app.nodes[2].id);
   CHECK(captureChain(app).nodes[0].id == second.value);
   App restored; source(restored); applyChain(restored, captureChain(app));
   CHECK(restored.nodes[1].id == second && restored.nodes[2].id == first && restored.documentOutput == image(first));
   CHECK(restored.nodes[1].fixedInputs.at(ports::image) == image(restored.primarySource) &&
         restored.nodes[2].fixedInputs.at(ports::image) == image(second));
-  destroyNode(app, 2);
+  destroyNode(app, app.nodes[2].id);
   CHECK(app.documentOutput == image(first) && app.nodes[1].fixedInputs.at(ports::image) == image(app.primarySource));
   PersistNode missing; missing.id = "preserved-missing"; missing.backend = "dctl";
   missing.identifier = "asset.dctl"; missing.paramsJson["opaque"] = "[1,2]";
   saved.nodes.push_back(missing); saved.selectedNodeId = missing.id;
   applyChain(restored, saved);
-  CHECK(restored.selectedNode == 3 && restored.documentOutput == image(NodeId{missing.id}));
+  CHECK(restored.selectedNodeId == restored.nodes[3].id && restored.documentOutput == image(NodeId{missing.id}));
   CHECK(restored.nodes[3].fixedInputs.at(ports::image) == image(second));
   CHECK(captureChain(restored).nodes.back().paramsJson == missing.paramsJson);
 
@@ -194,12 +194,12 @@ static bool testTopologyAndV2() {
   const EvaluationContext context{EvaluationPurpose::Inspection, 2, 1, 1, 1};
   auto result = ordered.renderer.evaluateOwned(ordered.documentOutput, context, ordered.preview);
   CHECK(std::get<ImageValue>(result.value)->px[0] == 1.5f);
-  const int selected = ordered.selectedNode;
-  moveNode(ordered, 2, 1);
+  const auto selected = ordered.selectedNodeId;
+  moveNode(ordered, ordered.nodes[2].id, ordered.nodes[1].id);
   result = ordered.renderer.evaluateOwned(ordered.documentOutput, context, ordered.preview);
   CHECK(std::get<ImageValue>(result.value)->px[0] == 2.5f && ordered.nodes[1].id == a && ordered.nodes[2].id == b);
-  CHECK(ordered.selectedNode == selected);
-  destroyNode(ordered, 2);
+  CHECK(ordered.selectedNodeId == selected);
+  destroyNode(ordered, ordered.nodes[2].id);
   result = ordered.renderer.evaluateOwned(ordered.documentOutput, context, ordered.preview);
   CHECK(std::get<ImageValue>(result.value)->px[0] == 0.5f);
   return true;

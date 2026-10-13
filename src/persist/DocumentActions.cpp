@@ -412,6 +412,8 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
   // nested sidecar edits from dispatching against a half-switched document.
   document_detail::DocumentMutation mutation(app);
   if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
+  selectNode(app, std::nullopt);
+  app.renderer.resetInspection();
   mutation.changed();
   app.path = path;
   app.full = std::move(img);

@@ -28,10 +28,10 @@ static bool testDocumentIdentity() {
       !source->fixedInputs.empty() || !source->slots.empty()) return false;
 
   PersistNode record;
-  app.selectedNode = 0;
-  if (selectedNode(app) || captureNode(app, 0, record) || !captureChain(app).nodes.empty()) return false;
-  destroyNode(app, 0);
-  setNodeEnabled(app, 0, false);
+  if (selectNode(app, app.primarySource)) return false;
+  if (selectedNode(app) || captureNode(app, app.nodes[0].id, record) || !captureChain(app).nodes.empty()) return false;
+  destroyNode(app, app.nodes[0].id);
+  setNodeEnabled(app, app.nodes[0].id, false);
   clearNodes(app);
   applyChain(app, {});
   if (app.nodes.size() != 1 || !app.nodes[0].enabled || app.primarySource != sourceId ||
@@ -41,7 +41,7 @@ static bool testDocumentIdentity() {
   const NodeId first = app.nodes[1].id, second = app.nodes[2].id;
   if (first == second || first == sourceId || second == sourceId) return false;
   app.documentOutput = {first, ports::image};
-  moveNode(app, 2, 1);
+  moveNode(app, app.nodes[2].id, app.nodes[1].id);
   // An off-spine node cannot be moved by the current spine controls.
   if (app.nodes[1].id != first || app.nodes[2].id != second ||
       app.documentOutput != OutputRef{first, ports::image}) return false;
@@ -49,9 +49,9 @@ static bool testDocumentIdentity() {
   std::reverse(app.nodes.begin(), app.nodes.end());
   if (findNode(app, first) != &app.nodes[1] || !findNode(app, second) ||
       !findOutput(app, app.documentOutput) || !documentStateError(app).empty()) return false;
-  destroyNode(app, 2);  // Source is now at the end.
+  destroyNode(app, app.nodes[2].id);  // Source is now at the end.
   if (app.nodes.size() != 3 || app.documentOutput != OutputRef{first, ports::image}) return false;
-  destroyNode(app, 1);  // Splice deletion also rewires the stored downstream node.
+  destroyNode(app, app.nodes[1].id);  // Splice deletion also rewires the stored downstream node.
   if (findNode(app, first) || app.documentOutput != sourceImage ||
       !documentStateError(app).empty()) return false;
   app.documentOutput = {second, ports::image}; // Capture the remaining complete linear graph.

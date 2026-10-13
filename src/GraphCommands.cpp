@@ -2,6 +2,7 @@
 
 #include "DocumentMutation.h"
 #include "GraphValidation.h"
+#include "NodeGraph.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -131,7 +132,6 @@ static CommandResult editGraph(graph::Document document, Change change, Node *ad
 }
 
 static std::string connectionError(GraphView graph, const OutputRef &producer, const InputAddress &destination);
-static bool unaryImageNode(const Node &node);
 static std::string imageOutputError(GraphView graph, const OutputRef &output);
 
 namespace graph {
@@ -248,7 +248,7 @@ CommandResult insertImageNode(Document document, Node &&node, std::optional<Inpu
     auto error = edit.add(node);
     if (!error.empty()) return {error, std::nullopt};
     Node *inserted = edit.node(node.id);
-    if (!unaryImageNode(*inserted)) return {"Insertion requires a unary Image node", std::nullopt};
+    if (!isUnaryImageNode(*inserted)) return {"Insertion requires a unary Image node", std::nullopt};
     if (inserted->fixedInputs.at(ports::image)) return {"New node's Image input is already connected", std::nullopt};
     OutputRef producer = edit.output();
     if (before) {
@@ -271,7 +271,7 @@ CommandResult insertImageNode(Document document, Node &&node, std::optional<Inpu
 CommandResult deleteImageNode(Document document, const NodeId &id) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     const Node *deleted = edit.node(id);
-    if (!deleted || !unaryImageNode(*deleted)) return {"Deletion requires a unary Image node; Source cannot be deleted", std::nullopt};
+    if (!deleted || !isUnaryImageNode(*deleted)) return {"Deletion requires a unary Image node; Source cannot be deleted", std::nullopt};
     const auto producer = deleted->fixedInputs.at(ports::image);
     if (!producer) return {"Image splice requires a connected producer", std::nullopt};
     if (edit.output().nodeId == id) {
@@ -312,16 +312,9 @@ CommandResult moveImageNode(Document document, const NodeId &id, std::optional<N
 template <typename Change>
 static CommandResult mutateApp(App &app, Change change) {
   document_detail::DocumentMutation mutation(app);
-  std::optional<NodeId> selected;
-  if (app.selectedNode >= 0 && app.selectedNode < static_cast<int>(app.nodes.size()))
-    selected = app.nodes[app.selectedNode].id;
   auto result = change(Document{app.nodes, app.primarySource, app.documentOutput});
   if (result.ok()) {
-    if (selected) {
-      auto found = std::find_if(app.nodes.begin(), app.nodes.end(), [&](const Node &node) { return node.id == *selected; });
-      app.selectedNode = found == app.nodes.end() ? -1 : static_cast<int>(found - app.nodes.begin());
-      if (app.selectedNode < 0) app.paramFilter[0] = '\0';
-    }
+    if (app.selectedNodeId && !selectedNode(app)) selectNode(app, std::nullopt);
     mutation.changed();
   }
   return result;
@@ -378,7 +371,7 @@ static std::string connectionError(GraphView graph, const OutputRef &producer, c
   return {};
 }
 
-static bool unaryImageNode(const Node &node) {
+bool graph::isUnaryImageNode(const Node &node) {
   if (node.operation == NodeOperation::Source || !node.slots.empty()) return false;
   const auto &interface = nodeInterface(node.operation);
   const auto *input = interface.findFixedPort(ports::image, PortDirection::Input);
@@ -398,19 +391,24 @@ static std::string imageOutputError(GraphView graph, const OutputRef &output) {
 
 std::string graph::imageSpine(GraphView graph, std::vector<NodeId> &spine) {
   spine.clear();
-  const auto error = graphStructureError(graph);
+  auto error = graphStructureError(graph);
   if (!error.empty()) return error;
   OutputRef current = graph.documentOutput;
   while (current.nodeId != graph.primarySource) {
     const Node *node = findNode(graph, current.nodeId);
-    if (current.outputPortId != ports::image || !node || !unaryImageNode(*node))
-      return "Main Image spine must contain unary Image nodes";
+    if (current.outputPortId != ports::image || !node || !isUnaryImageNode(*node)) {
+      error = "Main Image spine must contain unary Image nodes";
+      break;
+    }
     spine.push_back(current.nodeId);
     const auto &producer = node->fixedInputs.at(ports::image);
-    if (!producer) return "Main Image spine has a disconnected input";
+    if (!producer) {
+      error = "Main Image spine has a disconnected input";
+      break;
+    }
     current = *producer;
   }
-  if (current.outputPortId != ports::image) return "Main Image spine must end at Source.image";
+  if (error.empty() && current.outputPortId != ports::image) error = "Main Image spine must end at Source.image";
   std::reverse(spine.begin(), spine.end());
-  return {};
+  return error;
 }

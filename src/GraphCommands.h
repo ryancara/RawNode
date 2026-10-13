@@ -22,9 +22,12 @@ struct CommandResult {
   bool ok() const { return error.empty(); }
 };
 
-// Minimal linear presentation/transfer projection. Derived from topology;
-// excludes Source and refuses a disconnected or non-unary main Image spine.
+// Image-spine projection derived from topology;
+// excludes Source. On failure the recognized unary suffix is still returned
+// in upstream-to-output order for display. Reordering and linear capture
+// require an empty error.
 std::string imageSpine(GraphView graph, std::vector<NodeId> &spine);
+bool isUnaryImageNode(const Node &node);
 
 CommandResult connect(Document document, const OutputRef &producer, const InputAddress &destination);
 CommandResult reconnect(Document document, const OutputRef &producer, const InputAddress &destination);

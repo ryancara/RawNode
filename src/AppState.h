@@ -116,7 +116,7 @@ struct App {
   bool hasProcessingOutput() const {
     return documentOutput.nodeId != primarySource || documentOutput.outputPortId != ports::image;
   }
-  int selectedNode = -1;
+  std::optional<NodeId> selectedNodeId;  // UI identity; storage position has no selection meaning.
 
   std::string workspaceDir;
   // Protect a workspace file containing future colour IDs this build cannot
