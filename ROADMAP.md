@@ -50,7 +50,9 @@ are non-blocking follow-ups.
   sequential requested-endpoint DAG evaluator, merged in PR #58
   (`6294a034d30168063e2aa92e984a51666f56ca22`).
 - Step 7 (next): graph-native versioned persistence, with a forward-compatible
-  home for editor node positions/layout data.
+  home for optional editor node positions/layout data, photo-level culling
+  metadata and reuse by graph-native full-grade presets. These future workflows
+  do not need to be implemented as part of Step 7.
 - **Graph View UI milestone (between Steps 7 and 8; not a new architecture
   step; D047):** implement a switchable Graph/List editor on the same
   authoritative document graph with shared NodeId selection.
@@ -74,7 +76,37 @@ RawNode now supports:
 
 All three features reuse the same `PersistNode` / `PersistChain` representation as Sidecar V2. Full-grade transfers and presets additionally carry the colour-pipeline settings required to reproduce the grade.
 
-A follow-up editing workflow should add filmstrip multi-selection and allow a copied full grade or full-grade preset to be applied to all selected photos in one action.
+A follow-up editing workflow should add filmstrip multi-selection and allow a
+copied full grade or full-grade preset to be applied to all selected photos in
+one action. Each source receives its own validated grade and sidecar update;
+do not add a second graph model or persistence path for batch application.
+
+## Default grade on first open
+
+Allow choosing an existing full-grade/graph preset as the default for newly
+opened photographs. Apply it only when the source has **no saved grade**;
+a deliberately saved empty grade must not be treated as absent, and an
+unreadable or invalid sidecar must not silently trigger the default.
+Once applied, the graph is that photograph's own editable grade, saved using
+normal source-sidecar persistence. Do not reapply a default on later opens or
+overwrite existing work when the global default changes.
+
+Reuse the Step 7 graph serialization and validation logic for full-grade
+presets, with any preset-specific envelope kept separate. Do not create a
+parallel linear graph format. Add default-preset selection to application
+Settings after persistence; the first-open feature is not a Step 7 gate.
+
+## Application Settings and preset panel
+
+Add a straightforward persistent application Settings window, with
+configurable/default search locations for CTL, DCTL, OFX and preset files.
+Keep paths and preferred default graph/preset in global application settings,
+not photograph sidecars. Implement plugin-specific options when their backends
+are usable rather than creating unused configuration infrastructure.
+
+Provide **View → Preset Panel** to show/hide a preset browser. Leave space for
+later shortcut assignment, scripting and other preferences without designing
+an elaborate settings framework in advance.
 
 ## DCTL compatibility
 
@@ -112,19 +144,28 @@ CLF should be treated as a richer transform format rather than assumed to be onl
 
 Add a simple photo-culling workflow:
 
-- Pick / Reject states;
-- filmstrip filtering;
-- efficient navigation between images;
-- delete or move rejected photos through an explicit user action.
+- Pick / Reject / Unmarked states as minimal optional per-photo sidecar metadata,
+  independently of whether the source has a saved processing grade;
+- filmstrip filtering and efficient navigation between images;
+- later, hide rejects or move rejected photos (and associated sidecars) to the
+  operating system Trash through an explicit, confirmed user action.
+
+Keep this folder-based with no catalogue/database or automatic deletion. The
+Step 7 format need only leave a simple home for photo-level metadata; the
+culling UI and file actions can follow later.
 
 ## Batch / workspace export
 
-Allow exporting multiple selected/workspace images using the same processing and export infrastructure.
+Allow exporting multiple selected images or all eligible images in the current
+workspace/folder, with options to export picked photos and skip rejects.
+Reuse the existing single-image export settings and processing path, initially
+sequentially, with progress, cancellation and per-photo failure reporting.
 
 Full-resolution export execution is now owned and serialized against live
 processor use. Future batch/workspace export should reuse that ownership model
 rather than reintroducing detached access, processor cloning or a separate
-scheduler without a concrete product need.
+scheduler without a concrete product need. No project/catalogue system is
+required.
 
 ## Graph / List interface
 
@@ -161,9 +202,12 @@ Graph View.
 
 ## Assignable input system
 
-Add configurable keyboard/mouse parameter bindings.
+Add user-configurable keyboard shortcuts and keyboard/mouse parameter bindings,
+with editing in the application Settings window. Store mappings as global
+preferences rather than per-photo sidecar data.
 
-Keep the input abstraction generic so future MIDI, OSC / TouchOSC, jog wheels, or other hardware controllers can use the same path.
+Keep the input abstraction generic so future MIDI, OSC / TouchOSC, jog wheels,
+or other hardware controllers can use the same path.
 
 ## RAW architecture refactor
 
