@@ -3,11 +3,13 @@
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
 #include "NodeGraph.h"
+#include "GraphCommands.h"
 #include "color/LinearColorTransform.h"
 #include "color/TransferFunction.h"
 #include "DocumentMutation.h"
 #include "ofx/OfxHost.h"  // gPlugins: external plugin discovery is still OFX-specific.
 #include "ui/Widgets.h"
+#include "ui/NodeList.h"
 
 #include "IconsFontAwesome6.h"
 #include "imgui.h"
@@ -201,62 +203,93 @@ void drawLeftPanel(App &app) {
   }
 
   ImGui::BeginChild("nodeList", ImVec2(0, 0), ImGuiChildFlags_Borders);
-  if (app.nodes.empty()) ImGui::TextDisabled("No nodes yet.\nAdd a processor to build a chain.");
+  const auto rows = ui::projectNodeList({app.nodes, app.primarySource, app.documentOutput});
+  if (const Node *output = findNode(app, app.documentOutput.nodeId))
+    ImGui::TextWrapped("Document output: %s", nodeDisplayName(*output).c_str());
+  if (!rows.spineError.empty())
+    ImGui::TextWrapped("Reordering unavailable: %s. All graph nodes are shown below.", rows.spineError.c_str());
+  if (rows.spine.empty() && rows.other.empty())
+    ImGui::TextDisabled("No nodes yet.\nAdd a processor to build a chain.");
   const float btnH = ImGui::GetFrameHeight();
   const float btnGap = ImGui::GetStyle().ItemSpacing.x;
   const float btnsW = 4.0f * btnH + 3.0f * btnGap;
-  int removeAt = -1;
-  int moveFrom = -1, moveTo = -1;
-  int enableAt = -1;
+  std::optional<NodeId> remove, moveFrom, moveTo, enable;
   bool enabled = false;
-  for (int i = 0; i < (int)app.nodes.size(); ++i) {
-    ImGui::PushID(i);
-    const Node &node = app.nodes[i];
-    const bool selected = app.selectedNode == i;
-    const std::string label = nodeDisplayName(node);
-    if (!node.enabled) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
-    if (ImGui::Selectable(label.c_str(), selected, 0, ImVec2(ImGui::GetContentRegionAvail().x - btnsW - btnGap, btnH))) {
-      app.selectedNode = i;
-      app.paramFilter[0] = '\0';
-    }
-    if (!node.enabled) ImGui::PopStyleVar();
-    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-      ImGui::SetDragDropPayload("NODE_IDX", &i, sizeof(i));
-      ImGui::Text("%s", label.c_str());
-      ImGui::EndDragDropSource();
-    }
-    if (ImGui::BeginDragDropTarget()) {
-      if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("NODE_IDX")) {
-        moveFrom = *(const int *)payload->Data;
-        moveTo = i;
+  const auto drawRows = [&](const std::vector<NodeId> &ids, bool mainSpine) {
+    const bool reorderable = mainSpine && rows.spineError.empty();
+    for (size_t row = 0; row < ids.size(); ++row) {
+      const Node *node = findNode(app, ids[row]);
+      if (!node) continue;
+      ImGui::PushID(node->id.value.data(), node->id.value.data() + node->id.value.size());
+      const std::string label = nodeDisplayName(*node);
+      if (!node->enabled) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
+      if (ImGui::Selectable(label.c_str(), app.selectedNodeId == node->id, 0,
+                            ImVec2(std::max(btnH, ImGui::GetContentRegionAvail().x - btnsW - btnGap), btnH)))
+        selectNode(app, node->id);
+      if (!node->enabled) ImGui::PopStyleVar();
+      if (reorderable && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+        ImGui::SetDragDropPayload("NODE_ID", node->id.value.c_str(), node->id.value.size() + 1);
+        ImGui::Text("%s", label.c_str());
+        ImGui::EndDragDropSource();
       }
-      ImGui::EndDragDropTarget();
+      if (reorderable && ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("NODE_ID")) {
+          const auto *data = static_cast<const char *>(payload->Data);
+          if (payload->DataSize > 1 && data[payload->DataSize - 1] == '\0') {
+            moveFrom = NodeId{std::string(data, payload->DataSize - 1)};
+            moveTo = node->id;
+          }
+        }
+        ImGui::EndDragDropTarget();
+      }
+      ImGui::SameLine(0.0f, btnGap);
+      if (iconBtn("##en", node->enabled ? ICON_FA_EYE : ICON_FA_EYE_SLASH)) {
+        enable = node->id;
+        enabled = !node->enabled;
+      }
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip(node->enabled ? "Disable processing" : "Enable processing");
+
+      const auto arrow = [&](const char *id, const char *icon, bool available, const char *hint) {
+        ImGui::SameLine(0.0f, btnGap);
+        ImGui::BeginDisabled(!available);
+        const bool clicked = iconBtn(id, icon);
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayNormal))
+          ImGui::SetTooltip("%s", !mainSpine ? "Only main Image spine nodes can be moved" :
+                            !reorderable ? "Moves require a complete main Image spine" : hint);
+        return clicked;
+      };
+      if (arrow("##up", ICON_FA_ARROW_UP, reorderable && row > 0,
+                row > 0 ? "Move up" : "Already first on the main Image spine")) {
+        moveFrom = node->id;
+        moveTo = ids[row - 1];
+      }
+      if (arrow("##dn", ICON_FA_ARROW_DOWN, reorderable && row + 1 < ids.size(),
+                row + 1 < ids.size() ? "Move down" : "Already last on the main Image spine")) {
+        moveFrom = node->id;
+        moveTo = ids[row + 1];
+      }
+      ImGui::SameLine(0.0f, btnGap);
+      if (iconBtn("##rm", ICON_FA_XMARK)) remove = node->id;
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+        ImGui::SetTooltip("Remove node");
+      ImGui::PopID();
     }
-    ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##en", node.enabled ? ICON_FA_EYE : ICON_FA_EYE_SLASH)) {
-      enableAt = i;
-      enabled = !node.enabled;
-    }
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-      ImGui::SetTooltip(node.enabled ? "Disable processing" : "Enable processing");
-    ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##up", ICON_FA_ARROW_UP) && i > 0) {
-      moveFrom = i;
-      moveTo = i - 1;
-    }
-    ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##dn", ICON_FA_ARROW_DOWN) && i + 1 < (int)app.nodes.size()) {
-      moveFrom = i;
-      moveTo = i + 1;
-    }
-    ImGui::SameLine(0.0f, btnGap);
-    if (iconBtn("##rm", ICON_FA_XMARK)) removeAt = i;
-    ImGui::PopID();
+  };
+  if (!rows.spine.empty()) {
+    ImGui::SeparatorText(rows.spineError.empty() ? "Main Image spine" : "Main Image spine (partial)");
+    drawRows(rows.spine, true);
+  }
+  if (!rows.other.empty()) {
+    ImGui::SeparatorText("Other graph nodes");
+    ImGui::TextDisabled("Outside the displayed Image spine;\nselect and edit without list reordering.");
+    drawRows(rows.other, false);
   }
   ImGui::EndChild();
   // Apply one row-control intent after all references into the node list have
-  // expired. Indices still describe the list that produced the intent.
-  if (removeAt >= 0) destroyNode(app, removeAt);
-  else if (moveFrom >= 0) moveNode(app, moveFrom, moveTo);
-  else if (enableAt >= 0) setNodeEnabled(app, enableAt, enabled);
+  // expired. Intents and drag/drop retain identity, never storage positions.
+  if (remove) destroyNode(app, *remove);
+  else if (moveFrom && moveTo) moveNode(app, *moveFrom, *moveTo);
+  else if (enable) setNodeEnabled(app, *enable, enabled);
 }

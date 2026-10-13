@@ -2,8 +2,10 @@
 
 **Status:** Original audit, post-Step-4 whole-architecture checkpoint and
 Step 5 product-contract work are complete, independently reviewed and
-reconciled. Step 6 explicit topology/evaluator implementation is current. The
-approved target architecture lives in
+reconciled. Step 6 explicit topology/evaluator implementation and independent
+whole-transition review are complete on the feature branch. macOS/NEF validation
+and merge remain pending; PR #58 is draft and unmerged. The approved target
+architecture lives in
 `docs/ARCHITECTURE.md` and accepted decisions live in `docs/DECISIONS.md`.
 
 **RawNode audit baseline:** `07808451f72bba9bc59a6e9a6889ec5a4f7c07de`
@@ -27,11 +29,11 @@ abstractions.
 
 At the original audit baseline, the recommendation was a **staged architectural
 refactor before masks and compositing**, not a rendering-engine rewrite.
-These findings describe the original audit baseline. Some were resolved by
-Steps 1–4 and the stabilisation work; others intentionally remain as target
-architecture or later product-contract work, including the serial chain and
-incomplete branch image/spatial/colour semantics. The completed checkpoint below
-records their current disposition.
+These findings describe the original audit baseline. Some were later resolved by
+Steps 1–6 and the stabilisation work, including the implicit serial chain;
+others remain later feature work, including incomplete branch
+image/spatial/colour semantics. The completed checkpoint below records the
+post-Step-4 dispositions; the status above records the current Step 6 position.
 
 The original baseline's foundations were broadly healthy:
 
@@ -268,11 +270,11 @@ meaning and topology; backend-neutral processors remain image operations.
 RenderRuntime owns execution lifetime, demand, cancellation and
 preview/export/edit exclusion. Display and export consume processed results.
 
-**Current implementation is not the final graph architecture.** Today
-`App::nodes` is still evaluated as an ordered serial chain. Step 5 settles the
-first mask/graph product contract; Step 6 deliberately introduces explicit
-topology and executable evaluation together. This verdict is scoped to the
-next stage, not a claim that the architecture is finished or permanently valid.
+**Implementation at this checkpoint was not the final graph architecture.**
+`App::nodes` was still evaluated as an ordered serial chain. Step 5 would settle
+the first mask/graph product contract; Step 6 would introduce explicit topology
+and executable evaluation together. This checkpoint verdict was scoped to the
+next stage, not a claim that the architecture was finished or permanently valid.
 
 #### vkdt reconciliation
 
@@ -302,9 +304,9 @@ its product does not need vkdt's execution complexity.
 
 #### Candidate dispositions and focused follow-ups
 
-These reconcile the formerly open PR #50 candidates with the completed reviews.
-They do not introduce new architecture decisions beyond the accepted target and
-D019–D038.
+These record the post-Step-4 reconciliation of the formerly open PR #50
+candidates, with completed follow-ups noted. They do not introduce new
+architecture decisions beyond the accepted target and D019–D038.
 
 | Candidate | Completed checkpoint disposition |
 | --- | --- |
@@ -320,7 +322,7 @@ D019–D038.
 | Source/export sidecar question | Superseded by D038 and PR #53: sidecars belong only to editable source documents; exported derivatives receive none. There is no future source/export capture-convergence task. |
 | `runExportJob` test seam | Retain the useful synchronous production export test seam; no present reason to remove or redesign it. |
 | Single-level mutation-completion regression | Complete in PR #54. Changed edits queue normal demand and interrupted unchanged edits queue quiet recovery before the mutation gate opens; deterministic coverage now protects both. |
-| `uploadTexture` | Dead path remains implementation cleanup. Remove when Step 6 touches the evaluator/display boundary unless a use appears earlier; not a Step 5 blocker. |
+| `uploadTexture` | The checkpoint recommended removing this dead path with the Step 6 evaluator/display boundary; that cleanup is complete on draft PR #58. |
 | Alpha | Global alpha association remains deliberately unresolved; masks are not image alpha. Source alpha differs across formats. Revisit TIFF, EXR, OpenFX and JPEG flattening before transparent compositing/alpha-carrying workflows, not as an invented Step 5 global contract. |
 | Spatial semantics | Preview/full-resolution pixel-unit and render-scale differences need a contract before spatial masks/native operations. If the first mask is geometric, Step 5 should decide coordinates, preferably resolution-independent document semantics. |
 | Persistence reliability | Source sidecars still use in-place writes, not atomic replacement. Persistence hardening belongs with Step 7 and does not block Step 5; not fixed. |

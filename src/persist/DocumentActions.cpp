@@ -10,6 +10,7 @@
 #include "ui/ImGuiBackend.h"
 
 #include <filesystem>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
@@ -121,35 +122,63 @@ static bool reloadCurrentRawEncoding(App &app, const ColorEncoding &requested,
   return true;
 }
 
-bool applyGradeColor(App &app, const PersistGradeColor &color) {
-  ColorEncoding output;
-  if (!color.outputColorSpace.empty() || !color.outputGamma.empty()) {
-    if (color.outputColorSpace.empty() || color.outputGamma.empty() ||
-        !persistedColorEncoding(color.outputColorSpace, color.outputGamma, output))
-      return false;
+static bool resolveGradeColor(const PersistGradeColor &color, std::optional<ColorEncoding> &output,
+                              std::optional<ColorEncoding> &raw) {
+  const auto resolve = [](const std::string &gamut, const std::string &gamma,
+                          std::optional<ColorEncoding> &destination) {
+    if (gamut.empty() && gamma.empty()) return true;
+    ColorEncoding encoding;
+    if (gamut.empty() || gamma.empty() || !persistedColorEncoding(gamut, gamma, encoding)) return false;
+    destination = encoding;
+    return true;
+  };
+  return resolve(color.outputColorSpace, color.outputGamma, output) &&
+         resolve(color.rawColorSpace, color.rawGamma, raw);
+}
+
+bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color) {
+  std::optional<ColorEncoding> output, raw;
+  if (!resolveGradeColor(color, output, raw)) {
+    app.setStatus("Invalid full-grade colour settings");
+    return false;
   }
-
-  ColorEncoding raw;
-  const bool hasRaw = !color.rawColorSpace.empty() || !color.rawGamma.empty();
-  if (hasRaw) {
-    if (color.rawColorSpace.empty() || color.rawGamma.empty() ||
-        !persistedColorEncoding(color.rawColorSpace, color.rawGamma, raw))
-      return false;
-
-    bool currentIsRaw = false;
+  document_detail::DocumentMutation mutation(app);
+  try {
+    auto restored = document_detail::restoreChain(app, chain);
+    bool reloadRaw = false;
     {
       std::lock_guard<std::mutex> lock(app.colorMutex);
-      currentIsRaw = app.inputIsRaw;
+      reloadRaw = raw && app.inputIsRaw && app.inputEncoding != *raw;
     }
-    if (currentIsRaw && !reloadCurrentRawEncoding(app, raw, false, false))
-      return false;
+    Image decoded;
+    ColorEncoding detected;
+    std::shared_ptr<const Image> preview;
+    if (reloadRaw) {
+      bool decodedRaw = false;
+      if (!loadImage(app.path, decoded, detected, decodedRaw, *raw) || !decodedRaw) {
+        app.setStatus("Could not reload RAW in " + colorEncodingName(*raw));
+        return false;
+      }
+      preview = document_detail::makePreviewSource(decoded, detected, app.previewRes);
+    }
+    // All decoding, processor creation, parameter restoration and allocation
+    // precede the live replacement. Exclusion also covers old-node destruction.
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      if (output) app.outputEncoding = *output;
+      if (reloadRaw) app.inputEncoding = detected;
+    }
+    if (reloadRaw) {
+      app.full = std::move(decoded);
+      app.preview = std::move(preview);
+    }
+    document_detail::replaceChain(app, std::move(restored));
+    mutation.changed();
+    return true;
+  } catch (const std::exception &error) {
+    app.setStatus("Could not apply full grade: " + std::string(error.what()));
+    return false;
   }
-
-  if (!color.outputColorSpace.empty()) {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    app.outputEncoding = output;
-  }
-  return true;
 }
 
 PersistGui captureGui(const App &app) {
@@ -225,8 +254,13 @@ void saveCurrentInputSidecar(App &app) {
     inputEncoding = app.inputEncoding;
     inputIsRaw = app.inputIsRaw;
   }
-  saveInputSidecar(app.path, captureSidecarGui(app), captureChain(app),
-                   inputIsRaw ? &inputEncoding : nullptr);
+  try {
+    const auto chain = captureChain(app); // Refuse before opening/truncating a file.
+    saveInputSidecar(app.path, captureSidecarGui(app), chain,
+                     inputIsRaw ? &inputEncoding : nullptr);
+  } catch (const std::runtime_error &error) {
+    app.setStatus(error.what());
+  }
 }
 
 void persistWorkspace(App &app) {
@@ -392,8 +426,6 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
     app.setStatus("Sidecar files are not images — open the image file instead.");
     return;
   }
-  if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
-
   const ColorEncoding requestedRaw = rawWorkingEncodingForOpen(app, path, applySidecar);
   Image img;
   ColorEncoding detectedEncoding;
@@ -403,6 +435,14 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
     return;
   }
 
+  // Decode first, then drain preview/export before replacing any live document
+  // state. Export borrows full Source under its lease; this scope also keeps
+  // nested sidecar edits from dispatching against a half-switched document.
+  document_detail::DocumentMutation mutation(app);
+  if (!app.path.empty() && app.path != path) saveCurrentInputSidecar(app);
+  selectNode(app, std::nullopt);
+  app.renderer.resetInspection();
+  mutation.changed();
   app.path = path;
   app.full = std::move(img);
   {
@@ -431,7 +471,7 @@ void openPath(App &app, const std::string &path, bool applySidecar) {
     app.sidecarWriteBlockedPath.clear();
   }
 
-  rebuildPreview(app);
+  mutation.rebuildPreview();
   persistWorkspace(app);
 }
 

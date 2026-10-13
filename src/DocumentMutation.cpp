@@ -11,36 +11,45 @@ DocumentMutation::~DocumentMutation() {
   app_.renderer.completeMutation(changed_, interrupted_);
 }
 
-void document_detail::DocumentMutation::rebuildPreview() {
-  App &app = app_;
-  if (app.full.px.empty()) return;
-  const int maxEdge = kPreviewRes[std::clamp(app.previewRes, 0, kPreviewResCount - 1)].maxEdge;
-  ColorEncoding inputEncoding;
-  {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    inputEncoding = app.inputEncoding;
-  }
+void DocumentMutation::assertControlThread(const App &app) {
+  app.renderer.assertControlThread();
+}
+
+std::shared_ptr<const Image> document_detail::makePreviewSource(const Image &full, ColorEncoding inputEncoding,
+                                                                int previewRes) {
+  const int maxEdge = kPreviewRes[std::clamp(previewRes, 0, kPreviewResCount - 1)].maxEdge;
+  auto preview = std::make_shared<Image>();
 
   if (inputEncoding.gamma != TransferFunction::Linear && maxEdge > 0) {
     // Resample encoded working buffers in linear light, then restore the
     // selected encoding. Raster inputs are normally already linearised by the
     // loader; non-linear RAW working encodings still take this path.
-    Image linear = app.full;
+    Image linear = full;
     for (size_t i = 0; i + 3 < linear.px.size(); i += 4) {
       linear.px[i + 0] = (float)decodeTransfer(linear.px[i + 0], inputEncoding.gamma);
       linear.px[i + 1] = (float)decodeTransfer(linear.px[i + 1], inputEncoding.gamma);
       linear.px[i + 2] = (float)decodeTransfer(linear.px[i + 2], inputEncoding.gamma);
     }
-    makePreview(linear, maxEdge, app.preview);
-    for (size_t i = 0; i + 3 < app.preview.px.size(); i += 4) {
-      app.preview.px[i + 0] = (float)encodeTransfer(app.preview.px[i + 0], inputEncoding.gamma);
-      app.preview.px[i + 1] = (float)encodeTransfer(app.preview.px[i + 1], inputEncoding.gamma);
-      app.preview.px[i + 2] = (float)encodeTransfer(app.preview.px[i + 2], inputEncoding.gamma);
+    makePreview(linear, maxEdge, *preview);
+    for (size_t i = 0; i + 3 < preview->px.size(); i += 4) {
+      preview->px[i + 0] = (float)encodeTransfer(preview->px[i + 0], inputEncoding.gamma);
+      preview->px[i + 1] = (float)encodeTransfer(preview->px[i + 1], inputEncoding.gamma);
+      preview->px[i + 2] = (float)encodeTransfer(preview->px[i + 2], inputEncoding.gamma);
     }
   } else {
-    makePreview(app.full, maxEdge, app.preview);
+    makePreview(full, maxEdge, *preview);
   }
+  return preview;
+}
 
+void document_detail::DocumentMutation::rebuildPreview() {
+  if (app_.full.px.empty()) return;
+  ColorEncoding inputEncoding;
+  {
+    std::lock_guard<std::mutex> lock(app_.colorMutex);
+    inputEncoding = app_.inputEncoding;
+  }
+  app_.preview = makePreviewSource(app_.full, inputEncoding, app_.previewRes);
   changed();
 }
 

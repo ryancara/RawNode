@@ -1,6 +1,8 @@
 #include "NodeGraph.h"
 
 #include "DocumentMutation.h"
+#include "GraphValidation.h"
+#include "GraphCommands.h"
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
 #include "processors/NativeExposureProcessor.h"
@@ -8,6 +10,8 @@
 #include "processors/CtlProcessor.h"
 
 #include <algorithm>
+#include <cassert>
+#include <stdexcept>
 #include <cctype>
 #include <cstdlib>
 #include <limits>
@@ -27,10 +31,11 @@ static void clearNodesWithinMutation(App &app);
 static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor);
 static bool addOfxWithinMutation(App &app, int pluginIndex);
 static bool addCtlWithinMutation(App &app, const std::string &path);
-static void moveNodeWithinMutation(App &app, int from, int to);
+static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor);
 
 static PersistNode capturePersistedNode(const Node &node);
-static void appendRestoredWithinMutation(App &app, const PersistNode &persisted, bool preserveId);
+static std::vector<NodeId> linearCaptureOrder(const App &app);
+static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &persisted, bool preserveId);
 static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParameter &param);
 static bool persistedParameterType(ParameterType type);
 static std::string paramValueJson(const ProcessorParameter &param);
@@ -38,12 +43,53 @@ static std::string trimParamJson(std::string value);
 static bool legacyNumericChoiceValue(const ProcessorParameter &param, const std::string &raw, int &selected);
 static void applyParamValueJson(Processor &processor, const ProcessorParameter &param, const std::string &raw);
 
+Node *findNode(App &app, const NodeId &id) {
+  for (auto &node : app.nodes)
+    if (node.id == id) return &node;
+  return nullptr;
+}
+
+const Node *findNode(const App &app, const NodeId &id) {
+  return findNode(GraphView{app.nodes, app.primarySource, app.documentOutput}, id);
+}
+
+const PortDeclaration *findOutput(const App &app, const OutputRef &output) {
+  return findOutput(GraphView{app.nodes, app.primarySource, app.documentOutput}, output);
+}
+
+const std::optional<OutputRef> *findInput(const App &app, const InputAddress &input) {
+  return findInput(GraphView{app.nodes, app.primarySource, app.documentOutput}, input);
+}
+
+std::string documentStateError(const App &app) {
+  return graphStructureError({app.nodes, app.primarySource, app.documentOutput});
+}
+
 Node *selectedNode(App &app) {
-  if (app.selectedNode < 0 || app.selectedNode >= (int)app.nodes.size()) return nullptr;
-  return &app.nodes[app.selectedNode];
+  Node *node = app.selectedNodeId ? findNode(app, *app.selectedNodeId) : nullptr;
+  return node && node->operation != NodeOperation::Source ? node : nullptr;
+}
+
+const Node *selectedNode(const App &app) {
+  const Node *node = app.selectedNodeId ? findNode(app, *app.selectedNodeId) : nullptr;
+  return node && node->operation != NodeOperation::Source ? node : nullptr;
+}
+
+bool selectNode(App &app, std::optional<NodeId> id) {
+  if (id) {
+    const Node *node = findNode(app, *id);
+    if (!node || node->operation == NodeOperation::Source) return false;
+  }
+  if (app.selectedNodeId != id) {
+    app.selectedNodeId = std::move(id);
+    app.paramFilter[0] = '\0';
+  }
+  return true;
 }
 
 std::string nodeDisplayName(const Node &node) {
+  if (node.operation == NodeOperation::Source) return "Source";
+  if (node.operation != NodeOperation::ImageProcessor) return "Test graph operation";
   if (node.processor) return node.processor->displayName();
   if (!node.storedLabel.empty()) return node.storedLabel + " (Missing)";
   if (!node.storedIdentifier.empty()) return node.storedIdentifier + " (Missing)";
@@ -51,9 +97,9 @@ std::string nodeDisplayName(const Node &node) {
 }
 
 void clearNodes(App &app) {
-  if (app.nodes.empty()) {
-    app.selectedNode = -1;
-    app.paramFilter[0] = '\0';
+  if (app.nodes.size() == 1) {
+    selectNode(app, std::nullopt);
+    app.renderer.resetInspection();
     return;
   }
   DocumentMutation mutation(app);
@@ -90,94 +136,153 @@ bool addCtlNode(App &app, const std::string &path) {
   return added;
 }
 
-void destroyNode(App &app, int index) {
-  if (index < 0 || index >= (int)app.nodes.size()) return;
-  DocumentMutation mutation(app);
-  app.nodes.erase(app.nodes.begin() + index);
-  if (app.nodes.empty())
-    app.selectedNode = -1;
-  else if (app.selectedNode >= (int)app.nodes.size())
-    app.selectedNode = (int)app.nodes.size() - 1;
-  else if (app.selectedNode > index)
-    --app.selectedNode;
-  app.paramFilter[0] = '\0';
+bool destroyNode(App &app, const NodeId &id) {
+  const Node *node = findNode(app, id);
+  if (!node || node->operation == NodeOperation::Source) {
+    app.setStatus(node ? "Source cannot be removed" : "Node no longer exists");
+    return false;
+  }
+  const auto *producer = findInput(app, {id, std::nullopt, ports::image});
+  // Preserve ordinary Image splice semantics. Other/disconnected nodes use
+  // generic deletion, which disconnects consumers and requires an explicit
+  // replacement when deleting documentOutput. Never guess that replacement.
+  const auto result = graph::isUnaryImageNode(*node) && producer && *producer
+      ? graph::deleteImageNode(app, id) : graph::deleteNode(app, id);
+  if (!result.ok()) app.setStatus("Could not remove node: " + result.error);
+  return result.ok();
+}
 
+bool moveNode(App &app, const NodeId &from, const NodeId &to) {
+  std::vector<NodeId> spine;
+  const auto error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
+  if (!error.empty()) { app.setStatus("Cannot reorder nodes: " + error); return false; }
+  const auto a = std::find(spine.begin(), spine.end(), from), b = std::find(spine.begin(), spine.end(), to);
+  if (a == spine.end() || b == spine.end()) {
+    app.setStatus("Only nodes on the main Image spine can be reordered");
+    return false;
+  }
+  if (from == to) return true;
+  std::optional<NodeId> before = to;
+  if (a < b) before = b + 1 == spine.end() ? std::nullopt : std::optional<NodeId>(*(b + 1));
+  const auto result = graph::moveImageNode(app, from, before);
+  if (!result.ok()) app.setStatus("Cannot reorder nodes: " + result.error);
+  return result.ok();
+}
+
+void setNodeEnabled(App &app, const NodeId &id, bool enabled) {
+  Node *node = findNode(app, id);
+  if (!node || node->enabled == enabled || node->operation == NodeOperation::Source) return;
+  DocumentMutation mutation(app);
+  node->enabled = enabled;
   mutation.changed();
 }
 
-void moveNode(App &app, int from, int to) {
-  if (from < 0 || to < 0 || from >= (int)app.nodes.size() || to >= (int)app.nodes.size() || from == to) return;
-  DocumentMutation mutation(app);
-  moveNodeWithinMutation(app, from, to);
-  mutation.changed();
-}
-
-void setNodeEnabled(App &app, int index, bool enabled) {
-  if (index < 0 || index >= (int)app.nodes.size() || app.nodes[index].enabled == enabled) return;
-  DocumentMutation mutation(app);
-  app.nodes[index].enabled = enabled;
-  mutation.changed();
-}
-
-bool captureNode(const App &app, int index, PersistNode &out) {
-  if (index < 0 || index >= (int)app.nodes.size()) return false;
-  out = capturePersistedNode(app.nodes[index]);
+bool captureNode(const App &app, const NodeId &id, PersistNode &out) {
+  const Node *node = findNode(app, id);
+  if (!node || node->operation != NodeOperation::ImageProcessor) return false;
+  try { (void)linearCaptureOrder(app); } catch (const std::runtime_error &) { return false; }
+  out = capturePersistedNode(*node);
   return true;
+}
+
+static std::vector<NodeId> linearCaptureOrder(const App &app) {
+  std::vector<NodeId> spine;
+  const auto error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
+  if (!error.empty() || spine.size() + 1 != app.nodes.size())
+    throw std::runtime_error("Current graph cannot be captured by linear V2");
+  for (const auto &id : spine)
+    if (findNode(app, id)->operation != NodeOperation::ImageProcessor)
+      throw std::runtime_error("Current graph contains an operation unsupported by linear V2");
+  return spine;
 }
 
 PersistChain captureChain(const App &app) {
+  const auto spine = linearCaptureOrder(app);
   PersistChain chain;
-  if (app.selectedNode >= 0 && app.selectedNode < (int)app.nodes.size())
-    chain.selectedNodeId = app.nodes[app.selectedNode].id;
+  if (const Node *node = selectedNode(app); node && node->operation == NodeOperation::ImageProcessor)
+    chain.selectedNodeId = node->id.value;
 
   chain.nodes.reserve(app.nodes.size());
-  for (const Node &node : app.nodes)
-    chain.nodes.push_back(capturePersistedNode(node));
+  for (const auto &id : spine) chain.nodes.push_back(capturePersistedNode(*findNode(app, id)));
   return chain;
 }
 
-bool appendPersistedNode(App &app, const PersistNode &persisted, int insertAfter) {
+bool appendPersistedNode(App &app, const PersistNode &persisted, std::optional<NodeId> insertAfter) {
+  std::optional<InputAddress> before;
+  if (insertAfter) {
+    std::vector<NodeId> spine;
+    const auto error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
+    if (!error.empty()) { app.setStatus(error); return false; }
+    const auto after = *insertAfter;
+    auto next = after == app.primarySource ? spine.begin() : std::find(spine.begin(), spine.end(), after);
+    if (after != app.primarySource && next == spine.end()) {
+      app.setStatus("Insertion requires a node on the main Image spine");
+      return false;
+    }
+    if (after != app.primarySource) ++next;
+    if (next != spine.end()) before = InputAddress{*next, std::nullopt, ports::image};
+  }
   DocumentMutation mutation(app);
-  mutation.changed();  // Restoration can throw after appending a node.
-  const int oldCount = (int)app.nodes.size();
-  const int targetIndex =
-      insertAfter >= 0 && insertAfter < oldCount ? insertAfter + 1 : oldCount;
-  appendRestoredWithinMutation(app, persisted, false);
-  if (targetIndex != oldCount)
-    moveNodeWithinMutation(app, oldCount, targetIndex);
-  app.selectedNode = targetIndex;
-  app.paramFilter[0] = '\0';
-  return true;
+  try {
+    Node node = restoredNode(app.nodes, persisted, false);
+    std::optional<NodeId> selection = node.id;
+    const auto result = graph::insertImageNode(graph::Document{app.nodes, app.primarySource, app.documentOutput},
+                                               std::move(node), before);
+    if (!result.ok()) { app.setStatus(result.error); return false; }
+    mutation.changed();
+    selectNode(app, std::move(selection));
+    return true;
+  } catch (const std::exception &error) {
+    app.setStatus(error.what());
+    return false;
+  }
 }
 
 void applyChain(App &app, const PersistChain &chain) {
-  if (app.nodes.empty() && chain.nodes.empty()) {
-    app.selectedNode = -1;
-    app.paramFilter[0] = '\0';
+  if (app.nodes.size() == 1 && chain.nodes.empty()) {
+    selectNode(app, std::nullopt);
+    app.renderer.resetInspection();
     return;
   }
   DocumentMutation mutation(app);
-  mutation.changed();  // Mark replacement before any fallible restoration work.
-  clearNodesWithinMutation(app);
-
-  for (const PersistNode &persisted : chain.nodes)
-    appendRestoredWithinMutation(app, persisted, true);
-
-  app.selectedNode = -1;
-  if (!chain.selectedNodeId.empty()) {
-    for (int i = 0; i < (int)app.nodes.size(); ++i) {
-      if (app.nodes[i].id == chain.selectedNodeId) {
-        app.selectedNode = i;
-        break;
-      }
-    }
-  }
-
-  // V1 migration fallback.
-  if (app.selectedNode < 0 && chain.selectedNode >= 0 && chain.selectedNode < (int)app.nodes.size())
-    app.selectedNode = chain.selectedNode;
-  if (app.selectedNode < 0 && !app.nodes.empty()) app.selectedNode = 0;
+  auto restored = document_detail::restoreChain(app, chain);
+  document_detail::replaceChain(app, std::move(restored));
+  mutation.changed();
 }
+
+namespace document_detail {
+RestoredChain restoreChain(App &app, const PersistChain &chain) {
+  RestoredChain restored;
+  restored.nodes.reserve(chain.nodes.size() + 1);
+  Node source(NodeOperation::Source);
+  source.id = app.primarySource;
+  restored.nodes.push_back(std::move(source));
+  restored.output = {app.primarySource, ports::image};
+  for (const PersistNode &persisted : chain.nodes) {
+    Node node = restoredNode(restored.nodes, persisted, true);
+    const auto result = graph::insertImageNode(graph::Document{restored.nodes, app.primarySource, restored.output},
+                                               std::move(node));
+    if (!result.ok()) throw std::runtime_error(result.error);
+  }
+  for (const Node &node : restored.nodes)
+    if (node.operation == NodeOperation::ImageProcessor && node.id.value == chain.selectedNodeId)
+      restored.selection = node.id;
+  // Retain the existing ordinal/default restoration without extending V1/V2.
+  if (!restored.selection && chain.selectedNode >= 0 && chain.selectedNode < (int)chain.nodes.size())
+    restored.selection = restored.nodes[chain.selectedNode + 1].id;
+  if (!restored.selection && restored.nodes.size() > 1) restored.selection = restored.nodes[1].id;
+  return restored;
+}
+
+void replaceChain(App &app, RestoredChain &&chain) {
+  app.nodes.swap(chain.nodes);
+  std::swap(app.documentOutput, chain.output);
+  // A replacement can reuse a selected NodeId for a different processor.
+  selectNode(app, std::nullopt);
+  selectNode(app, std::move(chain.selection));
+  app.renderer.resetInspection();
+}
+}  // namespace document_detail
 
 bool hasUnknownProcessorChoiceIds(const App &app) {
   for (const Node &node : app.nodes) {
@@ -188,25 +293,23 @@ bool hasUnknownProcessorChoiceIds(const App &app) {
   return false;
 }
 
-static bool nodeIdExists(const App &app, const std::string &id, int skipIndex = -1) {
+static bool nodeIdExists(const std::vector<Node> &nodes, const std::string &id) {
   if (id.empty()) return false;
-  for (int i = 0; i < (int)app.nodes.size(); ++i) {
-    if (i == skipIndex) continue;
-    if (app.nodes[i].id == id) return true;
-  }
+  for (const Node &node : nodes)
+    if (node.id.value == id) return true;
   return false;
 }
 
-static std::string makeNodeId(const App &app) {
+static NodeId makeNodeId(const std::vector<Node> &nodes) {
   for (;;) {
     const std::string id = "node-" + std::to_string(gNextNodeId++);
-    if (!nodeIdExists(app, id)) return id;
+    if (!nodeIdExists(nodes, id)) return NodeId{id};
   }
 }
 
-static std::string restoredNodeId(const App &app, const std::string &requested, int skipIndex = -1) {
-  if (!requested.empty() && !nodeIdExists(app, requested, skipIndex)) return requested;
-  return makeNodeId(app);
+static NodeId restoredNodeId(const std::vector<Node> &nodes, const std::string &requested) {
+  if (!requested.empty() && !nodeIdExists(nodes, requested)) return NodeId{requested};
+  return makeNodeId(nodes);
 }
 
 static int findPluginIndex(const std::string &identifier, const std::string &labelFallback) {
@@ -224,28 +327,40 @@ static int findPluginIndex(const std::string &identifier, const std::string &lab
 }
 
 static void clearNodesWithinMutation(App &app) {
+  // Preserve the same Source operation/identity across grade and image changes.
+  auto source = std::find_if(app.nodes.begin(), app.nodes.end(), [&](const Node &node) {
+    return node.id == app.primarySource && node.operation == NodeOperation::Source;
+  });
+  assert(source != app.nodes.end() && "Document is missing its primary Source");
+  if (source == app.nodes.end()) throw std::logic_error("Document is missing its primary Source");
+  Node retainedSource = std::move(*source);
   app.nodes.clear();
-  app.selectedNode = -1;
-  app.paramFilter[0] = '\0';
+  app.nodes.push_back(std::move(retainedSource));
+  app.documentOutput = {app.primarySource, ports::image};
+  selectNode(app, std::nullopt);
+  app.renderer.resetInspection();
 }
 
+static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor) {
+  Node node;
+  node.id = makeNodeId(nodes);
+  node.processor = std::move(processor);
+  if (node.processor) {
+    node.storedBackend = processorBackendName(node.processor->backend());
+    node.storedIdentifier = node.processor->identifier();
+    node.storedLabel = node.processor->displayName();
+    for (const ProcessorParameter &param : node.processor->parameters())
+      if (param.type == ParameterType::Group) node.groupOpen[param.id] = param.groupInitiallyOpen;
+  }
+  return node;
+}
 static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor) {
   if (!processor) return false;
-
-  Node node;
-  node.id = makeNodeId(app);
-  node.processor = std::move(processor);
-  node.storedBackend = processorBackendName(node.processor->backend());
-  node.storedIdentifier = node.processor->identifier();
-  node.storedLabel = node.processor->displayName();
-
-  if (app.preview.w) node.processor->setRenderSize(app.preview.w, app.preview.h);
-  for (const ProcessorParameter &param : node.processor->parameters())
-    if (param.type == ParameterType::Group) node.groupOpen[param.id] = param.groupInitiallyOpen;
-
-  app.nodes.push_back(std::move(node));
-  app.selectedNode = (int)app.nodes.size() - 1;
-  app.paramFilter[0] = '\0';
+  auto node = makeProcessorNode(app.nodes, std::move(processor));
+  std::optional<NodeId> selection = node.id; // Allocate identity before committing the graph.
+  const auto result = graph::insertImageNode(graph::Document{app.nodes, app.primarySource, app.documentOutput}, std::move(node));
+  if (!result.ok()) { app.setStatus(result.error); return false; }
+  selectNode(app, std::move(selection));
   return true;
 }
 
@@ -268,16 +383,9 @@ static bool addCtlWithinMutation(App &app, const std::string &path) {
   return appendProcessorNode(app, std::move(processor));
 }
 
-static void moveNodeWithinMutation(App &app, int from, int to) {
-  Node node = std::move(app.nodes[from]);
-  app.nodes.erase(app.nodes.begin() + from);
-  app.nodes.insert(app.nodes.begin() + to, std::move(node));
-  app.selectedNode = to;
-}
-
 static PersistNode capturePersistedNode(const Node &node) {
   PersistNode persisted;
-  persisted.id = node.id;
+  persisted.id = node.id.value;
   persisted.enabled = node.enabled;
   persisted.groupOpen = node.groupOpen;
   persisted.paramsJson = node.preservedParamsJson;
@@ -319,57 +427,34 @@ static PersistNode capturePersistedNode(const Node &node) {
   return persisted;
 }
 
-static void appendRestoredWithinMutation(App &app, const PersistNode &persisted,
-                                        bool preserveId) {
+static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &persisted, bool preserveId) {
   const std::string backend = persisted.backend.empty() ? "ofx" : persisted.backend;
-  bool created = false;
-
+  std::unique_ptr<Processor> processor;
   if (backend == "ofx") {
-    const int pluginIndex = findPluginIndex(persisted.identifier, persisted.label);
-    created = pluginIndex >= 0 && addOfxWithinMutation(app, pluginIndex);
+    const int index = findPluginIndex(persisted.identifier, persisted.label);
+    if (index >= 0) processor = OfxProcessor::create(index);
   } else if (backend == "native" && persisted.identifier == NativeExposureProcessor::kIdentifier) {
-    created = appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
+    processor = std::make_unique<NativeExposureProcessor>();
   } else if (backend == "native" && persisted.identifier == NativeCstProcessor::kIdentifier) {
-    created = appendProcessorNode(app, std::make_unique<NativeCstProcessor>());
+    processor = std::make_unique<NativeCstProcessor>();
   } else if (backend == "ctl") {
-    created = addCtlWithinMutation(app, persisted.identifier);
+    processor = CtlProcessor::create(persisted.identifier);
   }
-
-  if (created) {
-    Node &node = app.nodes.back();
-    if (preserveId && !persisted.id.empty())
-      node.id = restoredNodeId(app, persisted.id, (int)app.nodes.size() - 1);
-    node.enabled = persisted.enabled;
-    node.groupOpen = persisted.groupOpen;
-    node.storedBackend = backend;
-    node.storedIdentifier = persisted.identifier;
-    node.storedLabel = persisted.label;
-    node.preservedParamsJson = persisted.paramsJson;
-
-    if (node.processor) {
-      const auto params = node.processor->parameters();
-      for (const ProcessorParameter &param : params) {
-        auto it = persisted.paramsJson.find(param.id);
-        if (it != persisted.paramsJson.end())
-          applyParamValueJson(*node.processor, param, it->second);
-      }
-    }
-
-    return;
-  }
-
-  // Unavailable processors are pasted as the same non-destructive placeholder
-  // used by Sidecar V2 restore. A copied node is still useful even if another
-  // machine does not currently have its plugin/script installed.
-  Node node;
-  node.id = preserveId ? restoredNodeId(app, persisted.id) : makeNodeId(app);
+  Node node = makeProcessorNode(nodes, std::move(processor));
+  if (preserveId) node.id = restoredNodeId(nodes, persisted.id);
   node.enabled = persisted.enabled;
+  node.groupOpen = persisted.groupOpen;
   node.storedBackend = backend;
   node.storedIdentifier = persisted.identifier;
   node.storedLabel = persisted.label;
   node.preservedParamsJson = persisted.paramsJson;
-  node.groupOpen = persisted.groupOpen;
-  app.nodes.push_back(std::move(node));
+  if (node.processor) {
+    for (const auto &param : node.processor->parameters()) {
+      const auto value = persisted.paramsJson.find(param.id);
+      if (value != persisted.paramsJson.end()) applyParamValueJson(*node.processor, param, value->second);
+    }
+  }
+  return node;
 }
 
 static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParameter &param) {

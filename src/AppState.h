@@ -1,7 +1,7 @@
 #pragma once
 
 #include "imgio/ImageIO.h"
-#include "processors/Processor.h"
+#include "GraphEvaluator.h"
 #include "RenderRuntime.h"
 
 #include <GLFW/glfw3.h>
@@ -17,45 +17,6 @@
 #include <thread>
 #include <unordered_set>
 #include <vector>
-
-enum class NodeInputRole {
-  Image,
-  Mask,
-};
-
-struct NodeInput {
-  NodeInputRole role = NodeInputRole::Image;
-  std::string sourceNodeId;
-};
-
-enum class CompositeMode {
-  Normal,
-};
-
-// One entry in App::nodes; vector order is the current processing order.
-// The node owns its processor, whose lifetime is protected by DocumentMutation.
-struct Node {
-  std::string id;
-  bool enabled = true;
-  std::unique_ptr<Processor> processor;
-
-  // Persistence identity is retained even when a processor is unavailable.
-  // For live processors these mirror the processor; for missing processors
-  // they let Sidecar V2 round-trip the node without deleting it.
-  std::string storedBackend;
-  std::string storedIdentifier;
-  std::string storedLabel;
-  std::map<std::string, std::string> preservedParamsJson;
-
-  // Reserved by the graph-capable data model. The current renderer still
-  // evaluates a simple serial chain and leaves these at their defaults.
-  std::vector<NodeInput> inputs;
-  float opacity = 1.0f;
-  CompositeMode compositeMode = CompositeMode::Normal;
-
-  // Expanded parameter groups, keyed by the backend-neutral parameter ID.
-  std::map<std::string, bool> groupOpen;
-};
 
 struct ThumbReady {
   std::string path;
@@ -93,6 +54,11 @@ inline constexpr int kPreviewResCount = 4;
 // are excluded only during export. The dedicated mutexes below guard
 // shared snapshots.
 struct App {
+  App() {
+    Node source(NodeOperation::Source);
+    source.id = primarySource;
+    nodes.push_back(std::move(source));
+  }
   // Preview/export workers borrow document/display/status fields. Stop them in
   // the destructor body while all members are alive, regardless of member order.
   ~App() noexcept { renderer.shutdown(); }
@@ -101,7 +67,10 @@ struct App {
   unsigned int tex = 0;
   int texW = 0, texH = 0;
 
-  Image full, preview;
+  Image full;
+  // Rebuild by replacing this owner under DocumentMutation, never by changing
+  // a published frame's pixels. Evaluations and Source publications share it.
+  ImageValue preview = std::make_shared<Image>();
   std::string path, status = "Open an image. Source is fed to the plugin as scene-linear.";
   // If a sidecar exists but cannot be safely read, never overwrite it on
   // automatic image switching. Reopening after the file is fixed/removed
@@ -139,8 +108,15 @@ struct App {
   int themeIndex = 2;        // Photoshop
   float previewPanX = 0.0f;
   float previewPanY = 0.0f;
+  // One graph storage, including the primary Source. Source uses full/preview
+  // above for the current document image; it owns no second pixel copy.
   std::vector<Node> nodes;
-  int selectedNode = -1;
+  NodeId primarySource{"source"};
+  OutputRef documentOutput{primarySource, ports::image};
+  bool hasProcessingOutput() const {
+    return documentOutput.nodeId != primarySource || documentOutput.outputPortId != ports::image;
+  }
+  std::optional<NodeId> selectedNodeId;  // UI identity; storage position has no selection meaning.
 
   std::string workspaceDir;
   // Protect a workspace file containing future colour IDs this build cannot
@@ -173,11 +149,15 @@ struct App {
   // Application/thumbnail intent is independent of renderer shutdown.
   std::atomic<bool> quit{false};
   // Presentation storage: only display_detail/pumpDisplayUpload publish/consume.
-  Image display;  // latest rendered (bottom-up float), guarded by displayMutex
+  struct { int w = 0, h = 0; } display;  // Presentation dimensions, not a second raster.
+  struct PreviewPublication {
+    int generation = 0;
+    std::shared_ptr<const OutputRef> request;  // Retained even if error reporting cannot allocate.
+    EvaluationResult result;
+  } processed{0, {}, EvaluationResult{{primarySource, ports::image}}};
   std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
   std::mutex displayMutex;
   bool displayDirty = false;
-  int displayGen = 0;
 
   std::mutex statusMutex;
   void setStatus(const std::string &s) {

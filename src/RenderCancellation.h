@@ -3,6 +3,7 @@
 #include <atomic>
 
 class RenderRuntime;
+class RenderCancellationTestAccess;
 
 // A borrowed, read-only token for one evaluation. The runtime outlives every
 // evaluation using it. An empty token is non-cancellable (full-resolution export
@@ -15,6 +16,9 @@ class RenderCancellation {
 
  private:
   friend class RenderRuntime;
+  // A borrowed test-owned epoch permits deterministic worker-free evaluator
+  // cancellation tests without exposing runtime scheduling controls.
+  friend class RenderCancellationTestAccess;
   RenderCancellation(const std::atomic<int> &epoch, int expected)
       : epoch_(&epoch), expected_(expected) {}
   const std::atomic<int> *epoch_ = nullptr;

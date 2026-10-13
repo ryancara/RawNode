@@ -14,6 +14,8 @@ class DocumentMutation {
   DocumentMutation &operator=(const DocumentMutation &) = delete;
 
   void changed() { changed_ = true; }
+  // Validate control-thread intent before staging an edit that may not commit.
+  static void assertControlThread(const App &app);
   // Rebuild source pixels inside this same boundary, without a second barrier
   // or an intermediate preview request (used by RAW encoding reload).
   void rebuildPreview();
@@ -23,6 +25,10 @@ class DocumentMutation {
   bool interrupted_ = false;
   bool changed_ = false;
 };
+
+// Prepare source pixels without changing live state. Source replacement can
+// allocate/convert first, then commit the completed preview within its scope.
+std::shared_ptr<const Image> makePreviewSource(const Image &full, ColorEncoding encoding, int previewRes);
 
 }  // namespace document_detail
 

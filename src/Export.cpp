@@ -1,33 +1,70 @@
 #include "Export.h"
 
 #include "AppState.h"
-#include "RenderPipeline.h"
 
 #include <exception>
 #include <filesystem>
 
 namespace fs = std::filesystem;
-
 namespace {
-
 struct ExportRequest {
-  Image source;
+  ImageValue source;
+  OutputRef output;
   std::string outPath;
-  int previewWidth = 0, previewHeight = 0;
+  EvaluationContext context;
   ColorEncoding space;
-  bool bypassedMissingProcessor = false;
-  int jpegQuality = 92;
+  int jpegQuality;
 };
-
-static ExportRequest captureExportRequest(App &app, const std::string &outPath);
-static bool executeExportJob(App &app, const ExportRequest &request) noexcept;
-static void publishExportException(App &app, std::exception_ptr error,
-                                   std::exception_ptr restorationError = {}) noexcept;
-
-}  // namespace
+static ExportRequest captureExportRequest(App &app, const std::string &path) {
+  ColorEncoding space;
+  { std::lock_guard<std::mutex> lock(app.colorMutex); space = app.outputEncoding; }
+  // The export lease drains/blocks mutation and outlives evaluation/file writing.
+  // Borrow full Source under that ownership rather than copying a full raster.
+  return {ImageValue(&app.full, [](const Image *) {}), app.documentOutput, path,
+          {EvaluationPurpose::Export, app.full.w, app.full.h, app.full.w, app.full.h}, space, app.jpegQuality};
+}
+static void publishExportException(App &app, std::exception_ptr error) noexcept {
+  try {
+    std::string message = "Unknown exception";
+    try { std::rethrow_exception(error); }
+    catch (const std::exception &e) { message = e.what(); }
+    catch (...) {}
+    app.setStatus("Export failed: " + message);
+  } catch (...) {
+    try { app.setStatus("Export failed"); } catch (...) {}
+  }
+}
+static bool executeExportJob(App &app, const ExportRequest &request) noexcept {
+  try {
+    auto result = app.renderer.evaluateOwned(request.output, request.context, request.source);
+    const auto *image = std::get_if<ImageValue>(&result.value);
+    if (result.state != EvaluationState::Available || !image || !*image) {
+      std::string status = result.state == EvaluationState::Cancelled ? "Export cancelled" : "Export failed";
+      if (result.state == EvaluationState::Unavailable) status += ": Document output unavailable";
+      for (const auto &diagnostic : result.diagnostics) status += " — " + diagnostic.message;
+      app.setStatus(status);
+      return false;
+    }
+    if (!writeImage(**image, request.outPath, request.space, request.jpegQuality)) {
+      app.setStatus("Export failed: Could not write image");
+      return false;
+    }
+    std::string status = "Exported " + fs::path(request.outPath).filename().string() + " (" +
+                         std::to_string((*image)->w) + "×" + std::to_string((*image)->h) + ")";
+    for (const auto &diagnostic : result.diagnostics) status += " — " + diagnostic.message;
+    if (request.space.gamma == TransferFunction::DaVinciIntermediate)
+      status += " — warning: ICC cannot fully represent DaVinci Intermediate scene values above 1.0; external apps may clip highlights";
+    app.setStatus(status);
+    return true;
+  } catch (...) {
+    publishExportException(app, std::current_exception());
+    return false;
+  }
+}
+} // namespace
 
 bool runExportJob(App &app, const std::string &outPath) {
-  if (app.full.px.empty() || app.nodes.empty() || outPath.empty()) return false;
+  if (app.full.px.empty() || !app.hasProcessingOutput() || outPath.empty()) return false;
   auto ownership = app.renderer.acquireExport();
   if (!ownership) return false;
   try {
@@ -40,112 +77,16 @@ bool runExportJob(App &app, const std::string &outPath) {
 }
 
 bool startExport(App &app, const std::string &outPath) {
-  if (app.full.px.empty() || app.nodes.empty() || outPath.empty()) return false;
+  if (app.full.px.empty() || !app.hasProcessingOutput() || outPath.empty()) return false;
   auto ownership = app.renderer.acquireExport();
   if (!ownership) return false;
   try {
     app.setStatus("Exporting full resolution...");
-    ExportRequest request = captureExportRequest(app, outPath);
-    ownership.start([&app, request = std::move(request)]() noexcept {
-      executeExportJob(app, request);
-    });
+    auto request = captureExportRequest(app, outPath);
+    ownership.start([&app, request = std::move(request)]() noexcept { executeExportJob(app, request); });
     return true;
   } catch (...) {
     publishExportException(app, std::current_exception());
     return false;
   }
 }
-
-namespace {
-
-static std::string exceptionMessage(std::exception_ptr error) {
-  try {
-    std::rethrow_exception(error);
-  } catch (const std::exception &e) {
-    return e.what();
-  } catch (...) {
-    return "Unknown exception";
-  }
-}
-
-static void publishExportException(App &app, std::exception_ptr error,
-                                   std::exception_ptr restorationError) noexcept {
-  try {
-    std::string status = "Export failed: " + exceptionMessage(error);
-    if (restorationError && restorationError != error)
-      status += " (preview sizing: " + exceptionMessage(restorationError) + ")";
-    app.setStatus(status);
-  } catch (...) {
-    // Even an allocation failure while reporting an error must not escape the
-    // thread entry point or prevent ownership release.
-    try { app.setStatus("Export failed"); } catch (...) {}
-  }
-}
-
-struct PreviewSizeRestore {
-  App &app;
-  int width, height;
-  std::exception_ptr &error;
-  ~PreviewSizeRestore() {
-    // Attempt every processor, including one whose full-size setter threw
-    // after changing its state. Cleanup itself must not interrupt unwinding.
-    for (auto &node : app.nodes) {
-      if (!node.processor) continue;
-      try {
-        node.processor->setRenderSize(width, height);
-      } catch (...) {
-        if (!error) error = std::current_exception();
-      }
-    }
-  }
-};
-
-static ExportRequest captureExportRequest(App &app, const std::string &outPath) {
-  ExportRequest request;
-  request.outPath = outPath;
-  request.source = app.full;
-  request.previewWidth = app.preview.w;
-  request.previewHeight = app.preview.h;
-  request.jpegQuality = app.jpegQuality;
-  {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    request.space = app.outputEncoding;
-  }
-  for (const auto &node : app.nodes)
-    if (node.enabled && !node.processor) request.bypassedMissingProcessor = true;
-  return request;
-}
-
-// This is the production export body for both synchronous and UI execution.
-// The caller retains full-resolution ownership through final status publication.
-static bool executeExportJob(App &app, const ExportRequest &request) noexcept {
-  std::exception_ptr restorationError;
-  try {
-    Image out;
-    ProcessorResult result;
-    {
-      PreviewSizeRestore restore{app, request.previewWidth, request.previewHeight, restorationError};
-      for (auto &node : app.nodes)
-        if (node.processor) node.processor->setRenderSize(request.source.w, request.source.h);
-      result = renderChain(app, request.source, out);
-    }
-    if (restorationError) std::rethrow_exception(restorationError);
-    const bool ok = result.ok && writeImage(out, request.outPath, request.space, request.jpegQuality);
-    if (ok) {
-      std::string status = "Exported " + fs::path(request.outPath).filename().string() + " (" +
-                           std::to_string(request.source.w) + "×" + std::to_string(request.source.h) + ")";
-      if (request.bypassedMissingProcessor) status += " — missing processors were bypassed";
-      if (request.space.gamma == TransferFunction::DaVinciIntermediate)
-        status += " — warning: ICC cannot fully represent DaVinci Intermediate scene values above 1.0; external apps may clip highlights";
-      app.setStatus(status);
-    } else {
-      app.setStatus("Export failed" + (result.message.empty() ? std::string() : ": " + result.message));
-    }
-    return ok;
-  } catch (...) {
-    publishExportException(app, std::current_exception(), restorationError);
-    return false;
-  }
-}
-
-}  // namespace

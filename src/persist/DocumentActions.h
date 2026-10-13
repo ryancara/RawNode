@@ -10,7 +10,9 @@ PersistGui captureGui(const App &app);
 PersistGui captureSidecarGui(const App &app);
 void applyGui(App &app, const PersistGui &g);
 PersistGradeColor captureGradeColor(const App &app);
-bool applyGradeColor(App &app, const PersistGradeColor &color);
+// Clipboard/preset grade replacement: prepare all nodes and colour/source
+// changes before committing. Failure leaves the current document intact.
+bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color);
 void saveCurrentInputSidecar(App &app);
 void persistWorkspace(App &app);
 void openWorkspace(App &app, const std::string &dir);
