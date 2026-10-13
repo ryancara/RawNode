@@ -11,8 +11,17 @@ that architecture easier to recover from the code.
 
 ## Primary rule
 
-Optimise source for a competent programmer trying to build a correct mental
-model of RawNode.
+Human readability and maintainability are development requirements from the
+outset. Optimise source for an experienced C++ developer who must understand,
+review and maintain RawNode independently, without Codex or Claude explaining
+its implementation.
+
+Prefer straightforward, idiomatic C++ and conventional patterns. Code should
+explain itself primarily through structure, descriptive names and interfaces;
+documentation explains decisions that are not obvious from the implementation.
+The goal is the simplest implementation that can be confidently understood and
+verified, rather than the fewest lines. Avoid duplicated state and abstractions
+or frameworks created solely for hypothetical future features.
 
 Formatting consistency matters, but conceptual order matters more.
 
@@ -53,7 +62,10 @@ letting years of feature chronology become the file structure.
 
 ## Names and control flow
 
-Prefer domain-oriented names that communicate what an operation means.
+Use clear, domain-oriented names for types, functions, variables and files.
+Keep functions manageable, with coherent responsibilities; split them when
+doing so clarifies an operation or ownership boundary, without imposing arbitrary
+line limits or adding layers merely to shorten code.
 
 Use early exits and explicit state transitions when they make control flow easier
 to inspect. Avoid clever compression when a few extra lines make ownership or
@@ -61,7 +73,8 @@ failure behaviour obvious.
 
 ## Ownership, threading and locks
 
-Concurrency code should make ownership visible.
+Make resource ownership, lifetime expectations and concurrency boundaries
+explicit in interfaces and in the code that depends on them.
 
 - Keep lock scopes as small and visually obvious as correctness allows.
 - State important lock-order, thread-affinity and lifetime invariants near the
@@ -79,6 +92,7 @@ Comments should explain:
 - ownership/lifetime assumptions;
 - thread/lock invariants;
 - failure/recovery semantics;
+- important tradeoffs and architectural reasoning;
 - deliberate limitations.
 
 Avoid comments that merely translate the next line of C++ into English.
@@ -115,6 +129,34 @@ It should not quietly:
 If future readability work exposes a genuine architecture problem, record it
 and address it deliberately in a focused change. The post-Step-4 architecture
 checkpoint is complete; broad cleanup is no longer the current task.
+
+## Continuous and milestone review
+
+Include a proportionate readability check with correctness review in every
+implementation PR. Review changed and closely affected names, conceptual
+organisation, ownership/locking and responsibility boundaries. Address important
+maintainability problems during the relevant feature review: unclear ownership,
+excessive coupling, duplicated state/execution logic, misleading interfaces,
+unnecessarily complicated control flow or abstractions that obscure behaviour.
+
+Optional stylistic preferences are non-blocking: alternative names that are not
+materially clearer, equally reasonable file organisation, cosmetic restructuring
+and unrelated cleanup. Raise readability concerns early; do not wait for a later
+cleanup pass to address a demonstrated problem.
+
+Recommend fixing small relevant issues in the current PR. Track substantial
+risks intentionally deferred beyond that PR in `docs/PROJECT_CONTEXT.md`
+(Known deferred issues); minor cleanup can wait for the next relevant milestone
+review. A formatter passing is not a readability review.
+
+At architectural milestones, inspect the affected subsystems for accumulated
+complexity and responsibility drift. Use the checkpoint schedule in
+`docs/PROJECT_CONTEXT.md`, and keep any cleanup focused and
+behaviour-preserving.
+
+Refactoring remains appropriate for demonstrated correctness, maintenance or
+architectural issues. Keep it proportional, and record deliberate behaviour or
+architecture changes rather than hiding them inside readability cleanup.
 
 ## Review standard
 

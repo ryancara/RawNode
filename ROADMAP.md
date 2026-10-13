@@ -26,7 +26,7 @@ The current codebase is a clean base for feature development. New work should re
 
 ## Current architecture/stabilisation sequence
 
-The approved eight-step architecture migration is in progress. Steps 1-4 are
+The approved eight-step architecture migration is in progress. Steps 1–6 are
 complete. Step 4 (renderer ownership encapsulation) landed in PR #45 after
 independent review, sanitizer/stress validation and routine macOS validation.
 
@@ -39,20 +39,30 @@ The full post-Step-4 stabilisation gate is complete:
    pinned vkdt reference.
 
 Codex and Claude independently found the direction sound for the next stage;
-no further broad refactor is justified before Step 5. Immediate follow-ups #53
-(source-only sidecars) and #54 (mutation-completion ordering regression) are
-complete. Remaining focused findings are recorded in
-`docs/ARCHITECTURE_AUDIT.md` and do not block Step 5.
+no further broad refactor is justified before the next stage. Immediate
+follow-ups #53 (source-only sidecars) and #54 (mutation-completion ordering
+regression) are complete. Remaining findings in `docs/ARCHITECTURE_AUDIT.md`
+are non-blocking follow-ups.
 
 - **Step 5 — complete:** the first mask/graph product contract is settled and
   independently reviewed; see `docs/STEP5_GRAPH_CONTRACT.md`.
-- **Step 6 — current:** transition from today's serial chain to explicit topology
-  and one sequential requested-endpoint DAG evaluator.
-- Step 7: versioned graph persistence.
+- **Step 6 — complete and independently reviewed:** explicit topology and one
+  sequential requested-endpoint DAG evaluator, merged in PR #58
+  (`6294a034d30168063e2aa92e984a51666f56ca22`).
+- Step 7 (next): graph-native versioned persistence, with a forward-compatible
+  home for editor node positions/layout data.
+- **Graph View UI milestone (between Steps 7 and 8; not a new architecture
+  step; D047):** implement a switchable Graph/List editor on the same
+  authoritative document graph with shared NodeId selection.
 - Step 8: first concrete mask path and remaining implementation details under
   the Step 5 product/architectural contract.
 
 The completed stabilisation tasks are not extra migration steps.
+
+Post-Step-6 code quality, CI, verification and milestone readability follow-ups
+are tracked in `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
+The focused pre-persistence checkpoint is due before Step 7 finalises the format;
+the whole-Step-6 implementation/architecture review is already complete.
 
 ## Completed editing workflow milestone
 
@@ -118,19 +128,36 @@ scheduler without a concrete product need.
 
 ## Graph / List interface
 
-Allow switching between graph and list views of the same processing structure.
+**Delivery milestone:** After Step 7 graph-native persistence and before Step 8
+introduces the first user-facing masks, build the graphical Node/Graph View.
+This is a UI/product milestone, not an additional numbered architecture refactor.
 
-Step 6 makes the graph authoritative. The List View derives a main Image spine
-from explicit topology; moving rows must rewrite topology rather than reorder
-storage.
+The editor must have an explicit switch between **Graph View and List View**.
+Switching views changes presentation only: both show and edit the same
+authoritative document graph, preserve NodeId selection, and produce identical
+processing results. Neither view owns a separate copy of topology or render
+state.
 
-The Node View and List View remain two presentations of the same document.
+Step 6 makes the graph authoritative. The List View derives its main Image spine
+from explicit topology; moving rows rewrites topology rather than rearranging
+node storage. Off-spine nodes must remain accessible, even if arbitrary-DAG List
+View presentation stays deliberately simple.
 
-Add number-key node selection.
+Initial Graph View scope:
 
-Branching, typed Mask endpoints and future mixers use the same graph. Arbitrary
-DAG List View presentation may remain simple until concrete workflows require
-more.
+- draggable nodes with pan/zoom and typed Image/Mask ports and connections;
+- connection editing through the existing validated graph commands;
+- shared selection/inspection and editing actions with List View;
+- node layout positions saved with the editable source document, and restored
+  when reopened; Step 7 should make room for this without coupling layout to
+  graph evaluation.
+
+Add number-key node selection as a separate small interaction improvement.
+
+Branching, typed Mask endpoints and future mixers use the same graph. The first
+user-facing mask workflows remain Step 8, after the visual editor milestone.
+Do not build a second graph model, renderer or persistence representation for
+Graph View.
 
 ## Assignable input system
 

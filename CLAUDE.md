@@ -81,6 +81,43 @@ Clearly distinguish:
 
 Finish with a clear judgement about whether the PR is safe to merge.
 
+## Continuous PR quality review
+
+Every implementation PR review includes a proportionate readability check of
+changed and directly affected code. Ask whether a competent C++ developer
+unfamiliar with the implementation can follow its names, coherent file/function
+responsibilities, ownership, locking, mutation and execution boundaries, and
+failure paths. Check that features fit the architecture and abstractions serve
+established requirements. Raise meaningful maintainability issues while the
+feature is under review; use the severity guidance in `docs/CODE_STYLE.md`.
+Minor stylistic preferences should not block a PR or prompt unrelated cleanup.
+
+For substantial features, challenge the agreed acceptance criteria, expected
+results and test oracles independently of the implementation. Values copied
+from the implementation's own output are not independent evidence. Prefer
+analytical or mathematical reference values, independently validated libraries,
+established reference images/results, implementation-independent
+invariants, and equivalence to an independently validated baseline,
+exercised through the production path. Check failure/boundary cases and whether
+a plausible incorrect implementation would fail the tests. See the existing
+review standard below for regression-test mutation checks.
+
+Reference implementations must be independent of the specific code path under
+test. Appropriately configured lcms2 can independently reference native
+colour-space conversion maths, but is not an independent oracle for RawNode's
+ICC-processing path that already uses lcms2. Extended-range tests need
+floating-point, unclipped reference transforms; integer or clipping transforms
+cannot establish preservation of negative RGB or values above 1.0.
+
+Tests should explain the behaviour they establish, why expected results are
+correct and justify numerical tolerances for the behaviour under test. For
+colour/image work, check floating-point precision, negative and above-1 RGB
+values, and alpha preservation. Keep test support proportionate and understandable.
+
+Milestone checkpoint timing and post-Step-6 infrastructure tasks are tracked in
+`docs/PROJECT_CONTEXT.md`. The whole-Step-6 review is complete; the focused
+pre-persistence checkpoint does not reopen it.
+
 ## Development philosophy
 
 RawNode should remain lightweight and architecturally simple.
@@ -99,32 +136,36 @@ behaviour can be represented by the existing graph or invalidation model.
 
 Correctness and simplicity are more important than premature optimisation.
 
-Human readability is also an explicit maintenance goal. Source organisation
-should make architectural responsibilities, ownership and control flow legible
-to a competent C++ programmer. Prefer conceptual/top-down function order,
-coherent file responsibilities, domain-oriented names, visible lock scopes and
-comments that explain invariants/why rather than narrating syntax.
+Human readability and maintainability are development requirements, applied as
+features are designed and implemented. An experienced C++ developer should be
+able to understand, review and maintain RawNode independently of Codex or Claude.
+See `docs/CODE_STYLE.md` for the source and interface guidance.
 
 The post-Step-4 readability pass is complete. Keep future cleanup
 behaviour-preserving and surface architecture or product changes separately.
 See `docs/CODE_STYLE.md`.
 
-Do not perform large refactors inside narrowly scoped bug-fix or feature PRs
-unless they are required for correctness.
+Keep refactoring focused on demonstrated correctness, maintenance or
+architectural problems; avoid broad unrelated cleanup in bug-fix or feature PRs.
+Keep substantial refactors in their own focused PR unless required for
+correctness. Address small, directly relevant maintainability improvements during
+feature development and review. Do not postpone genuine correctness or important
+maintainability problems solely to avoid necessary changes. Cosmetic restructuring
+of understandable code and speculative future-proofing do not justify broad
+refactoring or new abstractions.
 
 ## Architectural direction
 
 The original RawNode <-> vkdt audit and the post-Step-4 whole-architecture
 checkpoint and Step 5 product-contract work are complete. Codex and Claude
 independently found the direction **sound for the next stage** and again found
-the final Step 5 contract sound after small clarifications. No further broad
-architecture cleanup is justified before Step 6. On the Step 6 draft feature
-branch, the explicit graph, sequential DAG evaluator, topology List View and
-minimal V2 safety boundary are implemented. Preview, inspection and export share
-the evaluator. Independent whole-Step-6 review is complete; macOS/NEF validation
-and merge remain pending. PR #58 remains draft and unmerged.
-The authoritative target is in
-`docs/ARCHITECTURE.md`.
+the final Step 5 contract sound after small clarifications. Step 6 is complete
+and merged in PR #58 (`6294a034d30168063e2aa92e984a51666f56ca22`): the explicit
+graph, sequential DAG evaluator, topology List View and minimal V2 safety
+boundary are implemented. Preview, inspection and export share the evaluator.
+Independent whole-Step-6 review is complete; no further broad architecture audit
+is required. The authoritative architecture is in `docs/ARCHITECTURE.md`;
+current milestone and validation status are in `docs/PROJECT_CONTEXT.md`.
 
 The architectural north star is:
 
@@ -247,8 +288,8 @@ completion demand before gate opening. Neither remains an open checkpoint item.
 **Step 5 is complete.** The accepted graph/mask contract is detailed in
 `docs/STEP5_GRAPH_CONTRACT.md` and summarized in D039–D046.
 
-**Step 6 is implemented and independently reviewed; macOS/NEF validation and
-merge are pending.** Explicit topology and the sequential evaluator use
+**Step 6 is complete, independently reviewed and merged.** Explicit topology
+and the sequential evaluator use
 static named Image/Mask ports, consumer-owned upstream references,
 ordered stable Slots, explicit Source/document output, requested Image/Mask
 endpoints, fan-out, cycle rejection, shared-upstream evaluation and
@@ -264,9 +305,11 @@ fail-opens to full coverage only at optional effect/layer coverage use, with a
 persistent warning. A bypassed source-like Mask generator produces real white
 coverage only when its Reference frame resolves.
 
-The first concrete production Mask path remains Step 8. Step 6 should prove the
-typed Mask/evaluation contracts with tests without silently expanding into the
-user-facing masking feature.
+The agreed next sequence is Step 7 graph-native persistence, then the switchable
+Graph/List editor (D047), then Step 8's first concrete production Mask path.
+Both editor views share the authoritative document graph and NodeId selection.
+Step 6 proves typed Mask/evaluation contracts with tests; user-facing masking
+remains Step 8 work.
 
 The candidate dispositions are recorded in `docs/ARCHITECTURE_AUDIT.md`. App
 remains a practical composition root. Leaf App locks must not call back into
@@ -365,8 +408,9 @@ Linux / Windows-style build:
 
     build/OfxRawHost --selftest
 
-Run the complete self-test suite before declaring an implementation or review
-validation complete.
+Run the complete self-test suite before declaring implementation or source-code
+review validation complete. Documentation-only changes need proportionate
+consistency, scope and whitespace checks rather than a local rebuild.
 
 For renderer, lifetime or concurrency work, also use ASan and TSan where the
 environment supports them.
@@ -390,7 +434,8 @@ baseline issue exists.
 
 ## Review standard
 
-A successful build and passing self-test are necessary but not sufficient.
+A successful build and passing self-test are necessary but not sufficient for
+implementation PRs.
 
 For substantial changes, inspect:
 
