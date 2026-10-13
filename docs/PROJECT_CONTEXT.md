@@ -50,6 +50,12 @@ The core should stay simple enough that new image-processing features plug into
 general graph/rendering mechanisms instead of creating feature-specific
 subsystems.
 
+Human readability and maintainability are development requirements. An
+experienced C++ developer should be able to understand, review and maintain
+RawNode independently, without relying on Codex or Claude to explain the code.
+Source and interfaces should expose responsibilities and ownership; see
+`docs/CODE_STYLE.md` for the detailed guidance.
+
 ## Development workflow
 
 The preferred development workflow is:
@@ -67,10 +73,22 @@ The preferred development workflow is:
 8. If a durable project decision changed, update the relevant project
    documentation before considering the work complete.
 
-For substantial features, agree acceptance criteria and expected results, with
-their independent source or rationale, before implementation. Include these in
-the Codex task/PR so reviews can test the intended behaviour rather than merely
-confirm what the new implementation happened to produce.
+Before implementing a substantial feature, establish a proportionate design:
+
+- fit with the existing architecture and ownership of state/behaviour;
+- important interfaces, data flows and interactions with existing features;
+- resource lifetime and concurrency implications where relevant;
+- understandable failure handling;
+- acceptance criteria and independently verifiable expected results, with their
+  source or rationale;
+- whether coupling, duplicated responsibilities or speculative abstractions can
+  be avoided.
+
+Capture this in the task/PR or relevant document; update `docs/DECISIONS.md` or
+the authoritative architecture document for substantial architectural decisions.
+Small local fixes need no formal design document or extra approval process.
+Reviews should verify the intended behaviour rather than merely confirm the
+implementation's own output.
 
 ChatGPT is the long-running product/architecture discussion partner. Codex is the
 primary implementation agent. Claude Code is primarily the independent,
@@ -103,7 +121,8 @@ Document responsibilities are:
 - `docs/CODE_STYLE.md` — human-readability and source-organisation principles.
 - `CLAUDE.md` — Claude Code's persistent review/development instructions.
 - `AGENTS.md` — Codex discovery/pointer to authoritative project documents.
-- `ROADMAP.md` — feature and product roadmap; detailed quality follow-ups live here.
+- `ROADMAP.md` — feature and product roadmap; detailed quality follow-ups live
+  in this document's "Quality and verification roadmap".
 - Git history and pull requests — implementation history and per-change detail.
 
 Do not turn `PROJECT_CONTEXT.md` into a chronological diary. Do not copy every
@@ -115,6 +134,12 @@ approved architecture and decision log.
 
 Older root-level `ARCHITECTURE.md` and `DECISIONS.md` are historical pointers
 only. The authoritative documents live under `docs/`.
+
+For human onboarding, use this document for goals, current state and known
+limitations; the architecture and decision log for subsystem responsibilities
+and rationale; `CLAUDE.md` for build/self-test commands and review expectations;
+and `docs/CODE_STYLE.md` for contribution standards. Keep each authoritative
+explanation in its existing home rather than duplicating it across guides.
 
 ## Current capabilities and baseline
 
@@ -138,13 +163,13 @@ Important implemented foundations include:
 - distinct processor-render and display-conversion refresh behaviour;
 - preview restoration after full-resolution export.
 
-On the Step 6 draft branch, explicit consumer-owned topology and a sequential
+Since Step 6 merged in PR #58, explicit consumer-owned topology and a sequential
 requested-endpoint evaluator now drive preview, Image/Mask inspection and export.
 List View derives topology order and keeps off-spine nodes accessible; selection
 uses stable NodeIds. Unsupported linear sidecar/clipboard/preset capture refuses
 before writing, and full-grade application stages graph/colour/source changes
-before committing. Independent whole-Step-6 review is complete. macOS/NEF
-validation and merge remain pending; PR #58 is draft and unmerged.
+before committing. Independent whole-Step-6 implementation and architecture
+review is complete.
 
 The renderer/concurrency baseline established by PRs #32-#34 is important:
 
@@ -171,15 +196,14 @@ exclusivity and shutdown. Ordinary UI/document/export callers use semantic
 requests rather than renderer mutexes, pending/busy flags or
 wait/mutate/reschedule protocol.
 
-On the Step 6 draft feature branch, preview, inspection and export share the
-sequential GraphEvaluator. Typed publication retains request generation,
+Preview, inspection and export share the sequential GraphEvaluator. Typed
+publication retains request generation,
 endpoint, value kind, state and diagnostics. Preview Source frames use shared
 ownership; per-evaluation consumer counts bound intermediate raster lifetime.
 Presentation buffers remain in the display path and file production in export.
 The runtime owns **when** evaluation may execute safely, not what the document
 or export means. List View and the minimal V2 safety boundary are implemented
-and included in the completed independent whole-Step-6 review. macOS/NEF
-validation and merge remain pending.
+and included in the completed independent whole-Step-6 review and merged code.
 
 ## Architectural direction
 
@@ -189,8 +213,8 @@ implementation and target against RawNode's product goals and the pinned vkdt
 reference and found the direction **sound for the next stage**. Step 5 has now
 closed after independent final Codex/Claude implementation-readiness review.
 No further broad architectural refactor was required before Step 6. The explicit
-graph and sequential evaluator are now implemented and independently reviewed on
-the draft branch; persistence and concrete production Mask features remain later
+graph and sequential evaluator are now implemented, independently reviewed and
+merged; persistence and concrete production Mask features remain later
 steps. The approved target is documented in `docs/ARCHITECTURE.md`; checkpoint
 evidence is in `docs/ARCHITECTURE_AUDIT.md`.
 
@@ -287,7 +311,7 @@ instead of maintaining duplicate matrices or transfer functions.
 The UI direction is to treat colour space and gamma/transfer function as
 separate concepts. With the architecture audit/checkpoint complete, further
 RAW working-space design may proceed independently when appropriate, provided
-it does not pre-empt the unsettled graph/mask contract or introduce conflicting
+it respects the accepted graph/mask contract and does not introduce conflicting
 architecture.
 
 Display/monitor conversion conceptually occurs after the processed-image
@@ -359,6 +383,11 @@ These are known but are not reasons to expand unrelated focused PRs:
   belongs with Step 7;
 - exporting over the exact path of an editable raster source can overwrite the
   source image itself; this pre-existing hazard is separate from export sidecars.
+- pre-merge Step 6 status prose remains in `docs/ARCHITECTURE.md`,
+  `docs/ARCHITECTURE_AUDIT.md`, `docs/DECISIONS.md` and
+  `docs/STEP6_IMPLEMENTATION_PLAN.md`. Current status is recorded below;
+  synchronising those status summaries need not reopen completed reviews or
+  change their accepted architectural contracts.
 
 Address remaining renderer-related deferred issues within the approved staged
 architecture rather than layering more scheduler state onto the design without
@@ -366,14 +395,16 @@ need.
 
 ## Current development phase
 
-**Step 6 implementation and independent whole-transition review are complete on
-the draft feature branch; macOS/NEF validation and merge remain pending.**
-PR #58 is still draft and unmerged. Step 5's product/architecture contract is
-complete. The full graph transition, NodeId selection, topology List View and
-minimal linear capture /
-transactional grade safety are implemented. macOS native-dialog and successful
-camera-RAW (NEF) grade re-decode validation require a platform session; see
-`docs/STEP6_MANUAL_VALIDATION.md`.
+**Step 6 is complete, independently reviewed and merged in PR #58 as
+`6294a034d30168063e2aa92e984a51666f56ca22`.** Step 5's product/architecture
+contract is complete. The full graph transition, NodeId selection, topology List
+View and minimal linear capture / transactional grade safety are implemented.
+Step 7 graph-native persistence is the next stage; it has not started here.
+
+The retained `docs/STEP6_MANUAL_VALIDATION.md` checklist describes macOS
+native-dialog and successful camera-RAW (NEF) grade re-decode checks whose results
+are not recorded in the repository. This documentation update claims no new
+platform coverage and does not reopen completed Step 6 implementation or review.
 
 Steps 1–4 are complete: owned export execution, frozen parameter edits during
 export, centralized graph-edit transactions and encapsulated renderer ownership.
@@ -396,8 +427,7 @@ The remaining sequence is:
     Step 5: First mask/graph product contract       [complete]
           |
           v
-    Step 6: Explicit topology + sequential DAG evaluator [implemented and independently reviewed]
-            macOS/NEF validation and merge pending; PR #58 draft and unmerged
+    Step 6: Explicit topology + sequential DAG evaluator [complete; reviewed and merged]
           |
           v
     Step 7: Versioned graph persistence
@@ -465,19 +495,20 @@ compositing or alpha-carrying I/O requires it.
 
 ## Near-term roadmap
 
-Current architecture/product-contract work:
+Next architecture/product work:
 
-- Step 6: implementation and independent whole-transition review complete;
-  macOS/NEF manual validation and merge pending. PR #58 remains draft and unmerged.
-- Then Step 7 graph persistence, the switchable Graph/List editor, and Step 8
-  masking, in that order.
+- Step 7 graph-native persistence, then the switchable Graph/List editor (D047),
+  then Step 8's first concrete production Mask path.
+- Both editor views share the authoritative document graph and NodeId selection;
+  switching views introduces no additional execution model.
 
-The checkpoint, immediate follow-ups and Step 5 contract are complete. No
-additional broad architecture cleanup is required before finishing Step 6.
+The checkpoint, immediate follow-ups, Step 5 contract and whole-Step-6
+implementation/architecture review are complete. No additional broad audit or
+cleanup is required before the next stage.
 
 Colour-management design and DCTL/LUT or other processor work may continue
 independently when appropriate. Step 5 is not a prerequisite for that unrelated
-work, provided it does not pre-empt the unsettled graph/mask contract or introduce
+work, provided it respects the accepted graph/mask contract and does not introduce
 conflicting architecture.
 
 The Step 6 implementation retains the existing ownership boundary and sequential
@@ -493,22 +524,30 @@ infrastructure merely because a future DAG could use them.
 
 ## Quality and verification roadmap
 
-**Immediately, without interrupting Step 6:** apply proportionate readability
-checks to every implementation PR. For substantial features, define verifiable
-acceptance criteria and independent expected results before implementation;
-challenge those test oracles and boundary cases during review. See
-`CLAUDE.md`, `docs/CODE_STYLE.md` and the workflow above.
+**Continuous practice:** apply proportionate readability and independent
+verification checks to implementation PRs. Follow the design/acceptance workflow
+above, `CLAUDE.md` for review expectations and `docs/CODE_STYLE.md` for source
+guidance.
 
-**Step 6 completion gate:** The PR that declares all of Step 6 complete must
-review and update this checklist. Perform a focused graph/evaluator/runtime
-readability and responsibility checkpoint **before Step 7 locks node, port and
-operation names into persistent graph data**. Start from findings already
-deferred during Step 6's own reviews; no changes may be needed. Other quality
-tooling below can proceed alongside Step 7, and need not block it.
+**Completed review:** the whole-Step-6 independent implementation and
+architecture review is complete. Do not repeat it to satisfy the former Step 6
+completion-gate instruction.
 
-- [ ] Complete the focused post-Step-6 graph/evaluator/runtime readability
-      checkpoint before Step 7's persistent-format decisions.
-- [ ] Extend the existing Linux PR CI (build + self-test already implemented):
+**Before Step 7 finalises the persistent graph format:** perform a focused
+checkpoint on the existing graph model, identifiers, interfaces, ownership and
+naming to confirm they are understandable and stable enough to persist. Begin
+with findings already identified in Step 6's reviews, including the accepted
+transition limitations in `docs/ARCHITECTURE.md` and the near-term roadmap above.
+This is not another broad audit or a reason to refactor working code without a
+demonstrated problem. If the design is sound, record that conclusion and proceed.
+
+The remaining quality improvements are tracked work, not automatic blockers for
+unrelated features; tooling can proceed alongside Step 7 where practical.
+
+- [x] Complete the whole-Step-6 independent implementation/architecture review.
+- [ ] Record the focused pre-persistence checkpoint before Step 7 finalises the
+      graph format.
+- [ ] Extend CI where practical (Linux build + self-test already implemented):
       add a macOS PR build + self-test and a separate ASan/UBSan job. Keep
       TSan/stress manual initially where automation is impractical.
 - [ ] Enable meaningful compiler warnings for RawNode-owned sources first
@@ -519,11 +558,14 @@ tooling below can proceed alongside Step 7, and need not block it.
       preservation of precision/alpha and negative or >1 RGB values, and
       relevant export paths. Define numerical tolerances for compiler/platform
       differences rather than demanding byte-identical output.
-- [ ] Consider focused fuzz/property testing for graph validation and the Step 7
-      graph-native sidecar reader plus the legacy Sidecar V2 migration reader,
-      and for other untrusted file-input boundaries when practical.
+- [ ] Consider focused fuzz/property testing for graph validation and the new
+      graph-native persistence reader, and other untrusted file-input boundaries
+      when practical. Historical Sidecar V1/V2 compatibility testing is optional;
+      it does not constrain Step 7 or require a migration reader.
 - [ ] Establish lightweight image-processing performance/memory baselines as
       useful.
+- [ ] Improve human-developer onboarding and the inherited README when useful,
+      using the authoritative documentation above rather than duplicating it.
 
 **After Step 8's first concrete production Mask path:** perform another focused
 readability/architecture checkpoint for the affected graph, processor and UI
