@@ -424,14 +424,18 @@ selection. Switching views introduces no additional renderer or execution model.
 
 Use one versioned, human-readable sidecar per editable source photograph to
 persist the authoritative processing graph, parameters, stable identities and
-connections. Store minimal node X/Y layout positions keyed by NodeId in that same
-sidecar, logically separate from executable graph data. Positions must not affect
-connections, rendering or graph evaluation; reopening the editable source
-photograph restores its saved node arrangement.
+connections once; derived presentations such as List View order are not stored
+separately. Store minimal node X/Y layout positions keyed by NodeId in that same
+sidecar, logically separate from executable graph data. Layout is optional: Step
+7 provides its home without requiring positions before Graph View exists, and a
+node without a saved position remains valid. Positions must not affect
+connections, validation, rendering or graph evaluation; reopening the editable
+source photograph restores any saved arrangement.
 
 Do not persist rendered images, intermediate buffers, caches or unnecessary
-transient UI state. Keep the format simple and readable; a separate project
-database, compression or binary serialization requires a demonstrated need.
+transient UI state. Keep the format simple and readable. Separate project files
+and catalogue databases remain non-goals (D001, D010); compression or binary
+serialization requires a demonstrated need.
 
 Exact schema details, field names and optional-field handling remain Step 7
 design decisions. The Graph View itself remains the UI milestone between Steps
