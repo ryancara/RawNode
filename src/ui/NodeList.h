@@ -9,7 +9,9 @@ namespace ui {
 struct NodeListProjection {
   std::vector<NodeId> spine;
   std::vector<NodeId> other;
-  std::string spineError;  // A partial spine remains visible, but cannot move.
+  // Traversal failures retain a unary suffix; structural failures leave all
+  // non-Source nodes in other. Either failure disables spine moves.
+  std::string spineError;
 };
 
 NodeListProjection projectNodeList(GraphView graph);

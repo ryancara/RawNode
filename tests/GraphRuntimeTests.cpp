@@ -546,6 +546,80 @@ static bool testQuietOutcomes() {
   return true;
 }
 
+static bool testUnchangedCommandsRetainDemand() {
+  Files files;
+  for (int demand = 0; demand < 4; ++demand) {
+    Gate gate;
+    struct Probe { Gate &gate; int mutations = 0; } probe{gate};
+    App app; source(app);
+    const NodeId effect{"effect"}, spare{"spare"}, slots{"slots"}, absent{"absent"};
+    auto *processor = numeric(app, effect); CHECK(processor);
+    processor->renderGate = &gate;
+    CHECK(add(app, spare, NodeOperation::ImageProcessor) && add(app, slots, NodeOperation::TestSlotted));
+    const auto first = graph::addSlot(app, slots).addedSlot;
+    const auto second = graph::addSlot(app, slots).addedSlot;
+    CHECK(first && second && selectNode(app, effect));
+    app.paramFilter[0] = 'e';
+    RenderRuntimeTestAccess::observe(app.renderer, &probe, [](void *context, auto event) noexcept {
+      auto &probe = *static_cast<Probe *>(context);
+      if (event == RenderRuntimeTestAccess::Event::MutationWaiting) {
+        // A regression must fail without hanging the test in beginMutation.
+        ++probe.mutations;
+        probe.gate.unblock();
+      }
+      if (event == RenderRuntimeTestAccess::Event::MutationCompleted) ++probe.mutations;
+    });
+    GateWorkerGuard guard{app, gate};
+    app.renderer.requestInspection(image(effect));
+    if (demand != 1) { app.renderer.start(); CHECK(idle(app)); }
+    if (demand == 2) { gate.arm(); app.renderer.requestInspection(image(effect)); CHECK(gate.wait(1)); }
+    if (demand == 3) { gate.arm(); CHECK(startExport(app, files.path("unchanged.png")) && gate.wait(1)); }
+    const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+    const auto frame = publication(app);
+    const int calls = processor->calls;
+    Node duplicate; duplicate.id = effect;
+    CHECK(!graph::addNode(app, std::move(duplicate)).ok() && duplicate.id == effect);
+    CHECK(!graph::connect(app, image(app.primarySource), input(effect)).ok());
+    CHECK(!graph::reconnect(app, image(effect), input(effect)).ok()); // Cycle.
+    CHECK(!graph::disconnect(app, input(absent)).ok());
+    CHECK(!graph::deleteNode(app, app.primarySource).ok());
+    CHECK(!graph::deleteImageNode(app, app.primarySource).ok());
+    CHECK(!graph::setDocumentOutput(app, mask(effect)).ok());
+    CHECK(!graph::addSlot(app, effect).ok());
+    CHECK(!graph::deleteSlot(app, slots, SlotId{999}).ok());
+    CHECK(!graph::reorderSlot(app, slots, SlotId{999}, first).ok());
+    Node invalid(NodeOperation::TestSlotted); invalid.id = NodeId{"invalid-splice"};
+    CHECK(!graph::insertImageNode(app, std::move(invalid)).ok() && invalid.id == NodeId{"invalid-splice"});
+    CHECK(!graph::moveImageNode(app, spare, effect).ok());
+    CHECK(graph::reconnect(app, image(app.primarySource), input(effect)).ok());
+    CHECK(graph::disconnect(app, input(spare)).ok()); // Already disconnected.
+    CHECK(graph::setDocumentOutput(app, app.documentOutput).ok());
+    CHECK(graph::moveImageNode(app, effect, effect).ok());
+    CHECK(graph::moveImageNode(app, effect).ok()); // Already last.
+    CHECK(graph::reorderSlot(app, slots, *first, first).ok());
+    CHECK(graph::reorderSlot(app, slots, *first, second).ok()); // Already before.
+    CHECK(graph::reorderSlot(app, slots, *second).ok()); // Already last.
+    const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(probe.mutations == 0 && after.epoch == before.epoch && after.mutationDepth == 0);
+    CHECK(after.previewPending == before.previewPending && after.quietPending == before.quietPending &&
+          after.previewBusy == before.previewBusy && after.exportBusy == before.exportBusy &&
+          after.displayPending == before.displayPending &&
+          processor->calls == calls);
+    CHECK(publication(app).generation == frame.generation && app.selectedNodeId == effect && app.paramFilter[0] == 'e');
+    CHECK(app.documentOutput == image(effect) && findNode(app, effect)->processor.get() == processor &&
+          findNode(app, effect)->fixedInputs.at(ports::image) == image(app.primarySource));
+    gate.unblock();
+    if (demand == 3) app.renderer.joinExport();
+    if (demand == 1) app.renderer.start();
+    CHECK(idle(app) && publication(app).result.requested == image(effect));
+    // A genuine change still owns exclusion and publishes a new graph result.
+    const auto generation = publication(app).generation;
+    CHECK(graph::setDocumentOutput(app, image(app.primarySource)).ok());
+    CHECK(probe.mutations == 1 && idle(app) && publication(app).generation > generation);
+  }
+  return true;
+}
+
 static bool testNarrowV2Refusal() {
   Files files; App app; source(app);
   CHECK(addNativeExposureNode(app));
@@ -581,6 +655,7 @@ bool testGraphRuntime() {
       {"6D I3 no-image processor edits preserve initial guidance without evaluation", testNoImageGuidance},
       {"6D I4 quiet restoration reports current failures and preserves successful export status", testQuietOutcomes},
       {"6D narrow linear V2 refusal preserves the existing source sidecar", testNarrowV2Refusal},
+      {"6E.2 rejected/no-op graph commands preserve idle/pending/active preview and active export", testUnchangedCommandsRetainDemand},
   };
   for (const auto &test : cases) {
     if (!test.test()) { std::fprintf(stderr, "selftest FAILED: %s\n", test.name); return false; }

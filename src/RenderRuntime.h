@@ -28,8 +28,9 @@ class RenderRuntime {
   void requestPreview();
   void requestInspection(const OutputRef &endpoint);
   void requestDocumentPreview();
-  // Forget inspection without adding render demand. Callers that replace live
-  // image/graph state own the mutation and its completion preview.
+  // Control-thread view state only: forget inspection without cancelling or
+  // replacing queued/in-flight demand. Document replacement calls this within
+  // its mutation; that mutation supplies the completion preview.
   void resetInspection();
   void requestDisplayRefresh();
   bool canEditParameters() const;      // Same control thread as export acquisition.

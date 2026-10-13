@@ -256,7 +256,8 @@ void drawLeftPanel(App &app) {
         const bool clicked = iconBtn(id, icon);
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_DelayNormal))
-          ImGui::SetTooltip("%s", reorderable ? hint : "Moves require a complete main Image spine");
+          ImGui::SetTooltip("%s", !mainSpine ? "Only main Image spine nodes can be moved" :
+                            !reorderable ? "Moves require a complete main Image spine" : hint);
         return clicked;
       };
       if (arrow("##up", ICON_FA_ARROW_UP, reorderable && row > 0,

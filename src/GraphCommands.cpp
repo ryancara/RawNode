@@ -66,9 +66,14 @@ class StagedEdit {
   }
   OutputRef &output() { return output_; }
 
-  graph::CommandResult commit(Node *addition, std::optional<SlotId> addedSlot) {
+  graph::CommandResult commit(Node *addition, std::optional<SlotId> addedSlot, App *owner) {
     auto invalid = graphStructureError(view());
     if (!invalid.empty()) return {invalid, std::nullopt};
+    if (!addition && unchanged()) return {{}, addedSlot};
+    // Staging reads immutable topology on the control thread. Only a validated
+    // change drains preview/export, before touching live storage or processors.
+    std::optional<document_detail::DocumentMutation> mutation;
+    if (owner) mutation.emplace(*owner);
     // All fallible allocation happens before modifying the live topology.
     // Node moves, binding/Slot swaps and output swaps below cannot throw.
     static_assert(std::is_nothrow_move_constructible_v<Node>);
@@ -89,12 +94,30 @@ class StagedEdit {
       return !node(live.id);
     }), document_.nodes.end());
     std::swap(document_.documentOutput, output_);
+    if (owner) {
+      if (owner->selectedNodeId && !selectedNode(*owner)) selectNode(*owner, std::nullopt);
+      mutation->changed();
+    }
     return {{}, addedSlot};
   }
 
   std::string error;
 
  private:
+  bool unchanged() const {
+    if (output_ != document_.documentOutput || nodes_.size() != document_.nodes.size()) return false;
+    for (size_t i = 0; i < nodes_.size(); ++i) {
+      const Node &staged = nodes_[i], &live = document_.nodes[i];
+      if (staged.id != live.id || staged.fixedInputs != live.fixedInputs ||
+          staged.nextSlotId_ != live.nextSlotId_ || staged.slots.size() != live.slots.size()) return false;
+      for (size_t j = 0; j < staged.slots.size(); ++j) {
+        const Slot &a = staged.slots[j], &b = live.slots[j];
+        if (a.id != b.id || a.inputs != b.inputs || a.settings.enabled != b.settings.enabled) return false;
+      }
+    }
+    return true;
+  }
+
   static Node copyTopology(const Node &original) {
     Node copy(original.operation);
     copy.id = original.id;
@@ -123,12 +146,18 @@ using graph_detail::StagedEdit;
 using graph::CommandResult;
 
 template <typename Change>
-static CommandResult editGraph(graph::Document document, Change change, Node *addition = nullptr) {
+static CommandResult editGraph(graph::Document document, Change change, Node *addition = nullptr, App *owner = nullptr) {
   StagedEdit staged(document);
   if (!staged.error.empty()) return {staged.error, std::nullopt};
   auto result = change(staged);
   if (!result.ok()) return result;
-  return staged.commit(addition, result.addedSlot);
+  return staged.commit(addition, result.addedSlot, owner);
+}
+
+template <typename Change>
+static CommandResult editGraph(App &app, Change change, Node *addition = nullptr) {
+  document_detail::DocumentMutation::assertControlThread(app);
+  return editGraph(graph::Document{app.nodes, app.primarySource, app.documentOutput}, change, addition, &app);
 }
 
 static std::string connectionError(GraphView graph, const OutputRef &producer, const InputAddress &destination);
@@ -136,7 +165,8 @@ static std::string imageOutputError(GraphView graph, const OutputRef &output);
 
 namespace graph {
 
-CommandResult connect(Document document, const OutputRef &producer, const InputAddress &destination) {
+template <typename Target>
+static CommandResult connectGraph(Target &document, const OutputRef &producer, const InputAddress &destination) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     auto error = connectionError(edit.view(), producer, destination);
     if (!error.empty()) return {error, std::nullopt};
@@ -147,7 +177,8 @@ CommandResult connect(Document document, const OutputRef &producer, const InputA
   });
 }
 
-CommandResult reconnect(Document document, const OutputRef &producer, const InputAddress &destination) {
+template <typename Target>
+static CommandResult reconnectGraph(Target &document, const OutputRef &producer, const InputAddress &destination) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     auto error = connectionError(edit.view(), producer, destination);
     if (!error.empty()) return {error, std::nullopt};
@@ -156,7 +187,8 @@ CommandResult reconnect(Document document, const OutputRef &producer, const Inpu
   });
 }
 
-CommandResult disconnect(Document document, const InputAddress &destination) {
+template <typename Target>
+static CommandResult disconnectGraph(Target &document, const InputAddress &destination) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     auto *binding = edit.input(destination);
     if (!binding) return {"Destination input does not exist", std::nullopt};
@@ -165,13 +197,15 @@ CommandResult disconnect(Document document, const InputAddress &destination) {
   });
 }
 
-CommandResult addNode(Document document, Node &&node) {
+template <typename Target>
+static CommandResult addNodeGraph(Target &document, Node &&node) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     return {edit.add(node), std::nullopt};
   }, &node);
 }
 
-CommandResult deleteNode(Document document, const NodeId &id, std::optional<OutputRef> replacementOutput) {
+template <typename Target>
+static CommandResult deleteNodeGraph(Target &document, const NodeId &id, std::optional<OutputRef> replacementOutput) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     const Node *deleted = edit.node(id);
     if (!deleted) return {"Node does not exist", std::nullopt};
@@ -189,7 +223,8 @@ CommandResult deleteNode(Document document, const NodeId &id, std::optional<Outp
   });
 }
 
-CommandResult setDocumentOutput(Document document, const OutputRef &output) {
+template <typename Target>
+static CommandResult setDocumentOutputGraph(Target &document, const OutputRef &output) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     auto error = imageOutputError(edit.view(), output);
     if (!error.empty()) return {error, std::nullopt};
@@ -198,7 +233,8 @@ CommandResult setDocumentOutput(Document document, const OutputRef &output) {
   });
 }
 
-CommandResult addSlot(Document document, const NodeId &id, SlotSettings settings) {
+template <typename Target>
+static CommandResult addSlotGraph(Target &document, const NodeId &id, SlotSettings settings) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     Node *node = edit.node(id);
     if (!node) return {"Node does not exist", std::nullopt};
@@ -215,7 +251,8 @@ CommandResult addSlot(Document document, const NodeId &id, SlotSettings settings
   });
 }
 
-CommandResult deleteSlot(Document document, const NodeId &id, SlotId slot) {
+template <typename Target>
+static CommandResult deleteSlotGraph(Target &document, const NodeId &id, SlotId slot) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     Node *node = edit.node(id);
     if (!node || !node->findSlot(slot)) return {"Slot does not exist", std::nullopt};
@@ -226,7 +263,8 @@ CommandResult deleteSlot(Document document, const NodeId &id, SlotId slot) {
   });
 }
 
-CommandResult reorderSlot(Document document, const NodeId &id, SlotId slot, std::optional<SlotId> before) {
+template <typename Target>
+static CommandResult reorderSlotGraph(Target &document, const NodeId &id, SlotId slot, std::optional<SlotId> before) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     Node *node = edit.node(id);
     if (!node || !node->findSlot(slot) || (before && !node->findSlot(*before)))
@@ -243,7 +281,8 @@ CommandResult reorderSlot(Document document, const NodeId &id, SlotId slot, std:
   });
 }
 
-CommandResult insertImageNode(Document document, Node &&node, std::optional<InputAddress> before) {
+template <typename Target>
+static CommandResult insertImageNodeGraph(Target &document, Node &&node, std::optional<InputAddress> before) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     auto error = edit.add(node);
     if (!error.empty()) return {error, std::nullopt};
@@ -268,7 +307,8 @@ CommandResult insertImageNode(Document document, Node &&node, std::optional<Inpu
   }, &node);
 }
 
-CommandResult deleteImageNode(Document document, const NodeId &id) {
+template <typename Target>
+static CommandResult deleteImageNodeGraph(Target &document, const NodeId &id) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     const Node *deleted = edit.node(id);
     if (!deleted || !isUnaryImageNode(*deleted)) return {"Deletion requires a unary Image node; Source cannot be deleted", std::nullopt};
@@ -284,7 +324,8 @@ CommandResult deleteImageNode(Document document, const NodeId &id) {
   });
 }
 
-CommandResult moveImageNode(Document document, const NodeId &id, std::optional<NodeId> before) {
+template <typename Target>
+static CommandResult moveImageNodeGraph(Target &document, const NodeId &id, std::optional<NodeId> before) {
   return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
     std::vector<NodeId> spine;
     auto error = imageSpine(edit.view(), spine);
@@ -296,7 +337,7 @@ CommandResult moveImageNode(Document document, const NodeId &id, std::optional<N
     spine.erase(from);
     const auto target = before ? std::find(spine.begin(), spine.end(), *before) : spine.end();
     spine.insert(target, id);
-    OutputRef producer{document.primarySource, ports::image};
+    OutputRef producer{edit.view().primarySource, ports::image};
     for (const auto &nodeId : spine) {
       edit.node(nodeId)->fixedInputs.at(ports::image) = producer;
       producer = {nodeId, ports::image};
@@ -306,55 +347,78 @@ CommandResult moveImageNode(Document document, const NodeId &id, std::optional<N
   });
 }
 
-// Live-document plumbing is deliberately separate from graph edit meaning.
-// The control thread owns all writes; DocumentMutation drains preview/export
-// before either processor ownership or consumer-owned topology can change.
-template <typename Change>
-static CommandResult mutateApp(App &app, Change change) {
-  document_detail::DocumentMutation mutation(app);
-  auto result = change(Document{app.nodes, app.primarySource, app.documentOutput});
-  if (result.ok()) {
-    if (app.selectedNodeId && !selectedNode(app)) selectNode(app, std::nullopt);
-    mutation.changed();
-  }
-  return result;
+CommandResult connect(Document document, const OutputRef &producer, const InputAddress &destination) {
+  return connectGraph(document, producer, destination);
+}
+CommandResult reconnect(Document document, const OutputRef &producer, const InputAddress &destination) {
+  return reconnectGraph(document, producer, destination);
+}
+CommandResult disconnect(Document document, const InputAddress &destination) {
+  return disconnectGraph(document, destination);
+}
+CommandResult addNode(Document document, Node &&node) {
+  return addNodeGraph(document, std::move(node));
+}
+CommandResult deleteNode(Document document, const NodeId &node, std::optional<OutputRef> replacementOutput) {
+  return deleteNodeGraph(document, node, replacementOutput);
+}
+CommandResult setDocumentOutput(Document document, const OutputRef &output) {
+  return setDocumentOutputGraph(document, output);
+}
+CommandResult addSlot(Document document, const NodeId &node, SlotSettings settings) {
+  return addSlotGraph(document, node, settings);
+}
+CommandResult deleteSlot(Document document, const NodeId &node, SlotId slot) {
+  return deleteSlotGraph(document, node, slot);
+}
+CommandResult reorderSlot(Document document, const NodeId &node, SlotId slot, std::optional<SlotId> before) {
+  return reorderSlotGraph(document, node, slot, before);
+}
+CommandResult insertImageNode(Document document, Node &&node, std::optional<InputAddress> before) {
+  return insertImageNodeGraph(document, std::move(node), before);
+}
+CommandResult deleteImageNode(Document document, const NodeId &node) {
+  return deleteImageNodeGraph(document, node);
+}
+CommandResult moveImageNode(Document document, const NodeId &node, std::optional<NodeId> before) {
+  return moveImageNodeGraph(document, node, before);
 }
 
 CommandResult connect(App &app, const OutputRef &producer, const InputAddress &destination) {
-  return mutateApp(app, [&](Document document) { return connect(document, producer, destination); });
+  return connectGraph(app, producer, destination);
 }
 CommandResult reconnect(App &app, const OutputRef &producer, const InputAddress &destination) {
-  return mutateApp(app, [&](Document document) { return reconnect(document, producer, destination); });
+  return reconnectGraph(app, producer, destination);
 }
 CommandResult disconnect(App &app, const InputAddress &destination) {
-  return mutateApp(app, [&](Document document) { return disconnect(document, destination); });
+  return disconnectGraph(app, destination);
 }
 CommandResult addNode(App &app, Node &&node) {
-  return mutateApp(app, [&](Document document) { return addNode(document, std::move(node)); });
+  return addNodeGraph(app, std::move(node));
 }
 CommandResult deleteNode(App &app, const NodeId &node, std::optional<OutputRef> replacementOutput) {
-  return mutateApp(app, [&](Document document) { return deleteNode(document, node, replacementOutput); });
+  return deleteNodeGraph(app, node, replacementOutput);
 }
 CommandResult setDocumentOutput(App &app, const OutputRef &output) {
-  return mutateApp(app, [&](Document document) { return setDocumentOutput(document, output); });
+  return setDocumentOutputGraph(app, output);
 }
 CommandResult addSlot(App &app, const NodeId &node, SlotSettings settings) {
-  return mutateApp(app, [&](Document document) { return addSlot(document, node, settings); });
+  return addSlotGraph(app, node, settings);
 }
 CommandResult deleteSlot(App &app, const NodeId &node, SlotId slot) {
-  return mutateApp(app, [&](Document document) { return deleteSlot(document, node, slot); });
+  return deleteSlotGraph(app, node, slot);
 }
 CommandResult reorderSlot(App &app, const NodeId &node, SlotId slot, std::optional<SlotId> before) {
-  return mutateApp(app, [&](Document document) { return reorderSlot(document, node, slot, before); });
+  return reorderSlotGraph(app, node, slot, before);
 }
 CommandResult insertImageNode(App &app, Node &&node, std::optional<InputAddress> before) {
-  return mutateApp(app, [&](Document document) { return insertImageNode(document, std::move(node), before); });
+  return insertImageNodeGraph(app, std::move(node), before);
 }
 CommandResult deleteImageNode(App &app, const NodeId &node) {
-  return mutateApp(app, [&](Document document) { return deleteImageNode(document, node); });
+  return deleteImageNodeGraph(app, node);
 }
 CommandResult moveImageNode(App &app, const NodeId &node, std::optional<NodeId> before) {
-  return mutateApp(app, [&](Document document) { return moveImageNode(document, node, before); });
+  return moveImageNodeGraph(app, node, before);
 }
 
 }  // namespace graph

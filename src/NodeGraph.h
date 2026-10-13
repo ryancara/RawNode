@@ -41,4 +41,17 @@ PersistChain captureChain(const App &app);
 bool appendPersistedNode(App &app, const PersistNode &node, std::optional<NodeId> insertAfter = std::nullopt);
 void applyChain(App &app, const PersistChain &chain);
 
+namespace document_detail {
+// Operation-local restoration, so grade application can prepare nodes and
+// colour/source changes before replacing anything. Both helpers borrow their
+// document operation's DocumentMutation; neither schedules preview work.
+struct RestoredChain {
+  std::vector<Node> nodes;
+  OutputRef output{NodeId{}, ports::image};
+  std::optional<NodeId> selection;
+};
+RestoredChain restoreChain(App &app, const PersistChain &chain);
+void replaceChain(App &app, RestoredChain &&chain);
+}  // namespace document_detail
+
 bool hasUnknownProcessorChoiceIds(const App &app);

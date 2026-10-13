@@ -122,35 +122,74 @@ static bool reloadCurrentRawEncoding(App &app, const ColorEncoding &requested,
   return true;
 }
 
+static bool resolveGradeColor(const PersistGradeColor &color, std::optional<ColorEncoding> &output,
+                              std::optional<ColorEncoding> &raw) {
+  const auto resolve = [](const std::string &gamut, const std::string &gamma,
+                          std::optional<ColorEncoding> &destination) {
+    if (gamut.empty() && gamma.empty()) return true;
+    ColorEncoding encoding;
+    if (gamut.empty() || gamma.empty() || !persistedColorEncoding(gamut, gamma, encoding)) return false;
+    destination = encoding;
+    return true;
+  };
+  return resolve(color.outputColorSpace, color.outputGamma, output) &&
+         resolve(color.rawColorSpace, color.rawGamma, raw);
+}
+
 bool applyGradeColor(App &app, const PersistGradeColor &color) {
-  ColorEncoding output;
-  if (!color.outputColorSpace.empty() || !color.outputGamma.empty()) {
-    if (color.outputColorSpace.empty() || color.outputGamma.empty() ||
-        !persistedColorEncoding(color.outputColorSpace, color.outputGamma, output))
-      return false;
-  }
-
-  ColorEncoding raw;
-  const bool hasRaw = !color.rawColorSpace.empty() || !color.rawGamma.empty();
-  if (hasRaw) {
-    if (color.rawColorSpace.empty() || color.rawGamma.empty() ||
-        !persistedColorEncoding(color.rawColorSpace, color.rawGamma, raw))
-      return false;
-
-    bool currentIsRaw = false;
-    {
-      std::lock_guard<std::mutex> lock(app.colorMutex);
-      currentIsRaw = app.inputIsRaw;
-    }
-    if (currentIsRaw && !reloadCurrentRawEncoding(app, raw, false, false))
-      return false;
-  }
-
-  if (!color.outputColorSpace.empty()) {
+  std::optional<ColorEncoding> output, raw;
+  if (!resolveGradeColor(color, output, raw)) return false;
+  if (raw && !reloadCurrentRawEncoding(app, *raw, false, false)) return false;
+  if (output) {
     std::lock_guard<std::mutex> lock(app.colorMutex);
-    app.outputEncoding = output;
+    app.outputEncoding = *output;
   }
   return true;
+}
+
+bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color) {
+  std::optional<ColorEncoding> output, raw;
+  if (!resolveGradeColor(color, output, raw)) {
+    app.setStatus("Invalid full-grade colour settings");
+    return false;
+  }
+  document_detail::DocumentMutation mutation(app);
+  try {
+    auto restored = document_detail::restoreChain(app, chain);
+    bool reloadRaw = false;
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      reloadRaw = raw && app.inputIsRaw && app.inputEncoding != *raw;
+    }
+    Image decoded;
+    ColorEncoding detected;
+    std::shared_ptr<const Image> preview;
+    if (reloadRaw) {
+      bool decodedRaw = false;
+      if (!loadImage(app.path, decoded, detected, decodedRaw, *raw) || !decodedRaw) {
+        app.setStatus("Could not reload RAW in " + colorEncodingName(*raw));
+        return false;
+      }
+      preview = document_detail::makePreviewSource(decoded, detected, app.previewRes);
+    }
+    // All decoding, processor creation, parameter restoration and allocation
+    // precede the live replacement. Exclusion also covers old-node destruction.
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      if (output) app.outputEncoding = *output;
+      if (reloadRaw) app.inputEncoding = detected;
+    }
+    if (reloadRaw) {
+      app.full = std::move(decoded);
+      app.preview = std::move(preview);
+    }
+    document_detail::replaceChain(app, std::move(restored));
+    mutation.changed();
+    return true;
+  } catch (const std::exception &error) {
+    app.setStatus("Could not apply full grade: " + std::string(error.what()));
+    return false;
+  }
 }
 
 PersistGui captureGui(const App &app) {

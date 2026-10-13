@@ -23,9 +23,10 @@ struct CommandResult {
 };
 
 // Image-spine projection derived from topology;
-// excludes Source. On failure the recognized unary suffix is still returned
-// in upstream-to-output order for display. Reordering and linear capture
-// require an empty error.
+// excludes Source. Structurally invalid graphs return no spine. If traversal
+// stops at a non-unary node or disconnected input, the recognized unary suffix
+// is returned in upstream-to-output order for display. Reordering and linear
+// capture require an empty error.
 std::string imageSpine(GraphView graph, std::vector<NodeId> &spine);
 bool isUnaryImageNode(const Node &node);
 

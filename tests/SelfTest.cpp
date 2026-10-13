@@ -24,6 +24,8 @@
 #include "processors/OfxProcessor.h"
 #include "persist/ProjectPersist.h"
 #include "persist/DocumentActions.h"
+#include "ui/UiContext.h"
+#include "imgui.h"
 
 #include <tiffio.h>
 #include <lcms2.h>
@@ -545,7 +547,7 @@ static bool testRuntimeCancellation() {
 static bool testControlThreadAssertions() {
   // Run before any workers/plugin loading. Each child deliberately violates one
   // contract; no process-wide assertion handler or production escape hatch.
-  for (int operation = 0; operation < 8; ++operation) {
+  for (int operation = 0; operation < 10; ++operation) {
     const pid_t child = fork();
     if (child < 0) return false;
     if (child == 0) {
@@ -562,6 +564,8 @@ static bool testControlThreadAssertions() {
           case 5: app.renderer.start(); break;
           case 6: app.renderer.shutdown(); break;
           case 7: app.renderer.joinExport(); break;
+          case 8: (void)graph::setDocumentOutput(app, app.documentOutput); break;
+          case 9: (void)graph::deleteNode(app, app.primarySource); break;
         }
       });
       wrongThread.join();
@@ -1420,7 +1424,139 @@ struct FailingOfxFixture {
   ~FailingOfxFixture() { gPlugins.pop_back(); }
 };
 
-static bool testPartialMutationUnwind() {
+// Exercise actual UI actions without an OS clipboard or native file chooser.
+struct TestClipboard {
+  ImGuiContext *previous = ImGui::GetCurrentContext();
+  ImGuiContext *context = ImGui::CreateContext();
+  std::string text;
+  TestClipboard() {
+    ImGui::SetCurrentContext(context);
+    auto &platform = ImGui::GetPlatformIO();
+    platform.Platform_ClipboardUserData = &text;
+    platform.Platform_GetClipboardTextFn = [](ImGuiContext *) {
+      return static_cast<std::string *>(ImGui::GetPlatformIO().Platform_ClipboardUserData)->c_str();
+    };
+    platform.Platform_SetClipboardTextFn = [](ImGuiContext *, const char *value) {
+      *static_cast<std::string *>(ImGui::GetPlatformIO().Platform_ClipboardUserData) = value;
+    };
+  }
+  ~TestClipboard() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
+};
+
+static bool testCaptureRefusalPreservesDestinations() {
+  TestClipboard clipboard;
+  ExportTestFiles files;
+  const auto read = [](const std::string &path) {
+    std::ifstream input(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(input), {});
+  };
+  for (int structure = 0; structure < 4; ++structure) {
+    App app; graphPreviewSource(app);
+    if (!addNativeExposureNode(app)) return false;
+    const auto selected = *app.selectedNodeId;
+    app.path = (files.dir / "source.nef").string();
+    const auto nodePreset = (files.dir / "node.rawnodepreset").string();
+    const auto gradePreset = (files.dir / "grade.rawnodepreset").string();
+    if (!copySelectedNode(app) || !copyGrade(app) || clipboard.text.empty() ||
+        !saveNodePreset(app, nodePreset) || !saveGradePreset(app, gradePreset)) return false;
+    saveCurrentInputSidecar(app);
+    const auto sidecar = inputSidecarPath(app.path);
+    const auto originalSidecar = read(sidecar), originalNode = read(nodePreset), originalGrade = read(gradePreset);
+    const auto originalClipboard = clipboard.text;
+    if (originalSidecar.empty() || originalNode.empty() || originalGrade.empty()) return false;
+    if (structure == 0) {
+      Node branch; branch.id = NodeId{"branch"};
+      branch.fixedInputs.at(ports::image) = OutputRef{selected, ports::image};
+      if (!graph::addNode(app, std::move(branch)).ok()) return false;
+    } else if (structure == 1) {
+      if (!graph::disconnect(app, {selected, std::nullopt, ports::image}).ok()) return false;
+    } else {
+      Node unsupported(structure == 2 ? NodeOperation::TestSlotted : NodeOperation::TestImage);
+      unsupported.id = NodeId{"unsupported"};
+      unsupported.fixedInputs.at(structure == 2 ? ports::reference : ports::image) = OutputRef{selected, ports::image};
+      if (!graph::addNode(app, std::move(unsupported)).ok() ||
+          !graph::setDocumentOutput(app, {NodeId{"unsupported"}, ports::image}).ok()) return false;
+    }
+    PersistNode untouched; untouched.id = "sentinel";
+    if (captureNode(app, selected, untouched) || untouched.id != "sentinel" ||
+        copySelectedNode(app) || copyGrade(app) || saveNodePreset(app, nodePreset) ||
+        saveGradePreset(app, gradePreset)) return false;
+    saveCurrentInputSidecar(app);
+    if (read(sidecar) != originalSidecar || read(nodePreset) != originalNode || read(gradePreset) != originalGrade ||
+        clipboard.text != originalClipboard || app.selectedNodeId != selected || !documentStateError(app).empty())
+      return false;
+  }
+  return true;
+}
+
+static bool testFailedTransferApplication() {
+  FailingOfxFixture fixture;
+  fixture.plugin.mainEntry = [](const char *action, const void *, OfxPropertySetHandle, OfxPropertySetHandle) {
+    if (std::strcmp(action, kOfxActionCreateInstance) == 0) throw std::bad_alloc();
+    return kOfxStatReplyDefault;
+  };
+  TestClipboard clipboard;
+  ExportTestFiles files;
+  App app; graphPreviewSource(app);
+  if (!addNativeExposureNode(app) || !selectedNode(app)->processor->setParameterValue("exposure", 1.0)) return false;
+  const auto original = captureChain(app);
+  const auto originalPayload = serializeTransferPayload("grade", original);
+  const auto id = *app.selectedNodeId;
+  const auto *processor = selectedNode(app)->processor.get();
+  const auto preview = app.preview;
+  const auto full = app.full;
+  const auto input = app.inputEncoding, output = app.outputEncoding, rawDefault = app.rawWorkingEncoding;
+  app.paramFilter[0] = 'e';
+  app.renderer.requestInspection({id, ports::image});
+  PreviewWorkerGuard guard{app}; app.renderer.start();
+  if (!previewIdle(app)) return false;
+  const auto unchanged = [&] {
+    if (!previewIdle(app) || !selectedNode(app) || selectedNode(app)->processor.get() != processor || app.selectedNodeId != id ||
+        app.paramFilter[0] != 'e' || app.preview != preview || app.full.px != full.px ||
+        app.full.w != full.w || app.full.h != full.h || app.inputEncoding != input || app.outputEncoding != output ||
+        app.rawWorkingEncoding != rawDefault || app.nodes.size() != 2 || app.documentOutput != OutputRef{id, ports::image} ||
+        serializeTransferPayload("grade", captureChain(app)) != originalPayload) return false;
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    return app.processed.result.requested == OutputRef{id, ports::image} &&
+           app.processed.result.state == EvaluationState::Available && testDisplay(app).px[0] == 0.25f;
+  };
+  PersistChain replacement = original;
+  replacement.nodes[0].id = "replacement";
+  replacement.nodes[0].paramsJson["exposure"] = "4";
+  PersistNode throws; throws.backend = "ofx"; throws.identifier = fixture.plugin.pluginIdentifier;
+  replacement.nodes.push_back(throws);
+  PersistGradeColor color;
+  color.outputColorSpace = rgbGamutId(RgbGamut::ACES_AP1);
+  color.outputGamma = transferFunctionId(TransferFunction::Linear);
+  clipboard.text = serializeTransferPayload("grade", replacement, &color);
+  const auto clipboardBefore = clipboard.text;
+  if (pasteFromClipboard(app) || !unchanged() || clipboard.text != clipboardBefore) return false;
+  const auto path = (files.dir / "throwing.rawnodepreset").string();
+  if (!savePresetFile(path, "grade", replacement, &color)) return false;
+  std::string kind; PersistChain loaded; PersistGradeColor loadedColor;
+  if (!loadPresetFile(path, kind, loaded, &loadedColor) || kind != "grade" ||
+      applyGrade(app, loaded, loadedColor) || !unchanged()) return false;
+  clipboard.text = serializeTransferPayload("node", PersistChain{"", -1, {throws}});
+  if (pasteFromClipboard(app) || !unchanged() || appendPersistedNode(app, throws, id) || !unchanged()) return false;
+  replacement.nodes.pop_back();
+  color.outputGamma = "unknown";
+  if (applyGrade(app, replacement, color) || !unchanged()) return false;
+  color.outputGamma = transferFunctionId(TransferFunction::Linear);
+  color.rawColorSpace = rgbGamutId(RgbGamut::ACES_AP1);
+  color.rawGamma = transferFunctionId(TransferFunction::Linear);
+  app.inputIsRaw = true;
+  app.path = (files.dir / "missing.nef").string();
+  if (applyGrade(app, replacement, color) || !unchanged() || !app.inputIsRaw) return false;
+  // Recovery proves the successful shared clipboard/preset application path.
+  app.inputIsRaw = false;
+  if (!applyGrade(app, replacement, color) || !previewIdle(app) || app.nodes.size() != 2 ||
+      app.nodes[1].id.value != "replacement" || app.outputEncoding != ColorEncoding{RgbGamut::ACES_AP1, TransferFunction::Linear} ||
+      app.paramFilter[0] != '\0') return false;
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  return app.processed.result.requested == app.documentOutput && testDisplay(app).px[0] == 2.0f;
+}
+
+static bool testRestorationUnwind() {
   FailingOfxFixture fixture;
   fixture.plugin.mainEntry = [](const char *action, const void *, OfxPropertySetHandle, OfxPropertySetHandle) {
     if (std::strcmp(action, kOfxActionCreateInstance) == 0)
@@ -1430,6 +1566,8 @@ static bool testPartialMutationUnwind() {
   App app;
   graphPreviewSource(app);
   if (!addNativeExposureNode(app)) return false;
+  const auto originalId = app.nodes[1].id;
+  const auto *originalProcessor = app.nodes[1].processor.get();
   PersistNode exposure;
   exposure.id = "restored-first";
   exposure.backend = "native";
@@ -1445,9 +1583,10 @@ static bool testPartialMutationUnwind() {
     applyChain(app, replacement);
     return false;
   } catch (const std::runtime_error &) {
-    if (app.nodes.size() != 2 || app.nodes[1].id.value != exposure.id) return false;
+    if (app.nodes.size() != 2 || app.nodes[1].id != originalId ||
+        app.nodes[1].processor.get() != originalProcessor || app.selectedNodeId != originalId) return false;
   }
-  return finishGraphPreview(app, before, 0.25f);
+  return finishGraphPreview(app, before, 0.125f, true);
 }
 
 // Exercise the actual OFX suite callback through OfxProcessor/renderEffect.
@@ -1875,9 +2014,13 @@ int runSelfTests() {
   if (!testGraphEvaluator()) return fail("Step 6C graph evaluator");
   if (!testGraphRuntime()) return fail("Step 6D graph runtime cutover");
   if (!testNodeList()) return fail("Step 6E.1 List View and NodeId selection");
+  if (!testCaptureRefusalPreservesDestinations()) return fail("6E.2 unsupported capture must preserve sidecar, presets and clipboard");
+  printf("ok  6E.2 unsupported graph capture preserves sidecar, preset files and real UI clipboard\n");
+  if (!testFailedTransferApplication()) return fail("6E.2 failed clipboard/preset application must preserve graph, colour and inspection");
+  printf("ok  6E.2 failed clipboard/preset application preserves document and colour settings; recovery succeeds\n");
 #if !defined(NDEBUG) && !defined(_WIN32)
   if (!testControlThreadAssertions()) return fail("renderer control-thread assertions");
-  printf("ok  Debug control-thread contract (8 expected child assertions)\n");
+  printf("ok  Debug control-thread contract (10 expected child assertions)\n");
 #endif
   if (!testOfxThreadPool()) return fail("OFX host multithread lifetime");
   for (bool started : {false, true})
@@ -2387,7 +2530,7 @@ int runSelfTests() {
         return fail("production graph transaction/request/result");
       }
     }
-    if (!testPartialMutationUnwind()) return fail("partial restoration exception must release the gate and request preview");
+    if (!testRestorationUnwind()) return fail("failed restoration must retain the document, release the gate and restore preview");
     if (!testGraphEditNoops()) return fail("graph no-ops must retain work without requesting more");
     if (!testIdlePreviewRebuild()) return fail("idle production preview-resolution rebuild/request/result");
     printf("ok  Production graph transactions (13 edits, idle resolution rebuild, no-ops)\n");
@@ -2605,9 +2748,8 @@ int runSelfTests() {
     if (!addNativeExposureNode(destinationGrade) ||
         !destinationGrade.nodes[1].processor->setParameterValue("exposure", 4.0))
       return fail("full grade destination setup");
-    if (!applyGradeColor(destinationGrade, decodedColor))
-      return fail("full grade colour apply");
-    applyChain(destinationGrade, decoded);
+    if (!applyGrade(destinationGrade, decoded, decodedColor))
+      return fail("full grade apply");
 
     ColorEncoding pastedOutput;
     {
@@ -2715,9 +2857,8 @@ int runSelfTests() {
     App gradePresetTarget;
     if (!addNativeExposureNode(gradePresetTarget))
       return fail("grade preset target setup");
-    if (!applyGradeColor(gradePresetTarget, loadedGradeColor))
-      return fail("grade preset colour apply");
-    applyChain(gradePresetTarget, loadedGradePreset);
+    if (!applyGrade(gradePresetTarget, loadedGradePreset, loadedGradeColor))
+      return fail("grade preset apply");
     ColorEncoding presetOutput;
     {
       std::lock_guard<std::mutex> lock(gradePresetTarget.colorMutex);
