@@ -119,8 +119,10 @@ checkpoint and Step 5 product-contract work are complete. Codex and Claude
 independently found the direction **sound for the next stage** and again found
 the final Step 5 contract sound after small clarifications. No further broad
 architecture cleanup is justified before Step 6. On the Step 6 draft feature
-branch, preview, inspection and export now share the explicit DAG evaluator.
-The remaining List View/V2 boundary work and final review precede merge.
+branch, the explicit graph, sequential DAG evaluator, topology List View and
+minimal V2 safety boundary are implemented. Preview, inspection and export share
+the evaluator. Independent whole-Step-6 review is complete; macOS/NEF validation
+and merge remain pending. PR #58 remains draft and unmerged.
 The authoritative target is in
 `docs/ARCHITECTURE.md`.
 
@@ -245,8 +247,9 @@ completion demand before gate opening. Neither remains an open checkpoint item.
 **Step 5 is complete.** The accepted graph/mask contract is detailed in
 `docs/STEP5_GRAPH_CONTRACT.md` and summarized in D039–D046.
 
-**Step 6 is current.** Introduce explicit topology and the sequential evaluator
-together: static named Image/Mask ports, consumer-owned upstream references,
+**Step 6 is implemented and independently reviewed; macOS/NEF validation and
+merge are pending.** Explicit topology and the sequential evaluator use
+static named Image/Mask ports, consumer-owned upstream references,
 ordered stable Slots, explicit Source/document output, requested Image/Mask
 endpoints, fan-out, cycle rejection, shared-upstream evaluation and
 per-evaluation value lifetime.
@@ -270,9 +273,8 @@ remains a practical composition root. Leaf App locks must not call back into
 RenderRuntime while held; no pre-Step-5 lock redesign is required.
 Thumbnail exceptional lifetime, the macOS pthread handoff and `makePreview`
 partial thread-launch safety remain focused follow-ups, not architecture
-blockers or reasons to reopen the audit. Dead `uploadTexture` cleanup belongs
-with the Step 6 evaluator/display boundary; persistence atomicity and GUI-state
-cleanup belong with Step 7.
+blockers or reasons to reopen the audit. Dead `uploadTexture` cleanup is complete
+in Step 6; persistence atomicity and GUI-state cleanup belong with Step 7.
 
 ## Colour and image-processing principles
 

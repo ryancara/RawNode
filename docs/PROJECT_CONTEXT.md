@@ -136,7 +136,8 @@ requested-endpoint evaluator now drive preview, Image/Mask inspection and export
 List View derives topology order and keeps off-spine nodes accessible; selection
 uses stable NodeIds. Unsupported linear sidecar/clipboard/preset capture refuses
 before writing, and full-grade application stages graph/colour/source changes
-before committing. Final whole-Step-6 approval remains outstanding.
+before committing. Independent whole-Step-6 review is complete. macOS/NEF
+validation and merge remain pending; PR #58 is draft and unmerged.
 
 The renderer/concurrency baseline established by PRs #32-#34 is important:
 
@@ -169,8 +170,9 @@ endpoint, value kind, state and diagnostics. Preview Source frames use shared
 ownership; per-evaluation consumer counts bound intermediate raster lifetime.
 Presentation buffers remain in the display path and file production in export.
 The runtime owns **when** evaluation may execute safely, not what the document
-or export means. The remaining List View/V2 boundary work and whole-Step-6 review
-must complete before merge.
+or export means. List View and the minimal V2 safety boundary are implemented
+and included in the completed independent whole-Step-6 review. macOS/NEF
+validation and merge remain pending.
 
 ## Architectural direction
 
@@ -179,9 +181,11 @@ checkpoint are complete. Codex and Claude independently reviewed the current
 implementation and target against RawNode's product goals and the pinned vkdt
 reference and found the direction **sound for the next stage**. Step 5 has now
 closed after independent final Codex/Claude implementation-readiness review.
-No further broad architectural refactor is justified before Step 6. This does
-not mean the final graph architecture is implemented. The approved target remains documented in
-`docs/ARCHITECTURE.md`; checkpoint evidence is in `docs/ARCHITECTURE_AUDIT.md`.
+No further broad architectural refactor was required before Step 6. The explicit
+graph and sequential evaluator are now implemented and independently reviewed on
+the draft branch; persistence and concrete production Mask features remain later
+steps. The approved target is documented in `docs/ARCHITECTURE.md`; checkpoint
+evidence is in `docs/ARCHITECTURE_AUDIT.md`.
 
 The architectural north star is:
 
@@ -355,12 +359,13 @@ need.
 
 ## Current development phase
 
-**Step 6 implementation is complete on the draft feature branch; final review is
-pending.** Step 5's product/architecture contract is complete. The full graph
-transition, NodeId selection, topology List View and minimal linear capture /
-transactional grade safety are implemented. The complete PR still needs
-independent Claude approval before merge. macOS native-dialog and successful
-camera-RAW grade re-decode validation require a platform session; see
+**Step 6 implementation and independent whole-transition review are complete on
+the draft feature branch; macOS/NEF validation and merge remain pending.**
+PR #58 is still draft and unmerged. Step 5's product/architecture contract is
+complete. The full graph transition, NodeId selection, topology List View and
+minimal linear capture /
+transactional grade safety are implemented. macOS native-dialog and successful
+camera-RAW (NEF) grade re-decode validation require a platform session; see
 `docs/STEP6_MANUAL_VALIDATION.md`.
 
 Steps 1–4 are complete: owned export execution, frozen parameter edits during
@@ -384,13 +389,14 @@ The remaining sequence is:
     Step 5: First mask/graph product contract       [complete]
           |
           v
-    Step 6: Explicit topology + sequential DAG evaluator [implemented; final review pending]
+    Step 6: Explicit topology + sequential DAG evaluator [implemented and independently reviewed]
+            macOS/NEF validation and merge pending; PR #58 draft and unmerged
           |
           v
     Step 7: Versioned graph persistence
           |
           v
-    Switchable Graph/List editor
+    Switchable Graph/List editor                   [UI milestone, D047]
           |
           v
     Step 8: Concrete first mask path + remaining implementation details
@@ -454,8 +460,8 @@ compositing or alpha-carrying I/O requires it.
 
 Current architecture/product-contract work:
 
-- Step 6: complete final independent whole-transition review and outstanding
-  macOS/RAW manual validation; keep PR #58 draft until approval.
+- Step 6: implementation and independent whole-transition review complete;
+  macOS/NEF manual validation and merge pending. PR #58 remains draft and unmerged.
 - Then Step 7 graph persistence, the switchable Graph/List editor, and Step 8
   masking, in that order.
 

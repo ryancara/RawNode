@@ -7,8 +7,9 @@ architecture audit and independent Claude review. Steps 1–4 and the
 post-Step-4 stabilisation/checkpoint gate and Step 5 product-contract work are
 complete. Step 6 implementation is complete on its draft feature branch:
 preview, inspection, export and List View use one explicit document graph.
-Final whole-Step-6 independent approval is required before merge. macOS/RAW
-manual validation remains outstanding. Graph-native persistence is Step 7 work.
+Independent whole-Step-6 review is complete. macOS/NEF manual validation and
+merge remain pending; PR #58 is still draft and unmerged. Graph-native
+persistence is Step 7 work.
 
 Read this together with:
 
@@ -581,14 +582,15 @@ sidecars) and #54 (mutation-completion ordering regression) are complete.
 See `docs/ARCHITECTURE_AUDIT.md` for evidence and non-blocking dispositions.
 
 These are stabilisation/review gates, **not additional numbered architecture
-steps**. Steps 1–4 are complete; the Step 6 implementation on the draft branch
-still requires final whole-transition approval before merge.
+steps**. Steps 1–4 are complete. Step 6 implementation and independent
+whole-transition review are complete on the draft branch; macOS/NEF validation
+and merge remain pending.
 
 5. **Settle the first mask/graph product contract — complete.**
    The accepted contract is summarized in `docs/DECISIONS.md` and detailed in
    `docs/STEP5_GRAPH_CONTRACT.md`.
 
-6. **Introduce explicit topology and sequential DAG evaluation together — implemented; final review pending.**
+6. **Introduce explicit topology and sequential DAG evaluation together — implemented and independently reviewed.**
    One authoritative graph has static named typed ports,
    consumer-owned input references, ordered stable Slots, explicit Source and
    document output, requested Image/Mask endpoint evaluation, fan-out, joins,
@@ -599,8 +601,9 @@ still requires final whole-transition approval before merge.
 7. **Add versioned graph persistence.**
 
    After graph persistence, add the switchable Graph/List editor before Step 8.
-   Both views must edit the same document graph; no separate renderer or list
-   execution model is introduced.
+   This is a UI milestone (D047), not another numbered architecture step.
+   Both views edit the same authoritative document graph and share NodeId
+   selection; no additional renderer or execution model is introduced.
 
 8. **Settle remaining concrete mask details and add the first mask path.**
    Implement the Step 5 contract; settle remaining representation, range,
