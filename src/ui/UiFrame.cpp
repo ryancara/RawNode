@@ -14,11 +14,12 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
 void doExport(App &app) {
-  if (app.full.px.empty() || app.nodes.empty()) return;
+  if (app.full.px.empty() || !app.hasProcessingOutput()) return;
   const char *exts[] = {".png", ".jpg"};
   const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg"};
   std::string def = fs::path(app.path).stem().string() + exts[app.exportFormat];
@@ -29,9 +30,13 @@ void doExport(App &app) {
   startExport(app, outPath);
 }
 
-static bool copySelectedNode(App &app) {
+bool copySelectedNode(App &app) {
   PersistNode node;
-  if (!captureNode(app, app.selectedNode, node)) return false;
+  if (!app.selectedNodeId) return false;
+  if (!captureNode(app, *app.selectedNodeId, node)) {
+    app.setStatus("Node copy is unavailable for this graph in the current file format");
+    return false;
+  }
 
   PersistChain transfer;
   transfer.selectedNodeId = node.id;
@@ -42,9 +47,11 @@ static bool copySelectedNode(App &app) {
   return true;
 }
 
-static bool copyGrade(App &app) {
-  if (app.nodes.empty()) return false;
-  const PersistChain transfer = captureChain(app);
+bool copyGrade(App &app) {
+  if (!app.hasProcessingOutput()) return false;
+  PersistChain transfer;
+  try { transfer = captureChain(app); }
+  catch (const std::runtime_error &error) { app.setStatus(error.what()); return false; }
   const bool colourProtected =
       (!app.path.empty() && app.sidecarWriteBlockedPath == app.path) || app.workspaceWriteBlocked;
   if (colourProtected) {
@@ -61,7 +68,8 @@ static bool copyGrade(App &app) {
   return true;
 }
 
-static bool pasteFromClipboard(App &app) {
+
+bool pasteFromClipboard(App &app) {
   const char *clipboard = ImGui::GetClipboardText();
   if (!clipboard || !*clipboard) {
     app.setStatus("Clipboard does not contain RawNode data");
@@ -81,11 +89,11 @@ static bool pasteFromClipboard(App &app) {
       app.setStatus("Invalid RawNode node payload");
       return false;
     }
-    if (!appendPersistedNode(app, transfer.nodes.front(), app.selectedNode)) {
-      app.setStatus("Could not paste node");
+    if (!appendPersistedNode(app, transfer.nodes.front(), app.selectedNodeId)) {
+      app.setStatus("Could not paste node: " + app.getStatus());
       return false;
     }
-    if (Node *node = selectedNode(app); node && !node->processor)
+    if (Node *node = selectedNode(app); node && node->isMissingProcessor())
       app.setStatus("Pasted node (processor unavailable)");
     else
       app.setStatus("Pasted node");
@@ -93,14 +101,10 @@ static bool pasteFromClipboard(App &app) {
   }
 
   if (kind == "grade") {
-    if (!applyGradeColor(app, color)) {
-      app.setStatus("Could not apply full-grade colour settings");
-      return false;
-    }
-    applyChain(app, transfer);
+    if (!applyGrade(app, transfer, color)) return false;
     int unavailable = 0;
     for (const Node &node : app.nodes)
-      if (!node.processor) ++unavailable;
+      if (node.isMissingProcessor()) ++unavailable;
     if (unavailable > 0)
       app.setStatus("Pasted full grade (" + std::to_string(unavailable) + " processor(s) unavailable)");
     else
@@ -118,18 +122,23 @@ static std::string ensurePresetExtension(std::string path) {
   return path;
 }
 
-static bool saveNodePreset(App &app) {
+bool saveNodePreset(App &app, std::string path) {
   PersistNode node;
-  if (!captureNode(app, app.selectedNode, node)) return false;
+  if (!app.selectedNodeId) return false;
+  if (!captureNode(app, *app.selectedNodeId, node)) {
+    app.setStatus("Node preset capture is unavailable for this graph in the current file format");
+    return false;
+  }
 
   PersistChain preset;
   preset.selectedNodeId = node.id;
   preset.nodes.push_back(std::move(node));
 
-  auto dialog = pfd::save_file(
-      "Save Node Preset", "Node.rawnodepreset",
-      {"RawNode preset", "*.rawnodepreset"});
-  std::string path = ensurePresetExtension(dialog.result());
+  if (path.empty()) {
+    auto dialog = pfd::save_file("Save Node Preset", "Node.rawnodepreset", {"RawNode preset", "*.rawnodepreset"});
+    path = dialog.result();
+  }
+  path = ensurePresetExtension(std::move(path));
   if (path.empty()) return false;
 
   if (!savePresetFile(path, "node", preset)) {
@@ -140,16 +149,19 @@ static bool saveNodePreset(App &app) {
   return true;
 }
 
-static bool saveGradePreset(App &app) {
-  if (app.nodes.empty()) return false;
-  const PersistChain preset = captureChain(app);
+bool saveGradePreset(App &app, std::string path) {
+  if (!app.hasProcessingOutput()) return false;
+  PersistChain preset;
+  try { preset = captureChain(app); }
+  catch (const std::runtime_error &error) { app.setStatus(error.what()); return false; }
   const bool colourProtected =
       (!app.path.empty() && app.sidecarWriteBlockedPath == app.path) || app.workspaceWriteBlocked;
 
-  auto dialog = pfd::save_file(
-      "Save Full Grade Preset", "Grade.rawnodepreset",
-      {"RawNode preset", "*.rawnodepreset"});
-  std::string path = ensurePresetExtension(dialog.result());
+  if (path.empty()) {
+    auto dialog = pfd::save_file("Save Full Grade Preset", "Grade.rawnodepreset", {"RawNode preset", "*.rawnodepreset"});
+    path = dialog.result();
+  }
+  path = ensurePresetExtension(std::move(path));
   if (path.empty()) return false;
 
   bool ok = false;
@@ -169,6 +181,7 @@ static bool saveGradePreset(App &app) {
     app.setStatus("Saved full-grade preset: " + std::filesystem::path(path).filename().string());
   return true;
 }
+
 
 static bool loadPreset(App &app) {
   auto dialog = pfd::open_file(
@@ -190,11 +203,11 @@ static bool loadPreset(App &app) {
       app.setStatus("Invalid node preset");
       return false;
     }
-    if (!appendPersistedNode(app, preset.nodes.front(), app.selectedNode)) {
-      app.setStatus("Could not apply node preset");
+    if (!appendPersistedNode(app, preset.nodes.front(), app.selectedNodeId)) {
+      app.setStatus("Could not apply node preset: " + app.getStatus());
       return false;
     }
-    if (Node *node = selectedNode(app); node && !node->processor)
+    if (Node *node = selectedNode(app); node && node->isMissingProcessor())
       app.setStatus("Loaded node preset (processor unavailable)");
     else
       app.setStatus("Loaded node preset");
@@ -202,14 +215,10 @@ static bool loadPreset(App &app) {
   }
 
   if (kind == "grade") {
-    if (!applyGradeColor(app, color)) {
-      app.setStatus("Could not apply full-grade preset colour settings");
-      return false;
-    }
-    applyChain(app, preset);
+    if (!applyGrade(app, preset, color)) return false;
     int unavailable = 0;
     for (const Node &node : app.nodes)
-      if (!node.processor) ++unavailable;
+      if (node.isMissingProcessor()) ++unavailable;
     if (unavailable > 0)
       app.setStatus("Loaded full-grade preset (" + std::to_string(unavailable) + " processor(s) unavailable)");
     else
@@ -288,7 +297,8 @@ void DrawUiFrame(App &app) {
       const char *copyShortcut = "Ctrl+C";
       const char *pasteShortcut = "Ctrl+V";
 #endif
-      const bool canCopyNode = app.selectedNode >= 0 && app.selectedNode < (int)app.nodes.size();
+      const Node *selection = selectedNode(app);
+      const bool canCopyNode = selection && selection->operation == NodeOperation::ImageProcessor;
       if (ImGui::MenuItem("Copy Node", copyShortcut, false, canCopyNode))
         copySelectedNode(app);
 #ifdef __APPLE__
@@ -296,7 +306,7 @@ void DrawUiFrame(App &app) {
 #else
       const char *copyGradeShortcut = "Ctrl+Shift+C";
 #endif
-      if (ImGui::MenuItem("Copy Full Grade", copyGradeShortcut, false, !app.nodes.empty()))
+      if (ImGui::MenuItem("Copy Full Grade", copyGradeShortcut, false, app.hasProcessingOutput()))
         copyGrade(app);
       if (ImGui::MenuItem("Paste", pasteShortcut))
         pasteFromClipboard(app);
@@ -304,7 +314,7 @@ void DrawUiFrame(App &app) {
       if (ImGui::BeginMenu("Presets")) {
         if (ImGui::MenuItem("Save Node Preset…", nullptr, false, canCopyNode))
           saveNodePreset(app);
-        if (ImGui::MenuItem("Save Full Grade Preset…", nullptr, false, !app.nodes.empty()))
+        if (ImGui::MenuItem("Save Full Grade Preset…", nullptr, false, app.hasProcessingOutput()))
           saveGradePreset(app);
         ImGui::Separator();
         if (ImGui::MenuItem("Load Preset…"))

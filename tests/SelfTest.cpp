@@ -1,10 +1,16 @@
 #include "SelfTest.h"
 #include "OfxThreadPoolTests.h"
+#include "GraphModelTests.h"
+#include "GraphCommandsTests.h"
+#include "GraphEvaluatorTests.h"
+#include "GraphRuntimeTests.h"
+#include "NodeListTests.h"
 
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
 #include "color/LinearColorTransform.h"
 #include "NodeGraph.h"
+#include "GraphCommands.h"
 #include "RenderPipeline.h"
 #include "DocumentMutation.h"
 #include "Export.h"
@@ -18,6 +24,8 @@
 #include "processors/OfxProcessor.h"
 #include "persist/ProjectPersist.h"
 #include "persist/DocumentActions.h"
+#include "ui/UiContext.h"
+#include "imgui.h"
 
 #include <tiffio.h>
 #include <lcms2.h>
@@ -50,6 +58,31 @@ namespace fs = std::filesystem;
 using document_detail::DocumentMutation;
 using RuntimeAccess = RenderRuntimeTestAccess;
 using RuntimeEvent = RuntimeAccess::Event;
+
+// Fixtures construct actual topology before execution. These helpers do not
+// emulate rendering or mutate runtime demand/gates.
+static void setTestPreview(App &app, Image image) {
+  if (app.full.px.empty()) app.full = image;
+  app.preview = std::make_shared<Image>(std::move(image));
+}
+static void appendTestNode(App &app, Node node) {
+  if (app.full.px.empty()) app.full = *app.preview;
+  if (node.id.value.empty()) node.id = NodeId{"fixture-node-" + std::to_string(app.nodes.size())};
+  const auto result = graph::insertImageNode(graph::Document{app.nodes, app.primarySource, app.documentOutput}, std::move(node));
+  if (!result.ok()) throw std::runtime_error(result.error);
+}
+static Image &testDisplay(App &app) {
+  static Image empty;
+  const auto *value = std::get_if<ImageValue>(&app.processed.result.value);
+  return value && *value ? const_cast<Image &>(**value) : empty;
+}
+static void seedTestDisplay(App &app, Image image) {
+  const OutputRef endpoint{NodeId{"fixture-processed"}, ports::image};
+  app.display = {image.w, image.h};
+  app.processed = {0, std::make_shared<OutputRef>(endpoint),
+                   {endpoint, ValueType::Image, EvaluationState::Available,
+                    ImageValue(std::make_shared<Image>(std::move(image))), {}}};
+}
 
 static auto renderState(const App &app) { return RuntimeAccess::snapshot(app.renderer); }
 static bool previewIdle(App &app) {
@@ -210,10 +243,10 @@ static bool testExportPreservesSourceSidecar(bool crossImage) {
   App app;
   app.path = (files.dir / "DSC_0001.NEF").string();
   app.inputIsRaw = true;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
   if (!addNativeExposureNode(app) ||
-      !app.nodes[0].processor->setParameterValue("exposure", 1.0)) return false;
+      !app.nodes[1].processor->setParameterValue("exposure", 1.0)) return false;
   saveCurrentInputSidecar(app);
   const std::string sourceSidecar = inputSidecarPath(app.path);
   const std::string targetSource = crossImage ? (files.dir / "DSC_0002.NEF").string() : app.path;
@@ -248,10 +281,10 @@ static bool testExportPreservesSourceSidecar(bool crossImage) {
 
 static bool testRuntimeIdleLifecycle(bool started, bool pending) {
   App app;
-  app.preview = {{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1});
   Node node;
   node.processor = std::make_unique<NativeExposureProcessor>();
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   RuntimeEvents events(app);
   std::optional<DocumentMutation> gate;
   gate.emplace(app);
@@ -315,15 +348,15 @@ static bool testRuntimeActiveShutdown(bool exporting, bool destroy,
   RenderLifetimeFacts facts;
   auto owner = std::make_unique<App>();
   App &app = *owner;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
-  app.display = app.preview;
+  seedTestDisplay(app, *app.preview);
   auto processor = std::make_unique<LifetimeSelfTestProcessor>(facts);
   auto *probe = processor.get();
   probe->exportFailure = failure;
   Node node;
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   // This callback owns no App data and remains alive through App destruction.
   struct StopObservation {
     std::mutex mutex;
@@ -388,10 +421,10 @@ static bool testRuntimeActiveShutdown(bool exporting, bool destroy,
 // outer completion that requests its final preview only after opening the gate.
 static bool testSingleMutationCompletionDemand(bool changed) {
   App app;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   Node node;
   node.processor = std::make_unique<NativeExposureProcessor>();
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   RuntimeEvents events(app);
   if (!changed) {
     app.renderer.requestPreview();     // Real demand for beginMutation to interrupt.
@@ -417,10 +450,10 @@ static bool testSingleMutationCompletionDemand(bool changed) {
 
 static bool testNormalPreviewDominatesQuiet(bool observe) {
   App app;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   Node node;
   node.processor = std::make_unique<NativeExposureProcessor>();
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   RuntimeEvents events(app);
   if (!observe) RuntimeAccess::observe(app.renderer, nullptr, nullptr);
   app.renderer.requestPreview();
@@ -447,24 +480,24 @@ static bool testNormalPreviewDominatesQuiet(bool observe) {
   if (!previewIdle(app) || app.getStatus() != "1×1 preview") return false;
   const auto completed = renderState(app);
   return !completed.previewPending && !completed.quietPending && completed.epoch == state.epoch + 1 &&
-         app.displayGen == completed.epoch && app.displayDirty && app.display.px == app.preview.px;
+         app.processed.generation == completed.epoch && app.displayDirty && testDisplay(app).px == app.preview->px;
 }
 
 static bool testRuntimeCancellation() {
   App app, independent;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
-  app.display = app.preview;
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
+  seedTestDisplay(app, *app.preview);
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   Node node;
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   auto following = std::make_unique<SchedulingSelfTestProcessor>();
   auto *next = following.get();
   next->release = true;
   Node nextNode;
   nextNode.processor = std::move(following);
-  app.nodes.push_back(std::move(nextNode));
+  appendTestNode(app, std::move(nextNode));
   SchedulingWorkerGuard guard{app, *probe};
   app.renderer.start();
   app.renderer.requestPreview();
@@ -499,7 +532,7 @@ static bool testRuntimeCancellation() {
     std::lock_guard<std::mutex> lock(next->mutex);
     if (next->calls != 0) return false;
   }
-  if (app.displayDirty || app.display.px != app.preview.px) return false;
+  if (app.displayDirty || testDisplay(app).px != app.preview->px) return false;
   {
     std::lock_guard<std::mutex> lock(probe->mutex);
     probe->release = true;
@@ -507,14 +540,14 @@ static bool testRuntimeCancellation() {
   probe->cv.notify_all();
   if (!previewIdle(app)) return false;
   return next->calls == 1 && probe->cancelledCalls.size() == 2 && !probe->cancelledCalls[1] &&
-         app.displayDirty && app.displayGen > epoch;
+         app.displayDirty && app.processed.generation > epoch;
 }
 
 #if !defined(NDEBUG) && !defined(_WIN32)
 static bool testControlThreadAssertions() {
   // Run before any workers/plugin loading. Each child deliberately violates one
   // contract; no process-wide assertion handler or production escape hatch.
-  for (int operation = 0; operation < 8; ++operation) {
+  for (int operation = 0; operation < 10; ++operation) {
     const pid_t child = fork();
     if (child < 0) return false;
     if (child == 0) {
@@ -531,6 +564,8 @@ static bool testControlThreadAssertions() {
           case 5: app.renderer.start(); break;
           case 6: app.renderer.shutdown(); break;
           case 7: app.renderer.joinExport(); break;
+          case 8: (void)graph::setDocumentOutput(app, app.documentOutput); break;
+          case 9: (void)graph::deleteNode(app, app.primarySource); break;
         }
       });
       wrongThread.join();
@@ -545,17 +580,16 @@ static bool testControlThreadAssertions() {
 
 static bool testRenderScheduling(bool busy, bool recolorFirst, bool queueFull = true, bool failRender = false) {
   App app;
-  app.preview.w = app.preview.h = 1;
-  app.preview.px = {0.18f, 0.18f, 0.18f, 1.0f};
-  app.display = app.preview;
-  app.display.px = {0.05f, 0.05f, 0.05f, 1.0f};
-  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  setTestPreview(app, Image{{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1});
+  seedTestDisplay(app, *app.preview);
+  testDisplay(app).px = {0.05f, 0.05f, 0.05f, 1.0f};
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->failRender = failRender;
   Node node;
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
 
   SchedulingWorkerGuard guard{app, *probe};
 
@@ -600,33 +634,34 @@ static bool testRenderScheduling(bool busy, bool recolorFirst, bool queueFull = 
     std::lock_guard<std::mutex> lock(probe->mutex);
     if (probe->calls != expectedCalls) return false;
   }
-  Image expected = app.preview;
-  expected.px = failRender ? std::vector<float>{0.05f, 0.05f, 0.05f, 1.0f}
-                           : std::vector<float>{0.25f * expectedCalls, 0.25f * expectedCalls,
-                                                0.25f * expectedCalls, 1.0f};
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  if (failRender)
+    return generationUnchanged && app.processed.result.state == EvaluationState::Error &&
+           std::holds_alternative<std::monostate>(app.processed.result.value) && app.displayRGBA.empty() &&
+           app.displayDirty && app.processed.generation >= requiredGen &&
+           app.getStatus().find("Self-test render failure") != std::string::npos;
+  Image expected = *app.preview;
+  expected.px = {0.25f * expectedCalls, 0.25f * expectedCalls, 0.25f * expectedCalls, 1.0f};
   std::vector<unsigned char> expectedRGBA;
   toDisplayRGBA8(expected, app.outputEncoding, expectedRGBA);
-  std::lock_guard<std::mutex> lock(app.displayMutex);
-  return generationUnchanged && app.display.px == expected.px &&
-         app.displayRGBA == expectedRGBA && app.displayDirty &&
-         (failRender ? app.displayGen == 0 && app.getStatus() == "Render failed: Self-test render failure"
-                     : app.displayGen >= requiredGen);
+  return generationUnchanged && testDisplay(app).px == expected.px && app.displayRGBA == expectedRGBA &&
+         app.displayDirty && app.processed.generation >= requiredGen;
 }
 
 // Display-only demand stays behind real nested document scopes and never
 // creates processor work. Shutdown cancels it without a restoration request.
 static bool testRecolorMutationGate(bool cancel) {
   App app;
-  app.preview = {{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1};
-  app.display = app.preview;
-  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  setTestPreview(app, Image{{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1});
+  seedTestDisplay(app, *app.preview);
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   const auto originalRGBA = app.displayRGBA;
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->release = true;
   Node node;
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
   std::optional<DocumentMutation> outer, inner;
@@ -648,9 +683,9 @@ static bool testRecolorMutationGate(bool cancel) {
   if (!previewIdle(app)) return false;
   state = renderState(app);
   std::vector<unsigned char> expectedRGBA;
-  toDisplayRGBA8(app.display, app.outputEncoding, expectedRGBA);
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, expectedRGBA);
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  return probe->calls == 0 && app.display.px == app.preview.px && app.displayGen == 0 &&
+  return probe->calls == 0 && testDisplay(app).px == app.preview->px && app.processed.generation == 0 &&
          app.displayDirty == !cancel && app.displayRGBA == (cancel ? originalRGBA : expectedRGBA) &&
          state.epoch == generation + (cancel ? 1 : 0);
 }
@@ -659,13 +694,11 @@ static bool testRecolorMutationGate(bool cancel) {
 // F5: a document barrier cancels a recolour, then the expected full render fails.
 static bool testFailedRenderWithoutPendingRecolor(bool cancelRecolor) {
   App app;
-  app.preview.w = app.preview.h = 1;
-  app.preview.px = {0.18f, 0.18f, 0.18f, 1.0f};
-  app.display = app.preview;
-  app.display.px = {0.05f, 0.05f, 0.05f, 1.0f};
-  app.displayGen = 17;
-  const Image lastGood = app.display;
-  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  setTestPreview(app, Image{{0.18f, 0.18f, 0.18f, 1.0f}, 1, 1});
+  seedTestDisplay(app, *app.preview);
+  testDisplay(app).px = {0.05f, 0.05f, 0.05f, 1.0f};
+  app.processed.generation = 17;
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   const auto originalRGBA = app.displayRGBA;
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
@@ -673,7 +706,7 @@ static bool testFailedRenderWithoutPendingRecolor(bool cancelRecolor) {
   probe->failFromCall = cancelRecolor ? 1 : 2;
   Node node;
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   SchedulingWorkerGuard guard{app, *probe};
 
   std::optional<DocumentMutation> gate;
@@ -717,13 +750,13 @@ static bool testFailedRenderWithoutPendingRecolor(bool cancelRecolor) {
   probe->cv.notify_all();
   if (cancelRecolor) gate.reset();
   if (!previewIdle(app)) return false;
+  const int completedEpoch = renderState(app).epoch;
   app.renderer.shutdown();
-  std::vector<unsigned char> expectedRGBA;
-  toDisplayRGBA8(lastGood, app.outputEncoding, expectedRGBA);
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  return probe->calls == (cancelRecolor ? 1 : 2) && app.display.px == lastGood.px &&
-         app.displayGen == 17 && app.displayDirty && expectedRGBA != originalRGBA &&
-         app.displayRGBA == expectedRGBA && app.getStatus() == "Render failed: Self-test render failure";
+  return probe->calls == (cancelRecolor ? 1 : 2) && app.processed.result.state == EvaluationState::Error &&
+         std::holds_alternative<std::monostate>(app.processed.result.value) && app.displayRGBA.empty() &&
+         app.displayDirty && app.processed.generation == completedEpoch &&
+         app.getStatus().find("Self-test render failure") != std::string::npos;
 }
 
 // Use the production export job and a processor barrier, rather than
@@ -737,21 +770,21 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
   ExportTestFiles files;
   App app;
   if (!app.renderer.canEditParameters()) return false;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
-  app.display = app.preview;
-  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  seedTestDisplay(app, *app.preview);
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   const auto oldRGBA = app.displayRGBA;
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->preserveInput = true;
   Node barrier;
   barrier.processor = std::move(processor);
-  app.nodes.push_back(std::move(barrier));
+  appendTestNode(app, std::move(barrier));
   Node node;
   node.processor = std::make_unique<NativeExposureProcessor>();
   node.processor->setParameterValue("exposure", 1.0);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   if (ofxPluginIndex >= 0 && !addNode(app, ofxPluginIndex)) return false;
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
@@ -813,8 +846,8 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
   } else release();
   auto replaceExposure = [&] {
     DocumentMutation mutation(app);
-    app.nodes[1].processor = std::make_unique<NativeExposureProcessor>();
-    app.nodes[1].processor->setParameterValue("exposure", 2.0);
+    app.nodes[2].processor = std::make_unique<NativeExposureProcessor>();
+    app.nodes[2].processor->setParameterValue("exposure", 2.0);
     mutation.changed();
   };
   if (mutateDuring) replaceExposure();
@@ -839,7 +872,7 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
   bool decodedRaw = false;
   if (!loadImage(files.output(), exported, exportedEncoding, decodedRaw) || exported.w != 2 ||
       exported.h != 1 || !hasNoExportSidecar(files.output())) return false;
-  if (probe->width != 1 || probe->height != 1 ||
+  if (probe->width != (expectPreview ? 1 : 2) || probe->height != 1 ||
       probe->calls != activeCalls + 1 + (expectPreview ? 1 : 0)) return false;
   const auto &fullCall = probe->history[activeCalls];
   if (fullCall.width != 2 || fullCall.height != 1 || fullCall.interactive) return false;
@@ -847,16 +880,16 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
     const auto &previewCall = probe->history.back();
     if (previewCall.width != 1 || previewCall.height != 1 || !previewCall.interactive) return false;
   }
-  Image expected = app.preview;
+  Image expected = *app.preview;
   if (expectPreview) {
     const float value = (mutateDuring || ending == ExportPreviewEnd::Mutate) ? 0.5f : 0.25f;
     expected.px = {value, value, value, 1.0f};
   }
   std::vector<unsigned char> expectedRGBA;
   toDisplayRGBA8(expected, app.outputEncoding, expectedRGBA);
-  return app.display.w == 1 && app.display.h == 1 && app.display.px == expected.px &&
+  return app.display.w == 1 && app.display.h == 1 && testDisplay(app).px == expected.px &&
          app.displayRGBA == expectedRGBA && app.displayDirty == expectPreview &&
-         (expectPreview ? app.displayGen > 0 && app.displayRGBA != oldRGBA : app.displayGen == 0);
+         (expectPreview ? app.processed.generation > 0 && app.displayRGBA != oldRGBA : app.processed.generation == 0);
 }
 
 enum class ExportStatusPreview { Preserve, Fail, ExplicitEdit };
@@ -866,41 +899,40 @@ static bool testExportPreviewStatus(ExportStatusResult result,
                                     ExportStatusPreview action = ExportStatusPreview::Preserve) {
   ExportTestFiles files;
   App app;
-  app.preview.w = app.preview.h = 1;
-  app.preview.px = {0.125f, 0.125f, 0.125f, 1.0f};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full.w = 2;
   app.full.h = 1;
   app.full.px = {0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f};
-  app.display = app.preview;
-  toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+  seedTestDisplay(app, *app.preview);
+  toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->preserveInput = true;
   if (result == ExportStatusResult::Failure) probe->exportFailure = ExportFailure::Result;
   Node barrier;
   barrier.processor = std::move(processor);
-  app.nodes.push_back(std::move(barrier));
+  appendTestNode(app, std::move(barrier));
   Node exposure;
   exposure.processor = std::make_unique<NativeExposureProcessor>();
   exposure.processor->setParameterValue("exposure", 1.0);
-  app.nodes.push_back(std::move(exposure));
+  appendTestNode(app, std::move(exposure));
   if (result == ExportStatusResult::Warnings) {
     Node missing;
-    missing.id = "missing-node";
+    missing.id = NodeId{"missing-node"};
     missing.storedBackend = "native";
     missing.storedIdentifier = "org.rawnode.selftest.missing";
-    app.nodes.push_back(std::move(missing));
+    appendTestNode(app, std::move(missing));
     app.outputEncoding.gamma = TransferFunction::DaVinciIntermediate;
   }
   const std::string outPath = result == ExportStatusResult::WriteFailure
       ? (files.dir / "absent" / "test.png").string() : files.output();
   std::string exportStatus = "Exported test.png (2×1)";
   if (result == ExportStatusResult::Warnings)
-    exportStatus += " — missing processors were bypassed"
+    exportStatus += " — Missing Image processor; passing input through: org.rawnode.selftest.missing"
         " — warning: ICC cannot fully represent DaVinci Intermediate scene values above 1.0;"
         " external apps may clip highlights";
-  if (result == ExportStatusResult::Failure) exportStatus = "Export failed: Self-test export failure";
-  if (result == ExportStatusResult::WriteFailure) exportStatus = "Export failed";
+  if (result == ExportStatusResult::Failure) exportStatus = "Export failed — Processor render failed (-2): Self-test export failure";
+  if (result == ExportStatusResult::WriteFailure) exportStatus = "Export failed: Could not write image";
 
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
@@ -942,7 +974,7 @@ static bool testExportPreviewStatus(ExportStatusResult result,
       return false;  // Quiet metadata was consumed with the request.
   }
   if (action == ExportStatusPreview::ExplicitEdit) {
-    app.nodes[1].processor->setParameterValue("exposure", 2.0);
+    app.nodes[2].processor->setParameterValue("exposure", 2.0);
     app.renderer.requestPreview();  // A later explicit request must report normal preview status.
   }
   {
@@ -951,34 +983,36 @@ static bool testExportPreviewStatus(ExportStatusResult result,
   }
   probe->cv.notify_all();
   if (!previewIdle(app)) return false;
+  const int publishedEpoch = renderState(app).epoch;
   app.renderer.shutdown();
   {
     std::lock_guard<std::mutex> lock(probe->mutex);
     if (probe->calls != (action == ExportStatusPreview::ExplicitEdit ? 3 : 2)) return false;
     if (probe->history.back().width != 1 || !probe->history.back().interactive) return false;
   }
-  const std::string expectedStatus = action == ExportStatusPreview::Fail
-      ? "Render failed: Self-test render failure"
-      : action == ExportStatusPreview::ExplicitEdit ? "1×1 preview" : exportStatus;
-  Image expected = app.preview;
-  const float value = action == ExportStatusPreview::Fail ? 0.125f
-                    : action == ExportStatusPreview::ExplicitEdit ? 0.5f : 0.25f;
+  const std::string expectedStatus = action == ExportStatusPreview::ExplicitEdit ? "1×1 preview" : exportStatus;
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  if (action == ExportStatusPreview::Fail)
+    return app.getStatus() == "Render failed — Processor render failed (-2): Self-test render failure" &&
+           app.processed.result.state == EvaluationState::Error && app.displayRGBA.empty() && app.displayDirty &&
+           app.processed.generation == publishedEpoch;
+  Image expected = *app.preview;
+  const float value = action == ExportStatusPreview::ExplicitEdit ? 0.5f : 0.25f;
   expected.px = {value, value, value, 1.0f};
   std::vector<unsigned char> expectedRGBA;
   toDisplayRGBA8(expected, app.outputEncoding, expectedRGBA);
-  std::lock_guard<std::mutex> lock(app.displayMutex);
   return app.getStatus() == expectedStatus && app.display.w == 1 && app.display.h == 1 &&
-         app.display.px == expected.px && app.displayRGBA == expectedRGBA && app.displayDirty &&
-         (action == ExportStatusPreview::Fail ? app.displayGen == 0 : app.displayGen > 0);
+         testDisplay(app).px == expected.px && app.displayRGBA == expectedRGBA && app.displayDirty &&
+         app.processed.generation > 0;
 }
 
 static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
   ExportTestFiles files;
   App app;
   if (!app.renderer.canEditParameters()) return false;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
-  app.display = app.preview;
+  seedTestDisplay(app, *app.preview);
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->release = probe->preserveInput = true;
@@ -986,18 +1020,18 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
   probe->exportFailure = failure;
   Node first;
   first.processor = std::move(processor);
-  app.nodes.push_back(std::move(first));
+  appendTestNode(app, std::move(first));
   auto following = std::make_unique<SchedulingSelfTestProcessor>();
   auto *nextProbe = following.get();
   nextProbe->release = nextProbe->preserveInput = true;
   nextProbe->setRenderSize(1, 1);
   Node second;
   second.processor = std::move(following);
-  app.nodes.push_back(std::move(second));
+  appendTestNode(app, std::move(second));
   Node exposure;
   exposure.processor = std::make_unique<NativeExposureProcessor>();
   exposure.processor->setParameterValue("exposure", 1.0);
-  app.nodes.push_back(std::move(exposure));
+  appendTestNode(app, std::move(exposure));
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
 
@@ -1017,7 +1051,10 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
     case ExportFailure::RestoreException: message = "Self-test preview sizing failure"; break;
     default: return false;
   }
-  const std::string failureStatus = "Export failed: " + message;
+  const std::string failureStatus = failure == ExportFailure::Result
+      ? "Export failed — Processor render failed (-2): " + message
+      : failure == ExportFailure::UnknownException ? "Export failed — Graph operation failed with an unknown exception"
+                                                   : "Export failed — Graph operation failed: " + message;
   if (!app.renderer.canEditParameters() || events.failed || events.releasedStatus != failureStatus) return false;
   {
     if (renderState(app).exportBusy || renderState(app).previewBusy || !renderState(app).previewPending || !renderState(app).quietPending)
@@ -1027,27 +1064,65 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
       fs::exists(files.output()) || !hasNoExportSidecar(files.output())) return false;
   for (auto *sizingProbe : {probe, nextProbe}) {
     std::lock_guard<std::mutex> lock(sizingProbe->mutex);
-    if (sizingProbe->width != 1 || sizingProbe->height != 1) return false;
+    if (sizingProbe->width != (sizingProbe == probe ? 2 : 1) || sizingProbe->height != 1) return false;
   }
   app.renderer.start();
   auto waitForPreview = [&] { return previewIdle(app); };
   if (!waitForPreview() || app.getStatus() != failureStatus) return false;
   {
     std::lock_guard<std::mutex> lock(app.displayMutex);
-    if (app.display.px[0] != 0.25f || app.displayGen == 0) return false;
+    if (testDisplay(app).px[0] != 0.25f || app.processed.generation == 0) return false;
   }
   // A later explicit edit uses normal preview status again.
-  app.nodes[2].processor->setParameterValue("exposure", 2.0);
+  app.nodes[3].processor->setParameterValue("exposure", 2.0);
   app.renderer.requestPreview();
   if (!waitForPreview() || app.getStatus() != "1×1 preview") return false;
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  return app.display.px[0] == 0.5f;
+  return testDisplay(app).px[0] == 0.5f;
+}
+
+// Preview sizing occurs at the next graph operation, never as export cleanup.
+// Its failure must not undo successful file production, but must report the
+// current preview failure even when restoration was requested quietly.
+static bool testPreviewSizingFailureAfterExport(bool asynchronous) {
+  ExportTestFiles files;
+  App app;
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
+  app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
+  auto processor = std::make_unique<SchedulingSelfTestProcessor>();
+  auto *probe = processor.get();
+  probe->release = probe->preserveInput = true;
+  probe->setRenderSize(1, 1);
+  probe->exportFailure = ExportFailure::RestoreException;
+  Node node; node.processor = std::move(processor);
+  appendTestNode(app, std::move(node));
+  SchedulingWorkerGuard guard{app, *probe};
+  if (asynchronous) {
+    if (!startExport(app, files.output())) return false;
+    app.renderer.joinExport();
+  } else if (!runExportJob(app, files.output())) return false;
+  const std::string exported = app.getStatus();
+  if (exported.find("Exported ") != 0 || !exportHasRgb(files.output(), 0.125f) ||
+      probe->width != 2 || probe->calls != 1 || !app.renderer.canEditParameters()) return false;
+  app.renderer.start();
+  if (!previewIdle(app) || app.getStatus() != "Render failed — Graph operation failed: Self-test preview sizing failure" ||
+      probe->calls != 1) return false;
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    if (app.processed.result.state != EvaluationState::Error || !app.displayRGBA.empty() ||
+        app.processed.result.diagnostics.empty() ||
+        app.processed.result.diagnostics.back().message.find("Self-test preview sizing failure") == std::string::npos) return false;
+  }
+  app.renderer.requestPreview();
+  if (!previewIdle(app) || app.getStatus() != "1×1 preview" || probe->calls != 2 || probe->width != 1) return false;
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  return app.processed.result.state == EvaluationState::Available;
 }
 
 static bool testExportThreadLifecycle(bool stopDuring) {
   ExportTestFiles files;
   App app;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
   app.full = {{0.125f, 0.125f, 0.125f, 1.0f, 0.125f, 0.125f, 0.125f, 1.0f}, 2, 1};
   app.path = (files.dir / "source.nef").string();
   app.inputIsRaw = true;
@@ -1056,9 +1131,9 @@ static bool testExportThreadLifecycle(bool stopDuring) {
   probe->preserveInput = true;
   probe->release = !stopDuring;
   Node node;
-  node.id = "export-probe";
+  node.id = NodeId{"export-probe"};
   node.processor = std::move(processor);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
   if (stopDuring) app.renderer.start();
@@ -1114,18 +1189,17 @@ static bool testExportThreadLifecycle(bool stopDuring) {
     if (!exportHasRgb(second, 0.125f) || !hasNoExportSidecar(second)) return false;
   }
   app.renderer.shutdown();
-  return probe->calls == (stopDuring ? 1 : 2) && probe->width == 1 && probe->height == 1 &&
+  return probe->calls == (stopDuring ? 1 : 2) && probe->width == 2 && probe->height == 1 &&
          std::all_of(probe->history.begin(), probe->history.end(), [](const auto &call) {
            return call.width == 2 && call.height == 1 && !call.interactive;
          });
 }
 
 static void graphPreviewSource(App &app) {
-  app.preview.w = app.preview.h = 1;
-  app.preview.px = {0.125f, 0.125f, 0.125f, 0.75f};
-  app.full = app.preview;
-  app.display = app.preview;
-  app.display.px = {0.01f, 0.01f, 0.01f, 0.75f};  // Stale last-good image.
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 0.75f}, 1, 1});
+  app.full = *app.preview;
+  seedTestDisplay(app, *app.preview);
+  testDisplay(app).px = {0.01f, 0.01f, 0.01f, 0.75f};  // Stale last-good image.
 }
 
 struct PreviewWorkerGuard {
@@ -1149,16 +1223,17 @@ static bool finishGraphPreview(App &app, int before, float expected, bool quiet 
   if (!previewIdle(app)) return false;
   std::lock_guard<std::mutex> lock(app.displayMutex);
   if (app.display.w != width || app.display.h != height ||
-      app.display.px.size() != (size_t)width * height * 4 ||
-      !app.displayDirty || app.displayGen <= before) return false;
-  for (size_t i = 0; i < app.display.px.size(); i += 4) {
-    if (std::fabs(app.display.px[i + 3] - 0.75f) > 2e-6f) return false;
+      testDisplay(app).px.size() != (size_t)width * height * 4 ||
+      !app.displayDirty || app.processed.generation <= before) return false;
+  for (size_t i = 0; i < testDisplay(app).px.size(); i += 4) {
+    if (std::fabs(testDisplay(app).px[i + 3] - 0.75f) > 2e-6f) return false;
     for (int c = 0; c < 3; ++c)
-      if (std::fabs(app.display.px[i + c] - expected) > 2e-6f) return false;
+      if (std::fabs(testDisplay(app).px[i + c] - expected) > 2e-6f) return false;
   }
   std::vector<unsigned char> rgba;
-  toDisplayRGBA8(app.display, app.outputEncoding, rgba);
-  const std::string normalStatus = std::to_string(width) + "×" + std::to_string(height) + " preview";
+  toDisplayRGBA8(testDisplay(app), app.documentOutput == OutputRef{app.primarySource, ports::image} ? app.inputEncoding : app.outputEncoding, rgba);
+  std::string normalStatus = std::to_string(width) + "×" + std::to_string(height) + " preview";
+  for (const auto &diagnostic : app.processed.result.diagnostics) normalStatus += " — " + diagnostic.message;
   return app.displayRGBA == rgba && app.getStatus() == (quiet ? status : normalStatus);
 }
 
@@ -1187,29 +1262,30 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
   float expected = (float)encodeTransfer(0.25, TransferFunction::SRGB);
   switch (edit) {
     case GraphEditCase::AddExposure:
-      if (!addNativeExposureNode(app) || app.nodes.size() != 3 || app.selectedNode != 2) return false;
+      if (!addNativeExposureNode(app) || app.nodes.size() != 4 || app.selectedNodeId != app.nodes[3].id) return false;
       break;
     case GraphEditCase::AddCst:
-      if (!addNativeCstNode(app) || app.nodes.size() != 3) return false;
+      if (!addNativeCstNode(app) || app.nodes.size() != 4) return false;
       break;
     case GraphEditCase::Remove:
-      destroyNode(app, 1);
-      if (app.nodes.size() != 1 || app.nodes[0].id != "exposure") return false;
+      destroyNode(app, app.nodes[2].id);
+      if (app.nodes.size() != 2 || app.nodes[1].id.value != "exposure") return false;
       expected = 0.25f;
       break;
     case GraphEditCase::Reorder:
-      moveNode(app, 1, 0);
-      if (app.nodes[0].id != "cst" || app.nodes[1].id != "exposure" || app.selectedNode != 0) return false;
+      moveNode(app, app.nodes[2].id, app.nodes[1].id);
+      if (app.nodes[1].id.value != "exposure" || app.nodes[2].id.value != "cst" || app.selectedNodeId != app.nodes[2].id ||
+          captureChain(app).nodes[0].id != "cst") return false;
       expected = 2.0f * (float)encodeTransfer(0.125, TransferFunction::SRGB);
       break;
     case GraphEditCase::Disable:
-      setNodeEnabled(app, 0, false);
-      if (app.nodes[0].enabled) return false;
+      setNodeEnabled(app, app.nodes[1].id, false);
+      if (app.nodes[1].enabled) return false;
       expected = (float)encodeTransfer(0.125, TransferFunction::SRGB);
       break;
     case GraphEditCase::Enable:
-      setNodeEnabled(app, 0, true);
-      if (!app.nodes[0].enabled) return false;
+      setNodeEnabled(app, app.nodes[1].id, true);
+      if (!app.nodes[1].enabled) return false;
       break;
     case GraphEditCase::Append:
     case GraphEditCase::AppendMissing: {
@@ -1222,14 +1298,14 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
         pasted.identifier = "missing.dctl";
         pasted.enabled = false;
       }
-      if (!appendPersistedNode(app, pasted, 0) || app.nodes.size() != 3 ||
-          app.selectedNode != 1 || app.nodes[1].id == exposure.id || app.nodes[2].id != "cst" ||
+      if (!appendPersistedNode(app, pasted, app.nodes[1].id) || app.nodes.size() != 4 ||
+          app.selectedNodeId != app.nodes[3].id || app.nodes[3].id.value == exposure.id || app.nodes[2].id.value != "cst" ||
           captureChain(app).nodes[1].paramsJson.at("unknown") != pasted.paramsJson.at("unknown") ||
-          !app.nodes[1].groupOpen.at("group")) return false;
+          !app.nodes[3].groupOpen.at("group")) return false;
       if (edit == GraphEditCase::AppendMissing) {
-        if (app.nodes[1].processor || app.nodes[1].enabled) return false;
+        if (app.nodes[3].processor || app.nodes[3].enabled) return false;
       } else {
-        if (!app.nodes[1].processor) return false;
+        if (!app.nodes[3].processor) return false;
         expected = (float)encodeTransfer(2.0, TransferFunction::SRGB);
       }
       break;
@@ -1251,17 +1327,17 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       }
       replacement.selectedNodeId = "restored-5";
       applyChain(app, replacement);
-      if (app.nodes.size() != 10 || app.selectedNode != 5) return false;
+      if (app.nodes.size() != 11 || app.selectedNodeId != app.nodes[6].id) return false;
       for (int i = 0; i < 10; ++i)
-        if (app.nodes[i].id != replacement.nodes[i].id) return false;
+        if (app.nodes[i + 1].id.value != replacement.nodes[i].id) return false;
       if (edit == GraphEditCase::ReplaceMissing &&
-          (app.nodes[5].processor || captureChain(app).nodes[5].paramsJson.at("future") != "[1,2,3]"))
+          (app.nodes[6].processor || captureChain(app).nodes[5].paramsJson.at("future") != "[1,2,3]"))
         return false;
       expected = 0.125f * std::exp2(edit == GraphEditCase::ReplaceMissing ? 2.25f : 2.5f);
       break;
     }
     case GraphEditCase::RemoveLast:
-      destroyNode(app, 1);
+      destroyNode(app, app.nodes[2].id);
       // The last removal must show the unprocessed source without processor work.
       [[fallthrough]];
     case GraphEditCase::Clear: {
@@ -1272,13 +1348,14 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       if (renderState(app).previewPending || renderState(app).previewBusy || renderState(app).displayPending) return false;
       app.displayDirty = false;
       const int lastBefore = renderState(app).epoch;
-      if (edit == GraphEditCase::RemoveLast) destroyNode(app, 0);
+      if (edit == GraphEditCase::RemoveLast) destroyNode(app, app.nodes[1].id);
       else clearNodes(app);
       std::vector<unsigned char> sourceRGBA;
-      toDisplayRGBA8(app.preview, app.inputEncoding, sourceRGBA);
-      return app.nodes.empty() && app.selectedNode == -1 && !renderState(app).previewPending &&
-             renderState(app).mutationDepth == 0 && renderState(app).epoch == lastBefore + 1 &&
-             app.displayDirty && app.display.px == app.preview.px && app.displayRGBA == sourceRGBA;
+      toDisplayRGBA8(*app.preview, app.inputEncoding, sourceRGBA);
+      if (!previewIdle(app)) return false;
+      return !app.hasProcessingOutput() && !app.selectedNodeId && !renderState(app).previewPending &&
+             renderState(app).mutationDepth == 0 && renderState(app).epoch >= lastBefore + 2 &&
+             app.displayDirty && testDisplay(app).px == app.preview->px && app.displayRGBA == sourceRGBA;
     }
   }
   return finishGraphPreview(app, before, expected);
@@ -1294,16 +1371,16 @@ static bool testIdlePreviewRebuild() {
     for (int c = 0; c < 3; ++c) app.full.px[i + c] = 0.125f;
     app.full.px[i + 3] = 0.75f;
   }
-  app.preview = app.full;
+  setTestPreview(app, app.full);
   app.previewRes = 3;
   Node node;
   node.processor = std::make_unique<NativeExposureProcessor>();
   node.processor->setParameterValue("exposure", 1.0);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   app.previewRes = 0;  // Production 720p selection: cap the long edge at 1280.
   const int before = renderState(app).epoch;
   rebuildPreview(app);
-  if (app.full.w != 2560 || app.full.h != 2 || app.preview.w != 1280 || app.preview.h != 1)
+  if (app.full.w != 2560 || app.full.h != 2 || app.preview->w != 1280 || app.preview->h != 1)
     return false;
   return finishGraphPreview(app, before, 0.25f, false, 1280, 1);
 }
@@ -1319,14 +1396,14 @@ static bool testGraphEditNoops() {
   graphPreviewSource(app);
   if (!addNativeExposureNode(app)) return false;
   const int before = renderState(app).epoch;
-  moveNode(app, 0, 0);
-  moveNode(app, 0, 3);
-  destroyNode(app, -1);
-  setNodeEnabled(app, 0, true);
-  setNodeEnabled(app, 2, false);
+  moveNode(app, app.nodes[1].id, app.nodes[1].id);
+  moveNode(app, app.nodes[1].id, NodeId{"not-found"});
+  destroyNode(app, NodeId{"not-found"});
+  setNodeEnabled(app, app.nodes[1].id, true);
+  setNodeEnabled(app, NodeId{"not-found"}, false);
   if (addNode(app, -1)) return false;
   return renderState(app).epoch == before && renderState(app).previewPending && !renderState(app).quietPending &&
-         app.nodes.size() == 1 && app.nodes[0].enabled;
+         app.nodes.size() == 2 && app.nodes[1].enabled;
 }
 
 // A real OFX createInstance failure through the production adapter. The fixture
@@ -1347,7 +1424,189 @@ struct FailingOfxFixture {
   ~FailingOfxFixture() { gPlugins.pop_back(); }
 };
 
-static bool testPartialMutationUnwind() {
+// Exercise actual UI actions without an OS clipboard or native file chooser.
+struct TestClipboard {
+  ImGuiContext *previous = ImGui::GetCurrentContext();
+  ImGuiContext *context = ImGui::CreateContext();
+  std::string text;
+  TestClipboard() {
+    ImGui::SetCurrentContext(context);
+    auto &platform = ImGui::GetPlatformIO();
+    platform.Platform_ClipboardUserData = &text;
+    platform.Platform_GetClipboardTextFn = [](ImGuiContext *) {
+      return static_cast<std::string *>(ImGui::GetPlatformIO().Platform_ClipboardUserData)->c_str();
+    };
+    platform.Platform_SetClipboardTextFn = [](ImGuiContext *, const char *value) {
+      *static_cast<std::string *>(ImGui::GetPlatformIO().Platform_ClipboardUserData) = value;
+    };
+  }
+  ~TestClipboard() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
+};
+
+static bool testReusedNodeIdGradePaste() {
+  TestClipboard clipboard;
+  App app; graphPreviewSource(app);
+  if (!addNativeExposureNode(app) || !selectedNode(app)->processor->setParameterValue("exposure", 1.0)) return false;
+  const NodeId shared = *app.selectedNodeId;
+  const auto *previousProcessor = selectedNode(app)->processor.get();
+  app.paramFilter[0] = 'e';
+  app.renderer.requestInspection({shared, ports::image});
+  PreviewWorkerGuard guard{app}; app.renderer.start();
+  if (!previewIdle(app)) return false;
+  int generation;
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    if (app.processed.result.requested != OutputRef{shared, ports::image} || testDisplay(app).px[0] != 0.25f) return false;
+    generation = app.processed.generation;
+  }
+
+  App incoming;
+  if (!addNativeCstNode(incoming)) return false;
+  Processor &cst = *selectedNode(incoming)->processor;
+  if (!cst.setParameterValue("input_space", (int)RgbGamut::Rec709) ||
+      !cst.setParameterValue("input_gamma", (int)TransferFunction::Linear) ||
+      !cst.setParameterValue("output_space", (int)RgbGamut::Rec709) ||
+      !cst.setParameterValue("output_gamma", (int)TransferFunction::SRGB) ||
+      !addNativeExposureNode(incoming) || !selectedNode(incoming)->processor->setParameterValue("exposure", 1.0)) return false;
+  PersistChain grade = captureChain(incoming);
+  grade.nodes[0].id = shared.value;
+  grade.nodes[1].id = "grade-output";
+  grade.selectedNodeId = shared.value;
+  const auto color = captureGradeColor(incoming);
+  clipboard.text = serializeTransferPayload("grade", grade, &color);
+  if (!pasteFromClipboard(app) || !previewIdle(app)) return false;
+  const Node *replacement = selectedNode(app);
+  if (app.selectedNodeId != shared || !replacement || replacement != findNode(app, shared) ||
+      !replacement->processor || replacement->processor.get() == previousProcessor ||
+      replacement->processor->identifier() != NativeCstProcessor::kIdentifier ||
+      app.paramFilter[0] != '\0' || app.nodes.size() != 3 ||
+      app.documentOutput != OutputRef{NodeId{"grade-output"}, ports::image}) return false;
+  // The old inspected ID still exists. Only an explicit replacement reset can
+  // publish documentOutput instead, including its downstream Exposure result.
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  const auto &result = app.processed.result;
+  const auto *pixels = std::get_if<ImageValue>(&result.value);
+  const double expected = 2.0 * encodeTransfer(0.125, TransferFunction::SRGB);
+  return app.processed.generation > generation && result.requested == app.documentOutput &&
+         result.state == EvaluationState::Available && result.valueType == ValueType::Image && pixels && *pixels &&
+         (*pixels)->w == 1 && (*pixels)->h == 1 && (*pixels)->px.size() == 4 &&
+         std::abs((*pixels)->px[0] - expected) < 1e-6 && (*pixels)->px[3] == 0.75f;
+}
+
+static bool testCaptureRefusalPreservesDestinations() {
+  TestClipboard clipboard;
+  ExportTestFiles files;
+  const auto read = [](const std::string &path) {
+    std::ifstream input(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(input), {});
+  };
+  for (int structure = 0; structure < 4; ++structure) {
+    App app; graphPreviewSource(app);
+    if (!addNativeExposureNode(app)) return false;
+    const auto selected = *app.selectedNodeId;
+    app.path = (files.dir / "source.nef").string();
+    const auto nodePreset = (files.dir / "node.rawnodepreset").string();
+    const auto gradePreset = (files.dir / "grade.rawnodepreset").string();
+    if (!copySelectedNode(app) || !copyGrade(app) || clipboard.text.empty() ||
+        !saveNodePreset(app, nodePreset) || !saveGradePreset(app, gradePreset)) return false;
+    saveCurrentInputSidecar(app);
+    const auto sidecar = inputSidecarPath(app.path);
+    const auto originalSidecar = read(sidecar), originalNode = read(nodePreset), originalGrade = read(gradePreset);
+    const auto originalClipboard = clipboard.text;
+    if (originalSidecar.empty() || originalNode.empty() || originalGrade.empty()) return false;
+    if (structure == 0) {
+      Node branch; branch.id = NodeId{"branch"};
+      branch.fixedInputs.at(ports::image) = OutputRef{selected, ports::image};
+      if (!graph::addNode(app, std::move(branch)).ok()) return false;
+    } else if (structure == 1) {
+      if (!graph::disconnect(app, {selected, std::nullopt, ports::image}).ok()) return false;
+    } else {
+      Node unsupported(structure == 2 ? NodeOperation::TestSlotted : NodeOperation::TestImage);
+      unsupported.id = NodeId{"unsupported"};
+      unsupported.fixedInputs.at(structure == 2 ? ports::reference : ports::image) = OutputRef{selected, ports::image};
+      if (!graph::addNode(app, std::move(unsupported)).ok() ||
+          !graph::setDocumentOutput(app, {NodeId{"unsupported"}, ports::image}).ok()) return false;
+    }
+    PersistNode untouched; untouched.id = "sentinel";
+    if (captureNode(app, selected, untouched) || untouched.id != "sentinel" ||
+        copySelectedNode(app) || copyGrade(app) || saveNodePreset(app, nodePreset) ||
+        saveGradePreset(app, gradePreset)) return false;
+    saveCurrentInputSidecar(app);
+    if (read(sidecar) != originalSidecar || read(nodePreset) != originalNode || read(gradePreset) != originalGrade ||
+        clipboard.text != originalClipboard || app.selectedNodeId != selected || !documentStateError(app).empty())
+      return false;
+  }
+  return true;
+}
+
+static bool testFailedTransferApplication() {
+  FailingOfxFixture fixture;
+  fixture.plugin.mainEntry = [](const char *action, const void *, OfxPropertySetHandle, OfxPropertySetHandle) {
+    if (std::strcmp(action, kOfxActionCreateInstance) == 0) throw std::bad_alloc();
+    return kOfxStatReplyDefault;
+  };
+  TestClipboard clipboard;
+  ExportTestFiles files;
+  App app; graphPreviewSource(app);
+  if (!addNativeExposureNode(app) || !selectedNode(app)->processor->setParameterValue("exposure", 1.0)) return false;
+  const auto original = captureChain(app);
+  const auto originalPayload = serializeTransferPayload("grade", original);
+  const auto id = *app.selectedNodeId;
+  const auto *processor = selectedNode(app)->processor.get();
+  const auto preview = app.preview;
+  const auto full = app.full;
+  const auto input = app.inputEncoding, output = app.outputEncoding, rawDefault = app.rawWorkingEncoding;
+  app.paramFilter[0] = 'e';
+  app.renderer.requestInspection({id, ports::image});
+  PreviewWorkerGuard guard{app}; app.renderer.start();
+  if (!previewIdle(app)) return false;
+  const auto unchanged = [&] {
+    if (!previewIdle(app) || !selectedNode(app) || selectedNode(app)->processor.get() != processor || app.selectedNodeId != id ||
+        app.paramFilter[0] != 'e' || app.preview != preview || app.full.px != full.px ||
+        app.full.w != full.w || app.full.h != full.h || app.inputEncoding != input || app.outputEncoding != output ||
+        app.rawWorkingEncoding != rawDefault || app.nodes.size() != 2 || app.documentOutput != OutputRef{id, ports::image} ||
+        serializeTransferPayload("grade", captureChain(app)) != originalPayload) return false;
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    return app.processed.result.requested == OutputRef{id, ports::image} &&
+           app.processed.result.state == EvaluationState::Available && testDisplay(app).px[0] == 0.25f;
+  };
+  PersistChain replacement = original;
+  replacement.nodes[0].id = "replacement";
+  replacement.nodes[0].paramsJson["exposure"] = "4";
+  PersistNode throws; throws.backend = "ofx"; throws.identifier = fixture.plugin.pluginIdentifier;
+  replacement.nodes.push_back(throws);
+  PersistGradeColor color;
+  color.outputColorSpace = rgbGamutId(RgbGamut::ACES_AP1);
+  color.outputGamma = transferFunctionId(TransferFunction::Linear);
+  clipboard.text = serializeTransferPayload("grade", replacement, &color);
+  const auto clipboardBefore = clipboard.text;
+  if (pasteFromClipboard(app) || !unchanged() || clipboard.text != clipboardBefore) return false;
+  const auto path = (files.dir / "throwing.rawnodepreset").string();
+  if (!savePresetFile(path, "grade", replacement, &color)) return false;
+  std::string kind; PersistChain loaded; PersistGradeColor loadedColor;
+  if (!loadPresetFile(path, kind, loaded, &loadedColor) || kind != "grade" ||
+      applyGrade(app, loaded, loadedColor) || !unchanged()) return false;
+  clipboard.text = serializeTransferPayload("node", PersistChain{"", -1, {throws}});
+  if (pasteFromClipboard(app) || !unchanged() || appendPersistedNode(app, throws, id) || !unchanged()) return false;
+  replacement.nodes.pop_back();
+  color.outputGamma = "unknown";
+  if (applyGrade(app, replacement, color) || !unchanged()) return false;
+  color.outputGamma = transferFunctionId(TransferFunction::Linear);
+  color.rawColorSpace = rgbGamutId(RgbGamut::ACES_AP1);
+  color.rawGamma = transferFunctionId(TransferFunction::Linear);
+  app.inputIsRaw = true;
+  app.path = (files.dir / "missing.nef").string();
+  if (applyGrade(app, replacement, color) || !unchanged() || !app.inputIsRaw) return false;
+  // Recovery proves the successful shared clipboard/preset application path.
+  app.inputIsRaw = false;
+  if (!applyGrade(app, replacement, color) || !previewIdle(app) || app.nodes.size() != 2 ||
+      app.nodes[1].id.value != "replacement" || app.outputEncoding != ColorEncoding{RgbGamut::ACES_AP1, TransferFunction::Linear} ||
+      app.paramFilter[0] != '\0') return false;
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  return app.processed.result.requested == app.documentOutput && testDisplay(app).px[0] == 2.0f;
+}
+
+static bool testRestorationUnwind() {
   FailingOfxFixture fixture;
   fixture.plugin.mainEntry = [](const char *action, const void *, OfxPropertySetHandle, OfxPropertySetHandle) {
     if (std::strcmp(action, kOfxActionCreateInstance) == 0)
@@ -1357,6 +1616,8 @@ static bool testPartialMutationUnwind() {
   App app;
   graphPreviewSource(app);
   if (!addNativeExposureNode(app)) return false;
+  const auto originalId = app.nodes[1].id;
+  const auto *originalProcessor = app.nodes[1].processor.get();
   PersistNode exposure;
   exposure.id = "restored-first";
   exposure.backend = "native";
@@ -1372,9 +1633,10 @@ static bool testPartialMutationUnwind() {
     applyChain(app, replacement);
     return false;
   } catch (const std::runtime_error &) {
-    if (app.nodes.size() != 1 || app.nodes[0].id != exposure.id) return false;
+    if (app.nodes.size() != 2 || app.nodes[1].id != originalId ||
+        app.nodes[1].processor.get() != originalProcessor || app.selectedNodeId != originalId) return false;
   }
-  return finishGraphPreview(app, before, 0.25f);
+  return finishGraphPreview(app, before, 0.125f, true);
 }
 
 // Exercise the actual OFX suite callback through OfxProcessor/renderEffect.
@@ -1470,8 +1732,8 @@ static bool testOfxRuntimeCancellation(bool threaded = false) {
   AbortOfxFixture fixture;
   fixture.threaded = threaded;
   App app;
-  app.preview = {{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1};
-  app.full = app.preview;
+  setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
+  app.full = *app.preview;
   if (!addNode(app, fixture.index)) return false;
   struct Guard {
     App &app;
@@ -1525,16 +1787,16 @@ static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true,
   App app;
   graphPreviewSource(app);
   Node node;
-  node.id = "exposure";
+  node.id = NodeId{"exposure"};
   node.processor = std::make_unique<NativeExposureProcessor>();
   node.processor->setParameterValue("exposure", 1.0);
-  app.nodes.push_back(std::move(node));
+  appendTestNode(app, std::move(node));
   if (pending && !recolorOnly) app.renderer.requestPreview();
   if (!pending || recolorOnly) {
     // Idle failure starts with a valid cached preview and must retain it.
-    app.display = app.preview;
-    for (int i = 0; i < 3; ++i) app.display.px[i] = 0.25f;
-    toDisplayRGBA8(app.display, app.outputEncoding, app.displayRGBA);
+    seedTestDisplay(app, *app.preview);
+    for (int i = 0; i < 3; ++i) testDisplay(app).px[i] = 0.25f;
+    toDisplayRGBA8(testDisplay(app), app.outputEncoding, app.displayRGBA);
   }
   if (recolorOnly) {
     app.renderer.requestDisplayRefresh();
@@ -1544,12 +1806,12 @@ static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true,
   app.inputIsRaw = true;
   app.inputEncoding = {RgbGamut::Rec709, TransferFunction::Linear};
   app.rawWorkingEncoding = {RgbGamut::Rec2020, TransferFunction::Linear};
-  const Image oldFull = app.full, oldPreview = app.preview;
-  const Image oldDisplay = app.display;
+  const Image oldFull = app.full, oldPreview = *app.preview;
+  const Image oldDisplay = testDisplay(app);
   const auto oldRGBA = app.displayRGBA;
   const ColorEncoding oldInput = app.inputEncoding, oldDefault = app.rawWorkingEncoding;
   const ColorEncoding oldOutput = app.outputEncoding;
-  const std::string oldId = app.nodes[0].id;
+  const std::string oldId = app.nodes[1].id.value;
   const ColorEncoding requested{RgbGamut::ACES_AP1, TransferFunction::Linear};
   if (edit == FailedDocumentEdit::RawReplacedByRaster) {
     app.path = files.output();
@@ -1573,7 +1835,9 @@ static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true,
       color.rawGamma = transferFunctionId(requested.gamma);
       color.outputColorSpace = "display-p3";
       color.outputGamma = "srgb";
-      if (applyGradeColor(app, color)) return false;
+      PersistChain grade = captureChain(app);
+      grade.nodes.front().paramsJson["exposure"] = "4";
+      if (applyGrade(app, grade, color)) return false;
       error = "Could not reload RAW in " + colorEncodingName(requested);
       break;
     }
@@ -1583,16 +1847,16 @@ static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true,
       error = "Could not reload RAW in " + colorEncodingName(requested);
       break;
   }
-  if (app.getStatus() != error || app.nodes.size() != 1 || app.nodes[0].id != oldId ||
+  if (app.getStatus() != error || app.nodes.size() != 2 || app.nodes[1].id.value != oldId ||
       app.full.w != oldFull.w || app.full.h != oldFull.h || app.full.px != oldFull.px ||
-      app.preview.w != oldPreview.w || app.preview.h != oldPreview.h || app.preview.px != oldPreview.px ||
+      app.preview->w != oldPreview.w || app.preview->h != oldPreview.h || app.preview->px != oldPreview.px ||
       app.inputEncoding != oldInput || !app.inputIsRaw || app.rawWorkingEncoding != oldDefault ||
       app.outputEncoding != oldOutput || fs::exists(inputSidecarPath(app.path))) return false;
   if (renderState(app).displayPending) return false;
   if (!pending && !recolorOnly)
     return renderState(app).epoch == before + 1 && !renderState(app).previewPending &&
            !renderState(app).quietPending && renderState(app).mutationDepth == 0 &&
-           app.display.px == oldDisplay.px && app.displayRGBA == oldRGBA;
+           testDisplay(app).px == oldDisplay.px && app.displayRGBA == oldRGBA;
   return finishGraphPreview(app, before, 0.25f, true);
 }
 
@@ -1602,7 +1866,7 @@ static bool testUnavailableProcessorRestore(bool append, bool ctl) {
   App app;
   graphPreviewSource(app);
   if (!addNativeExposureNode(app) || !addNativeCstNode(app) ||
-      !app.nodes[0].processor->setParameterValue("exposure", 1.0)) return false;
+      !app.nodes[1].processor->setParameterValue("exposure", 1.0)) return false;
   PersistNode missing;
   missing.id = "failed-processor";
   missing.backend = ctl ? "ctl" : "ofx";
@@ -1616,15 +1880,16 @@ static bool testUnavailableProcessorRestore(bool append, bool ctl) {
   replacement.selectedNodeId = missing.id;
   const int before = renderState(app).epoch;
   if (append) {
-    if (!appendPersistedNode(app, missing, 0)) return false;
+    if (!appendPersistedNode(app, missing, app.nodes[1].id)) return false;
   } else {
     applyChain(app, replacement);
   }
-  if (app.nodes.size() != 3 || app.selectedNode != 1 || app.nodes[1].processor ||
-      app.nodes[1].enabled || (app.nodes[1].id == missing.id) == append ||
-      app.nodes[1].storedBackend != missing.backend ||
+  const int restored = append ? 3 : 2;
+  if (app.nodes.size() != 4 || app.selectedNodeId != app.nodes[restored].id || app.nodes[restored].processor ||
+      app.nodes[restored].enabled || (app.nodes[restored].id.value == missing.id) == append ||
+      app.nodes[restored].storedBackend != missing.backend ||
       captureChain(app).nodes[1].paramsJson.at("opaque") != missing.paramsJson.at("opaque") ||
-      !app.nodes[1].groupOpen.at("group")) return false;
+      !app.nodes[restored].groupOpen.at("group")) return false;
   return finishGraphPreview(app, before, 0.25f);
 }
 
@@ -1635,16 +1900,16 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
   App app;
   graphPreviewSource(app);
   app.full.w = 2;
-  app.full.px.insert(app.full.px.end(), app.preview.px.begin(), app.preview.px.end());
+  app.full.px.insert(app.full.px.end(), app.preview->px.begin(), app.preview->px.end());
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
   probe->preserveInput = true;
   Node barrier;
-  barrier.id = "barrier";
+  barrier.id = NodeId{"barrier"};
   barrier.processor = std::move(processor);
-  app.nodes.push_back(std::move(barrier));
+  appendTestNode(app, std::move(barrier));
   if (!addNativeExposureNode(app) ||
-      !app.nodes[1].processor->setParameterValue("exposure", 1.0)) return false;
+      !app.nodes[2].processor->setParameterValue("exposure", 1.0)) return false;
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
   if (exporting && !startExport(app, files.output())) return false;
@@ -1659,7 +1924,7 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
     const auto state = renderState(app);
     waited = observed && state.mutationDepth == 1 &&
              (exporting ? state.exportBusy && !state.previewBusy : state.previewBusy && !state.exportBusy) &&
-             app.nodes.size() == 2 && app.nodes[1].enabled;
+             app.nodes.size() == 3 && app.nodes[2].enabled;
     {
       std::lock_guard<std::mutex> lock(probe->mutex);
       probe->release = true;
@@ -1669,9 +1934,9 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
   bool operationOk = true;
   switch (edit) {
     case ActiveGraphEdit::Add: operationOk = addNativeExposureNode(app); break;
-    case ActiveGraphEdit::Remove: destroyNode(app, 1); break;
-    case ActiveGraphEdit::Reorder: moveNode(app, 1, 0); break;
-    case ActiveGraphEdit::Disable: setNodeEnabled(app, 1, false); break;
+    case ActiveGraphEdit::Remove: destroyNode(app, app.nodes[2].id); break;
+    case ActiveGraphEdit::Reorder: moveNode(app, app.nodes[2].id, app.nodes[1].id); break;
+    case ActiveGraphEdit::Disable: setNodeEnabled(app, app.nodes[2].id, false); break;
     case ActiveGraphEdit::FailCtl:
       operationOk = !addCtlNode(app, (files.dir / "missing.ctl").string());
       break;
@@ -1691,7 +1956,7 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
   }
   const float expected = edit == ActiveGraphEdit::Remove || edit == ActiveGraphEdit::Disable ? 0.125f : 0.25f;
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  return app.display.px.size() == 4 && app.display.px[0] == expected && app.displayDirty &&
+  return testDisplay(app).px.size() == 4 && testDisplay(app).px[0] == expected && app.displayDirty &&
          (edit == ActiveGraphEdit::FailCtl ? app.getStatus().find("Could not load CTL:") == 0
                                          : app.getStatus() == "1×1 preview");
 }
@@ -1796,9 +2061,20 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 int runSelfTests() {
+  if (!testGraphModel()) return fail("Step 6A graph model");
+  if (!testGraphCommands()) return fail("Step 6B topology commands");
+  if (!testGraphEvaluator()) return fail("Step 6C graph evaluator");
+  if (!testGraphRuntime()) return fail("Step 6D graph runtime cutover");
+  if (!testReusedNodeIdGradePaste()) return fail("6F T2 grade paste must replace reused NodeId processor, filter and inspection");
+  printf("ok  6F T2 real full-grade paste replaces a selected processor with the same NodeId\n");
+  if (!testNodeList()) return fail("Step 6E.1 List View and NodeId selection");
+  if (!testCaptureRefusalPreservesDestinations()) return fail("6E.2 unsupported capture must preserve sidecar, presets and clipboard");
+  printf("ok  6E.2 unsupported graph capture preserves sidecar, preset files and real UI clipboard\n");
+  if (!testFailedTransferApplication()) return fail("6E.2 failed clipboard/preset application must preserve graph, colour and inspection");
+  printf("ok  6E.2 failed clipboard/preset application preserves document and colour settings; recovery succeeds\n");
 #if !defined(NDEBUG) && !defined(_WIN32)
   if (!testControlThreadAssertions()) return fail("renderer control-thread assertions");
-  printf("ok  Debug control-thread contract (8 expected child assertions)\n");
+  printf("ok  Debug control-thread contract (10 expected child assertions)\n");
 #endif
   if (!testOfxThreadPool()) return fail("OFX host multithread lifetime");
   for (bool started : {false, true})
@@ -2075,12 +2351,12 @@ int runSelfTests() {
     // Native CST: gamut and transfer function are explicit, independent
     // controls. Verify colour maths, float range, alpha, and Sidecar V2.
     App cstApp;
-    if (!addNativeCstNode(cstApp) || cstApp.nodes.size() != 1 || !cstApp.nodes[0].processor ||
-        cstApp.nodes[0].processor->backend() != ProcessorBackend::Native ||
-        cstApp.nodes[0].processor->identifier() != NativeCstProcessor::kIdentifier)
+    if (!addNativeCstNode(cstApp) || cstApp.nodes.size() != 2 || !cstApp.nodes[1].processor ||
+        cstApp.nodes[1].processor->backend() != ProcessorBackend::Native ||
+        cstApp.nodes[1].processor->identifier() != NativeCstProcessor::kIdentifier)
       return fail("native CST processor creation");
 
-    const auto cstParams = cstApp.nodes[0].processor->parameters();
+    const auto cstParams = cstApp.nodes[1].processor->parameters();
     if (cstParams.size() != 4 ||
         cstParams[0].id != "input_space" || cstParams[0].choices.size() != 6 ||
         cstParams[1].id != "input_gamma" || cstParams[1].choices.size() != 4 ||
@@ -2088,7 +2364,7 @@ int runSelfTests() {
         cstParams[3].id != "output_gamma" || cstParams[3].choices.size() != 4)
       return fail("native CST parameters");
 
-    Processor &cst = *cstApp.nodes[0].processor;
+    Processor &cst = *cstApp.nodes[1].processor;
     if (!cst.setParameterValue("input_space", 0) ||
         !cst.setParameterValue("input_gamma", 0) ||
         !cst.setParameterValue("output_space", 1) ||
@@ -2132,15 +2408,15 @@ int runSelfTests() {
 
     App cstRestored;
     applyChain(cstRestored, cstSaved);
-    if (cstRestored.nodes.size() != 1 || !cstRestored.nodes[0].processor ||
-        cstRestored.nodes[0].processor->identifier() != NativeCstProcessor::kIdentifier)
+    if (cstRestored.nodes.size() != 2 || !cstRestored.nodes[1].processor ||
+        cstRestored.nodes[1].processor->identifier() != NativeCstProcessor::kIdentifier)
       return fail("native CST persistence restore");
 
     Image cstRestoredOut;
     if (!renderChain(cstRestored, cstIn, cstRestoredOut, {}).ok || cstRestoredOut.px != cstOut.px)
       return fail("native CST restored render");
 
-    Processor &restoredCst = *cstRestored.nodes[0].processor;
+    Processor &restoredCst = *cstRestored.nodes[1].processor;
 
     // Every added gamut must round-trip through Rec.709 in linear light.
     for (int targetSpace : {2, 3, 4, 5}) {  // AP0, AP1, DWG, Display P3
@@ -2308,7 +2584,7 @@ int runSelfTests() {
         return fail("production graph transaction/request/result");
       }
     }
-    if (!testPartialMutationUnwind()) return fail("partial restoration exception must release the gate and request preview");
+    if (!testRestorationUnwind()) return fail("failed restoration must retain the document, release the gate and restore preview");
     if (!testGraphEditNoops()) return fail("graph no-ops must retain work without requesting more");
     if (!testIdlePreviewRebuild()) return fail("idle production preview-resolution rebuild/request/result");
     printf("ok  Production graph transactions (13 edits, idle resolution rebuild, no-ops)\n");
@@ -2362,7 +2638,7 @@ int runSelfTests() {
     if (!testRenderScheduling(false, true, true, true) ||
         !testRenderScheduling(false, false, true, true))
       return fail("failed full render must recolour cached display");
-    printf("ok  Failed full render recolour fallback (both queue orders)\n");
+    printf("ok  Failed full render publishes current Error without a stale raster (both queue orders)\n");
     const bool supersededRecolor = testFailedRenderWithoutPendingRecolor(false);
     const bool cancelledRecolor = testFailedRenderWithoutPendingRecolor(true);
     if (!supersededRecolor || !cancelledRecolor) {
@@ -2383,12 +2659,15 @@ int runSelfTests() {
       return fail("export must preserve same-source and cross-image sidecars byte-for-byte");
     printf("ok  PNG/JPEG exports preserve source sidecars without creating derivative sidecars (2 collision cases)\n");
     for (auto failure : {ExportFailure::RenderException, ExportFailure::UnknownException,
-                         ExportFailure::SizeException, ExportFailure::RestoreException,
+                         ExportFailure::SizeException,
                          ExportFailure::Result})
       for (bool asynchronous : {false, true})
         if (!testExportFailureCleanup(failure, asynchronous))
           return fail("production export failure/exception cleanup");
-    printf("ok  Production export failure/exception cleanup and parameter editability (10 deterministic cases)\n");
+    printf("ok  Production export failure/exception cleanup and parameter editability (8 deterministic cases)\n");
+    if (!testPreviewSizingFailureAfterExport(false) || !testPreviewSizingFailureAfterExport(true))
+      return fail("successful export survives the next preview's size setter failure");
+    printf("ok  6D successful export survives preview sizing failures (2 cases)\n");
     if (!testExportThreadLifecycle(false) || !testExportThreadLifecycle(true))
       return fail("owned export thread restart/shutdown");
     printf("ok  Owned export thread restart/shutdown and parameter editability\n");
@@ -2416,14 +2695,14 @@ int runSelfTests() {
     // Copy/paste uses a versioned transfer payload built from the same
     // PersistNode/Sidecar V2 representation as normal project persistence.
     App copyApp;
-    if (!addNativeExposureNode(copyApp) || copyApp.nodes.size() != 1 ||
-        !copyApp.nodes[0].processor ||
-        !copyApp.nodes[0].processor->setParameterValue("exposure", 2.25))
+    if (!addNativeExposureNode(copyApp) || copyApp.nodes.size() != 2 ||
+        !copyApp.nodes[1].processor ||
+        !copyApp.nodes[1].processor->setParameterValue("exposure", 2.25))
       return fail("node copy setup");
-    copyApp.nodes[0].enabled = false;
+    copyApp.nodes[1].enabled = false;
 
     PersistNode copied;
-    if (!captureNode(copyApp, 0, copied) ||
+    if (!captureNode(copyApp, copyApp.nodes[1].id, copied) ||
         copied.backend != "native" ||
         copied.identifier != NativeExposureProcessor::kIdentifier ||
         copied.paramsJson.at("exposure") != "2.25")
@@ -2441,17 +2720,17 @@ int runSelfTests() {
         decoded.nodes[0].paramsJson.at("exposure") != "2.25")
       return fail("node copy transfer payload");
 
-    const std::string originalId = copyApp.nodes[0].id;
-    if (!appendPersistedNode(copyApp, decoded.nodes[0], 0) ||
-        copyApp.nodes.size() != 2 || copyApp.selectedNode != 1 ||
-        copyApp.nodes[1].id == originalId ||
-        copyApp.nodes[1].enabled ||
-        !copyApp.nodes[1].processor ||
-        copyApp.nodes[1].processor->identifier() != NativeExposureProcessor::kIdentifier)
+    const std::string originalId = copyApp.nodes[1].id.value;
+    if (!appendPersistedNode(copyApp, decoded.nodes[0], copyApp.nodes[1].id) ||
+        copyApp.nodes.size() != 3 || copyApp.selectedNodeId != copyApp.nodes[2].id ||
+        copyApp.nodes[2].id.value == originalId ||
+        copyApp.nodes[2].enabled ||
+        !copyApp.nodes[2].processor ||
+        copyApp.nodes[2].processor->identifier() != NativeExposureProcessor::kIdentifier)
       return fail("node paste restore");
 
     bool exposureRestored = false;
-    for (const ProcessorParameter &param : copyApp.nodes[1].processor->parameters()) {
+    for (const ProcessorParameter &param : copyApp.nodes[2].processor->parameters()) {
       if (param.id == "exposure") {
         const double *value = std::get_if<double>(&param.value);
         exposureRestored = value && *value == 2.25;
@@ -2468,12 +2747,12 @@ int runSelfTests() {
     future.label = "Future Node";
     future.enabled = true;
     future.paramsJson["future"] = "{\"curve\":[0,0.5,1]}";
-    if (!appendPersistedNode(copyApp, future, copyApp.selectedNode) ||
-        copyApp.nodes.size() != 3 || copyApp.selectedNode != 2 ||
-        copyApp.nodes[2].processor ||
-        copyApp.nodes[2].id == "foreign-id" ||
-        copyApp.nodes[2].storedBackend != "dctl" ||
-        copyApp.nodes[2].preservedParamsJson.at("future") != "{\"curve\":[0,0.5,1]}")
+    if (!appendPersistedNode(copyApp, future, copyApp.selectedNodeId) ||
+        copyApp.nodes.size() != 4 || copyApp.selectedNodeId != copyApp.nodes[3].id ||
+        copyApp.nodes[3].processor ||
+        copyApp.nodes[3].id.value == "foreign-id" ||
+        copyApp.nodes[3].storedBackend != "dctl" ||
+        copyApp.nodes[3].preservedParamsJson.at("future") != "{\"curve\":[0,0.5,1]}")
       return fail("node paste missing processor preservation");
 
     if (parseTransferPayload(
@@ -2489,12 +2768,12 @@ int runSelfTests() {
     // destination chain as one coherent serial grade.
     App sourceGrade;
     if (!addNativeExposureNode(sourceGrade) || !addNativeCstNode(sourceGrade) ||
-        sourceGrade.nodes.size() != 2 ||
-        !sourceGrade.nodes[0].processor->setParameterValue("exposure", -1.25) ||
-        !sourceGrade.nodes[1].processor->setParameterValue("output_space", 5))
+        sourceGrade.nodes.size() != 3 ||
+        !sourceGrade.nodes[1].processor->setParameterValue("exposure", -1.25) ||
+        !sourceGrade.nodes[2].processor->setParameterValue("output_space", 5))
       return fail("full grade copy setup");
-    sourceGrade.nodes[0].enabled = false;
-    sourceGrade.selectedNode = 1;
+    sourceGrade.nodes[1].enabled = false;
+    selectNode(sourceGrade, sourceGrade.nodes[2].id);
     {
       std::lock_guard<std::mutex> lock(sourceGrade.colorMutex);
       sourceGrade.outputEncoding = {RgbGamut::DisplayP3, TransferFunction::Rec709};
@@ -2512,7 +2791,7 @@ int runSelfTests() {
     PersistGradeColor decodedColor;
     if (!parseTransferPayload(payload, kind, decoded, &decodedColor) ||
         kind != "grade" || decoded.nodes.size() != 2 ||
-        decoded.selectedNodeId != sourceGrade.nodes[1].id ||
+        decoded.selectedNodeId != sourceGrade.nodes[2].id.value ||
         decodedColor.rawColorSpace != "davinci-wide-gamut" ||
         decodedColor.rawGamma != "davinci-intermediate" ||
         decodedColor.outputColorSpace != "display-p3" ||
@@ -2521,11 +2800,10 @@ int runSelfTests() {
 
     App destinationGrade;
     if (!addNativeExposureNode(destinationGrade) ||
-        !destinationGrade.nodes[0].processor->setParameterValue("exposure", 4.0))
+        !destinationGrade.nodes[1].processor->setParameterValue("exposure", 4.0))
       return fail("full grade destination setup");
-    if (!applyGradeColor(destinationGrade, decodedColor))
-      return fail("full grade colour apply");
-    applyChain(destinationGrade, decoded);
+    if (!applyGrade(destinationGrade, decoded, decodedColor))
+      return fail("full grade apply");
 
     ColorEncoding pastedOutput;
     {
@@ -2535,25 +2813,25 @@ int runSelfTests() {
     if (pastedOutput != ColorEncoding{RgbGamut::DisplayP3, TransferFunction::Rec709})
       return fail("full grade output colour restore");
 
-    if (destinationGrade.nodes.size() != 2 || destinationGrade.selectedNode != 1 ||
-        destinationGrade.nodes[0].id != sourceGrade.nodes[0].id ||
-        destinationGrade.nodes[1].id != sourceGrade.nodes[1].id ||
-        destinationGrade.nodes[0].enabled ||
-        !destinationGrade.nodes[0].processor ||
+    if (destinationGrade.nodes.size() != 3 || destinationGrade.selectedNodeId != destinationGrade.nodes[2].id ||
+        destinationGrade.nodes[1].id.value != sourceGrade.nodes[1].id.value ||
+        destinationGrade.nodes[2].id.value != sourceGrade.nodes[2].id.value ||
+        destinationGrade.nodes[1].enabled ||
         !destinationGrade.nodes[1].processor ||
-        destinationGrade.nodes[0].processor->identifier() != NativeExposureProcessor::kIdentifier ||
-        destinationGrade.nodes[1].processor->identifier() != NativeCstProcessor::kIdentifier)
+        !destinationGrade.nodes[2].processor ||
+        destinationGrade.nodes[1].processor->identifier() != NativeExposureProcessor::kIdentifier ||
+        destinationGrade.nodes[2].processor->identifier() != NativeCstProcessor::kIdentifier)
       return fail("full grade paste restore");
 
     bool exposureRestored = false;
-    for (const ProcessorParameter &param : destinationGrade.nodes[0].processor->parameters()) {
+    for (const ProcessorParameter &param : destinationGrade.nodes[1].processor->parameters()) {
       if (param.id == "exposure") {
         const double *value = std::get_if<double>(&param.value);
         exposureRestored = value && *value == -1.25;
       }
     }
     bool cstRestored = false;
-    for (const ProcessorParameter &param : destinationGrade.nodes[1].processor->parameters()) {
+    for (const ProcessorParameter &param : destinationGrade.nodes[2].processor->parameters()) {
       if (param.id == "output_space") {
         const int *value = std::get_if<int>(&param.value);
         cstRestored = value && *value == 5;
@@ -2577,14 +2855,14 @@ int runSelfTests() {
 
     App presetSource;
     if (!addNativeExposureNode(presetSource) || !addNativeCstNode(presetSource) ||
-        !presetSource.nodes[0].processor->setParameterValue("exposure", 1.75) ||
-        !presetSource.nodes[1].processor->setParameterValue("output_gamma", 3))
+        !presetSource.nodes[1].processor->setParameterValue("exposure", 1.75) ||
+        !presetSource.nodes[2].processor->setParameterValue("output_gamma", 3))
       return fail("preset source setup");
-    presetSource.nodes[0].enabled = false;
-    presetSource.selectedNode = 0;
+    presetSource.nodes[1].enabled = false;
+    selectNode(presetSource, presetSource.nodes[1].id);
 
     PersistNode nodeState;
-    if (!captureNode(presetSource, 0, nodeState))
+    if (!captureNode(presetSource, presetSource.nodes[1].id, nodeState))
       return fail("node preset capture");
     PersistChain nodePreset;
     nodePreset.selectedNodeId = nodeState.id;
@@ -2603,10 +2881,10 @@ int runSelfTests() {
 
     App nodePresetTarget;
     if (!appendPersistedNode(nodePresetTarget, loadedNodePreset.nodes[0]) ||
-        nodePresetTarget.nodes.size() != 1 || !nodePresetTarget.nodes[0].processor)
+        nodePresetTarget.nodes.size() != 2 || !nodePresetTarget.nodes[1].processor)
       return fail("node preset apply");
     bool presetExposure = false;
-    for (const ProcessorParameter &param : nodePresetTarget.nodes[0].processor->parameters()) {
+    for (const ProcessorParameter &param : nodePresetTarget.nodes[1].processor->parameters()) {
       if (param.id == "exposure") {
         const double *value = std::get_if<double>(&param.value);
         presetExposure = value && *value == 1.75;
@@ -2633,9 +2911,8 @@ int runSelfTests() {
     App gradePresetTarget;
     if (!addNativeExposureNode(gradePresetTarget))
       return fail("grade preset target setup");
-    if (!applyGradeColor(gradePresetTarget, loadedGradeColor))
-      return fail("grade preset colour apply");
-    applyChain(gradePresetTarget, loadedGradePreset);
+    if (!applyGrade(gradePresetTarget, loadedGradePreset, loadedGradeColor))
+      return fail("grade preset apply");
     ColorEncoding presetOutput;
     {
       std::lock_guard<std::mutex> lock(gradePresetTarget.colorMutex);
@@ -2643,11 +2920,11 @@ int runSelfTests() {
     }
     if (presetOutput != ColorEncoding{RgbGamut::ACES_AP1, TransferFunction::Linear})
       return fail("grade preset output colour restore");
-    if (gradePresetTarget.nodes.size() != 2 ||
-        !gradePresetTarget.nodes[0].processor ||
+    if (gradePresetTarget.nodes.size() != 3 ||
         !gradePresetTarget.nodes[1].processor ||
-        gradePresetTarget.nodes[0].processor->identifier() != NativeExposureProcessor::kIdentifier ||
-        gradePresetTarget.nodes[1].processor->identifier() != NativeCstProcessor::kIdentifier)
+        !gradePresetTarget.nodes[2].processor ||
+        gradePresetTarget.nodes[1].processor->identifier() != NativeExposureProcessor::kIdentifier ||
+        gradePresetTarget.nodes[2].processor->identifier() != NativeCstProcessor::kIdentifier)
       return fail("grade preset apply");
 
     {
@@ -2684,10 +2961,10 @@ int runSelfTests() {
       switched.outputEncoding = {RgbGamut::DisplayP3, TransferFunction::SRGB};
     }
     if (!addNativeExposureNode(switched) ||
-        !switched.nodes[0].processor ||
-        !switched.nodes[0].processor->setParameterValue("exposure", 1.5))
+        !switched.nodes[1].processor ||
+        !switched.nodes[1].processor->setParameterValue("exposure", 1.5))
       return fail("document switch edit setup");
-    switched.nodes[0].enabled = false;
+    switched.nodes[1].enabled = false;
 
     openPath(switched, imageB.string(), true);
 
@@ -2709,14 +2986,14 @@ int runSelfTests() {
       restoredOutput = switched.outputEncoding;
     }
     if (restoredOutput != ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB} ||
-        switched.nodes.size() != 1 ||
-        switched.nodes[0].enabled ||
-        !switched.nodes[0].processor ||
-        switched.nodes[0].processor->identifier() != NativeExposureProcessor::kIdentifier)
+        switched.nodes.size() != 2 ||
+        switched.nodes[1].enabled ||
+        !switched.nodes[1].processor ||
+        switched.nodes[1].processor->identifier() != NativeExposureProcessor::kIdentifier)
       return fail("document switch sidecar restore");
 
     bool restoredExposure = false;
-    for (const ProcessorParameter &param : switched.nodes[0].processor->parameters()) {
+    for (const ProcessorParameter &param : switched.nodes[1].processor->parameters()) {
       if (param.id == "exposure") {
         const double *value = std::get_if<double>(&param.value);
         restoredExposure = value && *value == 1.5;
@@ -2783,9 +3060,9 @@ int runSelfTests() {
 
     App placeholderApp;
     applyChain(placeholderApp, loaded.chain);
-    if (placeholderApp.nodes.size() != 1 || placeholderApp.nodes[0].processor ||
-        placeholderApp.nodes[0].id != "node-future" ||
-        placeholderApp.nodes[0].storedBackend != "dctl")
+    if (placeholderApp.nodes.size() != 2 || placeholderApp.nodes[1].processor ||
+        placeholderApp.nodes[1].id.value != "node-future" ||
+        placeholderApp.nodes[1].storedBackend != "dctl")
       return fail("sidecar v2 missing processor placeholder");
     const PersistChain recaptured = captureChain(placeholderApp);
     if (recaptured.nodes.size() != 1 || recaptured.nodes[0].id != "node-future" ||
@@ -3009,6 +3286,7 @@ int runSelfTests() {
   if (order.px[0] > 0.1f || order.px[(size_t)7 * 8 * 4] < 0.5f) return fail("source rows are not bottom-up");
 
   loadPlugins();
+  if (!testGraphEvaluatorOfx()) return fail("Step 6C OFX graph evaluator");
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
 
   // Standard CTL backend: load a real .ctl with a sibling import, render it
@@ -3045,8 +3323,8 @@ int runSelfTests() {
     }
 
     App ctlApp;
-    if (!addCtlNode(ctlApp, scriptPath.string()) || ctlApp.nodes.size() != 1 ||
-        !ctlApp.nodes[0].processor || ctlApp.nodes[0].processor->backend() != ProcessorBackend::CTL)
+    if (!addCtlNode(ctlApp, scriptPath.string()) || ctlApp.nodes.size() != 2 ||
+        !ctlApp.nodes[1].processor || ctlApp.nodes[1].processor->backend() != ProcessorBackend::CTL)
       return fail("ctl processor creation");
 
     {
@@ -3069,7 +3347,7 @@ int runSelfTests() {
       if (ctlOut.px[i + 3] != src.px[i + 3]) return fail("ctl alpha result");
     }
 
-    const auto ctlParams = ctlApp.nodes[0].processor->parameters();
+    const auto ctlParams = ctlApp.nodes[1].processor->parameters();
     const auto findCtlParam = [&](const char *id) -> const ProcessorParameter * {
       for (const ProcessorParameter &param : ctlParams)
         if (param.id == id) return &param;
@@ -3086,9 +3364,9 @@ int runSelfTests() {
         !std::get_if<bool>(&enabledParam->defaultValue) || !*std::get_if<bool>(&enabledParam->defaultValue))
       return fail("ctl parameter discovery/defaults");
 
-    if (!ctlApp.nodes[0].processor->setParameterValue("gain", 3.0) ||
-        !ctlApp.nodes[0].processor->setParameterValue("mode", 1) ||
-        !ctlApp.nodes[0].processor->setParameterValue("enabled", true))
+    if (!ctlApp.nodes[1].processor->setParameterValue("gain", 3.0) ||
+        !ctlApp.nodes[1].processor->setParameterValue("mode", 1) ||
+        !ctlApp.nodes[1].processor->setParameterValue("enabled", true))
       return fail("ctl parameter set");
 
     Image ctlParamOut;
@@ -3101,15 +3379,15 @@ int runSelfTests() {
         return fail("ctl parameter values");
     }
 
-    if (!ctlApp.nodes[0].processor->setParameterValue("enabled", false))
+    if (!ctlApp.nodes[1].processor->setParameterValue("enabled", false))
       return fail("ctl bool parameter set");
     Image ctlDisabledOut;
     if (!renderChain(ctlApp, src, ctlDisabledOut, {}).ok || ctlDisabledOut.px != src.px)
       return fail("ctl bool parameter render");
 
-    if (!ctlApp.nodes[0].processor->resetParameter("gain") ||
-        !ctlApp.nodes[0].processor->resetParameter("mode") ||
-        !ctlApp.nodes[0].processor->resetParameter("enabled"))
+    if (!ctlApp.nodes[1].processor->resetParameter("gain") ||
+        !ctlApp.nodes[1].processor->resetParameter("mode") ||
+        !ctlApp.nodes[1].processor->resetParameter("enabled"))
       return fail("ctl parameter reset");
     Image ctlResetOut;
     if (!renderChain(ctlApp, src, ctlResetOut, {}).ok || ctlResetOut.px != ctlOut.px)
@@ -3117,7 +3395,7 @@ int runSelfTests() {
 
     // Values are validated against CTL's 32-bit float storage and exact types,
     // and a rejected write leaves the current value untouched.
-    Processor &ctlProc = *ctlApp.nodes[0].processor;
+    Processor &ctlProc = *ctlApp.nodes[1].processor;
     const auto ctlGain = [&]() {
       for (const ProcessorParameter &param : ctlProc.parameters())
         if (param.id == "gain") return std::get<double>(param.value);
@@ -3202,9 +3480,9 @@ int runSelfTests() {
 
     // Persist non-default values so Sidecar V2 proves CTL parameter state is
     // restored through the same backend-neutral path as OFX/native controls.
-    if (!ctlApp.nodes[0].processor->setParameterValue("gain", 1.5) ||
-        !ctlApp.nodes[0].processor->setParameterValue("mode", 1) ||
-        !ctlApp.nodes[0].processor->setParameterValue("enabled", false))
+    if (!ctlApp.nodes[1].processor->setParameterValue("gain", 1.5) ||
+        !ctlApp.nodes[1].processor->setParameterValue("mode", 1) ||
+        !ctlApp.nodes[1].processor->setParameterValue("enabled", false))
       return fail("ctl persistence parameter setup");
     Image ctlSavedOut;
     if (!renderChain(ctlApp, src, ctlSavedOut, {}).ok) return fail("ctl persistence parameter render");
@@ -3219,11 +3497,11 @@ int runSelfTests() {
 
     App ctlRestored;
     applyChain(ctlRestored, ctlSaved);
-    if (ctlRestored.nodes.size() != 1 || !ctlRestored.nodes[0].processor ||
-        ctlRestored.nodes[0].processor->backend() != ProcessorBackend::CTL)
+    if (ctlRestored.nodes.size() != 2 || !ctlRestored.nodes[1].processor ||
+        ctlRestored.nodes[1].processor->backend() != ProcessorBackend::CTL)
       return fail("ctl persistence restore");
 
-    const auto restoredCtlParams = ctlRestored.nodes[0].processor->parameters();
+    const auto restoredCtlParams = ctlRestored.nodes[1].processor->parameters();
     bool restoredGain = false, restoredMode = false, restoredEnabled = false;
     for (const ProcessorParameter &param : restoredCtlParams) {
       if (param.id == "gain") {
@@ -3266,14 +3544,14 @@ int runSelfTests() {
     if (!addNode(ctlMixed, cropIndex) || !addCtlNode(ctlMixed, scriptPath.string()) ||
         !addNode(ctlMixed, cropIndex))
       return fail("OFX/CTL mixed node creation");
-    if (!ctlMixed.nodes[0].processor->setParameterValue("crop", 40.0) ||
-        !ctlMixed.nodes[2].processor->setParameterValue("crop", 40.0))
+    if (!ctlMixed.nodes[1].processor->setParameterValue("crop", 40.0) ||
+        !ctlMixed.nodes[3].processor->setParameterValue("crop", 40.0))
       return fail("OFX/CTL mixed crop setup");
 
     App ctlReference;
     if (!addNode(ctlReference, cropIndex) || !addNode(ctlReference, cropIndex) ||
-        !ctlReference.nodes[0].processor->setParameterValue("crop", 40.0) ||
-        !ctlReference.nodes[1].processor->setParameterValue("crop", 40.0))
+        !ctlReference.nodes[1].processor->setParameterValue("crop", 40.0) ||
+        !ctlReference.nodes[2].processor->setParameterValue("crop", 40.0))
       return fail("OFX/CTL mixed reference setup");
 
     Image ctlMixedOut, ctlReferenceOut;
@@ -3293,9 +3571,9 @@ int runSelfTests() {
     fs::remove(scriptPath);
     App ctlMissing;
     applyChain(ctlMissing, ctlSaved);
-    if (ctlMissing.nodes.size() != 1 || ctlMissing.nodes[0].processor ||
-        ctlMissing.nodes[0].storedBackend != "ctl" ||
-        ctlMissing.nodes[0].storedIdentifier != ctlSaved.nodes[0].identifier)
+    if (ctlMissing.nodes.size() != 2 || ctlMissing.nodes[1].processor ||
+        ctlMissing.nodes[1].storedBackend != "ctl" ||
+        ctlMissing.nodes[1].storedIdentifier != ctlSaved.nodes[0].identifier)
       return fail("ctl missing script placeholder");
 
     // Syntax and import errors must surface CTL's own diagnostics rather than
@@ -3364,11 +3642,11 @@ int runSelfTests() {
     }
 
     App artApp;
-    if (!addCtlNode(artApp, artScriptPath.string()) || artApp.nodes.size() != 1 ||
-        !artApp.nodes[0].processor || artApp.nodes[0].processor->backend() != ProcessorBackend::CTL)
+    if (!addCtlNode(artApp, artScriptPath.string()) || artApp.nodes.size() != 2 ||
+        !artApp.nodes[1].processor || artApp.nodes[1].processor->backend() != ProcessorBackend::CTL)
       return fail("ART CTL processor creation");
 
-    const auto artParams = artApp.nodes[0].processor->parameters();
+    const auto artParams = artApp.nodes[1].processor->parameters();
     if (artParams.size() != 3 || artParams[0].id != "gain" || artParams[0].type != ParameterType::Double ||
         std::get<double>(artParams[0].defaultValue) != 0.0 ||
         artParams[1].id != "mode" || artParams[1].type != ParameterType::Integer ||
@@ -3381,9 +3659,9 @@ int runSelfTests() {
     if (!renderChain(artApp, src, artDefault, {}).ok || artDefault.px != src.px)
       return fail("ART CTL default render");
 
-    if (!artApp.nodes[0].processor->setParameterValue("gain", 2.0) ||
-        !artApp.nodes[0].processor->setParameterValue("mode", 1) ||
-        !artApp.nodes[0].processor->setParameterValue("enabled", true))
+    if (!artApp.nodes[1].processor->setParameterValue("gain", 2.0) ||
+        !artApp.nodes[1].processor->setParameterValue("mode", 1) ||
+        !artApp.nodes[1].processor->setParameterValue("enabled", true))
       return fail("ART CTL parameter set");
 
     Image artOut;
@@ -3399,8 +3677,8 @@ int runSelfTests() {
     const PersistChain artSaved = captureChain(artApp);
     App artRestored;
     applyChain(artRestored, artSaved);
-    if (artRestored.nodes.size() != 1 || !artRestored.nodes[0].processor ||
-        artRestored.nodes[0].processor->backend() != ProcessorBackend::CTL)
+    if (artRestored.nodes.size() != 2 || !artRestored.nodes[1].processor ||
+        artRestored.nodes[1].processor->backend() != ProcessorBackend::CTL)
       return fail("ART CTL persistence restore");
     Image artRestoredOut;
     if (!renderChain(artRestored, src, artRestoredOut, {}).ok || artRestoredOut.px != artOut.px)
@@ -3439,11 +3717,11 @@ int runSelfTests() {
     App artMeta;
     if (!addCtlNode(artMeta, artMetaPath.string())) return fail("ART metadata script load");
     {
-      bool ok = artMeta.nodes[0].processor->displayName() == "ART metadata demo";
+      bool ok = artMeta.nodes[1].processor->displayName() == "ART metadata demo";
       int seen = 0;
       int groups = 0;
       const std::string toneGroup = "__art_group__:$CTL_TONE;Tone";
-      for (const ProcessorParameter &param : artMeta.nodes[0].processor->parameters()) {
+      for (const ProcessorParameter &param : artMeta.nodes[1].processor->parameters()) {
         if (param.type == ParameterType::Group) {
           ++groups;
           ok = ok && param.id == toneGroup && param.label == "Tone";
@@ -3481,7 +3759,7 @@ int runSelfTests() {
       // Controls follow @ART-param line order (not ART_main argument order),
       // and a group appears where its first member does, as in ART's panel.
       std::vector<std::string> order;
-      for (const ProcessorParameter &param : artMeta.nodes[0].processor->parameters()) order.push_back(param.id);
+      for (const ProcessorParameter &param : artMeta.nodes[1].processor->parameters()) order.push_back(param.id);
       if (order != std::vector<std::string>({"__rawnode_art_preset", "enabled", toneGroup, "gain", "mode", "bias", "steps"}))
         return fail("ART @ART-param control order");
     }
@@ -3494,7 +3772,7 @@ int runSelfTests() {
     }
 
     // Choice metadata can map menu indices to explicit CTL integer values.
-    if (!artMeta.nodes[0].processor->setParameterValue("mode", 0))
+    if (!artMeta.nodes[1].processor->setParameterValue("mode", 0))
       return fail("ART explicit choice value set");
     Image artChoiceOut;
     if (!renderChain(artMeta, src, artChoiceOut, {}).ok)
@@ -3512,8 +3790,8 @@ int runSelfTests() {
       App choiceRestored;
       applyChain(choiceRestored, choiceSaved);
       bool restoredMode = false;
-      if (choiceRestored.nodes.size() == 1 && choiceRestored.nodes[0].processor) {
-        for (const ProcessorParameter &param : choiceRestored.nodes[0].processor->parameters())
+      if (choiceRestored.nodes.size() == 2 && choiceRestored.nodes[1].processor) {
+        for (const ProcessorParameter &param : choiceRestored.nodes[1].processor->parameters())
           if (param.id == "mode") restoredMode = std::get<int>(param.value) == 0;
       }
       Image choiceRestoredOut;
@@ -3522,14 +3800,14 @@ int runSelfTests() {
         return fail("ART explicit choice value Sidecar V2 restore");
     }
 
-    if (!artMeta.nodes[0].processor->setParameterValue("mode", 3))
+    if (!artMeta.nodes[1].processor->setParameterValue("mode", 3))
       return fail("ART explicit choice value restore");
 
     // @ART-preset is exposed as a transient dropdown (1 boost, 2 disabled,
     // 3 gainOnly, 4 empty). Applying a preset updates only its partial
     // parameter map; the selector shows the last explicitly chosen preset while
     // the values it maps still match, and Sidecar V2 stores only parameters.
-    Processor &artPresets = *artMeta.nodes[0].processor;
+    Processor &artPresets = *artMeta.nodes[1].processor;
     const auto presetValue = [&](const char *id) -> ParameterValue {
       for (const ProcessorParameter &param : artPresets.parameters())
         if (param.id == id) return param.value;
@@ -3595,8 +3873,8 @@ int runSelfTests() {
       App presetRestored;
       applyChain(presetRestored, presetSaved);
       Image presetRestoredOut;
-      if (presetRestored.nodes.size() != 1 || !presetRestored.nodes[0].processor ||
-          shownPreset(*presetRestored.nodes[0].processor) != 0 ||
+      if (presetRestored.nodes.size() != 2 || !presetRestored.nodes[1].processor ||
+          shownPreset(*presetRestored.nodes[1].processor) != 0 ||
           !renderChain(presetRestored, src, presetRestoredOut, {}).ok || presetRestoredOut.px != artPresetOut.px)
         return fail("ART preset Sidecar V2 restore");
     }
@@ -3605,7 +3883,7 @@ int runSelfTests() {
 
     // Untouched parameters reach Sidecar V2 with ART's defaults, not zeros.
     // Restore the explicit choice default after the preset/reset tests.
-    if (!artMeta.nodes[0].processor->setParameterValue("mode", 3))
+    if (!artMeta.nodes[1].processor->setParameterValue("mode", 3))
       return fail("ART metadata mode restore after preset");
     const PersistChain artMetaSaved = captureChain(artMeta);
     const auto &metaJson = artMetaSaved.nodes[0].paramsJson;
@@ -3615,7 +3893,7 @@ int runSelfTests() {
     App artMetaRestored;
     applyChain(artMetaRestored, artMetaSaved);
     Image artMetaRestoredOut;
-    if (artMetaRestored.nodes.size() != 1 || !artMetaRestored.nodes[0].processor ||
+    if (artMetaRestored.nodes.size() != 2 || !artMetaRestored.nodes[1].processor ||
         !renderChain(artMetaRestored, src, artMetaRestoredOut, {}).ok || artMetaRestoredOut.px != artMetaOut.px)
       return fail("ART metadata restored render");
 
@@ -3641,7 +3919,7 @@ int runSelfTests() {
     App artAdjuster;
     if (!addCtlNode(artAdjuster, artAdjusterPath.string()))
       return fail("ART adjuster normalisation script load");
-    Processor &adjuster = *artAdjuster.nodes[0].processor;
+    Processor &adjuster = *artAdjuster.nodes[1].processor;
     const auto adjusterValue = [&](const char *id, bool defaults) -> ParameterValue {
       for (const ProcessorParameter &param : adjuster.parameters())
         if (param.id == id) return defaults ? param.defaultValue : param.value;
@@ -3694,10 +3972,10 @@ int runSelfTests() {
     const PersistChain adjusterSaved = captureChain(artAdjuster);
     App adjusterRestored;
     applyChain(adjusterRestored, adjusterSaved);
-    if (adjusterRestored.nodes.size() != 1 || !adjusterRestored.nodes[0].processor)
+    if (adjusterRestored.nodes.size() != 2 || !adjusterRestored.nodes[1].processor)
       return fail("ART adjuster Sidecar V2 restore");
     bool restoredGain = false, restoredMix = false, restoredCount = false;
-    for (const ProcessorParameter &param : adjusterRestored.nodes[0].processor->parameters()) {
+    for (const ProcessorParameter &param : adjusterRestored.nodes[1].processor->parameters()) {
       if (param.id == "gain") restoredGain = param.value == ParameterValue(0.7);
       else if (param.id == "mix") restoredMix = param.value == ParameterValue(-1.0);
       else if (param.id == "count") restoredCount = param.value == ParameterValue(0);
@@ -3821,21 +4099,21 @@ int runSelfTests() {
     App mixed;
     if (!addNode(mixed, cropIndex) || !addNativeExposureNode(mixed) || !addNode(mixed, cropIndex))
       return fail("mixed processor node creation");
-    if (mixed.nodes.size() != 3 || !mixed.nodes[1].processor ||
-        mixed.nodes[1].processor->backend() != ProcessorBackend::Native)
+    if (mixed.nodes.size() != 4 || !mixed.nodes[2].processor ||
+        mixed.nodes[2].processor->backend() != ProcessorBackend::Native)
       return fail("mixed processor backend");
 
     const double exposureEv = 1.0 / 3.0;  // not representable in 6 decimals
-    if (!mixed.nodes[0].processor->setParameterValue("crop", 40.0) ||
-        !mixed.nodes[1].processor->setParameterValue("exposure", exposureEv) ||
-        !mixed.nodes[2].processor->setParameterValue("crop", 40.0))
+    if (!mixed.nodes[1].processor->setParameterValue("crop", 40.0) ||
+        !mixed.nodes[2].processor->setParameterValue("exposure", exposureEv) ||
+        !mixed.nodes[3].processor->setParameterValue("crop", 40.0))
       return fail("mixed processor parameter set");
 
     // Reference: the same two crops without the native node.
     App cropOnly;
     if (!addNode(cropOnly, cropIndex) || !addNode(cropOnly, cropIndex) ||
-        !cropOnly.nodes[0].processor->setParameterValue("crop", 40.0) ||
-        !cropOnly.nodes[1].processor->setParameterValue("crop", 40.0))
+        !cropOnly.nodes[1].processor->setParameterValue("crop", 40.0) ||
+        !cropOnly.nodes[2].processor->setParameterValue("crop", 40.0))
       return fail("mixed reference chain");
     Image cropOut;
     if (!renderChain(cropOnly, src, cropOut, {}).ok || cropOut.w >= src.w || cropOut.h >= src.h)
@@ -3866,8 +4144,8 @@ int runSelfTests() {
 
     App restored;
     applyChain(restored, saved);
-    if (restored.nodes.size() != 3 || !restored.nodes[0].processor || !restored.nodes[1].processor ||
-        !restored.nodes[2].processor || restored.nodes[1].processor->backend() != ProcessorBackend::Native)
+    if (restored.nodes.size() != 4 || !restored.nodes[1].processor || !restored.nodes[2].processor ||
+        !restored.nodes[3].processor || restored.nodes[2].processor->backend() != ProcessorBackend::Native)
       return fail("native exposure persistence restore");
 
     Image restoredOut;

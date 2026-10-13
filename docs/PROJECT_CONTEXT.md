@@ -138,6 +138,14 @@ Important implemented foundations include:
 - distinct processor-render and display-conversion refresh behaviour;
 - preview restoration after full-resolution export.
 
+On the Step 6 draft branch, explicit consumer-owned topology and a sequential
+requested-endpoint evaluator now drive preview, Image/Mask inspection and export.
+List View derives topology order and keeps off-spine nodes accessible; selection
+uses stable NodeIds. Unsupported linear sidecar/clipboard/preset capture refuses
+before writing, and full-grade application stages graph/colour/source changes
+before committing. Independent whole-Step-6 review is complete. macOS/NEF
+validation and merge remain pending; PR #58 is draft and unmerged.
+
 The renderer/concurrency baseline established by PRs #32-#34 is important:
 
 - PR #32 fixed processor lifetime/use-after-free races between rendering and
@@ -163,11 +171,15 @@ exclusivity and shutdown. Ordinary UI/document/export callers use semantic
 requests rather than renderer mutexes, pending/busy flags or
 wait/mutate/reschedule protocol.
 
-Presentation buffers remain part of the display path, export file production
-remains in the export path, and `renderChain()` still evaluates `App::nodes`
-as an ordered serial chain. Explicit topology and graph evaluation remain
-Step 6 work. The runtime owns **when** evaluation may execute safely, not what
-the document or export means.
+On the Step 6 draft feature branch, preview, inspection and export share the
+sequential GraphEvaluator. Typed publication retains request generation,
+endpoint, value kind, state and diagnostics. Preview Source frames use shared
+ownership; per-evaluation consumer counts bound intermediate raster lifetime.
+Presentation buffers remain in the display path and file production in export.
+The runtime owns **when** evaluation may execute safely, not what the document
+or export means. List View and the minimal V2 safety boundary are implemented
+and included in the completed independent whole-Step-6 review. macOS/NEF
+validation and merge remain pending.
 
 ## Architectural direction
 
@@ -176,9 +188,11 @@ checkpoint are complete. Codex and Claude independently reviewed the current
 implementation and target against RawNode's product goals and the pinned vkdt
 reference and found the direction **sound for the next stage**. Step 5 has now
 closed after independent final Codex/Claude implementation-readiness review.
-No further broad architectural refactor is justified before Step 6. This does
-not mean the final graph architecture is implemented. The approved target remains documented in
-`docs/ARCHITECTURE.md`; checkpoint evidence is in `docs/ARCHITECTURE_AUDIT.md`.
+No further broad architectural refactor was required before Step 6. The explicit
+graph and sequential evaluator are now implemented and independently reviewed on
+the draft branch; persistence and concrete production Mask features remain later
+steps. The approved target is documented in `docs/ARCHITECTURE.md`; checkpoint
+evidence is in `docs/ARCHITECTURE_AUDIT.md`.
 
 The architectural north star is:
 
@@ -340,8 +354,6 @@ These are known but are not reasons to expand unrelated focused PRs:
 - thumbnail worker exceptional-unwind lifetime, the macOS pthread-to-joiner
   exception gap, and `makePreview` partial helper-thread launch remain focused
   lifetime/exception-safety follow-ups; normal thumbnail shutdown is safe;
-- the dead `uploadTexture` path should be removed when the evaluator/display
-  boundary is touched in Step 6 unless a use appears earlier;
 - source sidecar writes remain in-place rather than atomic, and Sidecar V2 still
   includes some GUI preferences; persistence hardening/document-state cleanup
   belongs with Step 7;
@@ -354,8 +366,14 @@ need.
 
 ## Current development phase
 
-**Step 5 — Settle the first mask/graph product contract — is current.**
-This is product/architecture decision work before graph implementation.
+**Step 6 implementation and independent whole-transition review are complete on
+the draft feature branch; macOS/NEF validation and merge remain pending.**
+PR #58 is still draft and unmerged. Step 5's product/architecture contract is
+complete. The full graph transition, NodeId selection, topology List View and
+minimal linear capture /
+transactional grade safety are implemented. macOS native-dialog and successful
+camera-RAW (NEF) grade re-decode validation require a platform session; see
+`docs/STEP6_MANUAL_VALIDATION.md`.
 
 Steps 1–4 are complete: owned export execution, frozen parameter edits during
 export, centralized graph-edit transactions and encapsulated renderer ownership.
@@ -373,15 +391,19 @@ a practical composition root; the remaining thread-launch/lifetime findings are
 focused implementation follow-ups, not reasons to reopen the architecture audit.
 See `docs/ARCHITECTURE_AUDIT.md` for the candidate dispositions.
 
-Current execution still uses a serial node chain. The remaining sequence is:
+The remaining sequence is:
 
-    Step 5: First mask/graph product contract       [current; decisions]
+    Step 5: First mask/graph product contract       [complete]
           |
           v
-    Step 6: Explicit topology + sequential DAG evaluator
+    Step 6: Explicit topology + sequential DAG evaluator [implemented and independently reviewed]
+            macOS/NEF validation and merge pending; PR #58 draft and unmerged
           |
           v
     Step 7: Versioned graph persistence
+          |
+          v
+    Switchable Graph/List editor                   [UI milestone, D047]
           |
           v
     Step 8: Concrete first mask path + remaining implementation details
@@ -445,19 +467,26 @@ compositing or alpha-carrying I/O requires it.
 
 Current architecture/product-contract work:
 
-- Step 5: decide the first mask/graph product contract using the topics above.
+- Step 6: implementation and independent whole-transition review complete;
+  macOS/NEF manual validation and merge pending. PR #58 remains draft and unmerged.
+- Then Step 7 graph persistence, the switchable Graph/List editor, and Step 8
+  masking, in that order.
 
-The checkpoint and immediate follow-ups are complete. No additional broad
-architecture cleanup is required before this discussion.
+The checkpoint, immediate follow-ups and Step 5 contract are complete. No
+additional broad architecture cleanup is required before finishing Step 6.
 
 Colour-management design and DCTL/LUT or other processor work may continue
 independently when appropriate. Step 5 is not a prerequisite for that unrelated
 work, provided it does not pre-empt the unsettled graph/mask contract or introduce
 conflicting architecture.
 
-The architecture track proceeds from the Step 5 contract to generic explicit
-topology/evaluation in Step 6, versioned topology persistence in Step 7, and the
-first concrete mask path with remaining implementation details in Step 8.
+The Step 6 implementation retains the existing ownership boundary and sequential
+whole-graph invalidation. Processor creation may enter a mutation even on failure;
+staging assumes one control thread and fixed port interfaces. Future SlotSettings
+fields must be included in no-op comparison, and arbitrary editing needs a UX for
+disconnected required inputs. Sidecar-loading exceptions and persistence atomicity
+remain Step 7 work. No further compatibility infrastructure is required for the
+historical linear format.
 
 Do not introduce speculative caches, schedulers or broad optimisation
 infrastructure merely because a future DAG could use them.

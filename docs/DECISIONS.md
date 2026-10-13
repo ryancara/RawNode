@@ -258,7 +258,9 @@ focused, non-blocking follow-ups; see `docs/ARCHITECTURE_AUDIT.md`.
 **Step 5 is complete:** the first mask/graph product contract was independently
 reviewed by Codex and Claude and closed without another broad architecture
 refactor. Execution on main remains a serial node chain until Step 6 lands;
-Step 6 is now the deliberate explicit topology/evaluator transition.
+the explicit topology/evaluator transition is implemented and independently
+reviewed on the Step 6 branch. macOS/NEF validation and merge remain pending;
+PR #58 is still draft and unmerged.
 
 ## D038 — Sidecars belong to editable source documents only
 
@@ -405,6 +407,17 @@ independent processing semantics.
 
 Arbitrary-DAG List View presentation remains deferred.
 
+## D047 — Switchable Graph/List editor follows graph-native persistence
+
+**Status:** Accepted
+
+After Step 7 graph-native persistence and before Step 8's first concrete
+production Mask path, add a switchable Graph/List editor. This is a UI milestone
+between existing architecture steps, not a ninth architecture step.
+
+Both views edit the same authoritative document graph and share stable NodeId
+selection. Switching views introduces no additional renderer or execution model.
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:
@@ -433,8 +446,13 @@ The following remain intentionally deferred until the corresponding feature:
 The D037 stabilisation gate and immediate checkpoint follow-ups are complete.
 
 5. Settle the first mask/graph product contract — complete.
-6. Introduce topology and sequential DAG evaluation together — current.
+6. Introduce topology and sequential DAG evaluation together — implementation and
+   independent whole-Step-6 review complete on the feature branch. macOS/NEF
+   validation and merge pending; PR #58 remains draft and unmerged.
 7. Add versioned graph persistence.
+
+   Then add the switchable Graph/List editor UI milestone (D047), before Step 8.
+
 8. Settle remaining concrete mask details and add the first mask path under the
    Step 5 contract.
 
