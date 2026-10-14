@@ -1,7 +1,10 @@
 # Step 7 — Graph-native persistence design checkpoint
 
-**Status:** Revised proposal for independent Claude review. Documentation only;
-Step 7 implementation has not begun.
+**Review provenance:** Claude's independent review of
+`a38e05adecf6713c9456efc52232f28c3d58abd4` concluded **SAFE AFTER SMALL FIXES**
+(result supplied by the user). This revision incorporates those fixes and the
+subsequently accepted ART/vkdt-inspired save lifecycle. Targeted independent
+Claude verification is pending. Documentation only; implementation has not begun.
 
 **Baseline:** `main` including PR #61,
 `20e3ba75165e38edf9bd97a6266342dde0a41b1d`. The accepted Step 5/6 graph and
@@ -10,7 +13,7 @@ records, graph validation and document-mutation path.
 
 Read with [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md#persistence-direction),
 [CODE_STYLE.md](CODE_STYLE.md), [ARCHITECTURE.md](ARCHITECTURE.md),
-[DECISIONS.md](DECISIONS.md) D038–D049 and the
+[DECISIONS.md](DECISIONS.md) D038–D050 and the
 [Step 5 persistence target](STEP5_GRAPH_CONTRACT.md#step-7-graph-persistence-target).
 [SIDECAR.md](../SIDECAR.md) and [workspace-format.md](workspace-format.md)
 describe the existing formats until their implementation is retired.
@@ -26,10 +29,10 @@ describe the existing formats until their implementation is retired.
 | `ProjectPersist.h`: `PersistNode`, `PersistChain` | Extend `PersistNode` with operation and topology; replace the chain with a plain graph record containing nodes and endpoints. Reuse `InputBindings`, `Slot` and `PersistGradeColor`. These are temporary serialization data, with no editing/evaluation API or persistent shadow of `App::nodes`. |
 | `captureChain`, `captureNode`, `restoreChain`, `replaceChain` | Current capture refuses graphs outside a complete linear spine; restore recreates Source and connections from array order. Replace with full graph capture and two-pass restoration. Publish saved `primarySource` as well as nodes/output. Remove each V2 guard only when its caller has transitioned. |
 | `capturePersistedNode`, `restoredNode`, parameter helpers | Reuse factories, stored backend/identifier/label, `preservedParamsJson`, stable choice IDs and precise numeric output. Check known parameter types and setter results; current permissive conversions can lose invalid values. Bind OFX by identifier, never substitute a different plugin by matching its label. |
-| `ProjectPersistLoad.cpp` / `ProjectPersistSave.cpp` | Current field extraction is not complete JSON validation; it can miss malformed tails/duplicate keys. `captureJsonValue` / `extractValueField` / `extractObject` can retain untouched object text after strict whole-file validation. `writeFile` directly truncates its target. Replace validation and writing, reusing extraction, naming/filtering and parameter encoding where useful. No general JSON dependency is currently declared; use an established small library rather than grow a custom parsing framework. |
+| `ProjectPersistLoad.cpp` / `ProjectPersistSave.cpp` | Current field extraction is not complete JSON validation; it can miss malformed tails/duplicate keys. Replace it with one strict reader, retaining raw values/sections through that reader where practical. Existing extraction helpers are available if a small validated-slice helper is still needed. `writeFile` directly truncates its target; replace it with checked atomic writes. |
 | `DocumentActions.cpp`: `applyGrade`, `openPath`, sidecar helpers | `applyGrade` already stages restoration and changed RAW decoding under `DocumentMutation`. Reuse this pattern. Opening currently reads a sidecar twice and publishes the source before completing grade checks. Read once and stage the incoming document before publishing it. |
-| `AppState.h`, `LeftPanel.cpp`, `ParamWidgets.cpp` | Add explicit grade presence/dirty state. Current RAW UI edits also update `rawWorkingEncoding`, the session default; stop that coupling. Separate current photo colours from RAW/Output defaults. Successful parameter and Output edits need dirty notifications. |
-| `saveCurrentInputSidecar` and callers | Path changes, folder changes, RAW edits and `UI.cpp` shutdown save unconditionally; write failures are ignored. File → Save Project reports success unconditionally. Use checked save-if-dirty for automatic paths and explicit Save Grade for intentional saves, including an empty grade. |
+| `AppState.h`, photo colour controls | The open source path and existing protection state identify an editable document; no live grade-presence or dirty flag is needed. Stop photo RAW edits changing `rawWorkingEncoding`, the session default; separate photo colours from defaults. No per-edit persistence notifications. |
+| `saveCurrentInputSidecar` and callers | Existing navigation saves can be retained with checked results; include same-photo reopening. Add the initial save after a successful open. Move shutdown saving before `UI.cpp` tears down workers/editor state. Remove the RAW-control-triggered save; use open/leave/close and explicit Save Grade. File → Save Project must report the real result. |
 | `UiFrame.cpp` | Presets and clipboard both use `PersistChain`, but separate envelopes and `.rawnodepreset`. Use shared codecs, one Save Preset action for the complete grade, and retain Copy Node / Copy Grade. Remove Save Node Preset and its special reconstruction path. Full-grade actions currently use `hasProcessingOutput()` and can omit colours for protected files; neither is a valid completeness test. |
 | `Node::groupOpen`, node capture/restoration | Existing persistence transfers parameter-group expansion. Keep it only in memory with ordinary UI defaults on reconstruction; exclude it from sidecars, presets and every clipboard payload. |
 | `PersistGui`, `persistWorkspace`, `ImGuiBackend.cpp` | GUI state mixes photo Output with preferences. Folder opens load/save workspace JSON and swap ImGui ini paths; startup otherwise uses CWD `ofxrawhost.ini`. Separate preferences, use one global ini path and keep folder scanning. |
@@ -76,12 +79,15 @@ One representative sidecar:
 }
 ```
 
-`grade` and `metadata` are optional objects, never `null`. `metadata.mark` is
-`pick`, `reject` or `unmarked`; an absent mark means Unmarked. Omitting `grade`
-means no saved grade. An intentionally empty grade still contains its colours,
-one Source node and `documentOutput` referring to that Source's `image` output.
+`grade` and `metadata` are optional objects, never `null`. New metadata writes use
+`pick` or `reject`; absent `metadata.mark` is canonical Unmarked. The reader
+also accepts explicit `unmarked`; clearing a mark removes the key, without
+deleting the sidecar. An empty metadata object may remain. Omitting `grade`
+means no grade saved in this file, valid for unopened metadata-only photos.
+An intentionally empty grade contains its colours, one Source node and
+`documentOutput` referring to that Source's `image` output.
 An empty `nodes` array is invalid. A header-only file has no grade or mark, but
-RawNode has no reason to create it during browsing.
+RawNode has no reason to create it during scanning or thumbnail generation.
 
 A grade requires both colour pairs, using `rgbGamutId` / `transferFunctionId`
 and the existing registry for validation. Keep a per-document RAW working pair
@@ -89,6 +95,8 @@ also for raster photographs: it is unused by raster decoding but makes grade
 transfers complete. Initialise it from defaults for an ungraded photograph;
 Replace supplies it from the incoming grade. `inputEncoding` continues to mean
 the actual decoded pixels. No stored grade depends on later global defaults.
+This correction retains the required RAW pair for raster grades; omitting it
+would require a separate product decision.
 
 Node records follow the existing model:
 
@@ -104,13 +112,14 @@ Node records follow the existing model:
   types. Known stable choices use IDs; backends without choice IDs keep their
   current numeric representation. Transient/non-persistent parameters stay out.
 - `inputs` maps declared fixed input names to `{ "node", "port" }` or `null`.
-  Include every declared input, even if disconnected. Source has none.
+  Writers include every declared input, even if disconnected. Source has none.
 - Slotted operations additionally require `slots` and `nextSlotId`, including
   when their Slot array is empty. Ordinary Source/processor nodes omit both.
 - Optional `grade.positions` maps NodeId to `{ "x": number, "y": number }`.
   Keep positions separate from topology and retain them without Graph View.
-  Missing positions are valid; ignore unusable position entries with a warning.
-  Positions never determine graph validity or execution.
+  Missing positions are valid; ignore unusable entries or keys for absent nodes
+  with a warning. Delete a node's position with the node. Positions never affect
+  graph validity or execution. Transfer rules are in section 6.
 
 The file version defines the supported operation names and their interfaces.
 Use `nodeInterface()` for port types, directions and requiredness: repeating
@@ -118,9 +127,14 @@ those declarations in every node is unnecessary. The current missing
 ImageProcessor has that same known unary interface. Unknown backend/processor
 identities can therefore survive as missing processors; an unknown operation
 or graph semantics that cannot be interpreted protects the file instead.
-No per-node, interface or processor version counters are needed now. A future
-incompatible operation/interface change must deliberately revise the file
-contract; Step 7 adds no migration machinery.
+When reading, start from the operation's declared defaults and overlay saved
+values. A newly introduced optional fixed/Slot input may be absent: default it
+to unconnected. Optional controls use documented defaults that preserve prior
+meaning (currently `SlotSettings.enabled` defaults to true). Missing required
+fields/inputs or a present value of the wrong type still reject; an explicitly
+null required input remains representable but not render-ready. Do not invent
+controls to exercise this policy. Incompatible changes revise the file contract;
+no per-node version counters or migration machinery are needed.
 
 CTL's identifier remains its existing canonical script path. If moved to a
 machine without that path, retain a missing processor and its parameters. This
@@ -183,89 +197,80 @@ do not expose `Test*` operation names in the production loader. The common Slot
 representation is needed by the established graph contract, not a Step 8
 implementation or a registry for hypothetical operations.
 
-## 4. Sidecar ownership and safe opening
+## 4. Opening establishes the grade
 
-| On disk | Meaning on open |
+This lifecycle supersedes the earlier rule that viewing a photo in the editor
+must leave it without a saved grade. Folder scanning/discovery and thumbnail
+work never create grades or sidecars; successfully opening an editable photo does.
+
+| On disk | Meaning on editor open |
 | --- | --- |
-| No sidecar | Ungraded source, global colour defaults; no automatic write. |
-| Metadata only | Same ungraded source plus mark; no grade is created. |
-| Grade present | Restore graph and both colour pairs, including a Source-only grade. Loading is clean. |
-| Invalid, unreadable, unsupported or incompatible sidecar | Protected, read-only source view if decoding succeeds; a persistent warning says the saved grade was not loaded. Never classify it as unedited. |
+| No sidecar | Initialise from applicable defaults; save the established grade after successful opening. |
+| Metadata only | Initialise and save a grade, preserving metadata. |
+| Grade present | Restore graph and colours, including Source-only grades; no immediate rewrite is needed. |
+| Invalid, unreadable, unsupported or incompatible sidecar | Protected, read-only source view if decoding succeeds; a persistent warning says the saved grade was not loaded. Never classify it as unedited or apply a default preset. |
 
-Use minimal document state: `hasGrade` (loaded or explicitly authored),
-`gradeDirty` (needs saving), and the existing protected path plus a warning
-reason that survives routine preview status updates. On editable photos,
-successful processing/colour edits, preset application, grade paste or explicit
-Save Grade establish a grade. Clearing the last processor retains a Source-only
-grade. No-op/failed edits, selection, rendering, browsing and
-metadata changes do not establish one. Loading sets presence from the file and
-leaves dirty false. Dirty clears only after a successful save. Protection takes
-precedence over presence; a fallback view must never qualify for future automatic
-default-preset application. Step 7 implements no such automatic application.
-
-Protected source viewing is read-only: disable graph/Slot/layout edits, enabled-state
-changes, parameter/colour adjustments, node/grade paste, preset Replace/Append
-and Save Grade. Reject these operations at document entry points as well as in
-the UI, using the existing protection state. Selection, viewing and navigation
-remain available. No extra editability state, force-overwrite command, recovery
-editor or Save As recovery workflow is needed.
-
-Notify persistence at successful graph, enabled-state, parameter and colour edit
-boundaries. Keep this separate from `DocumentMutation::changed()`, whose job is
-render demand, and from renderer busy/publication flags. Optional node positions
-may dirty an existing editable grade but do not establish one. Parameter-group
-expansion never dirties a grade and is not part of copy/paste.
-Metadata updates are synchronous file operations and need no document history.
-
-Read a sidecar completely and validate its format/version, field shapes,
-identities, colour IDs and topology before accepting it. Reject malformed JSON,
-duplicate keys, trailing data and invalid numeric values. Reject unknown
-structural fields/semantics rather than silently dropping them. Opaque parameter
-values are the intentional exception, not an arbitrary extension map on every
-object. Reuse `graphStructureError` on temporary existing `Node` objects with
-null processors, solely as topology for validation, never as a live App graph;
-static interfaces make this check backend-independent.
-`requestedGraphError` may report disconnected required inputs to the UI but is
-not a file-validity or save requirement.
+Every successfully opened editable photo has a complete live grade. Reuse the
+open source path and protection state; add neither `hasGrade` nor `gradeDirty`.
+Optional grade presence belongs to the file record for unopened metadata-only
+photos, not another live state machine. Capture/save the current complete grade
+before navigation, folder-driven document replacement, same-photo reopening
+and shutdown, whether or not any adjustment changed. Explicit Save Grade remains.
+No per-edit notifications, comparison snapshots, revision counters, history or
+mutation event bus are needed. Saving is independent of rendering demand and
+`DocumentMutation::changed()`; no autosave timer is introduced.
 
 For photograph opening:
 
-1. If the current document is dirty, save before abandoning it; a failure offers
-   retry/discard/cancel, retaining edits until a save or explicit discard. Then
-   read/classify the incoming sidecar once, so reopening the same path cannot
-   restore a snapshot taken before that save.
-2. Prepare the incoming source, graph and colours without altering live state.
-   For a valid grade, use saved RAW settings for decoding, build every node,
-   connect references, restore parameters, validate and build preview pixels.
-   No-sidecar/metadata-only opens use global defaults, never the previous photo's
-   Output setting.
-3. Use the existing `DocumentMutation` ownership boundary for processor lifetime
-   work and live replacement. Finish all fallible preparation before swapping
-   path, source pixels/encoding, preview, graph endpoints and Output settings.
-   Reset selection/inspection as today; one completed mutation requests preview.
-4. If sidecar parsing or grade reconstruction fails, protect it and stage a
-   source-only view instead. Keep the existing safe RAW display fallback of
-   Rec.709/Linear when the saved encoding cannot be trusted; raster decoding
-   still uses its detected encoding. Source display uses actual `inputEncoding`,
-   as `RenderPipeline` does today. Identify this as a read-only protected source
-   view with a persistent warning, no restored grade and no automatic default
-   preset. If source decoding fails too, keep the previous document. Do not
-   expose a half-restored grade.
+1. Save the current editable photo before replacing/reloading it, including the
+   same path. On failure offer Retry / Discard / Cancel; retain the live document
+   until a save succeeds or discard is explicit. Read the incoming sidecar after
+   this save so same-photo reopening cannot reload stale settings.
+2. Stage incoming source, graph and colours. Restore an existing grade; otherwise
+   initialise from global defaults (or the future selected default grade preset
+   via Replace). Never inherit the previous photo's Output setting. Saved RAW
+   settings determine decoding; restore nodes/parameters/bindings, validate and
+   prepare preview pixels before publishing anything.
+3. Use the existing `DocumentMutation` boundary for processor lifetime and live
+   replacement. Complete fallible preparation before swapping path, source
+   pixels/encoding, preview, graph endpoints and Output settings. Reset selection/
+   inspection as today. Failed source opening leaves the old document intact
+   and creates no initial sidecar.
+4. Only after a successful editable open, if the file had no grade, save the
+   established complete grade through the atomic update path. Preserve any mark.
+   A Source-only grade is legitimate. If this initial save fails, keep the opened
+   photo editable in memory and report the failure clearly; retry saving at
+   navigation/shutdown without a special pending/dirty flag. Existing grades
+   need no immediate rewrite. Folder auto-open affects only the photo opened.
+5. If sidecar parsing or reconstruction fails, protect it and stage a source-only
+   view instead. Use the established Rec.709/Linear RAW fallback when the saved
+   encoding cannot be trusted; raster decoding uses its detected encoding.
+   Source display uses actual `inputEncoding`. Show a persistent warning and
+   never save this fallback. If source decoding also fails, keep the old document.
 
-The fallback is a complete incoming source document, so it does not conflict
-with transactional opening. It preserves current source-viewing behaviour.
-Applying a preset/pasted grade to an already open photograph instead leaves
-that photograph's original grade unchanged on failure; it never falls back to
-clearing the destination.
+Protected viewing disables graph/Slot/layout edits, enabled-state changes,
+parameters/colours, node/grade paste, preset Replace/Append and Save Grade.
+Reject these at document entry points as well as in the UI using existing
+protection state. Viewing, selection and navigation remain available. No recovery
+editor, force-overwrite command or Save As recovery workflow is needed.
 
-Missing ImageProcessors retain identity, enabled state, parameters and all
-bindings, using the evaluator's existing warned unary pass-through. This does
-not justify fallback semantics for unknown operations. For installed processors,
-validate known parameter values and check restoration results. Preserve unknown
-parameter IDs/JSON; never replace an unrecognised stable choice with a default
-on save. Keep the current protection for such incompatible installed settings:
-report the failure and do not publish a supposedly restored grade. Backend
-creation failures can use the existing missing-processor placeholder.
+Missing ImageProcessors retain identity, enabled state, parameters and bindings,
+using the evaluator's existing warned unary pass-through. Unknown operations
+have no guessed fallback. Validate known parameter types and restoration results;
+retain unknown parameter IDs/JSON and never overwrite an unknown stable choice
+with a default. Incompatible installed settings protect the photo instead of
+publishing a supposedly restored grade. Backend creation failures may use the
+existing missing-processor placeholder. Preset/pasted grade application failure
+leaves an open destination's original graph/colours/pixels intact.
+
+Read a complete sidecar before accepting it. Use one strict JSON reader that
+checks UTF-8/escapes, JSON number grammar, duplicate decoded keys at every level,
+trailing data and schema types/ranges; do not round opaque parameter numbers.
+Reject unsupported structural fields/semantics rather than discarding them.
+Apply documented optional defaults, then reuse `graphStructureError` on temporary
+existing Nodes with null processors, solely for topology validation, never a live
+App graph. `requestedGraphError` is render readiness, not file/save validity:
+an unfinished grade with explicit disconnected required inputs remains saveable.
 
 ## 5. Independent updates and atomic saves
 
@@ -290,28 +295,22 @@ error with the path; every caller must handle the result.
 - Read the destination at save time, preserving the other section and
   checking protection even for direct writers. An inaccessible/nonregular target
   is not an absent sidecar. An absent file becomes metadata-only on a mark update
-  and gains a grade only on an intentional grade save.
+  and gains a grade when editor opening establishes it, or on another grade save.
 - Validate the outgoing document before touching the target. Create a unique
   temporary file in the same directory, check write/flush/close errors, then use
   the platform's atomic replacement operation. Never delete the destination
   first. On failure, remove only our temporary file; keep original bytes and
-  in-memory dirty state. No watcher, journal or recovery service is needed.
+  the complete live document. No watcher, journal or recovery service is needed.
 
-The simplest section-preservation approach is to validate the whole original
-file with the strict parser, then call the existing `extractObject` for the
-untouched `grade` or `metadata`. It already walks direct members via
-`extractValueField` / `captureJsonValue`, respects strings/escapes and copies the
-object text without numeric conversion. Reassemble the small envelope with the
-modified section and retained text, then strictly validate the whole result
-before writing. These helpers extract from already validated JSON; they do not
-replace strict validation. An extraction failure aborts the update.
-
-This reuses less machinery than adding lossless numeric/formatting preservation
-to a general DOM serializer. If the selected parser supplies a simpler equivalent
-raw-section or lossless serialization facility, use it. Exact whitespace is
-preferred, not a reason for a general JSON preservation framework; precision and
-opaque data remain mandatory. Keep existing raw parameter capture for unknown
-values when a grade itself is reconstructed and saved.
+Prefer the strict reader's source spans/raw-value or lossless serialization
+support for unchanged sections and opaque parameters. Existing `extractObject`
+and raw-value helpers can extract exact text without numeric conversion after
+validation if that is simpler, but are not a required second parsing layer.
+Do not maintain overlapping JSON validators or a preservation framework.
+Validate the outgoing whole document with the same reader; capture/parse failure
+aborts the update. Exact formatting is preferred where practical; preserving
+meaning, precision and opaque data is mandatory. Newly edited known numbers
+keep the existing locale-independent, round-trip precision output.
 
 Normal use is one RawNode editing session. Reading the destination protects
 unsupported data and preserves the other section; it does not compare against
@@ -320,13 +319,15 @@ watchers, multi-process locks and conflict UI are outside Step 7. Atomic replace
 is still required. Verify its behaviour on supported platforms without a
 copy-over fallback; claim no stronger cross-process or power-loss guarantee.
 
-Automatic save callers skip clean documents and absent grades. Save Grade is an
-explicit way to persist an empty grade. Check failures before navigation, folder
-switch or shutdown discards edits; on failure keep the document/window available
-and report the error. A simple retry/discard/cancel interaction is sufficient;
-discard is explicit. Do not report success or finish destructive teardown first.
-Protected viewing alone is clean
-and can be left normally. Export remains sidecar-free (D038).
+Report failed saves through the existing meaningful-operation status policy.
+Save every open editable grade on departure/reopen/close, including Source-only
+and unchanged grades. Retry / Discard / Cancel handles a failed save; only an
+explicit discard permits losing unsaved changes. On close, decide before stopping
+workers, setting shutdown intent or destroying editor state. Cancel clears the
+close request and returns to the usable running editor; Retry can save again.
+Initial-save failure follows this same path on departure, with no extra flag.
+Protected source views are never saved and can be left normally. Export remains
+sidecar-free (D038).
 
 No readers/migrations for Sidecar V1/V2 or `.rawnodepreset` are required. Existing
 files are never silently overwritten/deleted. An old `.rawnode.json` is protected;
@@ -341,23 +342,31 @@ graph and both colour pairs, and bind Source pixels to the destination photo.
 Retain valid incoming NodeIds, including its Source ID. Decode RAW again when
 needed and prepare the preview before publishing, using the `applyGrade`
 transaction pattern. Preserve destination metadata and global defaults. Failure
-leaves the previous graph, colours, source pixels and dirty state intact.
+leaves the previous graph, colours and source pixels intact. Replace also
+replaces positions with the incoming grade's valid positions; absent positions
+clear the old arrangement, even where NodeIds happen to match.
 
-**Append:** initially require both graphs to be complete ordinary linear
-ImageProcessor chains, with no off-spine nodes, extra connections or Slots.
-Use `graph::imageSpine` plus full node coverage and operation checks; that helper
-alone does not reject every branch. Insert after the selected main-spine node,
-or at document Output if there is no selection. Refuse a stale/off-spine
-selection. Allocate all fresh NodeIds first; map the incoming Source reference
-to the insertion predecessor, remap internal references, then connect the tail
-to the original successor (or update Output at the end). Do not insert a second
-Source. Retain destination colours/metadata; do not insert implicit colour
-conversions. A Source-only preset Append is a no-op.
+**Append:** require a complete ordinary linear incoming ImageProcessor chain
+with no off-spine nodes, auxiliary connections or Slots. Use `graph::imageSpine`
+plus full node coverage and operation checks for the incoming preset. A branched
+destination is allowed if it is structurally valid and has a main-spine insertion
+point resolvable by `imageSpine`; do not require destination node coverage.
+Insert after the selected main-spine node, or at document Output if unselected.
+Refuse stale/off-spine selections and unsupported spine operations.
+
+Allocate fresh NodeIds first; map incoming Source.image to the insertion
+predecessor, remap internal connections, then connect the tail only to the chosen
+main-spine successor's Image input (or update Output at the end). Leave every
+other destination branch/consumer connected as before. Do not add a second
+Source or implicit colour conversion. Preserve destination colours, metadata
+and positions; copy incoming non-Source positions under remapped IDs only.
+Missing positions stay absent; automatic placement/offsets wait for Graph View.
+A Source-only incoming Append is a no-op.
 
 Stage and validate the entire splice. `StagedEdit` currently commits at most
 one addition, so extend that existing mechanism narrowly for a batch of linear
 insertions; repeated committing insert calls could leave half a preset applied.
-General branching attachment is deferred to graph-editing needs. File capture,
+Attaching branched incoming presets is deferred to graph-editing needs. File capture,
 opening and Replace still preserve supported branching topology fully.
 
 One **Save Preset** operation saves the current complete grade, including colours
@@ -369,6 +378,13 @@ in the existing menu/dialog flow. Use `.rawnode.json` filters; no preset browser
 Allow Copy Grade / Save Preset for an editable Source-only grade. Disable both
 for a protected source view, which has no successfully restored grade to supply.
 
+Use ordinary confirmed overwrites at any chosen preset path, including a photo's
+sidecar path; no photograph-sidecar filename restriction. Read and strictly
+validate the destination, preserve its metadata, replace only its grade and
+write atomically. New presets omit source-photo metadata; overwriting an existing
+sidecar preserves that destination's metadata rather than copying the source's.
+Confirmation does not permit replacing an unsupported/protected file.
+
 Keep Copy Node / Paste Node and Copy Grade / Paste Grade using the existing
 clipboard interaction. Preset saving always concerns the whole current grade;
 node copy remains a distinct editing action. Full-grade clipboard data uses the
@@ -379,18 +395,29 @@ Source, document Output, metadata or colours. Capture any valid supported node
 or fragment without requiring the source graph or fragment to fit a future paste
 destination. Preserve enabled state, parameters, internal NodeIds/connections,
 Slot identities/order/settings and allocation state, excluding group expansion.
-Deliberately omit incoming references whose producers are outside the copied
-set, leaving those inputs null and reporting omitted Mask/Reference links.
+Optional fragment `positions` use the same NodeId-to-X/Y map. Source is not
+copied into a node fragment: its connections, like other external incoming
+connections, are deliberately omitted and become null. Report omitted external
+Mask/Reference connections even if their producer was Source. Retain all
+internal Image/Mask/Reference connections. Never resolve omitted references by
+matching destination NodeIds or silently restore an external Source connection.
 
 Attachment is a separate check: initially paste only ordinary linear fragments
 at the same validated insertion points as Append, explicitly rebinding the entry
 Image input. Refuse branching/incompatible attachments without altering either
 the destination or clipboard, rather than restricting what may be copied.
+An ordinary entry Image input formerly fed by Source or another external node
+is explicitly rebound to the destination insertion predecessor. External
+Mask/Reference inputs remain unconnected; any declared default for an absent
+Reference is operation semantics, not an implicit reconnection. Internal
+Mask/Reference dependencies cannot be dropped to make an attachment acceptable.
 Allocate fresh NodeIds for every pasted node, rewrite all internal references,
-preserve node-local Slot identities and use the same staged reconstruction/splice.
+preserve node-local Slot identities and remap any copied positions. Preserve
+existing destination positions; node deletion removes its position. Use the same
+staged reconstruction/splice as Append, including branched destination handling.
 A full-grade transfer envelope carries `kind: "grade"` and the shared `grade`
-object. This is a transport wrapper, not
-another graph model, serializer or general fragment-attachment API.
+object. This is a transport wrapper sharing graph serialization/reconstruction;
+it needs no general fragment-attachment API.
 Version 2 replaces the existing chain-based clipboard payload; no legacy reader
 is needed.
 
@@ -413,10 +440,12 @@ Retain theme, panel/filmstrip visibility and geometry, preview resolution,
 export format/JPEG quality, dock/window layout and RAW/Output defaults. Keep
 geometry owned by ImGui where it already is; preserve `filmstripH`/fallback
 sizes where still used. Keep RAW/Output default pairs in global preferences using
-the existing stable colour IDs. Until the future Settings UI is available, use
-sensible built-ins: RAW Rec.2020/Linear and Output Rec.709/sRGB, as today. The
-future Settings menu exclusively configures these same defaults; no temporary
-default controls or manual-file-edit workflow is required during Step 7.
+the existing stable colour IDs. Read and validate stored pairs at startup;
+valid stored values initialise new grades. For an absent pair use the built-in
+RAW Rec.2020/Linear or Output Rec.709/sRGB; malformed/unknown pairs warn and use
+that pair's built-in fallback. Do not merely write defaults that are never read.
+The future Settings menu configures these same fields; no temporary default
+controls or manual-file-edit workflow is required during Step 7.
 
 Photo controls require an editable photograph (RAW controls a RAW) and change
 only that photograph. Opening/applying a grade never writes preferences. Remove
@@ -448,37 +477,41 @@ waiver for unverified checks. This does not block format-only PR 1.
 
 | PR | Purpose, likely files and acceptance | Dependencies and specific risk |
 | --- | --- | --- |
-| **1. Graph records and codec** | Extend `ProjectPersist.h`, load/save codec code and `GraphModel` Slot high-water access; adapt node capture helpers in `NodeGraph`. Add strict format parsing, complete graph capture/data reconstruction and round-trip tests. Verify reordered storage, branching, Source/Output, opaque values and Slot allocation; exclude group expansion from records. Keep live V2 callers guarded until switched. | Reviewed checkpoint. Risk: accidentally retaining array-order semantics or leaking test operation names into production. A small JSON dependency, if chosen, belongs here with its footprint reviewed. |
-| **2. Safe sidecar updates** | New-format file read/update/atomic replacement in `ProjectPersistLoad/Save`; metadata-only update entry point in persistence headers. Add optional grade/metadata records and protection/error results; reuse validated section extraction. Tests prove precision/opaque-data preservation, exact untouched text where practical, zero processor/decode calls and original-file preservation on failure. No live photo-restoration switch yet. | PR 1. Risk: treating a read error as absence or rewriting the untouched grade through backend defaults. No external-change tracking. |
-| **3. Photo restoration and edit state** | Stage graph restoration and protection checks in `NodeGraph`/`GraphCommands`/`DocumentActions`; add presence/dirty and separate photo/default colours in `AppState`; wire edit notifications and checked saves in `LeftPanel`, `ParamWidgets`, `UiFrame`, `UI`. Test coherent source/colour publication, read-only protected viewing, no browsing writes and retry/discard/cancel before losing dirty edits. | PRs 1–2 and applicable manual evidence/waiver. Risk: an unguarded editing entry point or pixels published in the wrong RAW encoding. Existing mutation ownership remains unchanged. |
-| **4. Presets and clipboard** | Move `UiFrame`, shared persistence/`NodeGraph` helpers and the narrow `GraphCommands` batch splice to the common codec. Provide one whole-grade Save Preset action, Replace/linear Append and common extension; retain node/grade clipboard actions and separate fragment capture from attachment checks. Retire old preset/transfer readers and remaining chain callers. Test all-or-nothing insertion and destination colour/metadata preservation. | PRs 1–3 and applicable native-dialog evidence. Risk: partial Append, wrong ID remapping or unnecessarily rejecting fragment copy. Unsupported attachments stay refused. |
-| **5. Global preferences and retirement** | Separate `PersistGui` preferences; update `DocumentActions`, `UI`, `ImGuiBackend` and menus; remove workspace persistence and obsolete fields/helpers. Retain scanning and essential preferences, including default-colour pairs seeded from built-ins for future Settings. Update `SIDECAR.md`/`workspace-format.md`. Test global round-trip and no per-folder/CWD files; add no default-setting UI. | PR 3 colour/state ownership; land after PR 4 for a clean final retirement. Risk: ini writes before the global path is set, or current photo colours being saved as defaults. |
+| **1. Graph records and codec** | Extend `ProjectPersist.h`, load/save codec code and `GraphModel` Slot high-water access; adapt node capture helpers in `NodeGraph`. Use one strict reader and documented optional defaults. Add hand-authored accepted/must-reject fixtures plus round-trips covering shuffled storage, branching, endpoints, opaque values and Slots; exclude group expansion. Keep live V2 callers guarded until switched. | Targeted checkpoint verification. Risk: array-order assumptions, overlapping parsers or test operation names leaking into production. Review any small JSON dependency here. |
+| **2. Safe sidecar updates** | New-format file read/update/atomic replacement in `ProjectPersistLoad/Save`; processor-independent metadata updates, optional file-grade records and protection/error results. Verify numerical/opaque-data preservation, unchanged sections, canonical Unmarked, zero processor/decode calls and original-file preservation on failure. No live opening switch yet. | PR 1. Risk: treating read errors as absence or rewriting grades through backend defaults. No external-change tracking. |
+| **3. Photo opening and saving** | Stage restoration/protection in `NodeGraph`/`GraphCommands`/`DocumentActions`; separate photo/default colours in `AppState`. Update `UI`/`UiFrame` open/close and `LeftPanel`/`ParamWidgets` protection: create the initial grade only after successful opening; save complete grades on leave/reopen/close before replacement/teardown. No presence/dirty flags or edit notifications. Test initial-save failure, read-only protection and Retry / Discard / Cancel with a usable editor after cancellation. | PRs 1–2 and applicable manual evidence/waiver. Risk: initial writes before successful opening, wrong RAW encoding, or teardown before a failed-save decision. Mutation ownership stays unchanged. |
+| **4. Presets and clipboard** | Move `UiFrame`, shared persistence/`NodeGraph` helpers and the narrow `GraphCommands` batch splice to the common codec. One Save Preset action with normal validated overwrites; Replace and linear incoming Append into eligible branched destinations. Retain node/grade copy/paste; implement explicit external-link and position rules. Retire old transfer/chain paths. | PRs 1–3 and applicable native-dialog evidence. Risk: changing unrelated branches, partial splice, metadata loss on overwrite or wrong ID/position remapping. |
+| **5. Global preferences and retirement** | Separate `PersistGui` preferences; update `DocumentActions`, `UI`, `ImGuiBackend` and menus. Remove workspace persistence, retaining scanning/essential preferences. Read/validate stored default-colour pairs with built-in fallback; test global round-trip and no per-folder/CWD files. Update `SIDECAR.md`/`workspace-format.md`; no Settings UI. | PR 3 colour ownership; land after PR 4 for final retirement. Risk: ini writes before configuring its global path, defaults ignored on read, or photo colours saved as defaults. |
 
 ## 9. Deterministic tests
 
 Use the existing `--selftest` runner, tiny image fixtures, temporary directories,
-`graph_test` operations and runtime barriers. Adapt existing V2 tests to the new
-format as callers transition, preserving behavioural coverage. A focused
-persistence test source in the same runner is fine; no new framework is needed.
+`graph_test` operations and runtime barriers. Adapt existing V2 coverage as paths
+transition; no new framework. Hand-author accepted JSON fixtures independently
+of the writer, with explicit expected IDs/bindings/colours and numerical results.
+Include shuffled node arrays, missing optional inputs/controls, branching/Slots,
+metadata-only and Source-only grades; codec-to-codec equality alone is insufficient.
 
 | Case | Independent expected result |
 | --- | --- |
-| Linear round-trip | Save Source → gain → offset with shuffled node storage; restore the same IDs/edges/output and known noncommutative pixel result. Changing array order cannot change execution. |
-| Branching and endpoints | Fan-out plus test-only reconvergence retains every fixed/Slot edge and off-spine node. Restore a non-default Source ID and an Output that is not the final array entry. Invalid references/types/cycles reject before publication. |
-| Optional positions | Present positions survive by NodeId; absent positions remain valid. Altering positions changes no bindings or pixels; unusable entries do not invalidate an otherwise valid graph. |
-| Slots | Order `[3,1]`, distinct settings and deleted IDs 2/4 survive; next allocation is 5, including after deleting all live Slots and reopening. Test duplicate/zero IDs, invalid high-water and exhaustion without wrap. |
-| Missing/opaque values | Unavailable backend/CTL path retains identity, enabled state, bindings, label and opaque nested parameter JSON. Unknown IDs/Unicode/precise doubles survive. Unknown installed choice values are not overwritten with defaults. |
-| Grade presence | Absent file, metadata-only, saved processing grade, saved Source-only grade and protected file remain distinct. Restoring is clean; successful edits establish/dirty a grade; failed/no-op edits do not. Reopening the same dirty path restores the newly saved grade. |
-| Independent metadata | Update mark on an unopened photo: zero decoder/factory calls and no live App graph. The untouched grade preserves meaning, precise large/long number tokens, nested opaque values, connections and formatting via extraction; grade-only save preserves the original metadata text. Cover escaped strings/braces and malformed-tail/duplicate-key rejection. Marking an ungraded photo never adds `grade`. |
-| Colour ownership | RAW and Output IDs round-trip independently of global defaults. Photo colour edit and preset Replace never alter defaults; no-photo controls cannot edit them. Ungraded B uses built-ins, not A's settings. Stored default pairs round-trip for future Settings without a new format. Failed RAW reload leaves A intact. |
-| Protection and viewing | Corrupt/unsupported/incompatible and legacy sidecars retain bytes. A decodable source opens read-only with a warning that persists through preview refresh; decode failure preserves the previous document. Reject graph/Slot/enabled/parameter/colour edits, node/grade paste, preset Replace/Append and Save Grade without changing state. No default preset runs. |
-| Atomic failures | Deterministically fail temp creation, write/close and replace using narrow seams; original bytes and dirty state remain. Retry succeeds; discard alone allows losing unsaved changes; cancel prevents navigation/close. Protected clean views can be left normally. Do not rely on chmod failures under privileged CI. |
-| Replace and Append | Replace applies incoming graph/colours and retains metadata; failure changes nothing. Linear Append in middle/end remaps colliding IDs, preserves destination colours/metadata and reconnects successor/Output. Branches/stale selection fail without partial insertion. |
-| Preset saving | One Save Preset action writes the whole current grade, including when selection names only one of several processors. One-node, branching and Source-only grades share the same path; no Save Node Preset command or special reconstruction remains. |
-| Clipboard | Copy from branching source/fragment succeeds independently of paste eligibility, preserving internal edges and Slot state. Report deliberately omitted external Mask/Reference links. Linear paste remaps fresh IDs and rebinds entry; unsupported attachment leaves clipboard/destination intact. Grade paste includes colours. |
-| Transient group expansion | Change group expansion, save sidecar/preset and copy node/grade: no expansion fields appear in any payload, no dirty change occurs, and reconstruction uses UI defaults. Optional positions still round-trip. |
-| Browsing and preferences | Open/navigate/close unedited tiny photos without any sidecar. Change theme/preview without creating grades. Round-trip essential global preferences/layout across two folders; no workspace JSON, folder ini or CWD ini is created, and pre-existing legacy files retain bytes. |
-| Runtime ownership/export | Extend existing barriers to hold preview/export during open/Replace; borrowed old nodes/pixels remain alive until mutation exclusion. No mixed-source/colour publication. Retain D038 checks: export never writes source or derivative sidecars. |
+| Strict JSON must-reject | Truncation/trailing junk, missing commas, duplicate decoded keys (including escaped aliases), invalid UTF-8/escapes/control characters and invalid JSON numbers reject. No partial grade is published or original file overwritten. |
+| Schema/topology must-reject | Wrong format/version/types, null grade, missing required fields/input storage, empty/duplicate NodeIds, missing/duplicate Source, bad Output/ports/types, dangling references and cycles (including disabled/off-spine edges) reject. Include zero/duplicate/overflow SlotIds, absent/too-low allocator state and unknown structural fields/colour IDs. Production refuses test-only kinds. |
+| Optional defaults | Independently authored fixtures omitting declared optional fixed/Slot inputs restore null; omitted optional settings use documented defaults, including Slot enabled=true. Missing required input storage or malformed present values reject. Explicit required null remains saveable, with render-readiness failure when requested. |
+| Linear graph | Hand-authored Source → gain → offset with shuffled node storage restores exact IDs/edges/output and the known noncommutative pixel result. Array order cannot change execution. |
+| Branches/endpoints/Slots | Fan-out and test-only reconvergence preserve every fixed/Slot edge and off-spine node, a non-default Source ID and non-final-array Output. Slot order `[3,1]`, settings and deleted IDs 2/4 survive; next allocation is 5, including after deleting all live Slots and reopening. Exhaustion never wraps. |
+| Missing/opaque values | Unavailable processors/CTL paths retain identity, enabled state, bindings and raw parameters. Unknown nested values, Unicode, `9007199254740993` and long decimal tokens survive. Unknown installed choice values never become saved defaults. |
+| Scan versus editor open | Scan a folder and generate thumbnails for A/B: no sidecars. Open A successfully: only A gets a complete Source-only grade; opening a folder that auto-opens A has the same result. Failed B decoding creates no B sidecar. |
+| Initial and existing grades | Open metadata-only A: retain its mark and add a grade. Open a valid hand-authored grade: restore it without an immediate rewrite; preserve its Source-only grade even if defaults differ. Initial write failure leaves a usable in-memory grade and warning; departure retries even without edits. |
+| Leave, close and same-photo reopen | Directly adjust parameters/colours without any persistence notification, then leave/reopen: the complete saved grade contains those values. Same-path reopen saves before reading and retains edits. Departure/close saves even with no adjustment changes; Source-only grades persist normally. |
+| Independent metadata/Unmarked | Update an unopened photo's mark with zero processor/decoder calls and no live graph; preserve any grade and its precision/raw data. Grade-only updates retain metadata. Clearing Pick removes mark; absent mark reads Unmarked; explicit unmarked is accepted on read. Metadata-only changes never add a grade. |
+| Protection | Corrupt/newer/incompatible and legacy files retain bytes and open a decodable source read-only with a persistent warning. Every editing/paste/preset/save entry refuses; no default preset runs. Failed decoding leaves the old document intact. Leaving a protected source view does not save it. |
+| Atomic and lifecycle failures | Inject temp-create/write/flush/close/replace failures: original bytes and live edits remain. Retry succeeds; only explicit Discard permits losing changes; Cancel prevents navigation/close. After cancelled shutdown, preview/editing and a later save still work because no infrastructure was torn down. No chmod-dependent CI assumptions or exceptional dirty flags. |
+| Replace/Append | Replace applies graph/colours, retains metadata and replaces positions (absent incoming positions clear old ones). Linear incoming Append at middle/end remaps IDs into a branched destination; only the selected successor/Output changes, all other branches/colours/metadata remain. Branched incoming, stale selection or unsupported insertion fails atomically. |
+| Positions | Remove positions on node deletion; ignore stale/invalid entries without changing graph meaning. Append/Paste preserve destination positions and remap copied non-Source positions; missing entries stay absent. No implicit placement or topology change. |
+| Save Preset | One action saves the whole grade regardless of selection, including Source-only and branching grades. Normal confirmed overwrite of a valid photo-sidecar path works, preserving destination metadata; unsupported destinations refuse, cancellation/failure preserves original bytes. |
+| Clipboard | Copy a supported branch/fragment independently of paste eligibility. Internal Image/Mask/Reference links survive; external Source/Image and Mask/Reference links detach, with relevant warnings. Only ordinary entry Image is rebound on paste; no accidental matching of foreign IDs. Fresh IDs/Slot state/positions remap; unsupported attachment preserves clipboard/destination. |
+| Preferences/group expansion | A hand-authored global file with valid non-built-in RAW/Output pairs actually initialises a new grade; missing/invalid pairs fall back as specified. Photo changes never modify defaults. Global/layout round-trip creates no folder/CWD settings files; old files retain bytes. Group expansion appears in no grade/transfer and uses UI defaults. |
+| Runtime/export | Existing barriers prove open/Replace waits for old borrowed nodes/pixels, with coherent source/colour publication. Export produces no derivative sidecar and does not update the source sidecar (D038). |
 
 Run the full existing self-test suite for implementation PRs. Keep real Nikon
 NEF/native-dialog evidence distinct from synthetic tests. This documentation PR
@@ -487,16 +520,17 @@ C++ rebuild.
 
 ## 10. Review boundary and remaining questions
 
-No demonstrated graph/evaluator blocker or unresolved product decision requires
-another architecture pass. Independent review should confirm this compact
-schema and the stated safety/attachment boundaries before implementation.
+Claude found the architecture sound at the reviewed head. Targeted verification
+should check the agreed corrections and subsequent lifecycle change before
+implementation; this is not another architecture pass. The required RAW working
+pair for raster grades is unchanged by this revision.
 JSON-library choice and the supported-platform atomic replacement calls are
 bounded PR 1/2 implementation choices, not reasons for a persistence framework.
 Outstanding manual evidence/waivers apply only to the relevant live paths.
 
-Defer general branching Append, dynamic unknown-operation interfaces, asset
+Defer branched incoming attachment, dynamic unknown-operation interfaces, asset
 relocation, default-preset/culling UI, Graph View and masks to their actual
 features. Keep one authoritative graph and two persistence scopes.
 
-Stop at this checkpoint for independent Claude review. Do not merge PR #62 or
-begin Step 7 implementation as part of this task.
+Stop at this checkpoint for targeted independent Claude review. Do not merge
+PR #62 or begin Step 7 implementation as part of this task.

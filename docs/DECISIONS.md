@@ -444,11 +444,12 @@ View.
 
 ## D049 — Independent photo metadata, shared grades and global preferences
 
-**Status:** Accepted persistence direction; concrete Step 7 schema pending review.
+**Status:** Accepted product direction; format corrections await targeted review.
 
 One photo sidecar independently owns an optional grade and photo metadata.
-An intentionally empty saved grade is still a grade; browsing and metadata
-changes do not create one. Updating either section preserves the other.
+An intentionally empty saved grade is still a grade. Unopened photos can have
+metadata only; editor opening establishes a grade (D050). Updating either section
+preserves the other. Absent metadata.mark is canonical Unmarked.
 Prefer exact untouched-section JSON where practical; numerical precision and
 opaque processor data must survive. Metadata updates construct no processors.
 Step 7 assumes one editing session and defers external-file conflict tracking.
@@ -466,8 +467,9 @@ cancel leaves the current document available.
 
 Only photo state and global application preferences persist; retire folder
 workspace/layout files without a replacement workspace or catalogue. Photo
-colour controls affect the photo only. Global defaults use built-in values
-until the future Settings UI configures them; no temporary default controls.
+colour controls affect the photo only. Read/validate stored global colour
+defaults with built-in fallback; the future Settings UI configures these same
+fields, without temporary default controls.
 The default grade preset is separate and remains later work. Parameter-group
 expansion is transient in every scope/transfer; optional node positions remain
 photo graph layout (D048).
@@ -475,6 +477,28 @@ photo graph layout (D048).
 See [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md#persistence-direction) for accepted
 workflow semantics and [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md)
 for the proposed schema and implementation boundaries.
+
+## D050 — Editor opening establishes a grade; save at document boundaries
+
+**Status:** Accepted product decision following the PR #62 review.
+
+Successfully opening an editable photo establishes and saves its complete grade,
+including Source-only. Restore valid existing grades without an immediate rewrite;
+add a grade to metadata-only sidecars while preserving metadata. Folder discovery
+and thumbnails create none. This replaces the prior no-grade-on-editor-browsing
+policy; future default changes never replace an existing saved grade.
+
+Save the current complete grade on departure, same-photo reopening and close,
+before replacement/teardown, whether adjustments changed or not. Explicit Save
+Grade remains. Reuse open-path/protection state without live grade-presence/dirty
+flags, per-edit notifications, comparison snapshots, revisions or an event bus.
+Persistence is independent of render demand.
+
+Initial-save failure may leave the opened photo editable in memory with a warning;
+retry at departure/close without another tracking flag. Failed saves retain the
+document through Retry / Discard / Cancel; cancelled shutdown leaves the editor
+running. Protected views remain read-only and never overwrite sidecars (D049);
+exports remain sidecar-free (D038).
 
 ## Pending decisions
 

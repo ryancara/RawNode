@@ -335,13 +335,21 @@ Persistence must not depend on transient renderer scheduling state.
 
 ### Saved grades and future default presets
 
-A saved grade comprises the processing graph (nodes, parameters and connections)
-plus the photograph's RAW working and Output colour settings. A processing or
-colour adjustment establishes a grade, as does successful application of a
-preset, pasted grade or future default preset. An intentionally saved empty
-grade is still a saved grade. Browsing or navigating away from an unedited photo,
-or changing only photo metadata, must not manufacture one; a metadata-only
-sidecar does not count as a saved grade.
+A saved grade comprises the graph, parameters/connections and photograph's RAW
+working/Output settings. Opening a photograph in the editor establishes and
+persists its grade even without adjustments, including a legitimate Source-only
+grade. This ART/vkdt-inspired lifecycle supersedes the prior editor-browsing rule
+(D050). Folder scanning/discovery and thumbnail generation create no sidecars.
+Opening a metadata-only photo adds a grade while preserving metadata; restoring
+an existing grade needs no immediate rewrite. Folder auto-open affects only the
+opened photograph. Create the initial sidecar only after opening succeeds.
+
+Save the complete current editable grade before leaving, same-photo reopening
+and closing, before live replacement or editor/runtime teardown, even if nothing
+changed. Explicit Save Grade remains. Reuse the open path/protection state;
+do not add live hasGrade/gradeDirty flags, comparison snapshots, per-edit
+notifications or persistence revisions. Initial-save failure can leave the
+opened grade in memory with a warning; save again at the next lifecycle boundary.
 
 The future default preset is selected from the user's preset folder.
 When opening a photograph, use this precedence:
@@ -371,6 +379,8 @@ minimal photo metadata. Grade data includes the graph, parameters, RAW/Output
 colour settings and optional Graph View node positions (D048). Photo metadata
 includes future Pick/Reject/Unmarked status and other photo-specific information
 only when needed. Grade-only, metadata-only and combined sidecars are all valid.
+An absent grade remains valid for unopened photos; absent metadata.mark is the
+canonical Unmarked representation. Metadata-only updates do not open a photo.
 Metadata updates preserve the grade; grade updates preserve photo metadata.
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,
@@ -399,8 +409,8 @@ Node copy/paste remains a distinct editing action. Do not add a preset wrapper
 format or second graph implementation. The preset folder contains ordinary
 `.rawnode.json` files; another photograph's sidecar can supply its grade data.
 
-Opening a photograph restores its own grade and metadata. Saved presets have
-two application modes, both preserving destination photo metadata:
+Opening a photograph establishes/restores its grade and metadata. Saved presets
+have two application modes, both preserving destination photo metadata:
 
 - **Replace:** replace the processing graph and apply the preset's RAW working
   and Output colour settings. Rebind document Source to the destination photo;
@@ -412,13 +422,13 @@ two application modes, both preserving destination photo metadata:
   validated rules. Differing preset colour settings do not cause automatic
   colour-space conversion.
 
-For an ordinary linear chain, Append inserts the incoming chain after the
-selected main-spine node, or at the end when none is selected, matching current
-node-paste insertion. Branching or incompatible structures require graph validation
-and explicit connection rules; refuse unsafe operations with a useful error.
-Never guess, silently discard connections or flatten the graph. Detailed
-attachment/rebinding policies remain design work, not new machinery to invent
-for future UI.
+Initially Append requires a supported linear incoming chain. A branched
+destination is allowed at a valid main-spine insertion point: after the selected
+node, or at Output when unselected. Rewire only that successor/Output, preserving
+all other branches. Refuse unsupported attachment rather than flattening or
+guessing. General branched incoming attachment remains deferred. Preset saves
+use ordinary confirmed overwrites, including valid photograph-sidecar paths,
+with destination metadata preservation, strict validation and atomic replacement.
 
 Clipboard transfers share graph serialization, validation and reconstruction,
 but a copied node is a fragment with its relevant data, parameters and internal
@@ -436,7 +446,7 @@ Step 7 replaces the existing linear preset/clipboard paths with this shared
 representation and reusable graph validation, identity and reconstruction
 mechanisms for Replace/Append. Focused implementation PRs may stage the work;
 Step 7 does not require a new preset-management UI. The later Preset Panel can
-expose both actions. General branched-graph Append can be staged separately if
+expose both actions. Branched incoming Append can be staged separately if
 existing graph commands cannot support it safely; refuse unsupported operations
 without speculative graph-editing machinery. Until replacement, preserve the
 D045 safeguards against silently flattening unsupported graphs.
@@ -480,11 +490,11 @@ belong to Step 7-related implementation work.
 
 The selected photograph/workspace may remain transient session state. Remembering
 the last opened folder or photograph can be a later global preference. Global
-RAW/Output defaults use sensible built-ins until the future Settings UI provides
-their exclusive configuration. Keep their stable colour pairs in global
-preferences for that future UI. Photo controls require an editable current photo
-and never change defaults. Opening/applying a grade
-never changes defaults. Step 7 adds neither Settings nor temporary default controls.
+RAW/Output defaults are read and validated from global preferences; valid stored
+pairs initialise new grades, with sensible built-in fallback for absent/invalid
+pairs. The future Settings UI configures these same fields; Step 7 adds no
+temporary controls. Photo controls require an editable current photo and never
+change defaults, nor does opening/applying a grade.
 
 ## Testing and review philosophy
 
@@ -543,8 +553,10 @@ View and minimal linear capture / transactional grade safety are implemented.
 Step 7 graph-native persistence is at its focused design checkpoint.
 [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) records the current-code
 inventory, simplified proposed schema, safe reconstruction/write contracts and
-five focused implementation PRs. The revised PR #62 proposal awaits independent
-Claude review; Step 7 production implementation has not begun.
+five focused implementation PRs. Claude independently reviewed PR #62 at
+`a38e05adecf6713c9456efc52232f28c3d58abd4` as **SAFE AFTER SMALL FIXES**. The
+agreed fixes and subsequent save-lifecycle decision await targeted verification;
+Step 7 production implementation has not begun.
 
 Reported macOS testing found normal operation. No complete macOS/NEF
 manual-validation results are recorded for `docs/STEP6_MANUAL_VALIDATION.md`,
@@ -676,7 +688,7 @@ verification checks to implementation PRs. Follow the design/acceptance workflow
 above, `CLAUDE.md` for review expectations and `docs/CODE_STYLE.md` for source
 guidance.
 
-**Step 7 design checkpoint — simplified draft, independent review pending:**
+**Step 7 design checkpoint — reviewed, targeted verification pending:**
 [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) investigates whether
 the existing graph model, identifiers, interfaces and ownership can be persisted
 reliably and understood without unnecessary
@@ -707,6 +719,8 @@ layout-persistence requirement under "Graph / List interface" in `ROADMAP.md`.
 **Persistence/workflow checkpoint:** verify the saved-grade distinction, safe
 independent grade/metadata updates, shared JSON reconstruction, existing identity
 behaviour and photo/global settings ownership in "Persistence direction" above.
+Editor opening establishes a grade; unopened metadata-only photos remain valid.
+No live dirty/presence tracking is required for lifecycle saves (D050).
 Include existing preset/clipboard transition and workspace-persistence cleanup
 in Step 7 scope. Default-preset UI/application, culling UI, multi-photo operations
 and batch/workspace export remain separate focused workflow milestones.
@@ -734,8 +748,8 @@ persistence framework needs a demonstrated requirement.
 The proposed serialization schema, field names and optional-field handling are
 recorded in the checkpoint for review before establishing the format and beginning
 implementation. D048 in `docs/DECISIONS.md` records the accepted sidecar/layout
-direction; D049 records PR #61's independent metadata, shared-grade and global
-preferences ownership. Neither entry implies that Step 7 is implemented.
+direction; D049 records independent metadata, shared grades and global preferences;
+D050 records the editor-opening/save lifecycle. These do not imply implementation.
 Step 7 supports the subsequent Graph/List milestone (D047), without implementing
 Graph View as part of Step 7.
 Keep this design checkpoint focused on persistence; the completed
@@ -752,8 +766,10 @@ unrelated features; tooling can proceed alongside Step 7 where practical.
       settings; identify individual checks still unverified. Before Step 7
       replaces the relevant capture/sidecar paths, record the outstanding
       results or an explicit, documented waiver for the unverified checks.
-- [ ] Complete independent review of the focused pre-persistence checkpoint in
-      `docs/STEP7_PERSISTENCE_DESIGN.md` before Step 7 finalises the graph format.
+- [x] Independent Claude review of the persistence checkpoint at `a38e05ad`:
+      **SAFE AFTER SMALL FIXES** (result supplied by the user).
+- [ ] Targeted Claude verification of the agreed corrections and subsequent
+      save-lifecycle decision before Step 7 finalises the graph format.
 - [ ] Extend CI where practical (Linux build + self-test already implemented):
       add a macOS PR build + self-test and a separate ASan/UBSan job. Keep
       TSan/stress manual initially where automation is impractical.
