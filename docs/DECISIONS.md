@@ -442,6 +442,34 @@ design decisions. The Graph View itself remains the UI milestone between Steps
 7 and 8 (D047), sharing the authoritative graph and NodeId selection with List
 View.
 
+## D049 — Independent photo metadata, shared grades and global preferences
+
+**Status:** Accepted direction from PR #61; concrete Step 7 schema pending review.
+
+One photo sidecar may contain a saved grade, photo metadata, or both. Grade
+presence is explicit: an intentionally empty saved grade overrides defaults,
+while browsing and metadata-only changes must not create a grade. Grade updates
+preserve metadata and metadata updates preserve grades through one safe atomic
+write path. Unsupported or unreadable files remain protected.
+
+Presets use the same graph/colour representation in `.rawnode.json` files,
+without photo metadata or a separate node-preset schema. Replace applies preset
+colours; Append preserves destination colours and remaps inserted identities
+and internal references. Unsupported attachments are refused. Clipboard grade
+and fragment transfers reuse the same serialization and reconstruction.
+
+Only photo and global application settings scopes persist. Global preferences
+own UI/layout, export defaults, default colours and future plugin/preset paths;
+retire folder workspace/layout files and conflicting working-directory ini
+behaviour without replacing them with another workspace or catalogue. Legacy
+format migration is not required; existing files must not be silently deleted
+or overwritten.
+
+Detailed workflow ownership remains in
+[PROJECT_CONTEXT.md](PROJECT_CONTEXT.md#persistence-direction). The proposed
+schema, initial attachment limits and implementation sequence are in
+[STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md).
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:

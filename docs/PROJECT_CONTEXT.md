@@ -523,7 +523,11 @@ need.
 `6294a034d30168063e2aa92e984a51666f56ca22`.** Step 5's product/architecture
 contract is complete. The full graph transition, NodeId selection, topology List
 View and minimal linear capture / transactional grade safety are implemented.
-Step 7 graph-native persistence is the next stage.
+Step 7 graph-native persistence is at its focused design checkpoint.
+[STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) records the current-code
+inventory, proposed schema, safe reconstruction/write contracts and five focused
+implementation PRs. Independent Claude review of that proposal is pending;
+Step 7 production implementation has not begun.
 
 Reported macOS testing found normal operation. No complete macOS/NEF
 manual-validation results are recorded for `docs/STEP6_MANUAL_VALIDATION.md`,
@@ -655,9 +659,10 @@ verification checks to implementation PRs. Follow the design/acceptance workflow
 above, `CLAUDE.md` for review expectations and `docs/CODE_STYLE.md` for source
 guidance.
 
-**Before Step 7 finalises the persistent graph format:** perform a focused
-design checkpoint on whether the existing graph model, identifiers, interfaces
-and ownership can be persisted reliably and understood without unnecessary
+**Step 7 design checkpoint — drafted, independent review pending:**
+[STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) investigates whether
+the existing graph model, identifiers, interfaces and ownership can be persisted
+reliably and understood without unnecessary
 architectural changes. Begin with the accepted Step 5 contract and completed
 Step 6 review findings, including the transition limitations in
 `docs/ARCHITECTURE.md`. Use `docs/STEP5_GRAPH_CONTRACT.md` ("Step 7 graph
@@ -706,11 +711,11 @@ a little readable metadata is preferable to complexity introduced merely to
 minimise file size. Binary serialization, compression or an elaborate
 persistence framework needs a demonstrated requirement.
 
-The exact serialization schema, field names and optional-field handling remain
-Step 7 design decisions; record them before establishing the format and beginning
+The proposed serialization schema, field names and optional-field handling are
+recorded in the checkpoint for review before establishing the format and beginning
 implementation. D048 in `docs/DECISIONS.md` records the accepted sidecar/layout
-direction. If broader sidecar scope or workspace-persistence removal warrants a
-durable decision, record it in `docs/DECISIONS.md` during this focused checkpoint.
+direction; D049 records PR #61's independent metadata, shared-grade and global
+preferences ownership. Neither entry implies that Step 7 is implemented.
 Step 7 supports the subsequent Graph/List milestone (D047), without implementing
 Graph View as part of Step 7.
 Keep this design checkpoint focused on persistence; the completed
@@ -727,8 +732,8 @@ unrelated features; tooling can proceed alongside Step 7 where practical.
       settings; identify individual checks still unverified. Before Step 7
       replaces the relevant capture/sidecar paths, record the outstanding
       results or an explicit, documented waiver for the unverified checks.
-- [ ] Record the focused pre-persistence checkpoint before Step 7 finalises the
-      graph format.
+- [ ] Complete independent review of the focused pre-persistence checkpoint in
+      `docs/STEP7_PERSISTENCE_DESIGN.md` before Step 7 finalises the graph format.
 - [ ] Extend CI where practical (Linux build + self-test already implemented):
       add a macOS PR build + self-test and a separate ASan/UBSan job. Keep
       TSan/stress manual initially where automation is impractical.
