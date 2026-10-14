@@ -444,7 +444,9 @@ View.
 
 ## D049 — Independent photo metadata, shared grades and global preferences
 
-**Status:** Accepted product direction; format corrections await targeted review.
+**Status:** Accepted; Claude's final independent verification returned
+**SAFE TO MERGE** at `75e7affd4014f090a90293d69b6a157050576864`
+(result supplied by the user).
 
 One photo sidecar independently owns an optional grade and photo metadata.
 An intentionally empty saved grade is still a grade. Unopened photos can have

@@ -1,10 +1,9 @@
 # Step 7 — Graph-native persistence design checkpoint
 
-**Review provenance:** Claude's independent review of
-`962ccfe910835ef2801f39d6636be2dc7c097cda` verified the design and D050 lifecycle
-as **SAFE AFTER SMALL FIXES** (result supplied by the user). This revision
-addresses the remaining position, test and warning findings; these corrections
-have not yet received final verification. Documentation only; no implementation.
+**Review provenance:** Claude's final independent verification of
+`75e7affd4014f090a90293d69b6a157050576864` returned **SAFE TO MERGE**
+(result supplied by the user). The design, D050 lifecycle and final corrections
+have passed verification. Documentation only; no implementation.
 
 **Baseline:** `main` including PR #61,
 `20e3ba75165e38edf9bd97a6266342dde0a41b1d`. The accepted Step 5/6 graph and
@@ -494,7 +493,7 @@ waiver for unverified checks. This does not block format-only PR 1.
 
 | PR | Purpose, likely files and acceptance | Dependencies and specific risk |
 | --- | --- | --- |
-| **1. Graph records and codec** | Extend `ProjectPersist.h`, load/save codec code and `GraphModel` Slot high-water access; adapt node capture helpers in `NodeGraph`. Use one strict reader and documented optional defaults. Add hand-authored accepted/must-reject fixtures plus round-trips covering shuffled storage, branching, endpoints, opaque values and Slots; exclude group expansion. Keep live V2 callers guarded until switched. | Targeted checkpoint verification. Risk: array-order assumptions, overlapping parsers or test operation names leaking into production. Review any small JSON dependency here. |
+| **1. Graph records and codec** | Extend `ProjectPersist.h`, load/save codec code and `GraphModel` Slot high-water access; adapt node capture helpers in `NodeGraph`. Use one strict reader and documented optional defaults. Add hand-authored accepted/must-reject fixtures plus round-trips covering shuffled storage, branching, endpoints, opaque values and Slots; exclude group expansion. Keep live V2 callers guarded until switched. | Completed checkpoint verification. Risk: array-order assumptions, overlapping parsers or test operation names leaking into production. Review any small JSON dependency here. |
 | **2. Safe sidecar updates** | New-format file read/update/atomic replacement in `ProjectPersistLoad/Save`; processor-independent metadata updates, optional file-grade records and protection/error results. Verify numerical/opaque-data preservation, unchanged sections, canonical Unmarked, zero processor/decode calls and original-file preservation on failure. No live opening switch yet. | PR 1. Risk: treating read errors as absence or rewriting grades through backend defaults. No external-change tracking. |
 | **3. Photo opening and saving** | Stage restoration/protection in `NodeGraph`/`GraphCommands`/`DocumentActions`; separate photo/default colours in `AppState`. Update `UI`/`UiFrame` open/close and `LeftPanel`/`ParamWidgets` protection: initial save only after successful opening; complete saves on leave/reopen/close before replacement/teardown. Keep persistent save-warning text and a small Retry / Discard / Cancel helper; document actions refuse departure after failure without explicit Discard. Test unchanged-grade preservation and warning/cancel behaviour. No presence/dirty flags or edit notifications. | PRs 1–2 and applicable manual evidence/waiver. Risk: initial writes before successful opening, wrong RAW encoding, or premature teardown. Resolve/test native-dialog limitations here. Mutation ownership stays unchanged. |
 | **4. Presets and clipboard** | Move `UiFrame`, shared persistence/`NodeGraph` helpers and the narrow `GraphCommands` batch splice to the common codec. One Save Preset action with normal validated overwrites; Replace and linear incoming Append into eligible branched destinations. Retain node/grade copy/paste; implement explicit external-link and position rules. Retire old transfer/chain paths. | PRs 1–3 and applicable native-dialog evidence. Risk: changing unrelated branches, partial splice, metadata loss on overwrite or wrong ID/position remapping. |
@@ -542,10 +541,8 @@ C++ rebuild.
 
 ## 10. Review boundary and remaining questions
 
-Claude found the architecture sound at the reviewed head. Targeted verification
-should check the agreed corrections and subsequent lifecycle change before
-implementation; this is not another architecture pass. The required RAW working
-pair for raster grades is unchanged by this revision.
+Claude's final independent verification passed at the head recorded above.
+The required RAW working pair for raster grades is unchanged by this revision.
 JSON-library choice and the supported-platform atomic replacement calls are
 bounded PR 1/2 implementation choices, not reasons for a persistence framework.
 Outstanding manual evidence/waivers apply only to the relevant live paths.
@@ -556,5 +553,4 @@ Defer branched incoming attachment, dynamic unknown-operation interfaces, asset
 relocation, default-preset/culling UI, Graph View and masks to their actual
 features. Keep one authoritative graph and two persistence scopes.
 
-Stop at this checkpoint for targeted independent Claude review. Do not merge
-PR #62 or begin Step 7 implementation as part of this task.
+Do not merge PR #62 or begin Step 7 implementation as part of this task.

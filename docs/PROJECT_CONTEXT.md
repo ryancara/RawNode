@@ -559,13 +559,13 @@ need.
 `6294a034d30168063e2aa92e984a51666f56ca22`.** Step 5's product/architecture
 contract is complete. The full graph transition, NodeId selection, topology List
 View and minimal linear capture / transactional grade safety are implemented.
-Step 7 graph-native persistence is at its focused design checkpoint.
+Step 7 graph-native persistence has passed its focused design checkpoint.
 [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) records the current-code
-inventory, simplified proposed schema, safe reconstruction/write contracts and
-five focused implementation PRs. Claude independently verified PR #62's design
-and D050 lifecycle at `962ccfe910835ef2801f39d6636be2dc7c097cda` as
-**SAFE AFTER SMALL FIXES**. The remaining position, test, warning and documentation
-corrections await final verification; no review of those corrections is claimed.
+inventory, reviewed schema, safe reconstruction/write contracts and five focused
+implementation PRs. Claude's final independent verification of PR #62's design,
+D050 lifecycle and final corrections at
+`75e7affd4014f090a90293d69b6a157050576864` returned **SAFE TO MERGE**
+(result supplied by the user).
 Step 7 production implementation has not begun.
 
 Reported macOS testing found normal operation. No complete macOS/NEF
@@ -698,8 +698,8 @@ verification checks to implementation PRs. Follow the design/acceptance workflow
 above, `CLAUDE.md` for review expectations and `docs/CODE_STYLE.md` for source
 guidance.
 
-**Step 7 design checkpoint — reviewed; remaining corrections await verification:**
-[STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) investigates whether
+**Step 7 design checkpoint — final independent verification passed:**
+[STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) records how
 the existing graph model, identifiers, interfaces and ownership can be persisted
 reliably and understood without unnecessary
 architectural changes. Begin with the accepted Step 5 contract and completed
@@ -755,16 +755,15 @@ a little readable metadata is preferable to complexity introduced merely to
 minimise file size. Binary serialization, compression or an elaborate
 persistence framework needs a demonstrated requirement.
 
-The proposed serialization schema, field names and optional-field handling are
-recorded in the checkpoint for review before establishing the format and beginning
-implementation. D048 in `docs/DECISIONS.md` records the accepted sidecar/layout
+The reviewed serialization schema, field names and optional-field handling are
+recorded in the checkpoint; implementation remains separate.
+D048 in `docs/DECISIONS.md` records the accepted sidecar/layout
 direction; D049 records independent metadata, shared grades and global preferences;
 D050 records the editor-opening/save lifecycle. These do not imply implementation.
 Step 7 supports the subsequent Graph/List milestone (D047), without implementing
 Graph View as part of Step 7.
-Keep this design checkpoint focused on persistence; the completed
-whole-Step-6 review remains closed. If the existing design is sound, record that
-conclusion and proceed without refactoring.
+This design checkpoint remains focused on persistence; the completed
+whole-Step-6 review remains closed.
 
 The remaining quality improvements are tracked work, not automatic blockers for
 unrelated features; tooling can proceed alongside Step 7 where practical.
@@ -776,10 +775,9 @@ unrelated features; tooling can proceed alongside Step 7 where practical.
       settings; identify individual checks still unverified. Before Step 7
       replaces the relevant capture/sidecar paths, record the outstanding
       results or an explicit, documented waiver for the unverified checks.
-- [x] Independent Claude verification of the design and D050 at `962ccfe9`:
-      **SAFE AFTER SMALL FIXES** (result supplied by the user).
-- [ ] Final verification of the remaining position, test, warning and documentation
-      corrections before Step 7 finalises the graph format.
+- [x] Final independent Claude verification of the design, D050 lifecycle and
+      remaining corrections at `75e7affd4014f090a90293d69b6a157050576864`:
+      **SAFE TO MERGE** (result supplied by the user).
 - [ ] Extend CI where practical (Linux build + self-test already implemented):
       add a macOS PR build + self-test and a separate ASan/UBSan job. Keep
       TSan/stress manual initially where automation is impractical.
