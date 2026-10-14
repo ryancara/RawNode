@@ -444,19 +444,33 @@ View.
 
 ## D049 — Independent photo metadata, shared grades and global preferences
 
-**Status:** Accepted direction from PR #61; concrete Step 7 schema pending review.
+**Status:** Accepted persistence direction; concrete Step 7 schema pending review.
 
 One photo sidecar independently owns an optional grade and photo metadata.
 An intentionally empty saved grade is still a grade; browsing and metadata
 changes do not create one. Updating either section preserves the other.
-Unreadable/unsupported files remain protected.
+Prefer exact untouched-section JSON where practical; numerical precision and
+opaque processor data must survive. Metadata updates construct no processors.
+Step 7 assumes one editing session and defers external-file conflict tracking.
 
 Presets share the sidecar grade representation in `.rawnode.json`, with Replace
-and Append modes; clipboard transfers reuse its graph serialization. There is
-no separate node-preset format. Only photo state and global application
-preferences persist; folder workspace/layout files are retired without a
-replacement workspace or catalogue. Photo colour settings and global defaults
-have separate ownership.
+and Append modes. One Save Preset action saves the complete current grade,
+including a Source-only grade. Copy Node / Paste Node remain distinct editing
+actions sharing graph serialization; fragment capture is independent of whether
+a destination supports attachment. There is no separate node-preset workflow.
+
+Unreadable/unsupported/incompatible sidecars permit read-only source viewing
+with a persistent warning, never grade editing or automatic default presets.
+Ordinary save failures preserve unsaved edits until retry or explicit discard;
+cancel leaves the current document available.
+
+Only photo state and global application preferences persist; retire folder
+workspace/layout files without a replacement workspace or catalogue. Photo
+colour controls affect the photo only. Global defaults use built-in values
+until the future Settings UI configures them; no temporary default controls.
+The default grade preset is separate and remains later work. Parameter-group
+expansion is transient in every scope/transfer; optional node positions remain
+photo graph layout (D048).
 
 See [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md#persistence-direction) for accepted
 workflow semantics and [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md)

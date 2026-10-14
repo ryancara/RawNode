@@ -354,10 +354,13 @@ When opening a photograph, use this precedence:
 A preset applied with Replace supplies its colour settings; global defaults
 must not override them. Failed default loading or application must not be
 recorded as successful application.
-Unreadable, invalid, unsupported or otherwise protected sidecars are errors,
-not unedited photographs; they must not trigger a default preset. Changing the
-selected default never alters saved grades. Users may manually apply another
-preset; future multi-photo application extends that action to a selection.
+Unreadable, invalid, unsupported or incompatible sidecars are errors, not
+unedited photographs; they must not trigger a default preset. Allow source
+viewing with a persistent warning, but disable grade editing, paste and preset
+application while protected. Ordinary save failures retain unsaved edits through
+a simple retry/discard/cancel interaction. Changing the selected default never
+alters saved grades. On editable photos users may manually apply another preset;
+future multi-photo application extends that action to a selection.
 Do not track which default was previously used. Default selection UI and
 automatic application are later workflow features, not Step 7 implementations.
 
@@ -369,6 +372,10 @@ colour settings and optional Graph View node positions (D048). Photo metadata
 includes future Pick/Reject/Unmarked status and other photo-specific information
 only when needed. Grade-only, metadata-only and combined sidecars are all valid.
 Metadata updates preserve the grade; grade updates preserve photo metadata.
+Prefer retaining untouched section JSON exactly where practical, with precision
+and opaque-data preservation mandatory. Metadata changes construct no processors,
+decode no photo and build no live graph. External modification/conflict tracking
+is outside Step 7; destination validation and atomic writes remain required.
 
 Provide one coherent read/write path with safe atomic file replacement, usable
 by future batch operations without opening the photograph in the editor.
@@ -386,8 +393,9 @@ Use one unified, versioned `.rawnode.json` preset format, identical in structure
 to the grade portion of a photograph's sidecar. A preset contains one processor
 or an entire connected graph: nodes, parameters, connections, RAW working and
 Output colour settings, and optional node layout. It excludes Pick/Reject and
-other photo-specific metadata. A single-node preset is a saved grade with one
-processor, not a separate preset type or schema. Do not add a preset wrapper
+other photo-specific metadata. One Save Preset action saves the current complete
+grade, including a one-processor or Source-only grade; retire Save Node Preset.
+Node copy/paste remains a distinct editing action. Do not add a preset wrapper
 format or second graph implementation. The preset folder contains ordinary
 `.rawnode.json` files; another photograph's sidecar can supply its grade data.
 
@@ -405,8 +413,8 @@ two application modes, both preserving destination photo metadata:
   colour-space conversion.
 
 For an ordinary linear chain, Append inserts the incoming chain after the
-selected main-spine node, or at the end when none is selected, as node paste and
-node presets do today. Branching or incompatible structures require graph validation
+selected main-spine node, or at the end when none is selected, matching current
+node-paste insertion. Branching or incompatible structures require graph validation
 and explicit connection rules; refuse unsafe operations with a useful error.
 Never guess, silently discard connections or flatten the graph. Detailed
 attachment/rebinding policies remain design work, not new machinery to invent
@@ -418,6 +426,11 @@ connections, without requiring complete document Source/output or document-level
 colour settings. Node paste allocates a fresh NodeId and preserves destination
 RAW/Output settings. Complete-grade copy/paste includes its colours and follows
 whole-grade replacement semantics. Payloads need not be literal files on disk.
+Capturing a valid supported fragment does not depend on attachment eligibility;
+retain internal references and report omitted external Mask/Reference links.
+Paste separately validates the destination and refuses unsupported attachments.
+Parameter-group expansion is transient and excluded from sidecars, presets and
+all clipboard payloads; optional node X/Y positions remain graph layout.
 
 Step 7 replaces the existing linear preset/clipboard paths with this shared
 representation and reusable graph validation, identity and reconstruction
@@ -466,8 +479,12 @@ and existing files must not be automatically deleted. Removal and relocation
 belong to Step 7-related implementation work.
 
 The selected photograph/workspace may remain transient session state. Remembering
-the last opened folder or photograph can be a later global preference. The future
-Settings UI can expose global defaults later; it is not required for Step 7.
+the last opened folder or photograph can be a later global preference. Global
+RAW/Output defaults use sensible built-ins until the future Settings UI provides
+their exclusive configuration. Keep their stable colour pairs in global
+preferences for that future UI. Photo controls require an editable current photo
+and never change defaults. Opening/applying a grade
+never changes defaults. Step 7 adds neither Settings nor temporary default controls.
 
 ## Testing and review philosophy
 
@@ -673,16 +690,19 @@ layout-persistence requirement under "Graph / List interface" in `ROADMAP.md`.
 
 - stable NodeIds and node-local SlotIds, including allocation/high-water marks
   across save/reopen cycles so later allocation cannot reuse preserved identities;
-- stable node-kind/backend identities and typed port identifiers, with relevant
-  schema/interface versions. Processor or port display-name changes must not
-  break saved photographs; identifier renames need explicit aliases/migration, not
-  positional guessing;
+- stable node-kind/backend identities and typed port identifiers under one file
+  schema version. Additional interface/backend versions require an actual
+  implementation need; display-name changes must not break saved photographs.
+  Identifier renames need explicit alias/version handling, never positional
+  guessing; no legacy migration reader is required now;
 - document Source/output endpoints, fixed input references and ordered Slot
   arrays with their slot-local settings. Storage order is not execution order;
-- processor parameters and necessary generic node controls;
-- missing/unavailable processor state and saved interface information sufficient
-  to preserve unknown nodes;
-- relevant external asset references.
+- processor parameters and implemented node controls such as enabled state;
+- missing/unavailable processor state, using existing static interfaces where
+  sufficient. Current `nodeInterface()` declarations need no per-node snapshot;
+  unsupported graph semantics protect the file instead;
+- external references required by actual processors, such as CTL's script-path
+  identity, without a generic asset-management system.
 
 **Persistence/workflow checkpoint:** verify the saved-grade distinction, safe
 independent grade/metadata updates, shared JSON reconstruction, existing identity
