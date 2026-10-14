@@ -371,9 +371,10 @@ Metadata updates preserve the grade; grade updates preserve photo metadata.
 Provide one coherent read/write path with safe atomic file replacement, usable
 by future batch operations without opening the photograph in the editor.
 Preserve unknown/unavailable processors and information that must survive a
-rewrite where safely representable. If a sidecar cannot be safely interpreted or
-preserved, warn the user, leave the original file untouched and do not silently
-discard data or apply a default. No elaborate automatic repair system is needed.
+rewrite where safely representable. Unreadable, invalid, unsupported or otherwise
+protected sidecars must not be overwritten. If safe interpretation or preservation
+is impossible, warn the user, leave the original untouched and do not discard data
+or apply a default. No elaborate automatic repair system is needed.
 Step 7 establishes minimal metadata persistence support; the Pick/Reject UI is
 later work.
 
