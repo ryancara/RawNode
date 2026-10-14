@@ -404,8 +404,9 @@ two application modes, both preserving destination photo metadata:
   validated rules. Differing preset colour settings do not cause automatic
   colour-space conversion.
 
-For an ordinary linear chain, Append connects the incoming chain after the
-existing chain. Branching or incompatible structures require graph validation
+For an ordinary linear chain, Append inserts the incoming chain after the
+selected main-spine node, or at the end when none is selected, as node paste and
+node presets do today. Branching or incompatible structures require graph validation
 and explicit connection rules; refuse unsafe operations with a useful error.
 Never guess, silently discard connections or flatten the graph. Detailed
 attachment/rebinding policies remain design work, not new machinery to invent
