@@ -429,8 +429,8 @@ separately. Store minimal node X/Y layout positions keyed by NodeId in that same
 sidecar, logically separate from executable graph data. Layout is optional: Step
 7 provides its home without requiring positions before Graph View exists, and a
 node without a saved position remains valid. Positions must not affect
-connections, validation, rendering or graph evaluation; reopening the editable
-source photograph restores any saved arrangement.
+connections, graph validation, rendering or graph evaluation; reopening the
+editable source photograph restores any saved arrangement.
 
 Do not persist rendered images, intermediate buffers, caches or unnecessary
 transient UI state. Keep the format simple and readable. Separate project files
@@ -480,7 +480,7 @@ for the proposed schema and implementation boundaries.
 
 ## D050 — Editor opening establishes a grade; save at document boundaries
 
-**Status:** Accepted product decision following the PR #62 review.
+**Status:** Accepted; lifecycle independently reviewed in PR #62.
 
 Successfully opening an editable photo establishes and saves its complete grade,
 including Source-only. Restore valid existing grades without an immediate rewrite;
@@ -494,11 +494,18 @@ Grade remains. Reuse open-path/protection state without live grade-presence/dirt
 flags, per-edit notifications, comparison snapshots, revisions or an event bus.
 Persistence is independent of render demand.
 
-Initial-save failure may leave the opened photo editable in memory with a warning;
-retry at departure/close without another tracking flag. Failed saves retain the
-document through Retry / Discard / Cancel; cancelled shutdown leaves the editor
-running. Protected views remain read-only and never overwrite sidecars (D049);
-exports remain sidecar-free (D038).
+Initial-save failure leaves the photo editable with a persistent non-modal
+warning, cleared by a successful grade save to its sidecar or photo switch;
+no tracking flag. Retry at departure/close. Unwritable folders can prompt even
+with no edits.
+Failed saves retain the document through Retry / Discard / Cancel; cancelled
+shutdown leaves the editor running. Protected views remain read-only and never
+overwrite sidecars (D049); exports remain sidecar-free (D038).
+
+The live editor is authoritative while a photograph is open; concurrent external
+sidecar edits are outside the supported workflow. Keep destination validation
+and atomic replacement. Future default-preset application failure policy remains
+deferred to that feature's milestone.
 
 ## Pending decisions
 

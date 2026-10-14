@@ -349,7 +349,12 @@ and closing, before live replacement or editor/runtime teardown, even if nothing
 changed. Explicit Save Grade remains. Reuse the open path/protection state;
 do not add live hasGrade/gradeDirty flags, comparison snapshots, per-edit
 notifications or persistence revisions. Initial-save failure can leave the
-opened grade in memory with a warning; save again at the next lifecycle boundary.
+opened grade editable with a persistent non-modal warning, separate from render
+status; clear it after a successful grade save to its sidecar or actual photo
+switch.
+It is presentation text, not save tracking; save again at the next boundary.
+Document actions refuse departure after failure unless Discard was explicit.
+Unwritable folders may prompt on navigation/close even with no adjustments.
 
 The future default preset is selected from the user's preset folder.
 When opening a photograph, use this precedence:
@@ -371,6 +376,8 @@ alters saved grades. On editable photos users may manually apply another preset;
 future multi-photo application extends that action to a selection.
 Do not track which default was previously used. Default selection UI and
 automatic application are later workflow features, not Step 7 implementations.
+Failure handling for that future default-preset application remains deferred to
+its implementation milestone.
 
 ### Independent grade and photo metadata
 
@@ -385,7 +392,9 @@ Metadata updates preserve the grade; grade updates preserve photo metadata.
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,
 decode no photo and build no live graph. External modification/conflict tracking
-is outside Step 7; destination validation and atomic writes remain required.
+is outside Step 7: the live editor is authoritative while a photo is open, and
+concurrent external sidecar edits are unsupported. Destination validation and
+atomic writes remain required.
 
 Provide one coherent read/write path with safe atomic file replacement, usable
 by future batch operations without opening the photograph in the editor.
@@ -553,9 +562,10 @@ View and minimal linear capture / transactional grade safety are implemented.
 Step 7 graph-native persistence is at its focused design checkpoint.
 [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) records the current-code
 inventory, simplified proposed schema, safe reconstruction/write contracts and
-five focused implementation PRs. Claude independently reviewed PR #62 at
-`a38e05adecf6713c9456efc52232f28c3d58abd4` as **SAFE AFTER SMALL FIXES**. The
-agreed fixes and subsequent save-lifecycle decision await targeted verification;
+five focused implementation PRs. Claude independently verified PR #62's design
+and D050 lifecycle at `962ccfe910835ef2801f39d6636be2dc7c097cda` as
+**SAFE AFTER SMALL FIXES**. The remaining position, test, warning and documentation
+corrections await final verification; no review of those corrections is claimed.
 Step 7 production implementation has not begun.
 
 Reported macOS testing found normal operation. No complete macOS/NEF
@@ -688,7 +698,7 @@ verification checks to implementation PRs. Follow the design/acceptance workflow
 above, `CLAUDE.md` for review expectations and `docs/CODE_STYLE.md` for source
 guidance.
 
-**Step 7 design checkpoint — reviewed, targeted verification pending:**
+**Step 7 design checkpoint — reviewed; remaining corrections await verification:**
 [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) investigates whether
 the existing graph model, identifiers, interfaces and ownership can be persisted
 reliably and understood without unnecessary
@@ -729,7 +739,7 @@ and batch/workspace export remain separate focused workflow milestones.
 uses one sidecar for the authoritative graph and optional compact X/Y positions
 keyed by NodeId. Step 7 provides a home for layout without requiring Graph View
 or saved positions; a node without a position remains valid. Keep layout separate
-from executable data. Repositioning must not affect connections, validation,
+from executable data. Repositioning must not affect connections, graph validation,
 rendering or graph evaluation; reopening the editable source photograph should
 restore any saved arrangement.
 
@@ -766,10 +776,10 @@ unrelated features; tooling can proceed alongside Step 7 where practical.
       settings; identify individual checks still unverified. Before Step 7
       replaces the relevant capture/sidecar paths, record the outstanding
       results or an explicit, documented waiver for the unverified checks.
-- [x] Independent Claude review of the persistence checkpoint at `a38e05ad`:
+- [x] Independent Claude verification of the design and D050 at `962ccfe9`:
       **SAFE AFTER SMALL FIXES** (result supplied by the user).
-- [ ] Targeted Claude verification of the agreed corrections and subsequent
-      save-lifecycle decision before Step 7 finalises the graph format.
+- [ ] Final verification of the remaining position, test, warning and documentation
+      corrections before Step 7 finalises the graph format.
 - [ ] Extend CI where practical (Linux build + self-test already implemented):
       add a macOS PR build + self-test and a separate ASan/UBSan job. Keep
       TSan/stress manual initially where automation is impractical.

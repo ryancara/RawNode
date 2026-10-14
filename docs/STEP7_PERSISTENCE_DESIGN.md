@@ -1,10 +1,10 @@
 # Step 7 — Graph-native persistence design checkpoint
 
 **Review provenance:** Claude's independent review of
-`a38e05adecf6713c9456efc52232f28c3d58abd4` concluded **SAFE AFTER SMALL FIXES**
-(result supplied by the user). This revision incorporates those fixes and the
-subsequently accepted ART/vkdt-inspired save lifecycle. Targeted independent
-Claude verification is pending. Documentation only; implementation has not begun.
+`962ccfe910835ef2801f39d6636be2dc7c097cda` verified the design and D050 lifecycle
+as **SAFE AFTER SMALL FIXES** (result supplied by the user). This revision
+addresses the remaining position, test and warning findings; these corrections
+have not yet received final verification. Documentation only; no implementation.
 
 **Baseline:** `main` including PR #61,
 `20e3ba75165e38edf9bd97a6266342dde0a41b1d`. The accepted Step 5/6 graph and
@@ -115,11 +115,16 @@ Node records follow the existing model:
   Writers include every declared input, even if disconnected. Source has none.
 - Slotted operations additionally require `slots` and `nextSlotId`, including
   when their Slot array is empty. Ordinary Source/processor nodes omit both.
-- Optional `grade.positions` maps NodeId to `{ "x": number, "y": number }`.
+- Optional `grade.positions` is an object mapping NodeId to exactly
+  `{ "x": finite number, "y": finite number }`.
   Keep positions separate from topology and retain them without Graph View.
-  Missing positions are valid; ignore unusable entries or keys for absent nodes
-  with a warning. Delete a node's position with the node. Positions never affect
-  graph validity or execution. Transfer rules are in section 6.
+  Missing positions are valid. A key for a nonexistent node may be dropped with
+  a warning. For an existing node, missing/malformed coordinates, non-finite
+  numbers, extra structural fields or unsupported representations reject the
+  grade and protect its sidecar. Apply this validation on load and save; never
+  silently discard unsupported layout information. Delete a node's position
+  with the node. Positions have no execution meaning; transfer rules are in
+  section 6.
 
 The file version defines the supported operation names and their interfaces.
 Use `nodeInterface()` for port types, directions and requiredness: repeating
@@ -239,9 +244,14 @@ For photograph opening:
 4. Only after a successful editable open, if the file had no grade, save the
    established complete grade through the atomic update path. Preserve any mark.
    A Source-only grade is legitimate. If this initial save fails, keep the opened
-   photo editable in memory and report the failure clearly; retry saving at
-   navigation/shutdown without a special pending/dirty flag. Existing grades
-   need no immediate rewrite. Folder auto-open affects only the photo opened.
+   photo editable in memory with a persistent, non-modal warning that rendering
+   status cannot overwrite. Reuse the protected-source warning area if practical,
+   without marking the photo read-only. Clear it after successfully saving this
+   photo's grade to its sidecar or moving to another photo. Warning text is
+   presentation only, never save eligibility; no initial-save-failed flag or
+   pending/dirty tracking.
+   Retry at navigation/shutdown. Existing grades need no immediate rewrite;
+   folder auto-open affects only the photo opened.
 5. If sidecar parsing or reconstruction fails, protect it and stage a source-only
    view instead. Use the established Rec.709/Linear RAW fallback when the saved
    encoding cannot be trusted; raster decoding uses its detected encoding.
@@ -278,8 +288,9 @@ Use one small file update path: **read → validate → change one section → w
 a sibling temporary file → atomically replace**. It returns success or a useful
 error with the path; every caller must handle the result.
 
-- A grade save captures the current graph/colours and preserves existing
-  metadata. A mark update preserves the existing grade, or its absence. Prefer
+- A grade save captures the current graph/colours and preserves existing metadata
+  section bytes, including explicit `unmarked`. A mark update preserves the
+  existing grade, or its absence. Prefer
   keeping the untouched section's JSON exactly, including numerical tokens and
   internal formatting. No meaningful state, precision or opaque parameter data
   may be lost, whichever representation is used.
@@ -312,10 +323,11 @@ aborts the update. Exact formatting is preferred where practical; preserving
 meaning, precision and opaque data is mandatory. Newly edited known numbers
 keep the existing locale-independent, round-trip precision output.
 
-Normal use is one RawNode editing session. Reading the destination protects
-unsupported data and preserves the other section; it does not compare against
-a loaded snapshot. External modification detection, revision tracking, file
-watchers, multi-process locks and conflict UI are outside Step 7. Atomic replacement
+The live editor is authoritative while a photo is open; external changes to its
+sidecar are outside the supported concurrent-editing workflow. Reading the
+destination still protects unsupported data and preserves the other section;
+it does not compare against a loaded snapshot. External detection, revision
+tracking, file watchers, multi-process locks and conflict UI are outside Step 7. Atomic replacement
 is still required. Verify its behaviour on supported platforms without a
 copy-over fallback; claim no stronger cross-process or power-loss guarantee.
 
@@ -326,6 +338,11 @@ explicit discard permits losing unsaved changes. On close, decide before stoppin
 workers, setting shutdown intent or destroying editor state. Cancel clears the
 close request and returns to the usable running editor; Retry can save again.
 Initial-save failure follows this same path on departure, with no extra flag.
+Prefer a small UI helper for Retry / Discard / Cancel, with document actions
+refusing navigation/reopening/close after a failed save unless Discard was
+explicitly chosen. Resolve/test native-dialog limitations in PR 3; no new UI
+framework or filesystem abstraction is prescribed. Accept that unwritable
+folders can prompt on departure/close even when no adjustment changed.
 Protected source views are never saved and can be left normally. Export remains
 sidecar-free (D038).
 
@@ -479,7 +496,7 @@ waiver for unverified checks. This does not block format-only PR 1.
 | --- | --- | --- |
 | **1. Graph records and codec** | Extend `ProjectPersist.h`, load/save codec code and `GraphModel` Slot high-water access; adapt node capture helpers in `NodeGraph`. Use one strict reader and documented optional defaults. Add hand-authored accepted/must-reject fixtures plus round-trips covering shuffled storage, branching, endpoints, opaque values and Slots; exclude group expansion. Keep live V2 callers guarded until switched. | Targeted checkpoint verification. Risk: array-order assumptions, overlapping parsers or test operation names leaking into production. Review any small JSON dependency here. |
 | **2. Safe sidecar updates** | New-format file read/update/atomic replacement in `ProjectPersistLoad/Save`; processor-independent metadata updates, optional file-grade records and protection/error results. Verify numerical/opaque-data preservation, unchanged sections, canonical Unmarked, zero processor/decode calls and original-file preservation on failure. No live opening switch yet. | PR 1. Risk: treating read errors as absence or rewriting grades through backend defaults. No external-change tracking. |
-| **3. Photo opening and saving** | Stage restoration/protection in `NodeGraph`/`GraphCommands`/`DocumentActions`; separate photo/default colours in `AppState`. Update `UI`/`UiFrame` open/close and `LeftPanel`/`ParamWidgets` protection: create the initial grade only after successful opening; save complete grades on leave/reopen/close before replacement/teardown. No presence/dirty flags or edit notifications. Test initial-save failure, read-only protection and Retry / Discard / Cancel with a usable editor after cancellation. | PRs 1–2 and applicable manual evidence/waiver. Risk: initial writes before successful opening, wrong RAW encoding, or teardown before a failed-save decision. Mutation ownership stays unchanged. |
+| **3. Photo opening and saving** | Stage restoration/protection in `NodeGraph`/`GraphCommands`/`DocumentActions`; separate photo/default colours in `AppState`. Update `UI`/`UiFrame` open/close and `LeftPanel`/`ParamWidgets` protection: initial save only after successful opening; complete saves on leave/reopen/close before replacement/teardown. Keep persistent save-warning text and a small Retry / Discard / Cancel helper; document actions refuse departure after failure without explicit Discard. Test unchanged-grade preservation and warning/cancel behaviour. No presence/dirty flags or edit notifications. | PRs 1–2 and applicable manual evidence/waiver. Risk: initial writes before successful opening, wrong RAW encoding, or premature teardown. Resolve/test native-dialog limitations here. Mutation ownership stays unchanged. |
 | **4. Presets and clipboard** | Move `UiFrame`, shared persistence/`NodeGraph` helpers and the narrow `GraphCommands` batch splice to the common codec. One Save Preset action with normal validated overwrites; Replace and linear incoming Append into eligible branched destinations. Retain node/grade copy/paste; implement explicit external-link and position rules. Retire old transfer/chain paths. | PRs 1–3 and applicable native-dialog evidence. Risk: changing unrelated branches, partial splice, metadata loss on overwrite or wrong ID/position remapping. |
 | **5. Global preferences and retirement** | Separate `PersistGui` preferences; update `DocumentActions`, `UI`, `ImGuiBackend` and menus. Remove workspace persistence, retaining scanning/essential preferences. Read/validate stored default-colour pairs with built-in fallback; test global round-trip and no per-folder/CWD files. Update `SIDECAR.md`/`workspace-format.md`; no Settings UI. | PR 3 colour ownership; land after PR 4 for final retirement. Risk: ini writes before configuring its global path, defaults ignored on read, or photo colours saved as defaults. |
 
@@ -491,6 +508,9 @@ transition; no new framework. Hand-author accepted JSON fixtures independently
 of the writer, with explicit expected IDs/bindings/colours and numerical results.
 Include shuffled node arrays, missing optional inputs/controls, branching/Slots,
 metadata-only and Source-only grades; codec-to-codec equality alone is insufficient.
+Where production interfaces lack optional inputs, run the R-2 fixture through
+the same open/departure path with the test-only interface access in section 3;
+do not expose those ports/kinds in production.
 
 | Case | Independent expected result |
 | --- | --- |
@@ -503,11 +523,13 @@ metadata-only and Source-only grades; codec-to-codec equality alone is insuffici
 | Scan versus editor open | Scan a folder and generate thumbnails for A/B: no sidecars. Open A successfully: only A gets a complete Source-only grade; opening a folder that auto-opens A has the same result. Failed B decoding creates no B sidecar. |
 | Initial and existing grades | Open metadata-only A: retain its mark and add a grade. Open a valid hand-authored grade: restore it without an immediate rewrite; preserve its Source-only grade even if defaults differ. Initial write failure leaves a usable in-memory grade and warning; departure retries even without edits. |
 | Leave, close and same-photo reopen | Directly adjust parameters/colours without any persistence notification, then leave/reopen: the complete saved grade contains those values. Same-path reopen saves before reading and retains edits. Departure/close saves even with no adjustment changes; Source-only grades persist normally. |
+| Unchanged departure (R-2) | Hand-author a valid sidecar with a missing processor, nested opaque parameters/precise numeric tokens, valid positions, omitted optional inputs and metadata including explicit `unmarked`. Open, make no edits, navigate away and reload the file. Observe that departure saved it at the narrow save-test seam. Assert semantic grade equivalence, allowing explicit documented defaults, with identical processor identity, NodeIds, endpoints/connections and layout; unknown values/numerical precision survive and the metadata section bytes are unchanged. |
 | Independent metadata/Unmarked | Update an unopened photo's mark with zero processor/decoder calls and no live graph; preserve any grade and its precision/raw data. Grade-only updates retain metadata. Clearing Pick removes mark; absent mark reads Unmarked; explicit unmarked is accepted on read. Metadata-only changes never add a grade. |
-| Protection | Corrupt/newer/incompatible and legacy files retain bytes and open a decodable source read-only with a persistent warning. Every editing/paste/preset/save entry refuses; no default preset runs. Failed decoding leaves the old document intact. Leaving a protected source view does not save it. |
+| Protection | Corrupt/newer/incompatible and legacy files retain bytes and open a decodable source read-only with a persistent warning. Every editing/paste/preset/save entry refuses; no default preset runs. Failed decoding leaves the old document intact. For both legacy-only `.ofxrawhost.json` and protected-sidecar fixtures, opening and departure leave directory contents/original bytes unchanged: no replacement/additional `.rawnode.json` is created. |
 | Atomic and lifecycle failures | Inject temp-create/write/flush/close/replace failures: original bytes and live edits remain. Retry succeeds; only explicit Discard permits losing changes; Cancel prevents navigation/close. After cancelled shutdown, preview/editing and a later save still work because no infrastructure was torn down. No chmod-dependent CI assumptions or exceptional dirty flags. |
+| Initial-save warning | Force initial creation failure: the photo stays editable and a non-modal warning survives ordinary render-status updates. A successful grade save to its photo sidecar or actual photo switch clears it; cancelling departure keeps warning/document/editor usable. Even an unchanged photo must attempt saving and offer Retry / Discard / Cancel on departure failure. Do not use warning text as pending-save state. |
 | Replace/Append | Replace applies graph/colours, retains metadata and replaces positions (absent incoming positions clear old ones). Linear incoming Append at middle/end remaps IDs into a branched destination; only the selected successor/Output changes, all other branches/colours/metadata remain. Branched incoming, stale selection or unsupported insertion fails atomically. |
-| Positions | Remove positions on node deletion; ignore stale/invalid entries without changing graph meaning. Append/Paste preserve destination positions and remap copied non-Source positions; missing entries stay absent. No implicit placement or topology change. |
+| Positions (R-1) | Missing entries are valid; a nonexistent-node entry may be dropped with a warning. For existing nodes, require exactly finite numeric x/y: extra fields, missing coordinates, strings, arrays, null and non-finite/overflow values reject the grade and protect the original file on restoration/save. No unsupported layout is silently lost. Retain node-deletion and Replace/Append/Paste remapping tests; valid positions never change topology. |
 | Save Preset | One action saves the whole grade regardless of selection, including Source-only and branching grades. Normal confirmed overwrite of a valid photo-sidecar path works, preserving destination metadata; unsupported destinations refuse, cancellation/failure preserves original bytes. |
 | Clipboard | Copy a supported branch/fragment independently of paste eligibility. Internal Image/Mask/Reference links survive; external Source/Image and Mask/Reference links detach, with relevant warnings. Only ordinary entry Image is rebound on paste; no accidental matching of foreign IDs. Fresh IDs/Slot state/positions remap; unsupported attachment preserves clipboard/destination. |
 | Preferences/group expansion | A hand-authored global file with valid non-built-in RAW/Output pairs actually initialises a new grade; missing/invalid pairs fall back as specified. Photo changes never modify defaults. Global/layout round-trip creates no folder/CWD settings files; old files retain bytes. Group expansion appears in no grade/transfer and uses UI defaults. |
@@ -527,6 +549,8 @@ pair for raster grades is unchanged by this revision.
 JSON-library choice and the supported-platform atomic replacement calls are
 bounded PR 1/2 implementation choices, not reasons for a persistence framework.
 Outstanding manual evidence/waivers apply only to the relevant live paths.
+Future automatic default-preset application failure handling remains deferred to
+that feature's implementation milestone.
 
 Defer branched incoming attachment, dynamic unknown-operation interfaces, asset
 relocation, default-preset/culling UI, Graph View and masks to their actual
