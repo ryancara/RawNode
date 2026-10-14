@@ -49,10 +49,11 @@ are non-blocking follow-ups.
 - **Step 6 — complete and independently reviewed:** explicit topology and one
   sequential requested-endpoint DAG evaluator, merged in PR #58
   (`6294a034d30168063e2aa92e984a51666f56ca22`).
-- Step 7 (next): one graph-native JSON format for sidecars, presets and clipboard,
-  with independent grade/photo metadata, optional node layout, safe atomic writes
-  and photo/global settings ownership. Transition existing preset/copy/paste
-  functionality and retire workspace settings persistence in focused changes.
+- Step 7 (next): graph-native sidecars and unified presets, shared clipboard graph
+  serialization, independent grade/photo metadata, optional node layout, safe
+  atomic writes and photo/global settings ownership. Transition existing
+  preset/copy/paste functionality and retire workspace settings persistence in
+  focused changes.
 - **Graph View UI milestone (between Steps 7 and 8; not a new architecture
   step; D047):** implement a switchable Graph/List editor on the same
   authoritative document graph with shared NodeId selection.
@@ -80,21 +81,24 @@ RawNode now supports:
 - portable `.rawnodepreset` files for both single nodes and full grades.
 
 These currently use the linear `PersistNode` / `PersistChain` representation and
-`.rawnodepreset` files. Step 7 transitions existing node/full-grade presets and
-copy/paste to shared graph-native `.rawnode.json` serialization and reconstruction;
-the old format can be retired. Full-grade transfers retain RAW and Output colour
-settings. This transition is separate from future preset-browser/default UI.
+`.rawnodepreset` files. Step 7 moves saved presets to one unified `.rawnode.json`
+grade format containing one processor or a connected graph; the old format can
+be retired. **Replace** applies the graph and preset RAW/Output settings;
+**Append** inserts nodes while preserving destination colours, using validated
+connections. Clipboard node fragments and complete-grade transfers remain
+supported through shared graph code; a fragment need not be a complete document.
+Detailed semantics and staging boundaries are in `docs/PROJECT_CONTEXT.md`.
 
 A follow-up editing workflow should add filmstrip multi-selection and allow a
-copied full grade or full-grade preset to be applied to all selected photos in
+copied full grade or preset to be applied to all selected photos in
 one action. Each source receives its own validated grade and sidecar update;
 do not add a second graph model or persistence path for batch application.
 
 ## Default grade preset
 
-Add a configurable default full-grade preset selected from the user's preset
-folder. Opening precedence is **saved grade → configured default preset → global
-RAW/Output defaults**, following the saved-grade and protected-sidecar rules in
+Add a configurable default preset selected from the user's preset folder, applied
+using **Replace**. Opening precedence is **saved grade → configured default preset
+→ global RAW/Output defaults**, following the saved-grade and protected-sidecar rules in
 `docs/PROJECT_CONTEXT.md`. Browsing or metadata-only changes cannot manufacture a
 grade; deliberately saved empty grades still win. Changing the default leaves
 saved grades untouched, and users can manually apply another preset.
@@ -114,6 +118,9 @@ their backends are usable rather than creating unused configuration infrastructu
 Provide **View → Preset Panel** to show/hide a preset browser. Leave space for
 later shortcut assignment, scripting and other preferences without designing
 an elaborate settings framework in advance.
+The panel can expose **Replace** and **Append**. A general-purpose branched-graph
+Append workflow may be staged separately when existing graph commands cannot
+support it safely; Step 7 provides shared persistence/reconstruction mechanisms.
 
 ## DCTL compatibility
 
