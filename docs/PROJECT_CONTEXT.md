@@ -326,19 +326,114 @@ is inconsistent across formats.
 
 ## Persistence direction
 
-RawNode uses sidecar files as persistent per-image edit state.
+Step 7 should use one versioned, human-readable `.rawnode.json` sidecar per
+editable source photograph. Sidecars remain authoritative per-photo state;
+exported derivatives receive none (D002, D038). Keep the folder-based workflow
+without a separate metadata file, project system, catalogue or database
+(D001, D010). The following establishes behaviour and scope, not JSON field names.
 
-Important persistence principles:
+### Saved grades and future default presets
 
-- sidecars belong to editable source documents only; exported derivatives do
-  not receive RawNode sidecars (D038);
-- avoid a central project/catalogue database;
-- Sidecar V2 compatibility does not constrain the graph-native Step 7 format; unsupported graph state must never be silently flattened through V2;
-- processor/node identity must remain stable enough for persistence, presets and
-  copy/paste;
-- unavailable/missing processors should remain represented rather than silently
-  disappearing;
-- persistence must not depend on transient renderer scheduling state.
+A saved grade comprises the processing graph (nodes, parameters and connections)
+plus the photograph's RAW working and Output colour settings. A processing or
+colour adjustment establishes a grade, as does successful application of a
+preset, pasted grade or future default preset. An intentionally saved empty
+grade is still a saved grade. Browsing or navigating away from an unedited photo,
+or changing only photo metadata, must not manufacture one; a metadata-only
+sidecar does not count as a saved grade.
+
+The future default full-grade preset is selected from the user's preset folder.
+When opening a photograph, use this precedence:
+
+1. Restore an existing saved grade, including an intentionally empty one.
+2. Otherwise, apply the configured default full-grade preset, if any, including
+   its RAW and Output colour settings.
+3. Otherwise, use the normal global processing/RAW/Output defaults.
+
+A preset's colour settings must not be overridden by global defaults. Failed
+default loading or application must not be recorded as successful application.
+Unreadable, invalid, unsupported or otherwise protected sidecars are errors,
+not unedited photographs; they must not trigger a default preset. Changing the
+selected default never alters saved grades. Users may manually apply another
+preset; future multi-photo application extends that action to a selection.
+Do not track which default was previously used. Default selection UI and
+automatic application are later workflow features, not Step 7 implementations.
+
+### Independent grade and photo metadata
+
+The same sidecar supports logically independent processing-grade data and
+minimal photo metadata. Grade data includes the graph, parameters, RAW/Output
+colour settings and optional Graph View node positions (D048). Photo metadata
+includes future Pick/Reject/Unmarked status and other photo-specific information
+only when needed. Grade-only, metadata-only and combined sidecars are all valid.
+Metadata updates preserve the grade; grade updates preserve photo metadata.
+
+Provide one coherent read/write path with safe atomic file replacement, usable
+by future batch operations without opening the photograph in the editor.
+Preserve unknown/unavailable processors and information that must survive a
+rewrite where safely representable. If a sidecar cannot be safely interpreted or
+preserved, warn the user, leave the original file untouched and do not silently
+discard data or apply a default. No elaborate automatic repair system is needed.
+Step 7 establishes minimal metadata persistence support; the Pick/Reject UI is
+later work.
+
+### Shared JSON for sidecars, presets and clipboard
+
+Sidecars and saved presets use the same versioned graph-native JSON structure
+and graph save/load implementation: for example, `DSC_001.NEF.rawnode.json`
+beside a source and `Kodak Gold.rawnode.json` in the user's preset folder.
+Opening a photograph restores its grade and photo metadata. Applying a preset,
+including another photograph's sidecar used as a preset, transfers only grade
+and colour settings, preserving destination photo metadata. Pick/Reject and
+other photo-specific metadata never transfer. Saving a preset writes reusable
+grade data without unnecessary photograph-specific metadata; there is no second
+preset-specific graph schema or separate preset envelope format.
+
+Step 7 transitions the existing node/full-grade preset and copy/paste features to
+these graph serialization, validation and reconstruction mechanisms. Clipboard
+payloads need not be literal files on disk. This replaces the old linear paths,
+rather than permanently retaining them behind safety guards, and can be staged
+in focused implementation PRs. Until replacement, preserve the D045 safeguards
+against silently flattening unsupported graphs.
+
+Historical Sidecar V1/V2 and `.rawnodepreset` compatibility is not required;
+the old preset format can be retired. Do not add legacy migration readers or
+compatibility frameworks solely for development-era files, and do not
+automatically delete existing files. Protection from accidental destruction
+remains required independently of backwards compatibility. Preset browsing,
+folder selection, defaults and multi-photo workflows remain later features.
+
+### Preserve existing node identity behaviour
+
+Opening a photograph preserves valid saved NodeIds. Replacing an entire grade
+may retain valid incoming NodeIds because photographs own separate graphs.
+Inserting or duplicating nodes allocates fresh identities where required;
+connected-fragment copying follows the Step 5 contract, remapping NodeIds and
+internal references consistently. Rebind document Source references to the
+destination photograph. Extend existing restoration/insertion behaviour to
+arbitrary connections without unnecessary ID regeneration or another identity
+management system.
+
+### Two persistent settings scopes
+
+Photo sidecars own each photograph's complete grade, colour settings and photo
+metadata. Global application preferences own theme, interface layout, export
+defaults, default RAW working and Output settings, the selected default grade
+preset, CTL/DCTL/OFX/preset folder locations, keyboard shortcuts and future input
+mappings. There are no competing folder-level RAW defaults.
+
+As focused Step 7-related persistence cleanup with its own tests, retire
+reading/writing `workspace.ofxrawhost.json`. Move its appropriate session/UI
+preferences and RAW defaults to global application preferences; inventory and
+verify essential preferences remain available when workspace persistence is
+removed. Actual photograph processing state stays in sidecars. No replacement
+workspace file or per-folder settings system is needed. No migration from the
+development-era workspace file is required, and existing files must not be
+automatically deleted.
+
+The selected photograph/workspace may remain transient session state. Remembering
+the last opened folder or photograph can be a later global preference. The future
+Settings UI can expose global defaults later; it is not required for Step 7.
 
 ## Testing and review philosophy
 
@@ -550,33 +645,24 @@ layout-persistence requirement under "Graph / List interface" in `ROADMAP.md`.
   to preserve unknown nodes;
 - relevant external asset references.
 
-**Future workflow compatibility (not additional Step 7 implementations):**
-reserve a simple optional per-source metadata home for Pick/Reject/Unmarked
-state, independent of the saved processing grade. The reader must distinguish
-no saved grade, an explicitly saved empty grade, and an unreadable/invalid
-sidecar; an invalid sidecar must not be silently treated as an unedited source.
-A future global default full-grade preset applies only when there is no saved
-grade and becomes the source's own editable graph without overwriting existing
-work. Graph-native full-grade presets and multi-photo grade application should
-reuse the same graph capture, validation and reconstruction semantics rather
-than a competing linear representation. Exact schema/envelope details remain
-Step 7 design decisions; default-preset UI, culling, multi-photo operations and
-workspace export are later feature work.
+**Persistence/workflow checkpoint:** verify the saved-grade distinction, safe
+independent grade/metadata updates, shared JSON reconstruction, existing identity
+behaviour and photo/global settings ownership in "Persistence direction" above.
+Include existing preset/clipboard transition and workspace-persistence cleanup
+in Step 7 scope. Default-preset UI/application, culling UI, multi-photo operations
+and batch/workspace export remain separate focused workflow milestones.
 
 **Accepted sidecar/layout direction (D048):** each editable source photograph
-uses one versioned, human-readable sidecar containing its processing graph and
-parameters plus minimal Graph View layout metadata. Store compact X/Y node
-positions associated with stable NodeIds. Keep layout logically separate from executable graph data
-within that sidecar; the renderer and evaluator must not depend on positions.
-Repositioning nodes must not change connections or processing results, and
-reopening the editable source photograph should restore its saved arrangement.
+uses one sidecar for the authoritative graph and optional compact X/Y positions
+keyed by NodeId. Step 7 provides a home for layout without requiring Graph View
+or saved positions; a node without a position remains valid. Keep layout separate
+from executable data. Repositioning must not affect connections, validation,
+rendering or graph evaluation; reopening the editable source photograph should
+restore any saved arrangement.
 
-Photo-specific graph/parameters, connections, stable identities, RAW/output
-colour settings and minimal node positions belong in the sidecar. Preferred
-default Graph/List View, theme, keyboard shortcuts and other preferences
-unrelated to the photograph's edit remain global application preferences.
-Decide graph viewport zoom/pan persistence with Graph View; temporary viewport
-state should not expand Step 7.
+Preferred default Graph/List View remains a global preference. Decide graph
+viewport zoom/pan persistence with Graph View; temporary viewport state should
+not expand Step 7.
 
 Keep one authoritative graph shared by List View, Graph View, preview and export.
 Do not add a separate project file, catalogue/database, duplicate graph topology
@@ -589,8 +675,10 @@ persistence framework needs a demonstrated requirement.
 The exact serialization schema, field names and optional-field handling remain
 Step 7 design decisions; record them before establishing the format and beginning
 implementation. D048 in `docs/DECISIONS.md` records the accepted sidecar/layout
-direction. Step 7 persistence should support the subsequent
-Graph/List milestone (D047), without implementing Graph View as part of Step 7.
+direction. If broader sidecar scope or workspace-persistence removal warrants a
+durable decision, record it in `docs/DECISIONS.md` during this focused checkpoint.
+Step 7 supports the subsequent Graph/List milestone (D047), without implementing
+Graph View as part of Step 7.
 Keep this design checkpoint focused on persistence; the completed
 whole-Step-6 review remains closed. If the existing design is sound, record that
 conclusion and proceed without refactoring.

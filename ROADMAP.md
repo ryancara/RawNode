@@ -49,10 +49,10 @@ are non-blocking follow-ups.
 - **Step 6 — complete and independently reviewed:** explicit topology and one
   sequential requested-endpoint DAG evaluator, merged in PR #58
   (`6294a034d30168063e2aa92e984a51666f56ca22`).
-- Step 7 (next): graph-native versioned persistence, with a forward-compatible
-  home for optional editor node positions/layout data, photo-level culling
-  metadata and reuse by graph-native full-grade presets. These future workflows
-  do not need to be implemented as part of Step 7.
+- Step 7 (next): one graph-native JSON format for sidecars, presets and clipboard,
+  with independent grade/photo metadata, optional node layout, safe atomic writes
+  and photo/global settings ownership. Transition existing preset/copy/paste
+  functionality and retire workspace settings persistence in focused changes.
 - **Graph View UI milestone (between Steps 7 and 8; not a new architecture
   step; D047):** implement a switchable Graph/List editor on the same
   authoritative document graph with shared NodeId selection.
@@ -60,6 +60,11 @@ are non-blocking follow-ups.
   the Step 5 product/architectural contract.
 
 The completed stabilisation tasks are not extra migration steps.
+
+Detailed persistence behaviour is in `docs/PROJECT_CONTEXT.md` under
+"Persistence direction". Default-preset UI/automatic application, culling,
+multi-photo actions and other photography workflows are later focused milestones;
+they can proceed independently without changing the architecture sequence.
 
 Post-Step-6 code quality, CI, verification and milestone readability follow-ups
 are tracked in `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
@@ -74,35 +79,37 @@ RawNode now supports:
 - copying and pasting the complete serial processing chain between images, including RAW working and Output colour space/gamma;
 - portable `.rawnodepreset` files for both single nodes and full grades.
 
-All three features reuse the same `PersistNode` / `PersistChain` representation as Sidecar V2. Full-grade transfers and presets additionally carry the colour-pipeline settings required to reproduce the grade.
+These currently use the linear `PersistNode` / `PersistChain` representation and
+`.rawnodepreset` files. Step 7 transitions existing node/full-grade presets and
+copy/paste to shared graph-native `.rawnode.json` serialization and reconstruction;
+the old format can be retired. Full-grade transfers retain RAW and Output colour
+settings. This transition is separate from future preset-browser/default UI.
 
 A follow-up editing workflow should add filmstrip multi-selection and allow a
 copied full grade or full-grade preset to be applied to all selected photos in
 one action. Each source receives its own validated grade and sidecar update;
 do not add a second graph model or persistence path for batch application.
 
-## Default grade on first open
+## Default grade preset
 
-Allow choosing an existing full-grade/graph preset as the default for newly
-opened photographs. Apply it only when the source has **no saved grade**;
-a deliberately saved empty grade must not be treated as absent, and an
-unreadable or invalid sidecar must not silently trigger the default.
-Once applied, the graph is that photograph's own editable grade, saved using
-normal source-sidecar persistence. Do not reapply a default on later opens or
-overwrite existing work when the global default changes.
+Add a configurable default full-grade preset selected from the user's preset
+folder. Opening precedence is **saved grade → configured default preset → global
+RAW/Output defaults**, following the saved-grade and protected-sidecar rules in
+`docs/PROJECT_CONTEXT.md`. Browsing or metadata-only changes cannot manufacture a
+grade; deliberately saved empty grades still win. Changing the default leaves
+saved grades untouched, and users can manually apply another preset.
 
-Reuse the Step 7 graph serialization and validation logic for full-grade
-presets, with any preset-specific envelope kept separate. Do not create a
-parallel linear graph format. Add default-preset selection to application
-Settings after persistence; the first-open feature is not a Step 7 gate.
+Default selection and automatic application are later workflow features, not
+Step 7 prerequisites; future multi-photo grade application supports a selection.
 
 ## Application Settings and preset panel
 
-Add a straightforward persistent application Settings window, with
-configurable/default search locations for CTL, DCTL, OFX and preset files.
+Add a straightforward application **Settings** menu/window for global RAW/Output
+defaults, export/UI preferences and configurable/default search locations for
+CTL, DCTL, OFX and preset files.
 Keep paths and preferred default graph/preset in global application settings,
-not photograph sidecars. Implement plugin-specific options when their backends
-are usable rather than creating unused configuration infrastructure.
+without per-folder settings persistence. Implement plugin-specific options when
+their backends are usable rather than creating unused configuration infrastructure.
 
 Provide **View → Preset Panel** to show/hide a preset browser. Leave space for
 later shortcut assignment, scripting and other preferences without designing
@@ -136,7 +143,7 @@ Initial LUT target:
 
 - `.cube` files;
 - trilinear / tetrahedral interpolation as appropriate;
-- generic node behaviour and Sidecar V2 persistence.
+- generic node behaviour and graph-native persistence.
 
 CLF should be treated as a richer transform format rather than assumed to be only a LUT, because it may contain matrices, ranges, LUTs, and other operations.
 
@@ -144,15 +151,15 @@ CLF should be treated as a richer transform format rather than assumed to be onl
 
 Add a simple photo-culling workflow:
 
-- Pick / Reject / Unmarked states as minimal optional per-photo sidecar metadata,
+- Pick (Flag) / Reject / Unmarked as minimal optional per-photo sidecar metadata,
   independently of whether the source has a saved processing grade;
 - filmstrip filtering and efficient navigation between images;
 - later, hide rejects or move rejected photos (and associated sidecars) to the
   operating system Trash through an explicit, confirmed user action.
 
 Keep this folder-based with no catalogue/database or automatic deletion. The
-Step 7 format need only leave a simple home for photo-level metadata; the
-culling UI and file actions can follow later.
+Step 7 establishes minimal photo-metadata persistence support; the culling UI
+and file actions can follow later.
 
 ## Batch / workspace export
 
@@ -207,7 +214,8 @@ with editing in the application Settings window. Store mappings as global
 preferences rather than per-photo sidecar data.
 
 Keep the input abstraction generic so future MIDI, OSC / TouchOSC, jog wheels,
-or other hardware controllers can use the same path.
+or other hardware controllers can use the same path. Scripting remains a later
+extension.
 
 ## RAW architecture refactor
 
