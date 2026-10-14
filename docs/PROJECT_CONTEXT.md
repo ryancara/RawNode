@@ -525,9 +525,9 @@ contract is complete. The full graph transition, NodeId selection, topology List
 View and minimal linear capture / transactional grade safety are implemented.
 Step 7 graph-native persistence is at its focused design checkpoint.
 [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) records the current-code
-inventory, proposed schema, safe reconstruction/write contracts and five focused
-implementation PRs. Independent Claude review of that proposal is pending;
-Step 7 production implementation has not begun.
+inventory, simplified proposed schema, safe reconstruction/write contracts and
+five focused implementation PRs. The revised PR #62 proposal awaits independent
+Claude review; Step 7 production implementation has not begun.
 
 Reported macOS testing found normal operation. No complete macOS/NEF
 manual-validation results are recorded for `docs/STEP6_MANUAL_VALIDATION.md`,
@@ -659,7 +659,7 @@ verification checks to implementation PRs. Follow the design/acceptance workflow
 above, `CLAUDE.md` for review expectations and `docs/CODE_STYLE.md` for source
 guidance.
 
-**Step 7 design checkpoint — drafted, independent review pending:**
+**Step 7 design checkpoint — simplified draft, independent review pending:**
 [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) investigates whether
 the existing graph model, identifiers, interfaces and ownership can be persisted
 reliably and understood without unnecessary
