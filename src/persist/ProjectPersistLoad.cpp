@@ -4,13 +4,17 @@
 #include "GraphValidation.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <climits>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 #include <stdexcept>
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -477,6 +481,11 @@ bool decodeGraphFile(const std::string &json, PersistFile &out, std::string &err
                      std::vector<std::string> *warnings, bool testOperations) {
   Value root;
   if (!persist_json::read(json, root, error)) return false;
+  return decodeGraphFile(root, out, error, warnings, testOperations);
+}
+bool decodeGraphFile(const Value &root, PersistFile &out, std::string &error,
+                     std::vector<std::string> *warnings, bool testOperations) {
+  error.clear();
   try {
     fields(root, {"format", "version", "grade", "metadata"}, "file");
     int version = 0;
@@ -563,4 +572,68 @@ ParameterValue parameterValue(const ProcessorParameter &param, const std::string
 bool decodeGraphFile(const std::string &json, PersistFile &out, std::string &error,
                      std::vector<std::string> *warnings) {
   return persist_detail::decodeGraphFile(json, out, error, warnings, false);
+}
+
+namespace persist_detail {
+SidecarReadStatus readGraphFileText(const std::string &path, std::string &json, std::string &error,
+                                  FileFault fault) {
+  namespace fs = std::filesystem;
+  error.clear();
+  const auto fail = [&](const std::string &reason) {
+    error = path + ": " + reason;
+    return SidecarReadStatus::Error;
+  };
+  const auto hasSuffix = [&](const std::string &suffix) {
+    return path.size() >= suffix.size() && path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0;
+  };
+  if (hasSuffix(".ofxrawhost.json")) return fail("Protected legacy destination");
+  std::error_code ec;
+  const auto status = fs::symlink_status(fs::path(path), ec);
+  if (ec && ec != std::errc::no_such_file_or_directory) return fail("Cannot inspect destination: " + ec.message());
+  if (status.type() == fs::file_type::not_found) {
+    const std::string suffix = ".rawnode.json";
+    if (hasSuffix(suffix)) {
+      const auto legacy = path.substr(0, path.size() - suffix.size()) + ".ofxrawhost.json";
+      const auto legacyStatus = fs::symlink_status(fs::path(legacy), ec);
+      if (ec && ec != std::errc::no_such_file_or_directory)
+        return fail("Cannot inspect legacy destination " + legacy + ": " + ec.message());
+      if (legacyStatus.type() != fs::file_type::not_found)
+        return fail("Protected legacy sidecar: " + legacy);
+    }
+    return SidecarReadStatus::Absent;
+  }
+  // Replacing a symlink would replace the link, not the file we read through
+  // it. Refuse it alongside directories/devices rather than change its meaning.
+  if (!fs::is_regular_file(status)) return fail("Destination is not a regular file");
+#ifdef _WIN32
+  std::FILE *opened = _wfopen(fs::path(path).c_str(), L"rb");
+#else
+  std::FILE *opened = std::fopen(path.c_str(), "rb");
+#endif
+  auto closeInput = [](std::FILE *stream) { std::fclose(stream); };
+  std::unique_ptr<std::FILE, decltype(closeInput)> input(opened, closeInput);
+  if (!input) return fail("Cannot open destination: " + std::string(std::strerror(errno)));
+  std::string text;
+  char buffer[8192];
+  size_t count;
+  while ((count = std::fread(buffer, 1, sizeof buffer, input.get())) != 0) text.append(buffer, count);
+  const int readError = fault == FileFault::Read ? EIO : std::ferror(input.get());
+  if (readError != 0) {
+    const int code = fault == FileFault::Read || errno == 0 ? EIO : errno;
+    return fail("Cannot read destination: " + std::string(std::strerror(code)));
+  }
+  if (std::fclose(input.release()) != 0) return fail("Cannot close destination after reading");
+  json = std::move(text);
+  return SidecarReadStatus::Loaded;
+}
+}  // namespace persist_detail
+
+SidecarReadStatus readGraphSidecar(const std::string &path, PersistFile &out, std::string &error,
+                                  std::vector<std::string> *warnings) {
+  std::string json;
+  const auto status = persist_detail::readGraphFileText(path, json, error, persist_detail::FileFault::None);
+  if (status != SidecarReadStatus::Loaded) return status;
+  if (decodeGraphFile(json, out, error, warnings)) return SidecarReadStatus::Loaded;
+  error = path + ": " + error;
+  return SidecarReadStatus::Error;
 }
