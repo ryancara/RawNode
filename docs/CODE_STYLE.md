@@ -25,6 +25,32 @@ or frameworks created solely for hypothetical future features.
 
 Formatting consistency matters, but conceptual order matters more.
 
+## Reference implementations and proportional complexity
+
+When a design or review concerns behaviour established photo editors have already
+solved, compare the relevant ART and vkdt code or documentation where practical.
+ART is a useful reference for RAW editing workflows, photo navigation, sidecars
+and editor lifecycle; vkdt for graph data flow, connections, evaluation and
+rendering. Check the actual implementation rather than guessing, and identify
+the concrete lesson or tradeoff when it materially influences a decision.
+
+Use these projects as references, not templates. RawNode's requirements and
+existing boundaries take precedence. Do not import another editor's
+implementation or complexity merely because it exists there, particularly
+vkdt-specific Vulkan infrastructure.
+
+Prefer the smallest understandable solution that covers actual requirements
+and credible failure modes. Before adding state flags, fallback paths, caches,
+watchers, compatibility layers or frameworks to handle a possible edge case,
+explain how the case could occur, its consequences and why a simpler guard,
+explicit failure, focused test or documented deferral is insufficient. Do not
+build machinery solely for hypothetical future needs.
+
+This is not permission to ignore correctness: silent data loss, damaged
+sidecars, invalid graph state, use-after-free and real concurrency failures
+must still be prevented. Address them proportionately without inventing
+unnecessary recovery or coordination systems.
+
 ## File responsibility
 
 A file should have an obvious purpose.
