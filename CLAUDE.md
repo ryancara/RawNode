@@ -134,6 +134,17 @@ systems for masks, compositing, LUTs, exports, etc.
 When additional complexity appears necessary, first ask whether the same
 behaviour can be represented by the existing graph or invalidation model.
 
+For comparable behaviour, inspect how ART approaches RAW editor workflows,
+sidecars and navigation, and how vkdt approaches graph data flow and rendering.
+Use their actual implementations as references where relevant, not as
+blueprints. Do not import unrelated infrastructure. See `docs/CODE_STYLE.md`
+for the comparison and complexity standard.
+
+Before adding special machinery for a possible edge case, identify a credible
+failure mode, its impact and why a narrower solution or documented limitation
+would be inadequate. Protect real user-data, graph and concurrency invariants;
+do not expand PR scope to pre-solve hypothetical future cases.
+
 Correctness and simplicity are more important than premature optimisation.
 
 Human readability and maintainability are development requirements, applied as
