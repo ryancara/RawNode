@@ -98,6 +98,7 @@ add_executable(OfxRawHost
   tests/SelfTest.cpp
   tests/OfxThreadPoolTests.cpp
   tests/GraphModelTests.cpp
+  tests/GraphPersistenceTests.cpp
   tests/GraphCommandsTests.cpp
   tests/GraphEvaluatorTests.cpp
   tests/GraphRuntimeTests.cpp
@@ -127,6 +128,7 @@ add_executable(OfxRawHost
   src/persist/DocumentActions.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp
+  src/persist/Json.cpp
   src/ui/Themes.cpp
   src/ui/Filmstrip.cpp
   src/ui/ImGuiBackend.cpp

@@ -1,6 +1,7 @@
 #include "SelfTest.h"
 #include "OfxThreadPoolTests.h"
 #include "GraphModelTests.h"
+#include "GraphPersistenceTests.h"
 #include "GraphCommandsTests.h"
 #include "GraphEvaluatorTests.h"
 #include "GraphRuntimeTests.h"
@@ -2061,6 +2062,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 int runSelfTests() {
+  if (!testGraphPersistence()) return fail("Step 7 graph persistence");
   if (!testGraphModel()) return fail("Step 6A graph model");
   if (!testGraphCommands()) return fail("Step 6B topology commands");
   if (!testGraphEvaluator()) return fail("Step 6C graph evaluator");
@@ -3286,6 +3288,7 @@ int runSelfTests() {
   if (order.px[0] > 0.1f || order.px[(size_t)7 * 8 * 4] < 0.5f) return fail("source rows are not bottom-up");
 
   loadPlugins();
+  if (!testGraphPersistenceOfx()) return fail("Step 7 OFX persistence identity");
   if (!testGraphEvaluatorOfx()) return fail("Step 6C OFX graph evaluator");
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
 
@@ -3484,6 +3487,13 @@ int runSelfTests() {
         !ctlApp.nodes[1].processor->setParameterValue("mode", 1) ||
         !ctlApp.nodes[1].processor->setParameterValue("enabled", false))
       return fail("ctl persistence parameter setup");
+    // Plain CTL stores floats: 0.1 is captured after 32-bit quantisation,
+    // rather than requiring the original input double to survive unchanged.
+    if (!ctlProc.setParameterValue("gain", 0.1) || ctlGain() != double(float(0.1)) ||
+        !testGraphPersistenceRoundTrip({ctlApp.nodes, ctlApp.primarySource, ctlApp.documentOutput}) ||
+        !ctlProc.setParameterValue("gain", 1.5))
+      return fail("graph-native CTL float parameter round-trip");
+    printf("ok  Graph-native real CTL round-trip with quantised float/int/bool values\n");
     Image ctlSavedOut;
     if (!renderChain(ctlApp, src, ctlSavedOut, {}).ok) return fail("ctl persistence parameter render");
 
@@ -3878,6 +3888,8 @@ int runSelfTests() {
           !renderChain(presetRestored, src, presetRestoredOut, {}).ok || presetRestoredOut.px != artPresetOut.px)
         return fail("ART preset Sidecar V2 restore");
     }
+    if (!testGraphPersistenceArtPreset(artMeta))
+      return fail("graph-native ART preset persistence");
     for (const char *id : {"gain", "mode", "steps", "enabled", "bias"})
       if (!artPresets.resetParameter(id)) return fail("ART parameter reset after preset tests");
 
@@ -3982,6 +3994,9 @@ int runSelfTests() {
     }
     if (!restoredGain || !restoredMix || !restoredCount)
       return fail("ART adjuster Sidecar V2 normalisation");
+    if (!testGraphPersistenceRoundTrip({artAdjuster.nodes, artAdjuster.primarySource, artAdjuster.documentOutput}))
+      return fail("graph-native ART rounded/clamped parameter round-trip");
+    printf("ok  Graph-native ART round-trip with rounded/clamped scalar values\n");
 
     fs::remove(artAdjusterPath);
     fs::remove(artMetaPath);

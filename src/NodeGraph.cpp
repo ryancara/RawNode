@@ -3,6 +3,7 @@
 #include "DocumentMutation.h"
 #include "GraphValidation.h"
 #include "GraphCommands.h"
+#include "persist/ProjectPersistPriv.h"
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
 #include "processors/NativeExposureProcessor.h"
@@ -33,9 +34,9 @@ static bool addOfxWithinMutation(App &app, int pluginIndex);
 static bool addCtlWithinMutation(App &app, const std::string &path);
 static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor);
 
-static PersistNode capturePersistedNode(const Node &node);
+static PersistNode capturePersistedNode(const Node &node, bool graphNative = false);
 static std::vector<NodeId> linearCaptureOrder(const App &app);
-static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &persisted, bool preserveId);
+static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &persisted, bool preserveId, bool graphNative = false);
 static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParameter &param);
 static bool persistedParameterType(ParameterType type);
 static std::string paramValueJson(const ProcessorParameter &param);
@@ -250,7 +251,49 @@ void applyChain(App &app, const PersistChain &chain) {
   mutation.changed();
 }
 
+PersistGraph captureGraph(GraphView graph) {
+  const auto error = graphStructureError(graph);
+  if (!error.empty()) throw std::runtime_error(error);
+  PersistGraph record;
+  record.primarySource = graph.primarySource;
+  record.documentOutput = graph.documentOutput;
+  record.nodes.reserve(graph.nodes.size());
+  for (const auto &node : graph.nodes) record.nodes.push_back(capturePersistedNode(node, true));
+  const auto recordError = persist_detail::graphRecordError(record, true);
+  if (!recordError.empty()) throw std::runtime_error(recordError);
+  return record;
+}
+
 namespace document_detail {
+RestoredGraph restoreGraph(const PersistGraph &graph) {
+  const auto error = persist_detail::graphRecordError(graph, true);
+  if (!error.empty()) throw std::runtime_error(error);
+  RestoredGraph restored;
+  restored.primarySource = graph.primarySource;
+  restored.output = graph.documentOutput;
+  restored.nodes.reserve(graph.nodes.size());
+  // First restore identities and backend state. Bindings may refer forwards in
+  // storage; no insertion/splice command may infer topology from this order.
+  for (const auto &record : graph.nodes) {
+    Node node = record.operation == NodeOperation::ImageProcessor
+        ? restoredNode(restored.nodes, record, /*preserveId=*/true, /*graphNative=*/true) : Node(record.operation);
+    node.id = NodeId{record.id};
+    node.enabled = record.enabled;
+    restored.nodes.push_back(std::move(node));
+  }
+  for (size_t i = 0; i < graph.nodes.size(); ++i) {
+    auto &node = restored.nodes[i];
+    const auto &record = graph.nodes[i];
+    node.fixedInputs = record.inputs;
+    node.slots = record.slots;
+    if (!nodeInterface(node.operation).slotInputs.empty() && !node.restoreNextSlotId(record.nextSlotId))
+      throw std::runtime_error("Invalid Slot allocator state");
+  }
+  const auto structuralError = graphStructureError({restored.nodes, restored.primarySource, restored.output});
+  if (!structuralError.empty()) throw std::runtime_error(structuralError);
+  return restored;
+}
+
 RestoredChain restoreChain(App &app, const PersistChain &chain) {
   RestoredChain restored;
   restored.nodes.reserve(chain.nodes.size() + 1);
@@ -383,20 +426,43 @@ static bool addCtlWithinMutation(App &app, const std::string &path) {
   return appendProcessorNode(app, std::move(processor));
 }
 
-static PersistNode capturePersistedNode(const Node &node) {
+static PersistNode capturePersistedNode(const Node &node, bool graphNative) {
   PersistNode persisted;
   persisted.id = node.id.value;
   persisted.enabled = node.enabled;
-  persisted.groupOpen = node.groupOpen;
+  if (!graphNative) persisted.groupOpen = node.groupOpen;
+  if (graphNative) {
+    persisted.operation = node.operation;
+    persisted.inputs = node.fixedInputs;
+    persisted.slots = node.slots;
+    persisted.nextSlotId = node.nextSlotIdForPersistence();
+    if (node.operation != NodeOperation::ImageProcessor) return persisted;
+  }
   persisted.paramsJson = node.preservedParamsJson;
 
   if (node.processor) {
     persisted.backend = processorBackendName(node.processor->backend());
     persisted.identifier = node.processor->identifier();
-    persisted.label = node.processor->displayName();
+    persisted.label = graphNative && !node.storedLabel.empty() ? node.storedLabel : node.processor->displayName();
 
     for (const ProcessorParameter &param : node.processor->parameters()) {
-      if (param.secret || !param.persistValue || !persistedParameterType(param.type)) continue;
+      if (param.secret || !param.persistValue || !persistedParameterType(param.type)) {
+        if (graphNative) persisted.paramsJson.erase(param.id);
+        continue;
+      }
+
+      if (graphNative) {
+        const auto currentJson = paramValueJson(param);
+        if (persist_detail::parameterValue(param, currentJson) != param.value)
+          throw std::runtime_error("Unrepresentable parameter: " + param.id);
+        const auto saved = node.preservedParamsJson.find(param.id);
+        // Retain precise tokens when the current understood value is unchanged.
+        // Unknown IDs are already merged above and never converted to doubles.
+        if (saved != node.preservedParamsJson.end() &&
+            persist_detail::parameterValue(param, saved->second) == param.value) continue;
+        persisted.paramsJson[param.id] = currentJson;
+        continue;
+      }
 
       // If a newer build wrote a stable choice ID that this build does not
       // recognise, keep the opaque original value instead of replacing it
@@ -427,11 +493,11 @@ static PersistNode capturePersistedNode(const Node &node) {
   return persisted;
 }
 
-static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &persisted, bool preserveId) {
+static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &persisted, bool preserveId, bool graphNative) {
   const std::string backend = persisted.backend.empty() ? "ofx" : persisted.backend;
   std::unique_ptr<Processor> processor;
   if (backend == "ofx") {
-    const int index = findPluginIndex(persisted.identifier, persisted.label);
+    const int index = findPluginIndex(persisted.identifier, graphNative ? std::string() : persisted.label);
     if (index >= 0) processor = OfxProcessor::create(index);
   } else if (backend == "native" && persisted.identifier == NativeExposureProcessor::kIdentifier) {
     processor = std::make_unique<NativeExposureProcessor>();
@@ -441,9 +507,10 @@ static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &pers
     processor = CtlProcessor::create(persisted.identifier);
   }
   Node node = makeProcessorNode(nodes, std::move(processor));
-  if (preserveId) node.id = restoredNodeId(nodes, persisted.id);
+  if (graphNative) node.id = NodeId{persisted.id};
+  else if (preserveId) node.id = restoredNodeId(nodes, persisted.id);
   node.enabled = persisted.enabled;
-  node.groupOpen = persisted.groupOpen;
+  if (!graphNative) node.groupOpen = persisted.groupOpen;
   node.storedBackend = backend;
   node.storedIdentifier = persisted.identifier;
   node.storedLabel = persisted.label;
@@ -451,7 +518,17 @@ static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &pers
   if (node.processor) {
     for (const auto &param : node.processor->parameters()) {
       const auto value = persisted.paramsJson.find(param.id);
-      if (value != persisted.paramsJson.end()) applyParamValueJson(*node.processor, param, value->second);
+      if (value == persisted.paramsJson.end()) continue;
+      if (!graphNative) { applyParamValueJson(*node.processor, param, value->second); continue; }
+      if (param.secret || !param.persistValue || !persistedParameterType(param.type))
+        throw std::runtime_error("Non-persistent installed parameter: " + param.id);
+      const auto parsed = persist_detail::parameterValue(param, value->second);
+      if (!node.processor->setParameterValue(param.id, parsed, false))
+        throw std::runtime_error("Processor refused parameter: " + param.id);
+      bool matched = false;
+      for (const auto &updated : node.processor->parameters())
+        if (updated.id == param.id && updated.value == parsed) matched = true;
+      if (!matched) throw std::runtime_error("Processor changed saved parameter value: " + param.id);
     }
   }
   return node;

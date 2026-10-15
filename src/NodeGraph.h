@@ -41,7 +41,20 @@ PersistChain captureChain(const App &app);
 bool appendPersistedNode(App &app, const PersistNode &node, std::optional<NodeId> insertAfter = std::nullopt);
 void applyChain(App &app, const PersistChain &chain);
 
+// Capture all stored nodes. Caller owns graph/processor execution exclusion;
+// these worker-free helpers never schedule or publish a live document.
+PersistGraph captureGraph(GraphView graph);
+
 namespace document_detail {
+struct RestoredGraph {
+  std::vector<Node> nodes;
+  NodeId primarySource;
+  OutputRef output{NodeId{}, ports::image};
+};
+// Construct a detached graph, or throw on invalid structure or installed
+// parameter values. Does not publish a document or schedule rendering.
+RestoredGraph restoreGraph(const PersistGraph &graph);
+
 // Operation-local restoration, so grade application can prepare nodes and
 // colour/source changes before replacing anything. Both helpers borrow their
 // document operation's DocumentMutation; neither schedules preview work.
