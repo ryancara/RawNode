@@ -99,6 +99,7 @@ add_executable(OfxRawHost
   tests/OfxThreadPoolTests.cpp
   tests/GraphModelTests.cpp
   tests/GraphPersistenceTests.cpp
+  tests/SidecarFileTests.cpp
   tests/GraphCommandsTests.cpp
   tests/GraphEvaluatorTests.cpp
   tests/GraphRuntimeTests.cpp

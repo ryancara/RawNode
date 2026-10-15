@@ -3,6 +3,8 @@
 #include "persist/Json.h"
 
 #include <cmath>
+#include <cerrno>
+#include <cstdlib>
 #include <limits>
 #include <locale>
 #include <stdexcept>
@@ -17,6 +19,10 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -377,4 +383,112 @@ bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &er
 bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &error,
                      std::vector<std::string> *warnings) {
   return persist_detail::encodeGraphFile(file, json, error, warnings, false);
+}
+
+namespace {
+#ifndef _WIN32
+struct SiblingTemporaryFile {
+  std::filesystem::path path;
+  std::FILE *stream = nullptr;
+  ~SiblingTemporaryFile() {
+    if (stream) std::fclose(stream);
+    if (!path.empty()) { std::error_code ignored; std::filesystem::remove(path, ignored); }
+  }
+};
+#endif
+
+bool replaceGraphFile(const std::string &path, const std::string &body, std::string &error,
+                      persist_detail::FileFault fault) {
+#ifdef _WIN32
+  error = path + ": Atomic sidecar replacement is not yet supported on Windows";
+  return false;
+#else
+  using Fault = persist_detail::FileFault;
+  const auto fail = [&](const char *operation, int code) {
+    error = path + ": " + operation + ": " + std::strerror(code ? code : EIO);
+    return false;
+  };
+  std::string pattern = path + ".tmp-XXXXXX";
+  std::vector<char> name(pattern.begin(), pattern.end());
+  name.push_back('\0');
+  const int fd = fault == Fault::TempCreate ? -1 : mkstemp(name.data());
+  if (fd < 0) return fail("Cannot create sibling temporary file", fault == Fault::TempCreate ? EIO : errno);
+  SiblingTemporaryFile temp{fs::path(name.data())};
+  const auto abortWrite = [&](const char *operation, int code) {
+    fail(operation, code);
+    if (temp.stream) { std::fclose(temp.stream); temp.stream = nullptr; }
+    std::error_code ec;
+    fs::remove(temp.path, ec);
+    if (ec) error += "; cannot remove temporary file " + temp.path.string() + ": " + ec.message();
+    else temp.path.clear();
+    return false;
+  };
+  temp.stream = fdopen(fd, "wb");
+  if (!temp.stream) { const int code = errno; close(fd); return abortWrite("Cannot open temporary stream", code); }
+  // A write fault leaves real partial data in our temporary file, so cleanup
+  // and preservation are exercised after writing, not just at an early return.
+  const size_t size = fault == Fault::Write ? body.size() / 2 : body.size();
+  const size_t written = std::fwrite(body.data(), 1, size, temp.stream);
+  if (written != body.size())
+    return abortWrite("Cannot write temporary file", fault == Fault::Write ? EIO : errno);
+  const int flushed = fault == Fault::Flush ? EOF : std::fflush(temp.stream);
+  if (flushed != 0)
+    return abortWrite("Cannot flush temporary file", fault == Fault::Flush ? EIO : errno);
+  int closed = std::fclose(temp.stream);
+  temp.stream = nullptr; // fclose consumes the stream even when it reports failure.
+  if (fault == Fault::Close) closed = EOF;
+  if (closed != 0)
+    return abortWrite("Cannot close temporary file", fault == Fault::Close ? EIO : errno);
+  // POSIX rename replaces an existing destination atomically on the same
+  // filesystem. No unlink/copy fallback and no power-loss durability promise.
+  const int replaced = fault == Fault::Replace ? -1 : std::rename(temp.path.c_str(), path.c_str());
+  if (replaced != 0)
+    return abortWrite("Cannot replace destination", fault == Fault::Replace ? EIO : errno);
+  temp.path.clear();
+  return true;
+#endif
+}
+}  // namespace
+
+namespace persist_detail {
+bool updateGraphSidecar(const std::string &path, const PersistGrade *grade, PhotoMark mark,
+                        std::string &error, FileFault fault, bool testOperations) {
+  std::string json;
+  const auto status = readGraphFileText(path, json, error, fault);
+  if (status == SidecarReadStatus::Error) return false;
+  const auto fail = [&] { error = path + ": " + error; return false; };
+  persist_json::Value root;
+  PersistFile existing;
+  if (status == SidecarReadStatus::Loaded &&
+      (!persist_json::read(json, root, error) || !decodeGraphFile(root, existing, error, nullptr, testOperations)))
+    return fail();
+  std::string outgoing;
+  if (grade) {
+    existing.grade = *grade;
+    if (!encodeGraphFile(existing, outgoing, error, nullptr, testOperations)) return fail();
+  } else {
+    const char *metadata;
+    switch (mark) {
+      case PhotoMark::Unmarked: metadata = "{}"; break;
+      case PhotoMark::Pick: metadata = R"({"mark":"pick"})"; break;
+      case PhotoMark::Reject: metadata = R"({"mark":"reject"})"; break;
+      default: error = "Unsupported photo mark"; return fail();
+    }
+    outgoing = "{\n  \"format\": \"rawnode\",\n  \"version\": 1,\n  \"metadata\": " + std::string(metadata);
+    const auto savedGrade = root.object.find("grade");
+    if (savedGrade != root.object.end()) outgoing += ",\n  \"grade\": " + savedGrade->second.raw;
+    outgoing += "\n}\n";
+    PersistFile checked;
+    if (!decodeGraphFile(outgoing, checked, error, nullptr, testOperations)) return fail();
+  }
+  return replaceGraphFile(path, outgoing, error, fault);
+}
+}  // namespace persist_detail
+
+bool updateSidecarGrade(const std::string &path, const PersistGrade &grade, std::string &error) {
+  return persist_detail::updateGraphSidecar(path, &grade, PhotoMark::Unmarked, error,
+                                          persist_detail::FileFault::None, false);
+}
+bool updateSidecarMark(const std::string &path, PhotoMark mark, std::string &error) {
+  return persist_detail::updateGraphSidecar(path, nullptr, mark, error, persist_detail::FileFault::None, false);
 }

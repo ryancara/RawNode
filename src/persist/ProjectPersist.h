@@ -86,12 +86,27 @@ struct PersistFile {
   std::optional<std::string> metadataJson;
 };
 
-// In-memory codec only: no live sidecar caller switches format in PR 1.
+// In-memory codec. Live editor callers still use V2.
 // Failure leaves the destination unchanged; error describes the first failure.
 bool decodeGraphFile(const std::string &json, PersistFile &out, std::string &error,
                      std::vector<std::string> *warnings = nullptr);
 bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &error,
                      std::vector<std::string> *warnings = nullptr);
+
+enum class SidecarReadStatus { Absent, Loaded, Error };
+enum class PhotoMark { Unmarked, Pick, Reject };
+
+// Graph-native file operations only; live editor callers still use V2.
+// Paths name the destination sidecar (normally inputSidecarPath(photo)). A lone
+// sibling .ofxrawhost.json protects an absent .rawnode.json from creation.
+// Read failure/absence leaves out unchanged. Errors include the affected path.
+SidecarReadStatus readGraphSidecar(const std::string &path, PersistFile &out, std::string &error,
+                                  std::vector<std::string> *warnings = nullptr);
+// Validate the existing file and the complete outgoing document, then replace
+// atomically. Preserve the untouched section's raw JSON; never restore plugins.
+// Failure preserves the destination. No directory creation or copy-over fallback.
+bool updateSidecarGrade(const std::string &path, const PersistGrade &grade, std::string &error);
+bool updateSidecarMark(const std::string &path, PhotoMark mark, std::string &error);
 
 struct PersistSidecar {
   std::string format;
