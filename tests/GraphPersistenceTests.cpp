@@ -8,9 +8,13 @@
 #include "ofx/OfxHost.h"
 #include "persist/Json.h"
 #include "processors/NativeCstProcessor.h"
+#include "processors/OfxProcessor.h"
+#include "ofxParam.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <limits>
 #include <stdexcept>
 
@@ -73,6 +77,43 @@ ImageValue pixel() {
   image->w = image->h = 1;
   image->px = {0.25f, -0.5f, 2.0f, 0.375f};
   return image;
+}
+
+bool v2ByteStrings() {
+  // Exercise today's application writers, not just the shared lexical reader.
+  // These bytes are deliberately not UTF-8; V2 must retain them verbatim.
+  const std::string bytes = std::string("photo-") + char(0xff) + "-label";
+  PersistChain chain;
+  PersistNode saved;
+  saved.id = "legacy-bytes";
+  saved.backend = "unavailable";
+  saved.identifier = "byte-test";
+  saved.label = bytes;
+  saved.paramsJson["text"] = jsonStringValue(bytes);
+  chain.nodes.push_back(saved);
+  const auto preservesBytes = [&](const PersistChain &loaded) {
+    std::string text;
+    return loaded.nodes.size() == 1 && loaded.nodes[0].label == bytes &&
+        parseJsonStringValue(loaded.nodes[0].paramsJson.at("text"), text) && text == bytes;
+  };
+  const auto path = std::filesystem::temp_directory_path() / "rawnode-selftest-v2-bytes.nef";
+  CHECK(saveInputSidecar(path.string(), {}, chain));
+  PersistSidecar sidecar;
+  CHECK(loadSidecarFile(inputSidecarPath(path.string()), sidecar));
+  CHECK(sidecar.version == 2 && preservesBytes(sidecar.chain));
+  std::filesystem::remove(inputSidecarPath(path.string()));
+
+  std::string kind;
+  PersistChain loaded;
+  CHECK(parseTransferPayload(serializeTransferPayload("node", chain), kind, loaded));
+  CHECK(kind == "node" && preservesBytes(loaded));
+  const auto preset = std::filesystem::temp_directory_path() / "rawnode-selftest-v2-bytes.rawnode.json";
+  CHECK(savePresetFile(preset.string(), "node", chain));
+  CHECK(loadPresetFile(preset.string(), kind, loaded));
+  CHECK(kind == "node" && preservesBytes(loaded));
+  std::filesystem::remove(preset);
+  std::puts("ok  V2 sidecar/clipboard/preset writer-reader preserves non-UTF-8 bytes");
+  return true;
 }
 // Toy arithmetic uses the existing evaluator's test-only interfaces. This
 // proves execution follows the saved edges, not shuffled array order.
@@ -263,6 +304,10 @@ bool slotsAndDefaults() {
   CHECK(rejects(changed(fixture, "\"slots\":[", "\"slots\":null,\"unused\":["), true));
   CHECK(rejects(changed(fixture, "\"settings\":{}", "\"settings\":{\"enabled\":1}"), true));
   CHECK(rejects(changed(fixture, "\"settings\":{}", "\"settings\":{\"strength\":0.5}"), true));
+  // Same production schema path, with the existing Slot test kind admitted.
+  // The Slot remains valid apart from the unexpected structural member.
+  CHECK(rejects(changed(fixture, R"("id":"3","settings":{})",
+      R"("id":"3","unexpected":0,"settings":{})"), true));
   CHECK(rejects(changed(fixture, "\"settings\":{},", ""), true));
   CHECK(rejects(changed(fixture, "\"mask\":null", "\"mask\":{\"node\":\"gain\",\"port\":\"image\"}"), true));
   CHECK(rejects(changed(fixture, "\"image\":{\"node\":\"gain\",\"port\":\"image\"}", ""), true));
@@ -536,6 +581,7 @@ bool typedParameters() {
 }  // namespace
 
 bool testGraphPersistence() {
+  CHECK(v2ByteStrings());
   CHECK(sourceAndMetadata());
   CHECK(topologyAndIdentities());
   CHECK(slotsAndDefaults());
@@ -544,6 +590,84 @@ bool testGraphPersistence() {
   CHECK(strictRejections());
   CHECK(typedParameters());
   std::puts("ok  Step 7 graph persistence: independent topology/pixel fixtures, Slots/defaults, strict JSON, opaque parameters and positions");
+  return true;
+}
+
+bool testGraphPersistenceRoundTrip(GraphView graph) {
+  PersistFile saved;
+  saved.grade.emplace();
+  saved.grade->color = {"rec2020", "linear", "rec709", "srgb"};
+  saved.grade->graph = captureGraph(graph);
+  std::string encoded, recaptured, error;
+  CHECK(encodeGraphFile(saved, encoded, error));
+  PersistFile decoded;
+  CHECK(decodeGraphFile(encoded, decoded, error));
+  auto restored = document_detail::restoreGraph(decoded.grade->graph);
+  CHECK(restored.nodes.size() == graph.nodes.size());
+  for (const auto &original : graph.nodes) {
+    auto *copy = node(restored, original.id.value);
+    CHECK(copy);
+    if (!original.processor) continue;
+    CHECK(copy->processor);
+    CHECK(copy->processor->backend() == original.processor->backend());
+    CHECK(copy->processor->identifier() == original.processor->identifier());
+    const auto params = copy->processor->parameters();
+    for (const auto &param : original.processor->parameters()) {
+      if (param.secret || !param.persistValue || param.type == ParameterType::Group ||
+          param.type == ParameterType::Page || param.type == ParameterType::PushButton ||
+          param.type == ParameterType::Unsupported) continue;
+      CHECK(record(saved.grade->graph, original.id.value)->paramsJson.count(param.id));
+      const auto found = std::find_if(params.begin(), params.end(), [&](const auto &p) { return p.id == param.id; });
+      // Compare the backend's exposed, already normalised values. Caller tests
+      // separately establish float quantisation and ART rounding/clamping.
+      CHECK(found != params.end() && found->value == param.value);
+    }
+  }
+  decoded.grade->graph = captureGraph(view(restored));
+  CHECK(encodeGraphFile(decoded, recaptured, error));
+  CHECK(recaptured == encoded);
+  return true;
+}
+
+bool testGraphPersistenceArtPreset(App &app) {
+  CHECK(app.nodes.size() == 2 && app.nodes[1].processor);
+  auto &ctl = app.nodes[1];
+  const auto params = ctl.processor->parameters();
+  const auto preset = std::find_if(params.begin(), params.end(), [](const auto &p) { return p.id == "__rawnode_art_preset"; });
+  CHECK(preset != params.end() && !preset->persistValue && preset->value == ParameterValue(1));
+  auto captured = captureGraph({app.nodes, app.primarySource, app.documentOutput});
+  const auto &values = record(captured, ctl.id.value)->paramsJson;
+  CHECK(!values.count(preset->id));
+  CHECK(values.at("gain") == "2" && values.at("mode") == "0" && values.at("steps") == "8");
+  CHECK(testGraphPersistenceRoundTrip({app.nodes, app.primarySource, app.documentOutput}));
+  auto restored = document_detail::restoreGraph(captured);
+  bool unselected = false;
+  for (const auto &p : node(restored, ctl.id.value)->processor->parameters())
+    if (p.id == preset->id) unselected = p.value == ParameterValue(0);
+  CHECK(unselected); // Restoring persistent values must not invoke/infer a preset.
+
+  // Even an opaque retained value for a now-known transient control is erased.
+  ctl.preservedParamsJson[preset->id] = "0";
+  const auto filtered = captureGraph({app.nodes, app.primarySource, app.documentOutput});
+  ctl.preservedParamsJson.erase(preset->id);
+  CHECK(!record(filtered, ctl.id.value)->paramsJson.count(preset->id));
+
+  // The codec is processor-independent; restoration rejects an installed
+  // transient control explicitly. Zero is a valid, harmless setter value, so
+  // removing the nonpersistent guard cannot pass via another setter failure.
+  for (auto &saved : captured.nodes) if (saved.id == ctl.id.value) saved.paramsJson[preset->id] = "0";
+  PersistFile file;
+  file.grade = PersistGrade{{"rec2020", "linear", "rec709", "srgb"}, captured, {}};
+  std::string encoded, error;
+  CHECK(encodeGraphFile(file, encoded, error));
+  CHECK(decodeGraphFile(encoded, file, error));
+  bool rejected = false;
+  try { (void)document_detail::restoreGraph(file.grade->graph); }
+  catch (const std::runtime_error &failure) {
+    rejected = std::string(failure.what()) == "Non-persistent installed parameter: " + preset->id;
+  }
+  CHECK(rejected);
+  std::puts("ok  Graph-native ART preset: persistent values round-trip; transient capture/restore guards");
   return true;
 }
 
@@ -558,6 +682,41 @@ bool testGraphPersistenceOfx() {
   auto restored = document_detail::restoreGraph(parsed.grade->graph);
   CHECK(node(restored, "node-2")->isMissingProcessor());
   CHECK(node(restored, "node-2")->storedIdentifier == "org.rawnode.codec.missing");
+  const auto crop = std::find_if(gPlugins.begin(), gPlugins.end(), [](const auto &p) {
+    return std::string(p.plugin->pluginIdentifier) == "com.aaronmurniadi.ofxrawhost.crop";
+  });
+  CHECK(crop != gPlugins.end());
+  App app;
+  CHECK(addNode(app, int(crop - gPlugins.begin())));
+  auto &processor = *static_cast<OfxProcessor *>(app.nodes[1].processor.get());
+  CHECK(processor.setParameterValue("crop", 33.3));
+  CHECK(processor.setParameterValue("offsetX", -0.1));
+  CHECK(processor.setParameterValue("aspect", 2));
+  const auto captured = captureGraph({app.nodes, app.primarySource, app.documentOutput});
+  const auto &saved = *record(captured, app.nodes[1].id.value);
+  CHECK(saved.backend == "ofx" && saved.identifier == "com.aaronmurniadi.ofxrawhost.crop");
+  CHECK(saved.paramsJson.at("aspect") == "2");
+  CHECK(testGraphPersistenceRoundTrip({app.nodes, app.primarySource, app.documentOutput}));
+
+  // Reuse the real OFX parameter/descriptor metadata to cover secret controls
+  // independently of ART's persistValue flag. Restore descriptor props before
+  // checking the result so subsequent plugin tests see the original metadata.
+  auto *liveCrop = findParam(processor.effect(), "crop");
+  auto *descriptorCrop = findParam(crop->descriptor.get(), "crop");
+  CHECK(liveCrop && descriptorCrop);
+  const auto liveProps = liveCrop->props, descriptorProps = descriptorCrop->props;
+  propSetInt(H(&liveCrop->props), kOfxParamPropSecret, 0, 1);
+  app.nodes[1].preservedParamsJson["crop"] = "12";
+  const auto secretCapture = captureGraph({app.nodes, app.primarySource, app.documentOutput});
+  liveCrop->props = liveProps;
+  app.nodes[1].preservedParamsJson.erase("crop");
+  CHECK(!record(secretCapture, app.nodes[1].id.value)->paramsJson.count("crop"));
+  CHECK(record(secretCapture, app.nodes[1].id.value)->paramsJson.at("aspect") == "2");
+  propSetInt(H(&descriptorCrop->props), kOfxParamPropSecret, 0, 1);
+  const bool secretRejected = restoreRejects(captured);
+  descriptorCrop->props = descriptorProps;
+  CHECK(secretRejected);
+  std::puts("ok  Graph-native real OFX parameter round-trip and secret parameter guards");
   std::puts("ok  Step 7 OFX restoration resolves identifier, never matching display label");
   return true;
 }

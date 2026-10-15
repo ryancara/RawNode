@@ -16,8 +16,8 @@ struct Value {
   std::map<std::string, Value> object;
 };
 
-// Legacy V1/V2 string parameters historically permitted literal controls. Only
-// those callers opt in; the graph-native schema always uses strict mode.
+// V2 callers retain literal-control compatibility and arbitrary high bytes in
+// strings. Only legacy callers opt in; graph-native JSON always uses strict mode.
 bool read(const std::string &json, Value &out, std::string &error, bool legacyStrings = false);
 bool finiteNumber(const Value &value, double &out);
 bool integer(const Value &value, int &out);

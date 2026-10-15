@@ -86,6 +86,10 @@ class Reader {
       const unsigned char ch = text_[pos_++];
       if (ch == '"') return out;
       if (ch < 0x20 && !legacyStrings_) fail("Unescaped control character");
+      if (ch >= 0x80 && legacyStrings_) {
+        out += char(ch);
+        continue;
+      }
       if (ch >= 0x80) { rawUtf8(out, ch); continue; }
       if (ch != '\\') { out += char(ch); continue; }
       if (pos_ == text_.size()) fail("Truncated escape");

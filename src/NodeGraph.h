@@ -51,6 +51,8 @@ struct RestoredGraph {
   NodeId primarySource;
   OutputRef output{NodeId{}, ports::image};
 };
+// Construct a detached graph, or throw on invalid structure or installed
+// parameter values. Does not publish a document or schedule rendering.
 RestoredGraph restoreGraph(const PersistGraph &graph);
 
 // Operation-local restoration, so grade application can prepare nodes and
