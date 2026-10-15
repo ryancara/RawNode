@@ -99,9 +99,11 @@ do not add a second graph model or persistence path for batch application.
 Add a configurable default preset selected from the user's preset folder, applied
 using **Replace**. Opening precedence is **saved grade → configured default preset
 → global RAW/Output defaults**, following the saved-grade and protected-sidecar rules in
-`docs/PROJECT_CONTEXT.md`. Browsing or metadata-only changes cannot manufacture a
-grade; deliberately saved empty grades still win. Changing the default leaves
-saved grades untouched, and users can manually apply another preset.
+`docs/PROJECT_CONTEXT.md`. Folder scanning and thumbnail generation create no
+sidecars; successfully opening a photograph for editing establishes and persists
+its grade (D050). Metadata-only updates to unopened photos do not create grades.
+Deliberately saved empty grades still win. Changing the default leaves saved
+grades untouched, and users can manually apply another preset.
 
 Default selection and automatic application are later workflow features, not
 Step 7 prerequisites; future multi-photo grade application supports a selection.

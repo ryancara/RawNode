@@ -429,8 +429,8 @@ separately. Store minimal node X/Y layout positions keyed by NodeId in that same
 sidecar, logically separate from executable graph data. Layout is optional: Step
 7 provides its home without requiring positions before Graph View exists, and a
 node without a saved position remains valid. Positions must not affect
-connections, validation, rendering or graph evaluation; reopening the editable
-source photograph restores any saved arrangement.
+connections, graph validation, rendering or graph evaluation; reopening the
+editable source photograph restores any saved arrangement.
 
 Do not persist rendered images, intermediate buffers, caches or unnecessary
 transient UI state. Keep the format simple and readable. Separate project files
@@ -441,6 +441,73 @@ Exact schema details, field names and optional-field handling remain Step 7
 design decisions. The Graph View itself remains the UI milestone between Steps
 7 and 8 (D047), sharing the authoritative graph and NodeId selection with List
 View.
+
+## D049 — Independent photo metadata, shared grades and global preferences
+
+**Status:** Accepted; Claude's final independent verification returned
+**SAFE TO MERGE** at `75e7affd4014f090a90293d69b6a157050576864`
+(result supplied by the user).
+
+One photo sidecar independently owns an optional grade and photo metadata.
+An intentionally empty saved grade is still a grade. Unopened photos can have
+metadata only; editor opening establishes a grade (D050). Updating either section
+preserves the other. Absent metadata.mark is canonical Unmarked.
+Prefer exact untouched-section JSON where practical; numerical precision and
+opaque processor data must survive. Metadata updates construct no processors.
+Step 7 assumes one editing session and defers external-file conflict tracking.
+
+Presets share the sidecar grade representation in `.rawnode.json`, with Replace
+and Append modes. One Save Preset action saves the complete current grade,
+including a Source-only grade. Copy Node / Paste Node remain distinct editing
+actions sharing graph serialization; fragment capture is independent of whether
+a destination supports attachment. There is no separate node-preset workflow.
+
+Unreadable/unsupported/incompatible sidecars permit read-only source viewing
+with a persistent warning, never grade editing or automatic default presets.
+Ordinary save failures preserve unsaved edits until retry or explicit discard;
+cancel leaves the current document available.
+
+Only photo state and global application preferences persist; retire folder
+workspace/layout files without a replacement workspace or catalogue. Photo
+colour controls affect the photo only. Read/validate stored global colour
+defaults with built-in fallback; the future Settings UI configures these same
+fields, without temporary default controls.
+The default grade preset is separate and remains later work. Parameter-group
+expansion is transient in every scope/transfer; optional node positions remain
+photo graph layout (D048).
+
+See [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md#persistence-direction) for accepted
+workflow semantics and [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md)
+for the proposed schema and implementation boundaries.
+
+## D050 — Editor opening establishes a grade; save at document boundaries
+
+**Status:** Accepted; lifecycle independently reviewed in PR #62.
+
+Successfully opening an editable photo establishes and saves its complete grade,
+including Source-only. Restore valid existing grades without an immediate rewrite;
+add a grade to metadata-only sidecars while preserving metadata. Folder discovery
+and thumbnails create none. This replaces the prior no-grade-on-editor-browsing
+policy; future default changes never replace an existing saved grade.
+
+Save the current complete grade on departure, same-photo reopening and close,
+before replacement/teardown, whether adjustments changed or not. Explicit Save
+Grade remains. Reuse open-path/protection state without live grade-presence/dirty
+flags, per-edit notifications, comparison snapshots, revisions or an event bus.
+Persistence is independent of render demand.
+
+Initial-save failure leaves the photo editable with a persistent non-modal
+warning, cleared by a successful grade save to its sidecar or photo switch;
+no tracking flag. Retry at departure/close. Unwritable folders can prompt even
+with no edits.
+Failed saves retain the document through Retry / Discard / Cancel; cancelled
+shutdown leaves the editor running. Protected views remain read-only and never
+overwrite sidecars (D049); exports remain sidecar-free (D038).
+
+The live editor is authoritative while a photograph is open; concurrent external
+sidecar edits are outside the supported workflow. Keep destination validation
+and atomic replacement. Future default-preset application failure policy remains
+deferred to that feature's milestone.
 
 ## Pending decisions
 
