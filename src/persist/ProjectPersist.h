@@ -105,6 +105,8 @@ SidecarReadStatus readGraphSidecar(const std::string &path, PersistFile &out, st
 // Validate the existing file and the complete outgoing document, then replace
 // atomically. Preserve the untouched section's raw JSON; never restore plugins.
 // Failure preserves the destination. No directory creation or copy-over fallback.
+// POSIX: require a writable existing file and preserve its permission bits;
+// new sidecars default to owner-only 0600.
 bool updateSidecarGrade(const std::string &path, const PersistGrade &grade, std::string &error);
 bool updateSidecarMark(const std::string &path, PhotoMark mark, std::string &error);
 

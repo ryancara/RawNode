@@ -11,6 +11,13 @@
 #include <set>
 #include <stdexcept>
 
+#ifndef _WIN32
+#include <grp.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
 #define CHECK(expression) do { \
   if (!(expression)) { \
     std::fprintf(stderr, "sidecar file check failed at line %d: %s\n", __LINE__, #expression); \
@@ -277,6 +284,91 @@ bool atomicFailures(const fs::path &dir) {
   CHECK(oldBytes == original && bytes(path) != original && entries(dir) == before);
   return true;
 }
+
+#ifndef _WIN32
+mode_t permissions(const fs::path &path) {
+  struct stat status{};
+  if (stat(path.c_str(), &status) != 0) throw std::runtime_error("Cannot stat sidecar fixture: " + path.string());
+  return status.st_mode & 07777;
+}
+
+bool readOnlyPermissions() {
+  CHECK(getuid() != 0 && geteuid() != 0);
+  TestDirectory directory;
+  const auto path = (directory.path / "readonly.rawnode.json").string();
+  const auto original = file(opaqueGrade, R"({"mark":"unmarked"})");
+  write(path, original);
+  CHECK(chmod(path.c_str(), 0444) == 0);
+  CHECK(access(path.c_str(), W_OK) != 0 && access(directory.path.c_str(), W_OK) == 0);
+  const auto before = entries(directory.path);
+  const auto grade = replacementGrade();
+  std::string error;
+  for (bool gradeUpdate : {false, true}) {
+    CHECK(!(gradeUpdate ? updateSidecarGrade(path, grade, error) : updateSidecarMark(path, PhotoMark::Pick, error)));
+    CHECK(error.find(path) != std::string::npos && error.find("not writable") != std::string::npos);
+    CHECK(bytes(path) == original && permissions(path) == 0444 && entries(directory.path) == before);
+  }
+  return true;
+}
+
+bool permissionTests(const fs::path &dir) {
+  const auto path = (dir / "permissions.rawnode.json").string();
+  const auto original = file(opaqueGrade, R"({"mark":"unmarked"})");
+  const auto grade = replacementGrade();
+  std::string error;
+  for (mode_t mode : {0644, 0664}) for (bool gradeUpdate : {false, true}) {
+    write(path, original);
+    CHECK(chmod(path.c_str(), mode) == 0);
+    CHECK(gradeUpdate ? updateSidecarGrade(path, grade, error) : updateSidecarMark(path, PhotoMark::Pick, error));
+    CHECK(permissions(path) == mode && bytes(path) != original);
+  }
+  for (bool gradeUpdate : {false, true}) {
+    fs::remove(path);
+    // Even a permissive umask must not expose a newly created sidecar.
+    const mode_t previousMask = umask(0);
+    const bool saved = gradeUpdate ? updateSidecarGrade(path, grade, error) : updateSidecarMark(path, PhotoMark::Pick, error);
+    umask(previousMask);
+    CHECK(saved && permissions(path) == 0600);
+  }
+  for (bool gradeUpdate : {false, true}) {
+    for (const auto &test : {std::make_pair(Fault::PermissionStat, "read destination permissions"),
+         std::make_pair(Fault::PermissionCheck, "not writable"), std::make_pair(Fault::PermissionCopy, "copy destination permissions")}) {
+      write(path, original);
+      CHECK(chmod(path.c_str(), 0664) == 0);
+      const auto before = entries(dir);
+      CHECK(!(gradeUpdate ? SidecarFileTestAccess::grade(path, grade, error, test.first)
+          : SidecarFileTestAccess::mark(path, PhotoMark::Pick, error, test.first)));
+      CHECK(error.find(path) != std::string::npos && error.find(test.second) != std::string::npos);
+      CHECK(bytes(path) == original && permissions(path) == 0664 && entries(dir) == before);
+    }
+    fs::remove(path);
+    const auto before = entries(dir);
+    CHECK(!(gradeUpdate ? SidecarFileTestAccess::grade(path, grade, error, Fault::PermissionStat)
+        : SidecarFileTestAccess::mark(path, PhotoMark::Pick, error, Fault::PermissionStat)));
+    CHECK(error.find("read destination permissions") != std::string::npos);
+    CHECK(!fs::exists(path) && entries(dir) == before);
+  }
+  if (geteuid() == 0) {
+    // Root can write 0444 files. Exercise ordinary-user refusal in a child
+    // with its own writable test directory, without changing the test runner.
+    const pid_t child = fork();
+    CHECK(child >= 0);
+    if (child == 0) {
+      if (setgroups(0, nullptr) != 0 || setgid(65534) != 0 || setuid(65534) != 0) {
+        std::fputs("Cannot drop root privileges for read-only sidecar test\n", stderr);
+        _exit(2);
+      }
+      _exit(readOnlyPermissions() ? 0 : 1);
+    }
+    int status = 0;
+    CHECK(waitpid(child, &status, 0) == child);
+    CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  } else {
+    CHECK(readOnlyPermissions());
+  }
+  return true;
+}
+#endif
 }  // namespace
 
 bool testSidecarFiles() {
@@ -288,7 +380,8 @@ bool testSidecarFiles() {
   CHECK(slotSection(directory.path));
   CHECK(protectedFiles(directory.path));
   CHECK(atomicFailures(directory.path));
-  std::puts("ok  Step 7 safe sidecar files: exact independent sections, protected destinations, checked atomic failures/cleanup");
+  CHECK(permissionTests(directory.path));
+  std::puts("ok  Step 7 safe sidecar files: exact independent sections, protected destinations, checked atomic failures/cleanup, POSIX permissions");
 #endif
   return true;
 }

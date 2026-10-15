@@ -21,6 +21,7 @@
 #include <sstream>
 
 #ifndef _WIN32
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -408,6 +409,21 @@ bool replaceGraphFile(const std::string &path, const std::string &body, std::str
     error = path + ": " + operation + ": " + std::strerror(code ? code : EIO);
     return false;
   };
+  struct stat destination{};
+  const int inspected = fault == Fault::PermissionStat ? -1 : lstat(path.c_str(), &destination);
+  const int inspectError = fault == Fault::PermissionStat ? EIO : errno;
+  if (inspected != 0 && inspectError != ENOENT)
+    return fail("Cannot read destination permissions", inspectError);
+  const bool present = inspected == 0;
+  if (present) {
+    if (!S_ISREG(destination.st_mode)) return fail("Destination is not a regular file", EINVAL);
+    // Rename needs directory permission alone; retain the ordinary V2 refusal
+    // to overwrite a file that the caller cannot write.
+    const int writable = fault == Fault::PermissionCheck ? -1 : access(path.c_str(), W_OK);
+    if (writable != 0)
+      return fail("Destination is not writable", fault == Fault::PermissionCheck ? EACCES : errno);
+  }
+  // New sidecars retain mkstemp's owner-only 0600 default.
   std::string pattern = path + ".tmp-XXXXXX";
   std::vector<char> name(pattern.begin(), pattern.end());
   name.push_back('\0');
@@ -434,6 +450,12 @@ bool replaceGraphFile(const std::string &path, const std::string &body, std::str
   const int flushed = fault == Fault::Flush ? EOF : std::fflush(temp.stream);
   if (flushed != 0)
     return abortWrite("Cannot flush temporary file", fault == Fault::Flush ? EIO : errno);
+  if (present) {
+    // Copy after writing, since writing can clear set-user/group-ID bits.
+    const int copied = fault == Fault::PermissionCopy ? -1 : fchmod(fd, destination.st_mode & 07777);
+    if (copied != 0)
+      return abortWrite("Cannot copy destination permissions", fault == Fault::PermissionCopy ? EIO : errno);
+  }
   int closed = std::fclose(temp.stream);
   temp.stream = nullptr; // fclose consumes the stream even when it reports failure.
   if (fault == Fault::Close) closed = EOF;

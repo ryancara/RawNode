@@ -28,7 +28,9 @@ bool readAllText(const std::string &path, std::string &out);
 namespace persist_detail {
 // Narrow fault seam for deterministic file-I/O tests. Production passes None;
 // no global hook or replacement filesystem is installed.
-enum class FileFault { None, Read, TempCreate, Write, Flush, Close, Replace };
+enum class FileFault {
+  None, Read, PermissionStat, PermissionCheck, TempCreate, Write, Flush, PermissionCopy, Close, Replace
+};
 SidecarReadStatus readGraphFileText(const std::string &path, std::string &json, std::string &error,
                                   FileFault fault);
 bool updateGraphSidecar(const std::string &path, const PersistGrade *grade, PhotoMark mark,
