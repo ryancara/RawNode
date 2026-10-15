@@ -1,6 +1,7 @@
 #include "GraphModel.h"
 
 #include <limits>
+#include <set>
 #include <stdexcept>
 
 const NodeInterface &nodeInterface(NodeOperation operation) {
@@ -91,11 +92,27 @@ Slot Node::makeSlot() {
   return slot;
 }
 
-void Node::observeSlotIds() {
+uint64_t Node::nextSlotIdForPersistence() const {
+  uint64_t next = nextSlotId_;
   for (const auto &slot : slots)
-    if (nextSlotId_ <= slot.id.value)
-      nextSlotId_ = slot.id.value == std::numeric_limits<uint64_t>::max()
-                        ? slot.id.value : slot.id.value + 1;
+    if (next <= slot.id.value)
+      next = slot.id.value == std::numeric_limits<uint64_t>::max() ? slot.id.value : slot.id.value + 1;
+  return next;
+}
+
+bool Node::restoreNextSlotId(uint64_t next) {
+  if (!next || nodeInterface(operation).slotInputs.empty()) return false;
+  std::set<uint64_t> ids;
+  for (const auto &slot : slots) {
+    if (!slot.id.value || !ids.insert(slot.id.value).second) return false;
+    if (next <= slot.id.value && next != std::numeric_limits<uint64_t>::max()) return false;
+  }
+  nextSlotId_ = next;
+  return true;
+}
+
+void Node::observeSlotIds() {
+  nextSlotId_ = nextSlotIdForPersistence();
 }
 
 Slot *Node::findSlot(SlotId id) {

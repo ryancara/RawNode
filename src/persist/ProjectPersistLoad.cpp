@@ -1,6 +1,12 @@
 #include "persist/ProjectPersist.h"
 #include "persist/ProjectPersistPriv.h"
+#include "persist/Json.h"
+#include "GraphValidation.h"
 
+#include <algorithm>
+#include <climits>
+#include <cmath>
+#include <stdexcept>
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
@@ -9,217 +15,24 @@
 #include <utility>
 #include <vector>
 
-struct JsonCursor {
-  const char *p = nullptr;
-  const char *end = nullptr;
-};
-
-static void skipWs(JsonCursor &c) {
-  while (c.p < c.end && std::isspace((unsigned char)*c.p)) ++c.p;
-}
-
-static bool match(JsonCursor &c, char ch) {
-  skipWs(c);
-  if (c.p >= c.end || *c.p != ch) return false;
-  ++c.p;
-  return true;
-}
-
-static int hexValue(char ch) {
-  if (ch >= '0' && ch <= '9') return ch - '0';
-  if (ch >= 'a' && ch <= 'f') return 10 + ch - 'a';
-  if (ch >= 'A' && ch <= 'F') return 10 + ch - 'A';
-  return -1;
-}
-
-static bool parseHex4(JsonCursor &c, unsigned &value) {
-  value = 0;
-  for (int i = 0; i < 4; ++i) {
-    if (c.p >= c.end) return false;
-    const int h = hexValue(*c.p++);
-    if (h < 0) return false;
-    value = (value << 4) | (unsigned)h;
-  }
-  return true;
-}
-
-static bool appendUtf8(std::string &out, unsigned cp) {
-  if (cp <= 0x7F) {
-    out += (char)cp;
-  } else if (cp <= 0x7FF) {
-    out += (char)(0xC0 | (cp >> 6));
-    out += (char)(0x80 | (cp & 0x3F));
-  } else if (cp <= 0xFFFF) {
-    if (cp >= 0xD800 && cp <= 0xDFFF) return false;
-    out += (char)(0xE0 | (cp >> 12));
-    out += (char)(0x80 | ((cp >> 6) & 0x3F));
-    out += (char)(0x80 | (cp & 0x3F));
-  } else if (cp <= 0x10FFFF) {
-    out += (char)(0xF0 | (cp >> 18));
-    out += (char)(0x80 | ((cp >> 12) & 0x3F));
-    out += (char)(0x80 | ((cp >> 6) & 0x3F));
-    out += (char)(0x80 | (cp & 0x3F));
-  } else {
-    return false;
-  }
-  return true;
-}
-
-static bool parseString(JsonCursor &c, std::string &out) {
-  skipWs(c);
-  if (c.p >= c.end || *c.p != '"') return false;
-  ++c.p;
-  out.clear();
-
-  while (c.p < c.end) {
-    const unsigned char ch = (unsigned char)*c.p++;
-    if (ch == '"') return true;
-    // Raw control characters are accepted on read: string parameters were
-    // written with only '"' and '\\' escaped before Sidecar V2, so legacy
-    // multi-line values contain literal newlines/tabs. Writes escape them.
-
-    if (ch != '\\') {
-      out += (char)ch;
-      continue;
-    }
-
-    if (c.p >= c.end) return false;
-    const char e = *c.p++;
-    switch (e) {
-      case '"': out += '"'; break;
-      case '\\': out += '\\'; break;
-      case '/': out += '/'; break;
-      case 'b': out += '\b'; break;
-      case 'f': out += '\f'; break;
-      case 'n': out += '\n'; break;
-      case 'r': out += '\r'; break;
-      case 't': out += '\t'; break;
-      case 'u': {
-        unsigned first = 0;
-        if (!parseHex4(c, first)) return false;
-
-        unsigned cp = first;
-        if (first >= 0xD800 && first <= 0xDBFF) {
-          if (c.end - c.p < 2 || c.p[0] != '\\' || c.p[1] != 'u') return false;
-          c.p += 2;
-          unsigned second = 0;
-          if (!parseHex4(c, second) || second < 0xDC00 || second > 0xDFFF) return false;
-          cp = 0x10000 + ((first - 0xD800) << 10) + (second - 0xDC00);
-        } else if (first >= 0xDC00 && first <= 0xDFFF) {
-          return false;
-        }
-
-        if (!appendUtf8(out, cp)) return false;
-        break;
-      }
-      default:
-        return false;
-    }
-  }
-
-  return false;
-}
-
+// Historical formats retain their literal-control string compatibility, but
+// all lexical parsing uses the same reader as the graph-native codec.
 bool parseJsonStringValue(const std::string &raw, std::string &out) {
-  JsonCursor c{raw.c_str(), raw.c_str() + raw.size()};
-  if (!parseString(c, out)) return false;
-  skipWs(c);
-  return c.p == c.end;
+  persist_json::Value value;
+  std::string error;
+  if (!persist_json::read(raw, value, error, true) || value.type != persist_json::Type::String) return false;
+  out = value.string;
+  return true;
 }
 
-static std::string trimRaw(const char *begin, const char *end) {
-  while (begin < end && std::isspace((unsigned char)*begin)) ++begin;
-  while (end > begin && std::isspace((unsigned char)*(end - 1))) --end;
-  return std::string(begin, end);
-}
-
-// Captures one JSON value without interpreting it. Parameter values use this
-// so unknown future shapes can survive a load-save cycle unchanged.
-static bool captureJsonValue(JsonCursor &c, std::string &raw) {
-  skipWs(c);
-  if (c.p >= c.end) return false;
-  const char *start = c.p;
-
-  if (*c.p == '"') {
-    std::string ignored;
-    if (!parseString(c, ignored)) return false;
-    raw = trimRaw(start, c.p);
-    return true;
-  }
-
-  if (*c.p == '{' || *c.p == '[') {
-    std::vector<char> closes;
-    closes.push_back(*c.p == '{' ? '}' : ']');
-    ++c.p;
-    bool inString = false;
-    bool escape = false;
-
-    while (c.p < c.end && !closes.empty()) {
-      const char ch = *c.p++;
-      if (inString) {
-        if (escape) {
-          escape = false;
-        } else if (ch == '\\') {
-          escape = true;
-        } else if (ch == '"') {
-          inString = false;
-        }
-        continue;
-      }
-
-      if (ch == '"') {
-        inString = true;
-      } else if (ch == '{') {
-        closes.push_back('}');
-      } else if (ch == '[') {
-        closes.push_back(']');
-      } else if (!closes.empty() && ch == closes.back()) {
-        closes.pop_back();
-      } else if (ch == '}' || ch == ']') {
-        return false;
-      }
-    }
-
-    if (!closes.empty() || inString) return false;
-    raw = trimRaw(start, c.p);
-    return true;
-  }
-
-  // Scalars (numbers, true/false/null) end at whitespace too, so a missing
-  // comma is reported by the caller instead of being absorbed into the value.
-  while (c.p < c.end && *c.p != ',' && *c.p != '}' && *c.p != ']' && !std::isspace((unsigned char)*c.p)) ++c.p;
-  raw = trimRaw(start, c.p);
-  return !raw.empty();
-}
-
-// Find a direct member of a JSON object. This deliberately walks the object
-// instead of text-searching so nested keys cannot shadow top-level fields.
-static bool extractValueField(const std::string &json, const char *wantedKey, std::string &raw) {
-  JsonCursor c{json.c_str(), json.c_str() + json.size()};
-  if (!match(c, '{')) return false;
-
-  for (;;) {
-    skipWs(c);
-    if (c.p >= c.end || *c.p == '}') return false;
-
-    std::string key;
-    if (!parseString(c, key) || !match(c, ':')) return false;
-
-    std::string value;
-    if (!captureJsonValue(c, value)) return false;
-    if (key == wantedKey) {
-      raw = std::move(value);
-      return true;
-    }
-
-    skipWs(c);
-    if (c.p < c.end && *c.p == ',') {
-      ++c.p;
-      continue;
-    }
-    if (c.p < c.end && *c.p == '}') return false;
-    return false;
-  }
+static bool extractValueField(const std::string &json, const char *key, std::string &raw) {
+  persist_json::Value object;
+  std::string error;
+  if (!persist_json::read(json, object, error, true) || object.type != persist_json::Type::Object) return false;
+  const auto found = object.object.find(key);
+  if (found == object.object.end()) return false;
+  raw = found->second.raw;
+  return true;
 }
 
 bool extractObject(const std::string &json, const char *key, std::string &objOut) {
@@ -300,67 +113,29 @@ void loadGuiFromJson(const std::string &guiObj, PersistGui &g) {
 // Returns false on malformed input so the caller rejects the whole sidecar
 // (and write-protects it) instead of silently restoring a partial node.
 static bool parseParamsObject(const std::string &paramsObj, std::map<std::string, std::string> &params) {
-  JsonCursor c{paramsObj.c_str(), paramsObj.c_str() + paramsObj.size()};
-  if (!match(c, '{')) return false;
-
-  for (;;) {
-    skipWs(c);
-    if (c.p < c.end && *c.p == '}') return true;
-
-    std::string key;
-    if (!parseString(c, key) || !match(c, ':')) return false;
-
-    std::string raw;
-    if (!captureJsonValue(c, raw)) return false;
-    params[key] = std::move(raw);
-
-    skipWs(c);
-    if (c.p < c.end && *c.p == ',') {
-      ++c.p;
-      continue;
-    }
-    return c.p < c.end && *c.p == '}';
-  }
+  persist_json::Value object;
+  std::string error;
+  if (!persist_json::read(paramsObj, object, error, true) || object.type != persist_json::Type::Object) return false;
+  for (const auto &entry : object.object) params[entry.first] = entry.second.raw;
+  return true;
 }
 
-static void parseGroupOpen(const std::string &obj, std::map<std::string, bool> &groupOpen) {
-  JsonCursor c{obj.c_str(), obj.c_str() + obj.size()};
-  if (!match(c, '{')) return;
-
-  for (;;) {
-    skipWs(c);
-    if (c.p < c.end && *c.p == '}') return;
-
-    std::string key;
-    if (!parseString(c, key) || !match(c, ':')) return;
-
-    std::string raw;
-    if (!captureJsonValue(c, raw)) return;
-    if (raw == "true") groupOpen[key] = true;
-    else if (raw == "false") groupOpen[key] = false;
-
-    skipWs(c);
-    if (c.p < c.end && *c.p == ',') {
-      ++c.p;
-      continue;
-    }
-    if (c.p < c.end && *c.p == '}') return;
-    return;
-  }
+static void parseGroupOpen(const std::string &json, std::map<std::string, bool> &groupOpen) {
+  persist_json::Value object;
+  std::string error;
+  if (!persist_json::read(json, object, error, true) || object.type != persist_json::Type::Object) return;
+  for (const auto &entry : object.object)
+    if (entry.second.type == persist_json::Type::Boolean) groupOpen[entry.first] = entry.second.raw == "true";
 }
 
-static bool parseNodeArray(const std::string &nodesArr, PersistChain &chain, bool v2) {
-  JsonCursor c{nodesArr.c_str(), nodesArr.c_str() + nodesArr.size()};
-  if (!match(c, '[')) return false;
-
+static bool parseNodeArray(const std::string &json, PersistChain &chain, bool v2) {
+  persist_json::Value array;
+  std::string error;
+  if (!persist_json::read(json, array, error, true) || array.type != persist_json::Type::Array) return false;
   chain.nodes.clear();
-  for (;;) {
-    skipWs(c);
-    if (c.p < c.end && *c.p == ']') return true;
-
-    std::string nodeObj;
-    if (!captureJsonValue(c, nodeObj) || nodeObj.empty() || nodeObj.front() != '{') return false;
-
+  for (const auto &value : array.array) {
+    if (value.type != persist_json::Type::Object) return false;
+    const std::string &nodeObj = value.raw;
     PersistNode node;
     if (v2) {
       extractStringField(nodeObj, "id", node.id);
@@ -368,9 +143,7 @@ static bool parseNodeArray(const std::string &nodesArr, PersistChain &chain, boo
       extractStringField(nodeObj, "identifier", node.identifier);
       extractStringField(nodeObj, "label", node.label);
       extractBoolField(nodeObj, "enabled", node.enabled);
-
-      std::string uiObj;
-      std::string groupObj;
+      std::string uiObj, groupObj;
       if (extractObject(nodeObj, "ui", uiObj) && extractObject(uiObj, "groupOpen", groupObj))
         parseGroupOpen(groupObj, node.groupOpen);
     } else {
@@ -378,24 +151,14 @@ static bool parseNodeArray(const std::string &nodesArr, PersistChain &chain, boo
       extractStringField(nodeObj, "pluginIdentifier", node.identifier);
       extractStringField(nodeObj, "pluginLabel", node.label);
       extractBoolField(nodeObj, "enabled", node.enabled);
-
       std::string groupObj;
       if (extractObject(nodeObj, "groupOpen", groupObj)) parseGroupOpen(groupObj, node.groupOpen);
     }
-
     std::string paramsObj;
-    if (extractValueField(nodeObj, "params", paramsObj) && !parseParamsObject(paramsObj, node.paramsJson))
-      return false;
+    if (extractValueField(nodeObj, "params", paramsObj) && !parseParamsObject(paramsObj, node.paramsJson)) return false;
     chain.nodes.push_back(std::move(node));
-
-    skipWs(c);
-    if (c.p < c.end && *c.p == ',') {
-      ++c.p;
-      continue;
-    }
-    if (c.p < c.end && *c.p == ']') return true;
-    return false;
   }
+  return true;
 }
 
 bool loadChainFromJson(const std::string &chainObj, PersistChain &chain) {
@@ -503,4 +266,301 @@ bool loadSidecarFile(const std::string &path, PersistSidecar &out) {
   std::string chainObj;
   if (!extractObject(json, "chain", chainObj)) return false;
   return loadChainFromJson(chainObj, out.chain);
+}
+
+// Graph-native schema. Every structural object is closed; only parameter
+// values are opaque. Parsing never creates processors or changes a document.
+namespace {
+using persist_json::Type;
+using persist_json::Value;
+
+void expect(const Value &value, Type type, const std::string &path) {
+  if (value.type != type) throw std::runtime_error(path + ": incorrect field type");
+}
+const Value &field(const Value &object, const char *key) {
+  expect(object, Type::Object, key);
+  const auto found = object.object.find(key);
+  if (found == object.object.end()) throw std::runtime_error(std::string("Missing required field: ") + key);
+  return found->second;
+}
+void fields(const Value &object, std::initializer_list<const char *> allowed, const char *path) {
+  expect(object, Type::Object, path);
+  for (const auto &entry : object.object) {
+    bool known = false;
+    for (const auto *key : allowed) if (entry.first == key) known = true;
+    if (!known) throw std::runtime_error(std::string(path) + ": unknown field " + entry.first);
+  }
+}
+std::string textField(const Value &object, const char *key, bool nonempty = false) {
+  const auto &value = field(object, key);
+  expect(value, Type::String, key);
+  if (nonempty && value.string.empty()) throw std::runtime_error(std::string(key) + ": empty identifier");
+  return value.string;
+}
+bool boolField(const Value &object, const char *key) {
+  const auto &value = field(object, key);
+  expect(value, Type::Boolean, key);
+  return value.raw == "true";
+}
+OutputRef outputRef(const Value &value) {
+  fields(value, {"node", "port"}, "endpoint");
+  return {NodeId{textField(value, "node", true)}, PortId{textField(value, "port", true)}};
+}
+InputBindings inputBindings(const Value &value, const NodeInterface &interface, bool slots) {
+  expect(value, Type::Object, "inputs");
+  InputBindings bindings;
+  const auto &ports = slots ? interface.slotInputs : interface.fixedPorts;
+  for (const auto &port : ports) {
+    if (port.direction != PortDirection::Input) continue;
+    const auto found = value.object.find(port.id.value);
+    if (found == value.object.end()) {
+      if (port.required) throw std::runtime_error("Missing required input storage: " + port.id.value);
+      bindings.emplace(port.id, std::nullopt);
+    } else {
+      bindings.emplace(port.id, found->second.type == Type::Null ? std::nullopt
+                                     : std::optional<OutputRef>(outputRef(found->second)));
+    }
+  }
+  for (const auto &entry : value.object)
+    if (!bindings.count(PortId{entry.first})) throw std::runtime_error("Unknown input: " + entry.first);
+  return bindings;
+}
+uint64_t slotNumber(const Value &value) {
+  expect(value, Type::String, "Slot identity/allocation");
+  const auto &text = value.string;
+  if (text.empty() || text.front() == '0') throw std::runtime_error("Invalid Slot decimal string");
+  uint64_t number = 0;
+  for (const char digit : text) {
+    if (digit < '0' || digit > '9' || number > (UINT64_MAX - (digit - '0')) / 10)
+      throw std::runtime_error("Invalid or overflowing Slot decimal string");
+    number = number * 10 + digit - '0';
+  }
+  return number;
+}
+PersistNode nodeRecord(const Value &value, bool testOperations) {
+  PersistNode node;
+  node.id = textField(value, "id", true);
+  node.operation = persist_detail::operationFromName(textField(value, "kind"), testOperations);
+  if (node.operation == NodeOperation::Source) {
+    fields(value, {"id", "kind"}, "source");
+    return node;
+  }
+  const auto &interface = nodeInterface(node.operation);
+  const bool slotted = !interface.slotInputs.empty();
+  if (node.operation == NodeOperation::ImageProcessor)
+    fields(value, {"id", "kind", "backend", "identifier", "label", "enabled", "params", "inputs"}, "processor");
+  else if (slotted)
+    fields(value, {"id", "kind", "enabled", "inputs", "slots", "nextSlotId"}, "test operation");
+  else
+    fields(value, {"id", "kind", "enabled", "inputs"}, "test operation");
+  node.enabled = boolField(value, "enabled");
+  node.inputs = inputBindings(field(value, "inputs"), interface, false);
+  if (node.operation == NodeOperation::ImageProcessor) {
+    node.backend = textField(value, "backend", true);
+    node.identifier = textField(value, "identifier", true);
+    if (value.object.count("label")) node.label = textField(value, "label");
+    const auto &params = field(value, "params");
+    expect(params, Type::Object, "params");
+    for (const auto &entry : params.object) node.paramsJson.emplace(entry.first, entry.second.raw);
+  }
+  if (slotted) {
+    node.nextSlotId = slotNumber(field(value, "nextSlotId"));
+    const auto &slots = field(value, "slots");
+    expect(slots, Type::Array, "slots");
+    for (const auto &saved : slots.array) {
+      fields(saved, {"id", "settings", "inputs"}, "slot");
+      Slot slot{SlotId{slotNumber(field(saved, "id"))}, {}, {}};
+      slot.inputs = inputBindings(field(saved, "inputs"), interface, true);
+      const auto &settings = field(saved, "settings");
+      fields(settings, {"enabled"}, "slot settings");
+      if (settings.object.count("enabled")) slot.settings.enabled = boolField(settings, "enabled");
+      node.slots.push_back(std::move(slot));
+    }
+  }
+  return node;
+}
+void colorPair(const Value &value, std::string &gamut, std::string &gamma) {
+  fields(value, {"colorSpace", "gamma"}, "color pair");
+  gamut = textField(value, "colorSpace");
+  gamma = textField(value, "gamma");
+  ColorEncoding encoding;
+  if (!colorEncodingFromIds(gamut, gamma, encoding)) throw std::runtime_error("Unknown colour identifier");
+}
+PersistGrade gradeRecord(const Value &value, bool testOperations, std::vector<std::string> &warnings) {
+  fields(value, {"color", "graph", "positions"}, "grade");
+  PersistGrade grade;
+  const auto &color = field(value, "color");
+  fields(color, {"rawWorking", "output"}, "color");
+  colorPair(field(color, "rawWorking"), grade.color.rawColorSpace, grade.color.rawGamma);
+  colorPair(field(color, "output"), grade.color.outputColorSpace, grade.color.outputGamma);
+  const auto &graph = field(value, "graph");
+  fields(graph, {"primarySource", "documentOutput", "nodes"}, "graph");
+  grade.graph.primarySource = NodeId{textField(graph, "primarySource", true)};
+  grade.graph.documentOutput = outputRef(field(graph, "documentOutput"));
+  const auto &nodes = field(graph, "nodes");
+  expect(nodes, Type::Array, "nodes");
+  for (const auto &node : nodes.array) grade.graph.nodes.push_back(nodeRecord(node, testOperations));
+  const auto error = persist_detail::graphRecordError(grade.graph, testOperations);
+  if (!error.empty()) throw std::runtime_error(error);
+  const auto positions = value.object.find("positions");
+  if (positions != value.object.end()) {
+    expect(positions->second, Type::Object, "positions");
+    for (const auto &entry : positions->second.object) {
+      fields(entry.second, {"x", "y"}, "position");
+      PersistPosition position;
+      if (!persist_json::finiteNumber(field(entry.second, "x"), position.x) ||
+          !persist_json::finiteNumber(field(entry.second, "y"), position.y))
+        throw std::runtime_error("Position requires finite numeric x/y: " + entry.first);
+      bool exists = false;
+      for (const auto &node : grade.graph.nodes) if (node.id == entry.first) exists = true;
+      if (exists) grade.positions.emplace(entry.first, position);
+      else warnings.push_back("Dropped position for nonexistent node: " + entry.first);
+    }
+  }
+  return grade;
+}
+}  // namespace
+
+namespace persist_detail {
+const char *operationName(NodeOperation operation, bool testOperations) {
+  switch (operation) {
+    case NodeOperation::Source: return "source";
+    case NodeOperation::ImageProcessor: return "image-processor";
+    default: break;
+  }
+  if (testOperations) {
+    switch (operation) {
+      case NodeOperation::TestImageToMask: return "test-image-to-mask";
+      case NodeOperation::TestMaskProcessor: return "test-mask-processor";
+      case NodeOperation::TestMultipleOutputs: return "test-multiple-outputs";
+      case NodeOperation::TestSlotted: return "test-slotted";
+      case NodeOperation::TestMaskedImage: return "test-masked-image";
+      case NodeOperation::TestReferenceMask: return "test-reference-mask";
+      case NodeOperation::TestImage: return "test-image";
+      case NodeOperation::TestUnavailableImage: return "test-unavailable-image";
+      case NodeOperation::TestUnavailableMask: return "test-unavailable-mask";
+      default: break;
+    }
+  }
+  throw std::runtime_error("Unsupported graph operation");
+}
+NodeOperation operationFromName(const std::string &name, bool testOperations) {
+  // Existing enum vocabulary only, not a processor/operation registry.
+  for (auto op : {NodeOperation::Source, NodeOperation::ImageProcessor,
+       NodeOperation::TestImageToMask, NodeOperation::TestMaskProcessor, NodeOperation::TestMultipleOutputs,
+       NodeOperation::TestSlotted, NodeOperation::TestMaskedImage, NodeOperation::TestReferenceMask,
+       NodeOperation::TestImage, NodeOperation::TestUnavailableImage, NodeOperation::TestUnavailableMask}) {
+    if (!testOperations && op != NodeOperation::Source && op != NodeOperation::ImageProcessor) continue;
+    if (name == operationName(op, testOperations)) return op;
+  }
+  throw std::runtime_error("Unsupported graph operation: " + name);
+}
+std::string graphRecordError(const PersistGraph &graph, bool testOperations) {
+  // Temporary Nodes let the authoritative structural validator check every
+  // connection/type/cycle without instantiating any processor backend.
+  std::vector<Node> nodes;
+  for (const auto &record : graph.nodes) {
+    (void)operationName(record.operation, testOperations);
+    Node node(record.operation);
+    node.id = NodeId{record.id}; node.enabled = record.enabled;
+    node.fixedInputs = record.inputs; node.slots = record.slots;
+    const bool slotted = !nodeInterface(record.operation).slotInputs.empty();
+    if (slotted && !node.restoreNextSlotId(record.nextSlotId)) return "Invalid Slot allocator state";
+    if (!slotted && (!record.slots.empty() || record.nextSlotId != 1)) return "Unexpected Slot state";
+    if (record.operation == NodeOperation::ImageProcessor && (record.backend.empty() || record.identifier.empty()))
+      return "Empty processor identity";
+    nodes.push_back(std::move(node));
+  }
+  return graphStructureError({nodes, graph.primarySource, graph.documentOutput});
+}
+bool decodeGraphFile(const std::string &json, PersistFile &out, std::string &error,
+                     std::vector<std::string> *warnings, bool testOperations) {
+  Value root;
+  if (!persist_json::read(json, root, error)) return false;
+  try {
+    fields(root, {"format", "version", "grade", "metadata"}, "file");
+    int version = 0;
+    if (textField(root, "format") != "rawnode" ||
+        !persist_json::integer(field(root, "version"), version) || version != 1)
+      throw std::runtime_error("Unsupported format/version");
+    PersistFile file;
+    std::vector<std::string> collected;
+    const auto metadata = root.object.find("metadata");
+    if (metadata != root.object.end()) {
+      fields(metadata->second, {"mark"}, "metadata");
+      if (metadata->second.object.count("mark")) {
+        const auto mark = textField(metadata->second, "mark");
+        if (mark != "pick" && mark != "reject" && mark != "unmarked") throw std::runtime_error("Unsupported metadata mark");
+      }
+      file.metadataJson = metadata->second.raw;
+    }
+    const auto grade = root.object.find("grade");
+    if (grade != root.object.end()) file.grade = gradeRecord(grade->second, testOperations, collected);
+    out = std::move(file);
+    if (warnings) *warnings = std::move(collected);
+    return true;
+  } catch (const std::runtime_error &failure) {
+    error = failure.what();
+    return false;
+  }
+}
+
+ParameterValue parameterValue(const ProcessorParameter &param, const std::string &raw) {
+  Value value;
+  std::string error;
+  if (!persist_json::read(raw, value, error)) throw std::runtime_error(param.id + ": " + error);
+  const auto invalid = [&]() -> void { throw std::runtime_error("Invalid parameter value: " + param.id); };
+  switch (param.type) {
+    case ParameterType::String:
+    case ParameterType::Custom:
+      if (value.type != Type::String) invalid();
+      return value.string;
+    case ParameterType::Boolean:
+      if (value.type != Type::Boolean) invalid();
+      return value.raw == "true";
+    case ParameterType::Choice: {
+      if (!param.choiceIds.empty()) {
+        if (value.type != Type::String || param.choiceIds.size() != param.choices.size()) invalid();
+        for (size_t i = 0; i < param.choiceIds.size(); ++i)
+          if (value.string == param.choiceIds[i])
+            return param.choiceValues.size() == param.choices.size() ? param.choiceValues[i] : int(i);
+        throw std::runtime_error("Unknown installed choice ID: " + param.id + " = " + value.string);
+      }
+      int selected;
+      if (!persist_json::integer(value, selected)) invalid();
+      if (param.choiceValues.size() == param.choices.size() && !param.choiceValues.empty()) {
+        if (std::find(param.choiceValues.begin(), param.choiceValues.end(), selected) == param.choiceValues.end()) invalid();
+      } else if (selected < 0 || size_t(selected) >= param.choices.size()) invalid();
+      return selected;
+    }
+    case ParameterType::Integer: {
+      int number;
+      if (!persist_json::integer(value, number)) invalid();
+      return number;
+    }
+    case ParameterType::Double: {
+      double number;
+      if (!persist_json::finiteNumber(value, number)) invalid();
+      return number;
+    }
+    case ParameterType::Vector: {
+      const auto *current = std::get_if<std::vector<double>>(&param.value);
+      if (value.type != Type::Array || !current || value.array.size() != current->size()) invalid();
+      std::vector<double> numbers;
+      for (const auto &element : value.array) {
+        double number;
+        if (!persist_json::finiteNumber(element, number) ||
+            (param.vectorIsInteger && (std::trunc(number) != number || number < INT_MIN || number > INT_MAX))) invalid();
+        numbers.push_back(number);
+      }
+      return numbers;
+    }
+    default: throw std::runtime_error("Non-persistent parameter: " + param.id);
+  }
+}
+}  // namespace persist_detail
+
+bool decodeGraphFile(const std::string &json, PersistFile &out, std::string &error,
+                     std::vector<std::string> *warnings) {
+  return persist_detail::decodeGraphFile(json, out, error, warnings, false);
 }

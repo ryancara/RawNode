@@ -1,5 +1,11 @@
 #include "persist/ProjectPersist.h"
 #include "persist/ProjectPersistPriv.h"
+#include "persist/Json.h"
+
+#include <cmath>
+#include <limits>
+#include <locale>
+#include <stdexcept>
 
 #include "imgio/ImageIO.h"
 #include "color/LinearColorTransform.h"
@@ -242,4 +248,133 @@ bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,
   appendChainJson(o, chain);
   o << '}';
   return writeFile(inputSidecarPath(imagePath), o.str());
+}
+
+namespace {
+void appendEndpoint(std::ostream &out, const OutputRef &ref) {
+  out << "{\"node\": " << jsonStringValue(ref.nodeId.value)
+      << ", \"port\": " << jsonStringValue(ref.outputPortId.value) << '}';
+}
+void appendBindings(std::ostream &out, const InputBindings &bindings) {
+  out << '{';
+  size_t count = 0;
+  for (const auto &binding : bindings) {
+    if (count++) out << ", ";
+    out << jsonStringValue(binding.first.value) << ": ";
+    if (binding.second) appendEndpoint(out, *binding.second);
+    else out << "null";
+  }
+  out << '}';
+}
+void appendGraphNode(std::ostream &out, const PersistNode &node, bool testOperations) {
+  out << "        {\n          \"id\": " << jsonStringValue(node.id)
+      << ",\n          \"kind\": " << jsonStringValue(persist_detail::operationName(node.operation, testOperations));
+  if (node.operation == NodeOperation::Source) { out << "\n        }"; return; }
+  if (node.operation == NodeOperation::ImageProcessor) {
+    out << ",\n          \"backend\": " << jsonStringValue(node.backend)
+        << ",\n          \"identifier\": " << jsonStringValue(node.identifier);
+    if (!node.label.empty()) out << ",\n          \"label\": " << jsonStringValue(node.label);
+    out << ",\n          \"params\": {";
+    size_t count = 0;
+    for (const auto &param : node.paramsJson) {
+      persist_json::Value value;
+      std::string error;
+      if (!persist_json::read(param.second, value, error))
+        throw std::runtime_error("Invalid parameter JSON: " + param.first + ": " + error);
+      if (count++) out << ',';
+      out << "\n            " << jsonStringValue(param.first) << ": " << value.raw;
+    }
+    if (count) out << "\n          ";
+    out << '}';
+  }
+  out << ",\n          \"enabled\": " << (node.enabled ? "true" : "false") << ",\n          \"inputs\": ";
+  appendBindings(out, node.inputs);
+  if (!nodeInterface(node.operation).slotInputs.empty()) {
+    out << ",\n          \"slots\": [";
+    size_t count = 0;
+    for (const auto &slot : node.slots) {
+      if (count++) out << ',';
+      out << "\n            {\"id\": " << jsonStringValue(std::to_string(slot.id.value))
+          << ", \"settings\": {\"enabled\": " << (slot.settings.enabled ? "true" : "false") << "}, \"inputs\": ";
+      appendBindings(out, slot.inputs);
+      out << '}';
+    }
+    if (count) out << "\n          ";
+    out << "],\n          \"nextSlotId\": " << jsonStringValue(std::to_string(node.nextSlotId));
+  }
+  out << "\n        }";
+}
+void appendColorPair(std::ostream &out, const std::string &space, const std::string &gamma) {
+  out << "{\"colorSpace\": " << jsonStringValue(space) << ", \"gamma\": " << jsonStringValue(gamma) << '}';
+}
+}  // namespace
+
+namespace persist_detail {
+bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &error,
+                     std::vector<std::string> *warnings, bool testOperations) {
+  error.clear();
+  try {
+    std::vector<std::string> collected;
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out.precision(std::numeric_limits<double>::max_digits10);
+    out << "{\n  \"format\": \"rawnode\",\n  \"version\": 1";
+    if (file.metadataJson) {
+      persist_json::Value metadata;
+      if (!persist_json::read(*file.metadataJson, metadata, error)) return false;
+      out << ",\n  \"metadata\": " << metadata.raw;
+    }
+    if (file.grade) {
+      const auto &grade = *file.grade;
+      error = graphRecordError(grade.graph, testOperations);
+      if (!error.empty()) return false;
+      out << ",\n  \"grade\": {\n    \"color\": {\n      \"rawWorking\": ";
+      appendColorPair(out, grade.color.rawColorSpace, grade.color.rawGamma);
+      out << ",\n      \"output\": ";
+      appendColorPair(out, grade.color.outputColorSpace, grade.color.outputGamma);
+      out << "\n    },\n    \"graph\": {\n      \"primarySource\": " << jsonStringValue(grade.graph.primarySource.value)
+          << ",\n      \"documentOutput\": ";
+      appendEndpoint(out, grade.graph.documentOutput);
+      out << ",\n      \"nodes\": [\n";
+      for (size_t i = 0; i < grade.graph.nodes.size(); ++i) {
+        if (i) out << ",\n";
+        appendGraphNode(out, grade.graph.nodes[i], testOperations);
+      }
+      out << "\n      ]\n    }";
+      if (!grade.positions.empty()) {
+        out << ",\n    \"positions\": {";
+        size_t count = 0;
+        for (const auto &position : grade.positions) {
+          if (!std::isfinite(position.second.x) || !std::isfinite(position.second.y))
+            throw std::runtime_error("Non-finite node position: " + position.first);
+          bool exists = false;
+          for (const auto &node : grade.graph.nodes) if (node.id == position.first) exists = true;
+          if (!exists) { collected.push_back("Dropped position for nonexistent node: " + position.first); continue; }
+          if (count++) out << ',';
+          out << "\n      " << jsonStringValue(position.first) << ": {\"x\": " << position.second.x
+              << ", \"y\": " << position.second.y << '}';
+        }
+        out << "\n    }";
+      }
+      out << "\n  }";
+    }
+    out << "\n}\n";
+    std::string candidate = out.str();
+    // Use the one schema reader for writer validation as well. This catches
+    // invalid UTF-8/colour/metadata and rejects malformed opaque fragments.
+    PersistFile checked;
+    if (!decodeGraphFile(candidate, checked, error, nullptr, testOperations)) return false;
+    json = std::move(candidate);
+    if (warnings) *warnings = std::move(collected);
+    return true;
+  } catch (const std::runtime_error &failure) {
+    error = failure.what();
+    return false;
+  }
+}
+}  // namespace persist_detail
+
+bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &error,
+                     std::vector<std::string> *warnings) {
+  return persist_detail::encodeGraphFile(file, json, error, warnings, false);
 }

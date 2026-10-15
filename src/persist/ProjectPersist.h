@@ -1,8 +1,10 @@
 #pragma once
 
 #include "color/ColorEncoding.h"
+#include "GraphModel.h"
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -31,7 +33,13 @@ struct PersistNode {
   std::string identifier;
   std::string label;
   bool enabled = true;
+  // Legacy V2 only; the graph-native codec excludes UI state.
   std::map<std::string, bool> groupOpen;
+
+  NodeOperation operation = NodeOperation::ImageProcessor;
+  InputBindings inputs;
+  std::vector<Slot> slots;
+  uint64_t nextSlotId = 1;
 
   // Raw JSON fragment per parameter value (number, bool, string, array, object).
   // Keeping the raw representation lets unavailable/unknown parameters survive
@@ -47,12 +55,43 @@ struct PersistChain {
 };
 
 struct PersistGradeColor {
-  // Stable colour IDs. RAW fields are empty when the copied source is not RAW.
+  // Stable colour IDs. Legacy transfers may omit RAW for raster sources;
+  // graph-native grades always require both complete pairs.
   std::string rawColorSpace;
   std::string rawGamma;
   std::string outputColorSpace;
   std::string outputGamma;
 };
+
+// Temporary records only. Node order is storage order; consumers own bindings.
+struct PersistGraph {
+  std::vector<PersistNode> nodes;
+  NodeId primarySource;
+  OutputRef documentOutput{NodeId{}, ports::image};
+};
+
+struct PersistPosition { double x = 0, y = 0; };
+using PersistPositions = std::map<std::string, PersistPosition>;
+
+struct PersistGrade {
+  PersistGradeColor color;
+  PersistGraph graph;
+  PersistPositions positions;
+};
+
+struct PersistFile {
+  std::optional<PersistGrade> grade;
+  // An engaged empty object is distinct from absent metadata. Preserve its raw
+  // JSON for later section updates; the codec validates the supported semantics.
+  std::optional<std::string> metadataJson;
+};
+
+// In-memory codec only: no live sidecar caller switches format in PR 1.
+// Failure leaves the destination unchanged; error describes the first failure.
+bool decodeGraphFile(const std::string &json, PersistFile &out, std::string &error,
+                     std::vector<std::string> *warnings = nullptr);
+bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &error,
+                     std::vector<std::string> *warnings = nullptr);
 
 struct PersistSidecar {
   std::string format;

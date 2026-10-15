@@ -125,6 +125,10 @@ struct Node {
   // an index. Moving the Slot moves its references and settings together.
   std::vector<Slot> slots;
   Slot makeSlot();
+  // Capture observes live IDs as staging/allocation does. Restore checks the
+  // supplied high-water mark against all live IDs, including exhaustion.
+  uint64_t nextSlotIdForPersistence() const;
+  bool restoreNextSlotId(uint64_t next);
   Slot *findSlot(SlotId id);
   const Slot *findSlot(SlotId id) const;
 

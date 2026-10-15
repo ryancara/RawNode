@@ -1,6 +1,7 @@
 #include "SelfTest.h"
 #include "OfxThreadPoolTests.h"
 #include "GraphModelTests.h"
+#include "GraphPersistenceTests.h"
 #include "GraphCommandsTests.h"
 #include "GraphEvaluatorTests.h"
 #include "GraphRuntimeTests.h"
@@ -2061,6 +2062,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 int runSelfTests() {
+  if (!testGraphPersistence()) return fail("Step 7 graph persistence");
   if (!testGraphModel()) return fail("Step 6A graph model");
   if (!testGraphCommands()) return fail("Step 6B topology commands");
   if (!testGraphEvaluator()) return fail("Step 6C graph evaluator");
@@ -3286,6 +3288,7 @@ int runSelfTests() {
   if (order.px[0] > 0.1f || order.px[(size_t)7 * 8 * 4] < 0.5f) return fail("source rows are not bottom-up");
 
   loadPlugins();
+  if (!testGraphPersistenceOfx()) return fail("Step 7 OFX persistence identity");
   if (!testGraphEvaluatorOfx()) return fail("Step 6C OFX graph evaluator");
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
 
