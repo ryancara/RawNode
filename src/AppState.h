@@ -3,6 +3,7 @@
 #include "imgio/ImageIO.h"
 #include "GraphEvaluator.h"
 #include "RenderRuntime.h"
+#include "persist/ProjectPersist.h"
 
 #include <GLFW/glfw3.h>
 
@@ -76,6 +77,11 @@ struct App {
   // automatic image switching. Reopening after the file is fixed/removed
   // clears this protection.
   std::string sidecarWriteBlockedPath;
+  bool isPhotoProtected() const { return !path.empty() && sidecarWriteBlockedPath == path; }
+  // Control-thread presentation only. Save eligibility always uses path and
+  // protection, never this text; render/export status cannot erase it.
+  std::string persistenceWarning;
+  PersistPositions nodePositions;
   // Colour state is read by the render worker and written by the UI/document
   // thread. Guard snapshots/updates so gamut+gamma pairs remain coherent.
   mutable std::mutex colorMutex;
@@ -88,8 +94,10 @@ struct App {
 
   // Session/default preference for RAWs that do not yet have an explicit
   // per-image setting. Sidecars may override the current image without changing
-  // this default; an explicit UI change updates both the image and the default.
+  // this default. Photo controls never change it.
   ColorEncoding rawWorkingEncoding{RgbGamut::Rec2020, TransferFunction::Linear};
+  ColorEncoding photoRawWorkingEncoding{RgbGamut::Rec2020, TransferFunction::Linear};
+  ColorEncoding defaultOutputEncoding{RgbGamut::Rec709, TransferFunction::SRGB};
 
   // Explicit output tag. It is never inferred from processors or automatically
   // changed by the CST.

@@ -543,9 +543,8 @@ These are known but are not reasons to expand unrelated focused PRs:
 - thumbnail worker exceptional-unwind lifetime, the macOS pthread-to-joiner
   exception gap, and `makePreview` partial helper-thread launch remain focused
   lifetime/exception-safety follow-ups; normal thumbnail shutdown is safe;
-- source sidecar writes remain in-place rather than atomic, and Sidecar V2 still
-  includes some GUI preferences; persistence hardening/document-state cleanup
-  belongs with Step 7;
+- legacy clipboard/preset and workspace-preference paths still use their
+  development-era formats; their retirement remains Step 7 PRs 4–5;
 - exporting over the exact path of an editable raster source can overwrite the
   source image itself; this pre-existing hazard is separate from export sidecars.
 
@@ -566,13 +565,21 @@ implementation PRs. Claude's final independent verification of PR #62's design,
 D050 lifecycle and final corrections at
 `75e7affd4014f090a90293d69b6a157050576864` returned **SAFE TO MERGE**
 (result supplied by the user).
-Step 7 production implementation has not begun.
+Graph-native records, the strict codec and atomic file updates now support live
+photo opening/saving. Editable opening establishes a grade; document departure,
+same-photo reopening and shutdown save it through checked atomic replacement.
+Protected photographs remain viewable but noneditable. Photo colours are separate
+from defaults, and save warnings remain separate from render/export status.
+Legacy preset/clipboard formats and global-preferences retirement remain PRs 4–5;
+no dirty-state or background-save system is introduced.
 
 Reported macOS testing found normal operation. No complete macOS/NEF
 manual-validation results are recorded for `docs/STEP6_MANUAL_VALIDATION.md`,
 including native-dialog and successful Nikon NEF full-grade re-decode checks
-across differing RAW colour settings. Record per-check evidence and remaining
-unverified checks through the quality checklist below; completed Step 6
+across differing RAW colour settings. The owner explicitly waived those historical
+prerequisites for PR 3 on 2026-10-16; this is not a passing validation result.
+The new workflow still needs separate macOS/native-dialog and actual Nikon NEF
+validation. Record per-check evidence through the quality checklist below; completed Step 6
 implementation and independent architecture review remain closed.
 
 Steps 1–4 are complete: owned export execution, frozen parameter edits during

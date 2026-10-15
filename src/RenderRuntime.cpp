@@ -60,7 +60,7 @@ void RenderRuntime::requestDisplayRefresh() {
 bool RenderRuntime::canEditParameters() const {
   assertControlThread();
   std::lock_guard<std::mutex> lock(mutex_);
-  return !exportBusy_;
+  return !exportBusy_ && !app_.isPhotoProtected();
 }
 
 RenderRuntime::Export RenderRuntime::acquireExport() {

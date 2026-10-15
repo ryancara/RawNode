@@ -50,19 +50,24 @@ int runApp(const std::string &optionalPath) {
     app.setStatus("No OFX filter plugins found in the default OFX path or OFX_PLUGIN_PATH");
   else
     app.setStatus("Add plugins with + to build a processing chain.");
-  if (!optionalPath.empty()) openPath(app, optionalPath);
+  if (!optionalPath.empty()) openPath(app, optionalPath, promptSaveFailure);
 
   app.renderer.start();
   app.thumbThread = startFilmstripThumbThread(&app);
 
   glfwSetDropCallback(app.window, [](GLFWwindow *w, int count, const char **paths) {
     auto *app = static_cast<App *>(glfwGetWindowUserPointer(w));
-    if (app && count > 0) openPath(*app, paths[0]);
+    if (app && count > 0) openPath(*app, paths[0], promptSaveFailure);
   });
   glfwSetWindowUserPointer(app.window, &app);
 
-  while (!glfwWindowShouldClose(app.window)) {
+  while (true) {
     glfwPollEvents();
+    if (glfwWindowShouldClose(app.window)) {
+      // Resolve saving while all workers and editor resources are still usable.
+      if (preparePhotoDeparture(app, promptSaveFailure)) break;
+      glfwSetWindowShouldClose(app.window, GLFW_FALSE);
+    }
     pumpDisplayUpload(app);
 
     ImGuiBackend_NewFrame();
@@ -84,7 +89,6 @@ int runApp(const std::string &optionalPath) {
   app.thumbCv.notify_one();
   app.renderer.shutdown();
   if (app.thumbThread.joinable()) app.thumbThread.join();
-  saveCurrentInputSidecar(app);
   persistWorkspace(app);
   clearNodes(app);
 

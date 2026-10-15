@@ -11,6 +11,28 @@ The implementation environment is Linux. No suitable Nikon NEF/RAW fixture was
 available there, so successful camera-RAW grade application (T3) is not claimed
 as automated coverage. Synthetic raster tests do not replace this check.
 
+## Step 7 live-persistence prerequisite
+
+PR 3 preflight checked `main` at
+`fccd9e53e9a3878cce9678d64c5f362323743646`, including merged PRs #63–#65.
+The available manual evidence remains the general report of normal macOS
+operation above. No tested commit, OS/hardware details or per-check results are
+recorded here for the native-dialog checklist or Nikon NEF T3 re-decode checks,
+including differing RAW/Output encodings and downscaled previews.
+The repository documentation and discussions on PRs
+[#58](https://github.com/ryancara/RawNode/pull/58),
+[#62](https://github.com/ryancara/RawNode/pull/62) and
+[#65](https://github.com/ryancara/RawNode/pull/65) supplied no additional per-check
+manual results or PR 3 waiver during this preflight.
+
+**Owner waiver, 2026-10-16:** Ryan explicitly waived the outstanding historical
+Step 6 macOS/native-dialog and Nikon NEF validation prerequisites so Step 7 PR 3
+can replace the affected live paths. This satisfies the prerequisite in
+[the Step 7 design](STEP7_PERSISTENCE_DESIGN.md#8-focused-implementation-prs);
+it is not evidence that any check passed. All unchecked items below remain
+unverified. The new opening, saving and RAW re-decode workflow will be validated
+separately on macOS, including native dialogs and actual Nikon NEFs.
+
 Use merged Step 6 (`6294a034`) or later `main` and record the tested commit.
 Use working copies of two visibly different Nikon NEFs (A and B), and a separate
 export folder. Include the Nikon models/compression
@@ -75,3 +97,31 @@ Source and preview owners must be replaced, `inputIsRaw` must remain true, input
 and output encodings must match the grade, and the session RAW default must stay
 unchanged by grade application. The published endpoint must be the new
 `documentOutput`, rather than a retained inspection request.
+
+## Step 7 photo workflow follow-up — unverified
+
+The historical prerequisite waiver does not complete these checks. Record the
+actual tested PR 3 commit, macOS/hardware and Nikon models/compression modes when
+the owner performs this separate validation:
+
+- [ ] Build on macOS and run the complete self-tests plus `--selftest-photo`.
+- [ ] Exercise native image/folder dialogs, filmstrip navigation and dropped
+      files. Scanning/thumbnails create no sidecars; successful editable opening
+      creates a Source-only grade or adds one while preserving existing metadata.
+- [ ] Open valid saved grades without an immediate rewrite. Switch two Nikon
+      NEFs repeatedly with different RAW/Output pairs, including non-linear RAW
+      gamma at downscaled preview, and compare source/preview/export with fresh
+      decodes using those exact settings. Photo controls must not change defaults.
+- [ ] Open malformed/unsupported/legacy sidecars as protected source views;
+      verify persistent warnings, normal viewing/navigation and refusal of edits,
+      colours, paste, presets and saving without changing original files.
+- [ ] Force an initial save failure and confirm the photo remains editable and
+      its warning survives rendering/export status. Retrying a successful save
+      clears it; a cancelled departure retains the warning and document.
+- [ ] Exercise the native Yes / No / Cancel helper: Yes means Retry, No means
+      explicit Discard, and Cancel/dismissal retains the current editor. Test
+      navigation, folder changes, same-photo reopening and window/menu shutdown.
+- [ ] Verify same-photo reopening saves before reload, and unchanged departure
+      saves the complete grade while retaining missing processors, opaque values,
+      identities, positions and metadata. Cancelled shutdown must leave preview,
+      editing and a later save usable; quit during preview/export must drain safely.

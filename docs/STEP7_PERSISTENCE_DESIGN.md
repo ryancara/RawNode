@@ -3,7 +3,14 @@
 **Review provenance:** Claude's final independent verification of
 `75e7affd4014f090a90293d69b6a157050576864` returned **SAFE TO MERGE**
 (result supplied by the user). The design, D050 lifecycle and final corrections
-have passed verification. Documentation only; no implementation.
+have passed verification. This document records that design checkpoint.
+
+**Implementation phase:** Graph-native records, strict validation and atomic
+sidecar updates are connected to photo opening/saving. Legacy clipboard/preset
+replacement and global preferences remain PRs 4–5. The owner waived historical
+Step 6 manual prerequisites on 2026-10-16; macOS/native-dialog and actual Nikon
+NEF validation of the new workflow remains unverified. See
+[the manual validation record](STEP6_MANUAL_VALIDATION.md).
 
 **Baseline:** `main` including PR #61,
 `20e3ba75165e38edf9bd97a6266342dde0a41b1d`. The accepted Step 5/6 graph and

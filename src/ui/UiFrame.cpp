@@ -18,6 +18,17 @@
 
 namespace fs = std::filesystem;
 
+SaveFailureDecision promptSaveFailure(const std::string &error) {
+  // The existing native helper exposes Yes/No/Cancel on every desktop backend.
+  // Spell out their meanings; dismissal/helper failure always means Cancel.
+  const auto answer = pfd::message("Could not save grade",
+      error + "\n\nYes: Retry saving.\nNo: Discard the current grade and continue.\nCancel: Keep this photo open.",
+      pfd::choice::yes_no_cancel, pfd::icon::warning).result();
+  if (answer == pfd::button::yes) return SaveFailureDecision::Retry;
+  if (answer == pfd::button::no) return SaveFailureDecision::Discard;
+  return SaveFailureDecision::Cancel;
+}
+
 void doExport(App &app) {
   if (app.full.px.empty() || !app.hasProcessingOutput()) return;
   const char *exts[] = {".png", ".jpg"};
@@ -31,6 +42,7 @@ void doExport(App &app) {
 }
 
 bool copySelectedNode(App &app) {
+  if (!requireEditableGraph(app)) return false;
   PersistNode node;
   if (!app.selectedNodeId) return false;
   if (!captureNode(app, *app.selectedNodeId, node)) {
@@ -48,6 +60,7 @@ bool copySelectedNode(App &app) {
 }
 
 bool copyGrade(App &app) {
+  if (!requireEditableGraph(app)) return false;
   if (!app.hasProcessingOutput()) return false;
   PersistChain transfer;
   try { transfer = captureChain(app); }
@@ -70,6 +83,7 @@ bool copyGrade(App &app) {
 
 
 bool pasteFromClipboard(App &app) {
+  if (!requireEditableGraph(app)) return false;
   const char *clipboard = ImGui::GetClipboardText();
   if (!clipboard || !*clipboard) {
     app.setStatus("Clipboard does not contain RawNode data");
@@ -123,6 +137,7 @@ static std::string ensurePresetExtension(std::string path) {
 }
 
 bool saveNodePreset(App &app, std::string path) {
+  if (!requireEditableGraph(app)) return false;
   PersistNode node;
   if (!app.selectedNodeId) return false;
   if (!captureNode(app, *app.selectedNodeId, node)) {
@@ -150,6 +165,7 @@ bool saveNodePreset(App &app, std::string path) {
 }
 
 bool saveGradePreset(App &app, std::string path) {
+  if (!requireEditableGraph(app)) return false;
   if (!app.hasProcessingOutput()) return false;
   PersistChain preset;
   try { preset = captureChain(app); }
@@ -184,6 +200,7 @@ bool saveGradePreset(App &app, std::string path) {
 
 
 static bool loadPreset(App &app) {
+  if (!requireEditableGraph(app)) return false;
   auto dialog = pfd::open_file(
       "Load RawNode Preset", "",
       {"RawNode preset", "*.rawnodepreset"});
@@ -249,7 +266,7 @@ void DrawUiFrame(App &app) {
   if (!app.pendingWorkspaceDir.empty()) {
     const std::string dir = std::move(app.pendingWorkspaceDir);
     app.pendingWorkspaceDir.clear();
-    openWorkspace(app, dir);
+    openWorkspace(app, dir, promptSaveFailure);
   }
 
   if (ImGui::BeginMainMenuBar()) {
@@ -261,22 +278,19 @@ void DrawUiFrame(App &app) {
 #endif
         auto f = pfd::open_file("Open image", "", openImageDialogFilters());
         auto r = f.result();
-        if (!r.empty()) openPath(app, r[0]);
+        if (!r.empty()) openPath(app, r[0], promptSaveFailure);
       }
 #ifdef __APPLE__
-      if (ImGui::MenuItem("Open Workspace", "⌘+Shift+O")) {
+      if (ImGui::MenuItem("Open Folder", "⌘+Shift+O")) {
 #else
-      if (ImGui::MenuItem("Open Workspace", "Ctrl+Shift+O")) {
+      if (ImGui::MenuItem("Open Folder", "Ctrl+Shift+O")) {
 #endif
-        auto f = pfd::select_folder("Open workspace folder");
+        auto f = pfd::select_folder("Open folder");
         auto r = f.result();
         if (!r.empty()) app.pendingWorkspaceDir = r;
       }
-      if (ImGui::MenuItem("Save Project")) {
+      if (ImGui::MenuItem("Save Grade", nullptr, false, !app.path.empty() && !app.isPhotoProtected()))
         saveCurrentInputSidecar(app);
-        persistWorkspace(app);
-        app.setStatus("Saved project and sidecar");
-      }
 #ifdef __APPLE__
       if (ImGui::MenuItem("Export", "⌘+E")) doExport(app);
 #else
@@ -298,7 +312,8 @@ void DrawUiFrame(App &app) {
       const char *pasteShortcut = "Ctrl+V";
 #endif
       const Node *selection = selectedNode(app);
-      const bool canCopyNode = selection && selection->operation == NodeOperation::ImageProcessor;
+      const bool editable = !app.isPhotoProtected();
+      const bool canCopyNode = editable && selection && selection->operation == NodeOperation::ImageProcessor;
       if (ImGui::MenuItem("Copy Node", copyShortcut, false, canCopyNode))
         copySelectedNode(app);
 #ifdef __APPLE__
@@ -306,18 +321,18 @@ void DrawUiFrame(App &app) {
 #else
       const char *copyGradeShortcut = "Ctrl+Shift+C";
 #endif
-      if (ImGui::MenuItem("Copy Full Grade", copyGradeShortcut, false, app.hasProcessingOutput()))
+      if (ImGui::MenuItem("Copy Full Grade", copyGradeShortcut, false, editable && app.hasProcessingOutput()))
         copyGrade(app);
-      if (ImGui::MenuItem("Paste", pasteShortcut))
+      if (ImGui::MenuItem("Paste", pasteShortcut, false, editable))
         pasteFromClipboard(app);
       ImGui::Separator();
       if (ImGui::BeginMenu("Presets")) {
         if (ImGui::MenuItem("Save Node Preset…", nullptr, false, canCopyNode))
           saveNodePreset(app);
-        if (ImGui::MenuItem("Save Full Grade Preset…", nullptr, false, app.hasProcessingOutput()))
+        if (ImGui::MenuItem("Save Full Grade Preset…", nullptr, false, editable && app.hasProcessingOutput()))
           saveGradePreset(app);
         ImGui::Separator();
-        if (ImGui::MenuItem("Load Preset…"))
+        if (ImGui::MenuItem("Load Preset…", nullptr, false, editable))
           loadPreset(app);
         ImGui::EndMenu();
       }
@@ -380,7 +395,7 @@ void DrawUiFrame(App &app) {
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_Backslash))
     app.showFilmstrip = !app.showFilmstrip;
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_O)) {
-    auto f = pfd::select_folder("Open workspace folder");
+    auto f = pfd::select_folder("Open folder");
     auto r = f.result();
     if (!r.empty()) app.pendingWorkspaceDir = r;
   }

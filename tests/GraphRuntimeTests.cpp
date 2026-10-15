@@ -375,7 +375,7 @@ static bool testPhotoSwitch(bool exporting) {
   const ColorEncoding encoding{RgbGamut::Rec709, TransferFunction::Linear};
   CHECK(writeImage(raster(7, 3, 0.2f), photoA, encoding, 92));
   CHECK(writeImage(raster(4, 5, 0.8f), photoB, encoding, 92));
-  openPath(app, photoA, true);
+  openPath(app, photoA);
   const auto *pixelsA = app.full.px.data();
   auto *processor = numeric(app, NodeId{"switch-barrier"}); CHECK(processor);
   CHECK(writeImage(app.full, expected, app.outputEncoding, 92));
@@ -406,7 +406,7 @@ static bool testPhotoSwitch(bool exporting) {
     lock.unlock();
     gate.unblock(); // Independent of the control thread blocked in openPath.
   });
-  openPath(app, photoB, true);
+  openPath(app, photoB);
   release.join();
   app.renderer.joinExport();
   CHECK(waited && idle(app));
@@ -660,7 +660,7 @@ static bool testIdenticalSlotReorder() {
   return true;
 }
 
-static bool testNarrowV2Refusal() {
+static bool testLegacyRefusalAndGraphSave() {
   Files files; App app; source(app);
   CHECK(addNativeExposureNode(app));
   app.path = files.path("source.nef");
@@ -672,12 +672,16 @@ static bool testNarrowV2Refusal() {
   CHECK(!stored.empty());
   std::ifstream beforeFile(stored); const std::string before((std::istreambuf_iterator<char>(beforeFile)), {});
   CHECK(add(app, NodeId{"off-spine"}, NodeOperation::ImageProcessor));
+  findNode(app, NodeId{"off-spine"})->storedBackend = "ofx";
+  findNode(app, NodeId{"off-spine"})->storedIdentifier = "unavailable.off-spine";
   bool refused = false;
   try { (void)captureChain(app); } catch (const std::runtime_error &) { refused = true; }
   CHECK(refused);
-  saveCurrentInputSidecar(app);
+  CHECK(saveCurrentInputSidecar(app));
   std::ifstream afterFile(stored); const std::string after((std::istreambuf_iterator<char>(afterFile)), {});
-  CHECK(before == after && app.getStatus().find("linear V2") != std::string::npos);
+  PersistFile saved; std::string error;
+  CHECK(before != after && decodeGraphFile(after, saved, error) && saved.grade && saved.grade->graph.nodes.size() == 3);
+  CHECK(saved.grade->graph.nodes[2].id == "off-spine" && !saved.grade->graph.nodes[2].inputs.at(ports::image));
   return true;
 }
 } // namespace
@@ -694,7 +698,7 @@ bool testGraphRuntime() {
       {"6D I2 prepared preview/recolour remains responsive and rejects stale presentation", testPresentationResponsiveness},
       {"6D I3 no-image processor edits preserve initial guidance without evaluation", testNoImageGuidance},
       {"6D I4 quiet restoration reports current failures and preserves successful export status", testQuietOutcomes},
-      {"6D narrow linear V2 refusal preserves the existing source sidecar", testNarrowV2Refusal},
+      {"Step 7 full graph save retains off-spine nodes while legacy capture refuses", testLegacyRefusalAndGraphSave},
       {"6E.2 rejected/no-op graph commands preserve idle/pending/active preview and active export", testUnchangedCommandsRetainDemand},
       {"6F T1 identical/disconnected Slot bindings retain real order changes and detect no-ops", testIdenticalSlotReorder},
   };
