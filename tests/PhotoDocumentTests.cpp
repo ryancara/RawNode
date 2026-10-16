@@ -172,7 +172,8 @@ bool scanAndInitialGrades() {
   const auto first = photo(folder, "a.png"), second = photo(folder, "b.png");
   App browsing;
   CHECK(openWorkspace(browsing, folder.dir.string()));
-  CHECK(browsing.path == first && fs::exists(inputSidecarPath(first)) && !fs::exists(inputSidecarPath(second)));
+  // Folder opening resolves aliases such as macOS /var -> /private/var.
+  CHECK(fs::equivalent(browsing.path, first) && fs::exists(inputSidecarPath(first)) && !fs::exists(inputSidecarPath(second)));
   return true;
 }
 
@@ -363,8 +364,8 @@ bool folderDiscardOnlyOnce() {
   const auto discard = [&](const std::string &) { ++prompts; return Decision::Discard; };
   CHECK(document_detail::openFolder(app, newFolder.dir.string(), discard, options));
   CHECK(saves == 1 && prompts == 1 && bytes(inputSidecarPath(a)) == original);
-  CHECK(app.path == b && app.workspaceDir == fs::canonical(newFolder.dir).string());
-  CHECK(app.filmstrip.size() == 1 && app.filmstripIndex == 0 && app.filmstrip[0].path == b);
+  CHECK(fs::equivalent(app.path, b) && fs::equivalent(app.workspaceDir, newFolder.dir));
+  CHECK(app.filmstrip.size() == 1 && app.filmstripIndex == 0 && fs::equivalent(app.filmstrip[0].path, b));
   CHECK(!app.isPhotoProtected() && app.persistenceWarning.empty() && idle(app));
   CHECK(addNativeExposureNode(app) && app.renderer.canEditParameters() && saveCurrentInputSidecar(app));
   app.renderer.shutdown();
