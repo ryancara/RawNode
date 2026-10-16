@@ -296,23 +296,26 @@ static bool testPhotoAndDocumentReplacement() {
   const auto photoA = files.path("a.png"), photoB = files.path("b.png");
   const ColorEncoding encoding{RgbGamut::Rec709, TransferFunction::Linear};
   CHECK(writeImage(raster(0.25f), photoA, encoding, 92) && writeImage(raster(0.5f), photoB, encoding, 92));
-  App app; openPath(app, photoA, true);
+  App app; openPath(app, photoA);
   PersistChain chain; chain.nodes = {persisted("shared-id", 1.0)}; chain.selectedNodeId = "shared-id";
   applyChain(app, chain);
   app.paramFilter[0] = 'x';
   app.renderer.requestInspection(image(NodeId{"shared-id"})); app.renderer.start(); CHECK(idle(app));
-  openPath(app, photoB, true); CHECK(idle(app));
+  openPath(app, photoB); CHECK(idle(app));
   CHECK(!app.selectedNodeId && app.paramFilter[0] == '\0' && publishedEndpoint(app) == image(app.primarySource));
-  openPath(app, photoA, true); CHECK(idle(app));
-  CHECK(app.selectedNodeId == NodeId{"shared-id"} && exposure(selectedNode(app)) == 1.0);
+  openPath(app, photoA); CHECK(idle(app));
+  CHECK(!app.selectedNodeId && exposure(findNode(app, NodeId{"shared-id"})) == 1.0);
 
   PersistChain replacement;
   replacement.nodes = {persisted("shared-id", 4.0), persisted("new-output")};
   replacement.selectedNodeId = "shared-id";
-  CHECK(saveInputSidecar(photoB, {}, replacement));
+  App incoming; applyChain(incoming, replacement);
+  PersistGrade grade; grade.graph = captureGraph({incoming.nodes, incoming.primarySource, incoming.documentOutput});
+  grade.color = captureGradeColor(incoming); std::string error;
+  CHECK(updateSidecarGrade(inputSidecarPath(photoB), grade, error));
   app.renderer.requestInspection(image(NodeId{"shared-id"})); CHECK(idle(app));
-  openPath(app, photoB, true); CHECK(idle(app));
-  CHECK(app.selectedNodeId == NodeId{"shared-id"} && exposure(selectedNode(app)) == 4.0 && app.paramFilter[0] == '\0');
+  openPath(app, photoB); CHECK(idle(app));
+  CHECK(!app.selectedNodeId && exposure(findNode(app, NodeId{"shared-id"})) == 4.0 && app.paramFilter[0] == '\0');
   CHECK(publishedEndpoint(app) == image(NodeId{"new-output"})); // Old ID exists, but old inspection is gone.
 
   app.renderer.requestInspection(image(NodeId{"shared-id"})); CHECK(idle(app));
@@ -324,8 +327,8 @@ static bool testPhotoAndDocumentReplacement() {
 
   CHECK(selectNode(app, NodeId{"shared-id"}));
   app.renderer.requestInspection(image(NodeId{"shared-id"})); CHECK(idle(app));
-  openPath(app, photoA, false); CHECK(idle(app));
-  CHECK(!app.selectedNodeId && publishedEndpoint(app) == image(NodeId{"new-output"}));
+  openPath(app, photoA); CHECK(idle(app));
+  CHECK(!app.selectedNodeId && publishedEndpoint(app) == image(NodeId{"shared-id"}));
   applyChain(app, {}); CHECK(idle(app));
   CHECK(!app.selectedNodeId && !selectedNode(app) && publishedEndpoint(app) == image(app.primarySource));
   return true;

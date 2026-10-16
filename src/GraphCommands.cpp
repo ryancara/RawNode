@@ -95,6 +95,12 @@ class StagedEdit {
     }), document_.nodes.end());
     std::swap(document_.documentOutput, output_);
     if (owner) {
+      for (auto position = owner->nodePositions.begin(); position != owner->nodePositions.end();) {
+        // Commit must not allocate a temporary NodeId after changing topology.
+        if (std::none_of(nodes_.begin(), nodes_.end(), [&](const Node &node) { return node.id.value == position->first; }))
+          position = owner->nodePositions.erase(position);
+        else ++position;
+      }
       if (owner->selectedNodeId && !selectedNode(*owner)) selectNode(*owner, std::nullopt);
       mutation->changed();
     }
@@ -164,6 +170,7 @@ static CommandResult editGraph(graph::Document document, Change change, Node *ad
 template <typename Change>
 static CommandResult editGraph(App &app, Change change, Node *addition = nullptr) {
   document_detail::DocumentMutation::assertControlThread(app);
+  if (!requireEditableGraph(app)) return {"The saved grade was not loaded; graph editing is disabled", std::nullopt};
   return editGraph(graph::Document{app.nodes, app.primarySource, app.documentOutput}, change, addition, &app);
 }
 

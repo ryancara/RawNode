@@ -13,6 +13,11 @@ const std::optional<OutputRef> *findInput(const App &app, const InputAddress &in
 // required inputs remain representable; see requestedGraphError for readiness.
 // Empty means valid; otherwise the first invariant violation is returned.
 std::string documentStateError(const App &app);
+bool requireEditableGraph(App &app);
+// Processor edits retain backend synchronization and export exclusion.
+bool setNodeParameterValue(App &app, const NodeId &node, const std::string &parameter, const ParameterValue &value);
+bool resetNodeParameter(App &app, const NodeId &node, const std::string &parameter);
+bool activateNodeParameter(App &app, const NodeId &node, const std::string &parameter);
 
 // Selection is view-only. Resolve identity at use time; never retain a node
 // pointer across a graph edit. Source is not a selectable processing node.
@@ -63,7 +68,7 @@ struct RestoredChain {
   OutputRef output{NodeId{}, ports::image};
   std::optional<NodeId> selection;
 };
-RestoredChain restoreChain(App &app, const PersistChain &chain);
+RestoredChain restoreChain(App &app, const PersistChain &chain, bool strictParameters = false);
 void replaceChain(App &app, RestoredChain &&chain);
 }  // namespace document_detail
 

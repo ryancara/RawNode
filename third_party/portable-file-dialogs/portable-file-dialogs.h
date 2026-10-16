@@ -794,7 +794,7 @@ inline void internal::executor::start_process(std::vector<std::string> const &co
         args.push_back(nullptr); // null-terminate argv[]
 
         execvp(args[0], args.data());
-        exit(1);
+        _exit(127);
     }
 
     close(in[1]);
@@ -1775,6 +1775,7 @@ inline message::message(std::string const &title,
             if (_choice == choice::yes_no || _choice == choice::yes_no_cancel)
             {
                 m_mappings[0] = button::yes;
+                m_mappings[1] = button::no; // executor already applies WEXITSTATUS
                 m_mappings[256] = button::no;
             }
         }

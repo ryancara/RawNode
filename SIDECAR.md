@@ -1,6 +1,25 @@
 # RawNode Sidecar Design
 
-This document defines the non-destructive per-image edit state used by RawNode.
+The live editor uses the graph-native `rawnode` version 1 format described in
+[the Step 7 persistence design](docs/STEP7_PERSISTENCE_DESIGN.md). Each successfully
+opened editable photograph has a complete grade, including Source-only; opening
+an existing grade does not immediately rewrite it. Metadata-only files gain a
+grade while retaining metadata. Scans/thumbnails and exports create no sidecars.
+
+Opening stages graph, source, colours and preview before replacement. Invalid,
+unsupported or unreadable sidecars permit protected source viewing, never edits
+or overwrite. Failed saves retain the editable document, show a persistent
+warning, and offer Retry / Discard / Cancel before departure/reopen/shutdown.
+
+Grade updates preserve metadata and use checked sibling-temp atomic replacement.
+Existing POSIX permissions survive; new files default to owner-only `0600`.
+Windows atomic writes remain explicitly unsupported. Backend identities, paths
+and parameter strings must be valid UTF-8 to save: invalid bytes cause a useful
+error, preserving live state and original files rather than converting values.
+
+The remaining sections document historical V1/V2 formats and retained helper
+APIs. The live editor does not migrate or overwrite historical sidecars. Legacy
+preset/clipboard and workspace-preference retirement remains PRs 4–5.
 
 ## Principles
 
@@ -12,7 +31,7 @@ This document defines the non-destructive per-image edit state used by RawNode.
 - Unavailable processors and unknown parameter values should survive load-save cycles rather than being silently deleted.
 - RAW initial working space is edit state and is stored per image when explicitly available.
 
-## Sidecar V2
+## Historical Sidecar V2
 
 Input sidecars are written beside the source image as:
 

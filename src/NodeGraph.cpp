@@ -97,7 +97,30 @@ std::string nodeDisplayName(const Node &node) {
   return "Missing processor";
 }
 
+bool requireEditableGraph(App &app) {
+  if (!app.isPhotoProtected()) return true;
+  app.setStatus("The saved grade was not loaded; editing is disabled");
+  return false;
+}
+
+bool setNodeParameterValue(App &app, const NodeId &id, const std::string &parameter, const ParameterValue &value) {
+  if (!requireEditableGraph(app) || !app.renderer.canEditParameters()) return false;
+  Node *node = findNode(app, id);
+  return node && node->processor && node->processor->setParameterValue(parameter, value);
+}
+bool resetNodeParameter(App &app, const NodeId &id, const std::string &parameter) {
+  if (!requireEditableGraph(app) || !app.renderer.canEditParameters()) return false;
+  Node *node = findNode(app, id);
+  return node && node->processor && node->processor->resetParameter(parameter);
+}
+bool activateNodeParameter(App &app, const NodeId &id, const std::string &parameter) {
+  if (!requireEditableGraph(app) || !app.renderer.canEditParameters()) return false;
+  Node *node = findNode(app, id);
+  return node && node->processor && node->processor->activateParameter(parameter);
+}
+
 void clearNodes(App &app) {
+  if (!requireEditableGraph(app)) return;
   if (app.nodes.size() == 1) {
     selectNode(app, std::nullopt);
     app.renderer.resetInspection();
@@ -109,6 +132,7 @@ void clearNodes(App &app) {
 }
 
 bool addNode(App &app, int pluginIndex) {
+  if (!requireEditableGraph(app)) return false;
   if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return false;
   DocumentMutation mutation(app);
   const bool added = addOfxWithinMutation(app, pluginIndex);
@@ -117,6 +141,7 @@ bool addNode(App &app, int pluginIndex) {
 }
 
 bool addNativeExposureNode(App &app) {
+  if (!requireEditableGraph(app)) return false;
   DocumentMutation mutation(app);
   const bool added = appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
   if (added) mutation.changed();
@@ -124,6 +149,7 @@ bool addNativeExposureNode(App &app) {
 }
 
 bool addNativeCstNode(App &app) {
+  if (!requireEditableGraph(app)) return false;
   DocumentMutation mutation(app);
   const bool added = appendProcessorNode(app, std::make_unique<NativeCstProcessor>());
   if (added) mutation.changed();
@@ -131,6 +157,7 @@ bool addNativeCstNode(App &app) {
 }
 
 bool addCtlNode(App &app, const std::string &path) {
+  if (!requireEditableGraph(app)) return false;
   DocumentMutation mutation(app);
   const bool added = addCtlWithinMutation(app, path);
   if (added) mutation.changed();
@@ -138,6 +165,7 @@ bool addCtlNode(App &app, const std::string &path) {
 }
 
 bool destroyNode(App &app, const NodeId &id) {
+  if (!requireEditableGraph(app)) return false;
   const Node *node = findNode(app, id);
   if (!node || node->operation == NodeOperation::Source) {
     app.setStatus(node ? "Source cannot be removed" : "Node no longer exists");
@@ -154,6 +182,7 @@ bool destroyNode(App &app, const NodeId &id) {
 }
 
 bool moveNode(App &app, const NodeId &from, const NodeId &to) {
+  if (!requireEditableGraph(app)) return false;
   std::vector<NodeId> spine;
   const auto error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
   if (!error.empty()) { app.setStatus("Cannot reorder nodes: " + error); return false; }
@@ -171,6 +200,7 @@ bool moveNode(App &app, const NodeId &from, const NodeId &to) {
 }
 
 void setNodeEnabled(App &app, const NodeId &id, bool enabled) {
+  if (!requireEditableGraph(app)) return;
   Node *node = findNode(app, id);
   if (!node || node->enabled == enabled || node->operation == NodeOperation::Source) return;
   DocumentMutation mutation(app);
@@ -187,6 +217,8 @@ bool captureNode(const App &app, const NodeId &id, PersistNode &out) {
 }
 
 static std::vector<NodeId> linearCaptureOrder(const App &app) {
+  if (app.isPhotoProtected()) throw std::runtime_error("The saved grade was not loaded; capture is disabled");
+  if (!app.nodePositions.empty()) throw std::runtime_error("Linear V2 transfers cannot preserve node positions");
   std::vector<NodeId> spine;
   const auto error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
   if (!error.empty() || spine.size() + 1 != app.nodes.size())
@@ -209,6 +241,7 @@ PersistChain captureChain(const App &app) {
 }
 
 bool appendPersistedNode(App &app, const PersistNode &persisted, std::optional<NodeId> insertAfter) {
+  if (!requireEditableGraph(app)) return false;
   std::optional<InputAddress> before;
   if (insertAfter) {
     std::vector<NodeId> spine;
@@ -225,7 +258,10 @@ bool appendPersistedNode(App &app, const PersistNode &persisted, std::optional<N
   }
   DocumentMutation mutation(app);
   try {
-    Node node = restoredNode(app.nodes, persisted, false);
+    Node node = restoredNode(app.nodes, persisted, false, true);
+    // Retain legacy transfer UI state until PR 4 retires that format. Photo
+    // graph restoration/capture never includes group expansion.
+    node.groupOpen = persisted.groupOpen;
     std::optional<NodeId> selection = node.id;
     const auto result = graph::insertImageNode(graph::Document{app.nodes, app.primarySource, app.documentOutput},
                                                std::move(node), before);
@@ -240,6 +276,7 @@ bool appendPersistedNode(App &app, const PersistNode &persisted, std::optional<N
 }
 
 void applyChain(App &app, const PersistChain &chain) {
+  if (!requireEditableGraph(app)) return;
   if (app.nodes.size() == 1 && chain.nodes.empty()) {
     selectNode(app, std::nullopt);
     app.renderer.resetInspection();
@@ -294,7 +331,7 @@ RestoredGraph restoreGraph(const PersistGraph &graph) {
   return restored;
 }
 
-RestoredChain restoreChain(App &app, const PersistChain &chain) {
+RestoredChain restoreChain(App &app, const PersistChain &chain, bool strictParameters) {
   RestoredChain restored;
   restored.nodes.reserve(chain.nodes.size() + 1);
   Node source(NodeOperation::Source);
@@ -302,7 +339,8 @@ RestoredChain restoreChain(App &app, const PersistChain &chain) {
   restored.nodes.push_back(std::move(source));
   restored.output = {app.primarySource, ports::image};
   for (const PersistNode &persisted : chain.nodes) {
-    Node node = restoredNode(restored.nodes, persisted, true);
+    Node node = restoredNode(restored.nodes, persisted, true, strictParameters);
+    node.groupOpen = persisted.groupOpen;
     const auto result = graph::insertImageNode(graph::Document{restored.nodes, app.primarySource, restored.output},
                                                std::move(node));
     if (!result.ok()) throw std::runtime_error(result.error);
@@ -319,6 +357,7 @@ RestoredChain restoreChain(App &app, const PersistChain &chain) {
 
 void replaceChain(App &app, RestoredChain &&chain) {
   app.nodes.swap(chain.nodes);
+  app.nodePositions.clear();
   std::swap(app.documentOutput, chain.output);
   // A replacement can reuse a selected NodeId for a different processor.
   selectNode(app, std::nullopt);
@@ -370,6 +409,7 @@ static int findPluginIndex(const std::string &identifier, const std::string &lab
 }
 
 static void clearNodesWithinMutation(App &app) {
+  app.nodePositions.clear();
   // Preserve the same Source operation/identity across grade and image changes.
   auto source = std::find_if(app.nodes.begin(), app.nodes.end(), [&](const Node &node) {
     return node.id == app.primarySource && node.operation == NodeOperation::Source;
@@ -507,7 +547,7 @@ static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &pers
     processor = CtlProcessor::create(persisted.identifier);
   }
   Node node = makeProcessorNode(nodes, std::move(processor));
-  if (graphNative) node.id = NodeId{persisted.id};
+  if (graphNative && preserveId) node.id = NodeId{persisted.id};
   else if (preserveId) node.id = restoredNodeId(nodes, persisted.id);
   node.enabled = persisted.enabled;
   if (!graphNative) node.groupOpen = persisted.groupOpen;

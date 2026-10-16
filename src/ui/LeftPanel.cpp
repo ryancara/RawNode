@@ -32,11 +32,11 @@ void drawLeftPanel(App &app) {
   if (ImGui::Button("Open image")) {
     auto f = pfd::open_file("Open image", "", openImageDialogFilters());
     auto r = f.result();
-    if (!r.empty()) openPath(app, r[0]);
+    if (!r.empty()) openPath(app, r[0], promptSaveFailure);
   }
   ImGui::SameLine();
-  if (ImGui::Button("Open Workspace")) {
-    auto f = pfd::select_folder("Open workspace folder");
+  if (ImGui::Button("Open Folder")) {
+    auto f = pfd::select_folder("Open folder");
     auto r = f.result();
     if (!r.empty()) app.pendingWorkspaceDir = r;
   }
@@ -73,6 +73,7 @@ void drawLeftPanel(App &app) {
   for (int i = 0; i < transferFunctionCount(); ++i)
     gammaItems.push_back(transferFunctionDefinition(i).name);
 
+  ImGui::BeginDisabled(!currentIsRaw || app.isPhotoProtected());
   int rawGamutIndex = std::max(0, rgbGamutIndex(rawShown.gamut));
   if (ImGui::Combo("RAW colour space", &rawGamutIndex, gamutItems.data(), (int)gamutItems.size())) {
     setRawWorkingEncoding(app, rgbGamutDefinition(rawGamutIndex).value, rawShown.gamma);
@@ -88,23 +89,18 @@ void drawLeftPanel(App &app) {
     setRawWorkingEncoding(app, currentRaw.gamut, transferFunctionDefinition(rawGammaIndex).value);
   }
 
+  ImGui::EndDisabled();
+  ImGui::BeginDisabled(app.path.empty() || app.isPhotoProtected());
   int outputGamutIndex = std::max(0, rgbGamutIndex(outputEncoding.gamut));
   if (ImGui::Combo("Output colour space", &outputGamutIndex, gamutItems.data(), (int)gamutItems.size())) {
-    {
-      std::lock_guard<std::mutex> lock(app.colorMutex);
-      app.outputEncoding.gamut = rgbGamutDefinition(outputGamutIndex).value;
-    }
-    app.renderer.requestDisplayRefresh();
+    setOutputEncoding(app, {rgbGamutDefinition(outputGamutIndex).value, outputEncoding.gamma});
   }
 
   int outputGammaIndex = std::max(0, transferFunctionIndex(outputEncoding.gamma));
   if (ImGui::Combo("Output gamma", &outputGammaIndex, gammaItems.data(), (int)gammaItems.size())) {
-    {
-      std::lock_guard<std::mutex> lock(app.colorMutex);
-      app.outputEncoding.gamma = transferFunctionDefinition(outputGammaIndex).value;
-    }
-    app.renderer.requestDisplayRefresh();
+    setOutputEncoding(app, {outputEncoding.gamut, transferFunctionDefinition(outputGammaIndex).value});
   }
+  ImGui::EndDisabled();
 
   {
     const char *items[kPreviewResCount];
@@ -116,13 +112,14 @@ void drawLeftPanel(App &app) {
   ImGui::Separator();
   const std::string status = app.getStatus();
   ImGui::TextWrapped("%s", status.c_str());
-  if (!app.path.empty() && app.sidecarWriteBlockedPath == app.path)
-    ImGui::TextWrapped("Sidecar is read-only — changes to this photo will not be saved.");
+  if (!app.persistenceWarning.empty())
+    ImGui::TextWrapped("%s", app.persistenceWarning.c_str());
   if (app.workspaceWriteBlocked)
     ImGui::TextWrapped("Workspace metadata is read-only — workspace changes will not be saved.");
   ImGui::Separator();
 
   ImGui::TextUnformatted("Processing Nodes");
+  ImGui::BeginDisabled(app.isPhotoProtected());
   if (ImGui::Button("Add processor…", ImVec2(-1, 0))) ImGui::OpenPopup("##addPluginPopup");
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
@@ -202,6 +199,8 @@ void drawLeftPanel(App &app) {
     ImGui::EndPopup();
   }
 
+  ImGui::EndDisabled();
+
   ImGui::BeginChild("nodeList", ImVec2(0, 0), ImGuiChildFlags_Borders);
   const auto rows = ui::projectNodeList({app.nodes, app.primarySource, app.documentOutput});
   if (const Node *output = findNode(app, app.documentOutput.nodeId))
@@ -216,7 +215,7 @@ void drawLeftPanel(App &app) {
   std::optional<NodeId> remove, moveFrom, moveTo, enable;
   bool enabled = false;
   const auto drawRows = [&](const std::vector<NodeId> &ids, bool mainSpine) {
-    const bool reorderable = mainSpine && rows.spineError.empty();
+    const bool reorderable = !app.isPhotoProtected() && mainSpine && rows.spineError.empty();
     for (size_t row = 0; row < ids.size(); ++row) {
       const Node *node = findNode(app, ids[row]);
       if (!node) continue;
@@ -243,6 +242,7 @@ void drawLeftPanel(App &app) {
         ImGui::EndDragDropTarget();
       }
       ImGui::SameLine(0.0f, btnGap);
+      ImGui::BeginDisabled(app.isPhotoProtected());
       if (iconBtn("##en", node->enabled ? ICON_FA_EYE : ICON_FA_EYE_SLASH)) {
         enable = node->id;
         enabled = !node->enabled;
@@ -274,6 +274,7 @@ void drawLeftPanel(App &app) {
       if (iconBtn("##rm", ICON_FA_XMARK)) remove = node->id;
       if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
         ImGui::SetTooltip("Remove node");
+      ImGui::EndDisabled();
       ImGui::PopID();
     }
   };

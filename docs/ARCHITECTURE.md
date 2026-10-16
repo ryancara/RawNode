@@ -275,9 +275,13 @@ unary Image spine from documentOutput; other nodes remain visible and accessible
 Splice/move controls use stable identities and validated graph commands. The
 projection neither changes connections nor supplies another execution order.
 
-Current linear capture requires a complete spine containing every non-Source
-node and only ordinary Image processors. Unsupported sidecar/clipboard/preset
-capture refuses before writing. Full-grade application prepares incoming nodes,
+Live photo capture/restoration preserves every stored graph node, connection,
+endpoint, Slot allocator and optional position through the shared strict codec.
+Opening stages source/graph/colours/preview before publication. Checked grade saves
+run at editable open and document boundaries, independently of render demand.
+Remaining legacy clipboard/preset capture requires a complete linear spine of
+ordinary Image processors, refusing unsupported topology or layout before writing.
+Full-grade application prepares incoming nodes,
 colour state and any required RAW decode/preview before live replacement;
 selection/filter and inspection state are reset even when NodeIds are reused.
 
@@ -291,8 +295,8 @@ Accepted transition limitations:
   bindings, ID high-water marks and every future SlotSettings field.
 - Arbitrary-graph editing still needs a suitable UX for disconnected required
   dependencies. The current List View exposes nodes without guessing repairs.
-- Sidecar-loading exception handling, atomic file replacement and persistence
-  GUI-state cleanup remain Step 7 work.
+- Legacy clipboard/preset replacement and global-preferences retirement remain
+  Step 7 work; live photo sidecars already use checked atomic replacement.
 
 ## Control-thread contract
 
@@ -503,7 +507,7 @@ shared state.
 
 ## Persistence migration for topology
 
-Sidecar V2 remains the current **linear** document format until Step 7 replaces it.
+Photo sidecars now use the graph-native format; historical V1/V2 files are protected without migration.
 
 It is not a backwards-compatibility constraint on the explicit graph. RawNode has
 no external user base requiring the new topology model to preserve V2 execution
@@ -520,8 +524,8 @@ The graph-native format must preserve at least:
 - external asset references where relevant;
 - safe copy/paste ID remapping.
 
-Until Step 7 lands, any save/autosave/clipboard/preset path that cannot represent
-the current graph must refuse or be disabled. It must never silently flatten
+Remaining legacy clipboard/preset paths that cannot represent the current graph
+must refuse or be disabled until their replacement. It must never silently flatten
 explicit topology into V2 list order.
 
 ## Deliberately deferred complexity

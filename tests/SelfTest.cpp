@@ -3,6 +3,7 @@
 #include "GraphModelTests.h"
 #include "GraphPersistenceTests.h"
 #include "SidecarFileTests.h"
+#include "PhotoDocumentTests.h"
 #include "GraphCommandsTests.h"
 #include "GraphEvaluatorTests.h"
 #include "GraphRuntimeTests.h"
@@ -1518,6 +1519,7 @@ static bool testCaptureRefusalPreservesDestinations() {
     if (originalSidecar.empty() || originalNode.empty() || originalGrade.empty()) return false;
     if (structure == 0) {
       Node branch; branch.id = NodeId{"branch"};
+      branch.storedBackend = "ofx"; branch.storedIdentifier = "missing.branch";
       branch.fixedInputs.at(ports::image) = OutputRef{selected, ports::image};
       if (!graph::addNode(app, std::move(branch)).ok()) return false;
     } else if (structure == 1) {
@@ -1533,8 +1535,9 @@ static bool testCaptureRefusalPreservesDestinations() {
     if (captureNode(app, selected, untouched) || untouched.id != "sentinel" ||
         copySelectedNode(app) || copyGrade(app) || saveNodePreset(app, nodePreset) ||
         saveGradePreset(app, gradePreset)) return false;
-    saveCurrentInputSidecar(app);
-    if (read(sidecar) != originalSidecar || read(nodePreset) != originalNode || read(gradePreset) != originalGrade ||
+    const bool savedGraph = saveCurrentInputSidecar(app);
+    if ((structure < 2 ? !savedGraph : savedGraph) ||
+        (structure >= 2 && read(sidecar) != originalSidecar) || read(nodePreset) != originalNode || read(gradePreset) != originalGrade ||
         clipboard.text != originalClipboard || app.selectedNodeId != selected || !documentStateError(app).empty())
       return false;
   }
@@ -1572,6 +1575,19 @@ static bool testFailedTransferApplication() {
     return app.processed.result.requested == OutputRef{id, ports::image} &&
            app.processed.result.state == EvaluationState::Available && testDisplay(app).px[0] == 0.25f;
   };
+  // Until PR 4 retires the V2 clipboard, an unknown stable choice must
+  // refuse before insertion/replacement instead of creating an unsaveable grade.
+  PersistNode futureChoice; futureChoice.id = "future-choice";
+  futureChoice.backend = "native"; futureChoice.identifier = NativeCstProcessor::kIdentifier;
+  futureChoice.paramsJson["input_space"] = "\"future-gamut\"";
+  PersistChain incompatible; incompatible.nodes.push_back(futureChoice);
+  clipboard.text = serializeTransferPayload("node", incompatible);
+  const auto unsupportedClipboard = clipboard.text;
+  if (pasteFromClipboard(app) || !unchanged() || clipboard.text != unsupportedClipboard) return false;
+  clipboard.text = serializeTransferPayload("grade", incompatible);
+  if (pasteFromClipboard(app) || !unchanged()) return false;
+  if (appendPersistedNode(app, futureChoice, id) || !unchanged()) return false;
+
   PersistChain replacement = original;
   replacement.nodes[0].id = "replacement";
   replacement.nodes[0].paramsJson["exposure"] = "4";
@@ -2063,6 +2079,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 int runSelfTests() {
+  if (!testPhotoDocuments()) return fail("Step 7 photo lifecycle");
   if (!testSidecarFiles()) return fail("Step 7 safe sidecar files");
   if (!testGraphPersistence()) return fail("Step 7 graph persistence");
   if (!testGraphModel()) return fail("Step 6A graph model");
@@ -2959,7 +2976,7 @@ int runSelfTests() {
       return fail("document switch image write");
 
     App switched;
-    openPath(switched, imageA.string(), true);
+    openPath(switched, imageA.string());
     {
       std::lock_guard<std::mutex> lock(switched.colorMutex);
       switched.outputEncoding = {RgbGamut::DisplayP3, TransferFunction::SRGB};
@@ -2970,20 +2987,20 @@ int runSelfTests() {
       return fail("document switch edit setup");
     switched.nodes[1].enabled = false;
 
-    openPath(switched, imageB.string(), true);
+    openPath(switched, imageB.string());
 
-    PersistSidecar savedA;
+    PersistFile savedA; std::string saveError;
     const std::string sidecarA = inputSidecarPath(imageA.string());
-    if (!loadSidecarFile(sidecarA, savedA) ||
-        savedA.gui.outputColorSpace != rgbGamutId(RgbGamut::DisplayP3) ||
-        savedA.gui.outputGamma != transferFunctionId(TransferFunction::SRGB) ||
-        savedA.chain.nodes.size() != 1 ||
-        savedA.chain.nodes[0].identifier != NativeExposureProcessor::kIdentifier ||
-        savedA.chain.nodes[0].enabled ||
-        savedA.chain.nodes[0].paramsJson.at("exposure") != "1.5")
+    if (readGraphSidecar(sidecarA, savedA, saveError) != SidecarReadStatus::Loaded || !savedA.grade ||
+        savedA.grade->color.outputColorSpace != rgbGamutId(RgbGamut::DisplayP3) ||
+        savedA.grade->color.outputGamma != transferFunctionId(TransferFunction::SRGB) ||
+        savedA.grade->graph.nodes.size() != 2 ||
+        savedA.grade->graph.nodes[1].identifier != NativeExposureProcessor::kIdentifier ||
+        savedA.grade->graph.nodes[1].enabled ||
+        savedA.grade->graph.nodes[1].paramsJson.at("exposure") != "1.5")
       return fail("document switch sidecar save");
 
-    openPath(switched, imageA.string(), true);
+    openPath(switched, imageA.string());
     ColorEncoding restoredOutput;
     {
       std::lock_guard<std::mutex> lock(switched.colorMutex);
@@ -3075,34 +3092,23 @@ int runSelfTests() {
 
     fs::remove(sidecar);
 
-    // Development builds briefly wrote colour display names instead of
-    // stable IDs. They should load as known values and normalise on next save.
-    const fs::path legacyNamesImage =
-        fs::temp_directory_path() / "rawnode-selftest-legacy-colour-names.tif";
-    if (!writeTinyTiff(legacyNamesImage, false))
-      return fail("legacy colour names image write");
+    // Historical V2 sidecars are now protected, without migration or rewrite.
+    const fs::path legacyNamesImage = fs::temp_directory_path() / "rawnode-selftest-legacy-colour-names.tif";
+    if (!writeTinyTiff(legacyNamesImage, false)) return fail("legacy image write");
     PersistGui legacyNamesGui;
     legacyNamesGui.outputColorSpace = "Display P3";
     legacyNamesGui.outputGamma = "sRGB";
     if (!saveInputSidecar(legacyNamesImage.string(), legacyNamesGui, PersistChain{}, nullptr))
-      return fail("legacy colour names sidecar initial save");
+      return fail("legacy sidecar initial save");
+    std::ifstream legacyInput(inputSidecarPath(legacyNamesImage.string()), std::ios::binary);
+    const std::string legacyBefore{std::istreambuf_iterator<char>(legacyInput), {}};
     App legacyNamesApp;
-    openPath(legacyNamesApp, legacyNamesImage.string(), true);
-    {
-      std::lock_guard<std::mutex> lock(legacyNamesApp.colorMutex);
-      if (legacyNamesApp.outputEncoding != ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB})
-        return fail("legacy colour names migration");
-    }
-    if (!legacyNamesApp.sidecarWriteBlockedPath.empty())
-      return fail("legacy colour names write protection");
-    saveCurrentInputSidecar(legacyNamesApp);
-    PersistSidecar normalisedNames;
-    if (!loadSidecarFile(inputSidecarPath(legacyNamesImage.string()), normalisedNames) ||
-        normalisedNames.gui.outputColorSpace != "display-p3" ||
-        normalisedNames.gui.outputGamma != "srgb")
-      return fail("legacy colour names normalisation");
-    fs::remove(inputSidecarPath(legacyNamesImage.string()));
-    fs::remove(legacyNamesImage);
+    if (!openPath(legacyNamesApp, legacyNamesImage.string()) || !legacyNamesApp.isPhotoProtected() ||
+        saveCurrentInputSidecar(legacyNamesApp)) return fail("legacy sidecar protection");
+    std::ifstream legacyAfterInput(inputSidecarPath(legacyNamesImage.string()), std::ios::binary);
+    if (std::string(std::istreambuf_iterator<char>(legacyAfterInput), {}) != legacyBefore)
+      return fail("legacy sidecar preservation");
+    fs::remove(inputSidecarPath(legacyNamesImage.string())); fs::remove(legacyNamesImage);
 
     // Unknown future colour identifiers must be readable but write-protected,
     // rather than silently replaced by this build's fallback.
@@ -3128,7 +3134,7 @@ int runSelfTests() {
       if (!out.good()) return fail("protected sidecar rewrite");
     }
     App protectedApp;
-    openPath(protectedApp, protectedImage.string(), true);
+    openPath(protectedApp, protectedImage.string());
     if (protectedApp.sidecarWriteBlockedPath != protectedImage.string())
       return fail("unknown colour sidecar write protection");
     saveCurrentInputSidecar(protectedApp);
@@ -3194,7 +3200,7 @@ int runSelfTests() {
     App defaultOwner;
     defaultOwner.rawWorkingEncoding =
         {RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate};
-    openPath(defaultOwner, defaultImage.string(), true);
+    openPath(defaultOwner, defaultImage.string());
     if (defaultOwner.rawWorkingEncoding !=
         ColorEncoding{RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate})
       return fail("per-image sidecar changed RAW default");

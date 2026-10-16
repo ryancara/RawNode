@@ -358,10 +358,11 @@ visually.
 
 The processing graph is persistent image state.
 
-Sidecar V2 is the current linear format only. Its backwards compatibility does
-not constrain the Step 7 graph-native format. Until that format lands, no
-save/autosave/clipboard/preset path may silently flatten graph state it cannot
-represent.
+The live photo editor uses graph-native sidecars and protects historical V1/V2
+files without migration. Remaining legacy clipboard/preset paths still require
+representable linear graphs; they must refuse unsupported topology/layout or
+unknown installed choices until PR 4 replaces their format. No path may silently
+flatten or corrupt the authoritative graph.
 
 Processor/node identity must remain stable enough for persistence, presets and
 copy/paste.

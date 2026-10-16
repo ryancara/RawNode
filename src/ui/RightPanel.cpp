@@ -22,7 +22,7 @@ void drawRightPanel(App &app) {
     return;
   }
   if (!node->processor) {
-    ImGui::TextDisabled("Processor unavailable. Its Sidecar V2 state is preserved and the node is bypassed.");
+    ImGui::TextDisabled("Processor unavailable. Its saved state is preserved and the node is bypassed.");
     return;
   }
   // ImGui edit/focus state belongs to the logical node, even when two nodes

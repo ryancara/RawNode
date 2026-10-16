@@ -86,7 +86,7 @@ struct PersistFile {
   std::optional<std::string> metadataJson;
 };
 
-// In-memory codec. Live editor callers still use V2.
+// Shared graph-native codec for photo grades and file-level validation.
 // Failure leaves the destination unchanged; error describes the first failure.
 bool decodeGraphFile(const std::string &json, PersistFile &out, std::string &error,
                      std::vector<std::string> *warnings = nullptr);
@@ -96,7 +96,7 @@ bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &er
 enum class SidecarReadStatus { Absent, Loaded, Error };
 enum class PhotoMark { Unmarked, Pick, Reject };
 
-// Graph-native file operations only; live editor callers still use V2.
+// Graph-native sidecar file operations used by the live editor.
 // Paths name the destination sidecar (normally inputSidecarPath(photo)). A lone
 // sibling .ofxrawhost.json protects an absent .rawnode.json from creation.
 // Read failure/absence leaves out unchanged. Errors include the affected path.

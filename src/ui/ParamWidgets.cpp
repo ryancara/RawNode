@@ -1,5 +1,4 @@
 #include "ui/ParamWidgets.h"
-
 #include "NodeGraph.h"
 
 #include "imgui.h"
@@ -142,10 +141,10 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
   // Export cannot start mid-call on the same UI/control thread; it may only
   // finish, in which case these controls become editable on their next draw.
   auto setValue = [&](const ParameterValue &value) {
-    return editable && node.processor->setParameterValue(param.id, value);
+    return editable && setNodeParameterValue(app, node.id, param.id, value);
   };
-  auto reset = [&] { return editable && node.processor->resetParameter(param.id); };
-  auto activate = [&] { return editable && node.processor->activateParameter(param.id); };
+  auto reset = [&] { return editable && resetNodeParameter(app, node.id, param.id); };
+  auto activate = [&] { return editable && activateNodeParameter(app, node.id, param.id); };
 
   const float btn = ImGui::GetFrameHeight();
   const float gap = ImGui::GetStyle().ItemInnerSpacing.x;
