@@ -19,8 +19,10 @@
 namespace fs = std::filesystem;
 
 SaveFailureDecision promptSaveFailure(const std::string &error) {
-  // The existing native helper exposes Yes/No/Cancel on every desktop backend.
-  // Spell out their meanings; dismissal/helper failure always means Cancel.
+  // Linux needs an installed desktop helper. Without one, keep the document;
+  // the library's echo fallback cannot offer an explicit Discard choice.
+  if (!pfd::settings::available()) return SaveFailureDecision::Cancel;
+  // Spell out the three choices; dismissal or an unknown reply means Cancel.
   const auto answer = pfd::message("Could not save grade",
       error + "\n\nYes: Retry saving.\nNo: Discard the current grade and continue.\nCancel: Keep this photo open.",
       pfd::choice::yes_no_cancel, pfd::icon::warning).result();

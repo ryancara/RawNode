@@ -13,6 +13,10 @@ struct ActionTestOptions {
   std::function<persist_detail::FileFault()> beforeSave;
   decltype(&loadImage) decode = loadImage;
 };
+void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma,
+                           const ActionTestOptions &options);
+bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color,
+                const ActionTestOptions &options);
 bool savePhoto(App &app, std::string &error, const ActionTestOptions &options);
 bool leavePhoto(App &app, const SaveFailurePrompt &prompt, const ActionTestOptions &options);
 bool openPhoto(App &app, const std::string &path, const SaveFailurePrompt &prompt,

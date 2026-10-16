@@ -63,7 +63,8 @@ PersistGradeColor captureGradeColor(const App &app) {
   return color;
 }
 
-void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
+void document_detail::setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma,
+                                           const ActionTestOptions &options) {
   if (!requireEditableGraph(app) || app.path.empty()) return;
   const ColorEncoding requested{gamut, gamma};
   document_detail::DocumentMutation mutation(app);
@@ -74,7 +75,7 @@ void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
   Image decoded;
   ColorEncoding detected;
   bool raw = false;
-  if (!loadImage(app.path, decoded, detected, raw, requested) || !raw) {
+  if (!options.decode(app.path, decoded, detected, raw, requested) || !raw) {
     app.setStatus("Could not reload RAW in " + colorEncodingName(requested));
     return;
   }
@@ -88,6 +89,10 @@ void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
   }
   mutation.changed();
   app.setStatus("RAW working encoding: " + colorEncodingName(requested));
+}
+
+void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma) {
+  document_detail::setRawWorkingEncoding(app, gamut, gamma, {});
 }
 
 bool setOutputEncoding(App &app, ColorEncoding encoding) {
@@ -114,7 +119,8 @@ static bool resolveGradeColor(const PersistGradeColor &color, std::optional<Colo
          resolve(color.rawColorSpace, color.rawGamma, raw);
 }
 
-bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color) {
+bool document_detail::applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color,
+                                 const ActionTestOptions &options) {
   if (!requireEditableGraph(app)) return false;
   try { (void)captureChain(app); }
   catch (const std::runtime_error &error) { app.setStatus(error.what()); return false; }
@@ -136,7 +142,7 @@ bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &co
     std::shared_ptr<const Image> preview;
     if (reloadRaw) {
       bool decodedRaw = false;
-      if (!loadImage(app.path, decoded, detected, decodedRaw, *raw) || !decodedRaw) {
+      if (!options.decode(app.path, decoded, detected, decodedRaw, *raw) || !decodedRaw) {
         app.setStatus("Could not reload RAW in " + colorEncodingName(*raw));
         return false;
       }
@@ -161,6 +167,10 @@ bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &co
     app.setStatus("Could not apply full grade: " + std::string(error.what()));
     return false;
   }
+}
+
+bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color) {
+  return document_detail::applyGrade(app, chain, color, {});
 }
 
 PersistGui captureGui(const App &app) {

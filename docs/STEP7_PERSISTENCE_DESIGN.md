@@ -349,6 +349,11 @@ refusing navigation/reopening/close after a failed save unless Discard was
 explicitly chosen. Resolve/test native-dialog limitations in PR 3; no new UI
 framework or filesystem abstraction is prescribed. Accept that unwritable
 folders can prompt on departure/close even when no adjustment changed.
+On Linux, the native helper requires kdialog or a supported Zenity-family
+program. If none is available, failed departure safely cancels; no Retry/Discard
+fallback is provided. Fixing the save problem permits a later successful save.
+Scripted helper tests cover mapping, with real desktop checks still listed in
+`STEP6_MANUAL_VALIDATION.md`.
 Protected source views are never saved and can be left normally. Export remains
 sidecar-free (D038).
 

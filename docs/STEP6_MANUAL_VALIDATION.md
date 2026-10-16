@@ -125,3 +125,16 @@ the owner performs this separate validation:
       saves the complete grade while retaining missing processors, opaque values,
       identities, positions and metadata. Cancelled shutdown must leave preview,
       editing and a later save usable; quit during preview/export must drain safely.
+
+### Linux save-failure dialogs — unverified
+
+- [ ] With real kdialog and Zenity-family desktop helpers, force a save failure
+      during navigation, folder change, reopening and shutdown. Yes must Retry,
+      No must explicitly Discard, and Cancel/dismissal must retain a usable editor.
+      Scripted helper-process tests verify the vendored exit/output mapping;
+      they do not establish real desktop dialog behaviour.
+- [ ] With no supported desktop helper installed, verify failed departure safely
+      keeps the current photo. Retry and Discard are unavailable in this case;
+      the save problem must be fixed to leave. Launch with a supported helper
+      available for Retry/Discard. The library's echo fallback supplies no usable
+      dialog. No automatic discard or alternative recovery UI is provided.

@@ -21,6 +21,12 @@
 #include <set>
 #include <stdexcept>
 
+#if defined(__linux__)
+#include "portable-file-dialogs.h"
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
 #define CHECK(expression) do { if (!(expression)) { \
   std::fprintf(stderr, "photo document check failed at line %d: %s\n", __LINE__, #expression); return false; \
 } } while (false)
@@ -75,6 +81,53 @@ bool idle(App &app) {
     return !state.previewBusy && !state.previewPending && !state.displayPending;
   });
 }
+std::string capturedGrade(const App &app) {
+  PersistFile file; file.grade.emplace();
+  file.grade->graph = captureGraph({app.nodes, app.primarySource, app.documentOutput});
+  file.grade->color = captureGradeColor(app);
+  file.grade->positions = app.nodePositions;
+  std::string json, error;
+  if (!encodeGraphFile(file, json, error)) throw std::runtime_error(error);
+  return json;
+}
+
+#if defined(__linux__)
+bool linuxDialogDecisions() {
+  Files helpers;
+  // The library discovers helpers through /bin/sh + which. Script only the
+  // external processes, exercising its real executor, exit mapping and UI helper.
+  write(helpers.path("which"), "#!/bin/sh\n[ \"$1\" = kdialog ]\n");
+  fs::permissions(helpers.path("which"), fs::perms::owner_all);
+  const auto child = fork();
+  CHECK(child >= 0);
+  if (child == 0) {
+    // Keep PATH and the library's cached discovery entirely in this child.
+    if (setenv("PATH", helpers.dir.c_str(), 1) != 0) _exit(1);
+    const auto check = [&] {
+      pfd::settings::rescan();
+      CHECK(pfd::settings::available());
+      for (const auto &reply : {std::make_pair(0, Decision::Retry),
+                               std::make_pair(1, Decision::Discard),
+                               std::make_pair(2, Decision::Cancel),
+                               std::make_pair(3, Decision::Cancel)}) {
+        write(helpers.path("kdialog"), "#!/bin/sh\n[ \"$1\" = --warningyesnocancel ] || exit 3\nexit " +
+              std::to_string(reply.first) + "\n");
+        fs::permissions(helpers.path("kdialog"), fs::perms::owner_all);
+        CHECK(promptSaveFailure("deterministic save failure") == reply.second);
+      }
+      write(helpers.path("which"), "#!/bin/sh\nexit 1\n");
+      pfd::settings::rescan();
+      CHECK(!pfd::settings::available());
+      CHECK(promptSaveFailure("no helper available") == Decision::Cancel);
+      return true;
+    };
+    _exit(check() ? 0 : 1);
+  }
+  int status = 0;
+  CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  return true;
+}
+#endif
 const std::string colors = R"("color":{"rawWorking":{"colorSpace":"rec2020","gamma":"linear"},"output":{"colorSpace":"display-p3","gamma":"srgb"}})";
 const std::string source = R"({"id":"camera-root","kind":"source"})";
 std::string file(const std::string &nodes = source, const std::string &output = "camera-root",
@@ -293,6 +346,26 @@ bool failureDecisions() {
   return true;
 }
 
+bool folderDiscardOnlyOnce() {
+  Files oldFolder, newFolder;
+  const auto a = photo(oldFolder, "a.png"), b = photo(newFolder, "b.png", 0.5f);
+  write(inputSidecarPath(a), file()); write(inputSidecarPath(b), file());
+  App app; CHECK(openPath(app, a));
+  const auto original = bytes(inputSidecarPath(a));
+  app.renderer.start(); CHECK(idle(app));
+  int saves = 0, prompts = 0;
+  Options options; options.beforeSave = [&] { ++saves; return Fault::Replace; };
+  const auto discard = [&](const std::string &) { ++prompts; return Decision::Discard; };
+  CHECK(document_detail::openFolder(app, newFolder.dir.string(), discard, options));
+  CHECK(saves == 1 && prompts == 1 && bytes(inputSidecarPath(a)) == original);
+  CHECK(app.path == b && app.workspaceDir == fs::canonical(newFolder.dir).string());
+  CHECK(app.filmstrip.size() == 1 && app.filmstripIndex == 0 && app.filmstrip[0].path == b);
+  CHECK(!app.isPhotoProtected() && app.persistenceWarning.empty() && idle(app));
+  CHECK(addNativeExposureNode(app) && app.renderer.canEditParameters() && saveCurrentInputSidecar(app));
+  app.renderer.shutdown();
+  return true;
+}
+
 bool samePhotoAndAtomicFailures() {
   Files files; const auto a = photo(files, "a.png"), b = photo(files, "b.png");
   App app; CHECK(openPath(app, a) && addNativeExposureNode(app));
@@ -335,6 +408,108 @@ bool syntheticRaw(const std::string &path, Image &out, ColorEncoding &detected, 
         float(encodeTransfer(1.5, requested.gamma)), float(encodeTransfer(0.25, requested.gamma)), 0.75f});
   return true;
 }
+
+bool failedDecodeRetainsDocument() {
+  Files files; const auto a = files.path("a.nef"), failed = files.path("failed.nef");
+  const std::string oldColours = R"("color":{"rawWorking":{"colorSpace":"aces-ap1","gamma":"srgb"},"output":{"colorSpace":"aces-ap0","gamma":"linear"}})";
+  write(inputSidecarPath(a), file(missing + ',' + exposure + ',' + source, "gain",
+      R"(,"positions":{"unavailable":{"x":-12.5,"y":8.25},"gain":{"x":1,"y":2}})", "", oldColours));
+  // Different graph, endpoints, positions and both colour pairs are staged for
+  // the failing photo. Publishing any of them before decoding must be caught.
+  write(inputSidecarPath(failed), "{\"format\":\"rawnode\",\"version\":1,\"grade\":{" + colors +
+      R"(,"graph":{"primarySource":"incoming-source","documentOutput":{"node":"incoming-source","port":"image"},"nodes":[{"id":"incoming-source","kind":"source"}]}}})");
+  Options options; options.decode = syntheticRaw;
+  App app; app.previewRes = 0;
+  CHECK(document_detail::openPhoto(app, a, {}, options));
+  app.renderer.start(); CHECK(idle(app));
+  const auto grade = capturedGrade(app), path = app.path;
+  const auto input = app.inputEncoding, raw = app.photoRawWorkingEncoding, output = app.outputEncoding;
+  const auto rawDefault = app.rawWorkingEncoding, outputDefault = app.defaultOutputEncoding;
+  const auto full = app.full, previewPixels = *app.preview;
+  const auto *fullStorage = app.full.px.data();
+  const auto *processor = findNode(app, NodeId{"gain"})->processor.get();
+  const auto preview = app.preview;
+  CHECK(!document_detail::openPhoto(app, failed, {}, options));
+  CHECK(capturedGrade(app) == grade && app.nodes.size() == 3);
+  CHECK(app.primarySource == NodeId{"camera-root"} && app.documentOutput == (OutputRef{NodeId{"gain"}, ports::image}));
+  CHECK(findNode(app, NodeId{"gain"})->processor.get() == processor && findNode(app, NodeId{"unavailable"})->isMissingProcessor());
+  CHECK(app.path == path && app.inputIsRaw && !app.isPhotoProtected());
+  CHECK(app.inputEncoding == input && app.photoRawWorkingEncoding == raw && app.outputEncoding == output);
+  CHECK(app.rawWorkingEncoding == rawDefault && app.defaultOutputEncoding == outputDefault);
+  CHECK(app.full.w == full.w && app.full.h == full.h && app.full.px == full.px && app.full.px.data() == fullStorage);
+  CHECK(app.preview == preview && app.preview->w == previewPixels.w && app.preview->h == previewPixels.h && app.preview->px == previewPixels.px);
+  CHECK(idle(app) && app.renderer.canEditParameters());
+  CHECK(setNodeParameterValue(app, NodeId{"gain"}, "exposure", -1.0));
+  app.renderer.requestPreview(); CHECK(idle(app) && saveCurrentInputSidecar(app));
+  app.renderer.shutdown();
+  return true;
+}
+
+bool rawControlsAndReplace() {
+  Files files; const auto b = files.path("b.nef");
+  Options options; options.decode = syntheticRaw;
+  App app; app.previewRes = 0;
+  app.rawWorkingEncoding = {RgbGamut::ACES_AP0, TransferFunction::Linear};
+  const auto sessionDefault = app.rawWorkingEncoding;
+  CHECK(document_detail::openPhoto(app, files.path("a.nef"), {}, options));
+  app.renderer.start(); CHECK(idle(app) && app.preview->px[0] == -0.125f);
+  CHECK(document_detail::openPhoto(app, b, {}, options));
+  CHECK(idle(app));
+  // Independent sRGB OETF reference for b.nef's scene-linear red of 0.5.
+  // A 1e-6 tolerance covers float storage and constant-image downsampling.
+  const double encodedRed = 1.055 * std::pow(0.5, 1.0 / 2.4) - 0.055;
+  const ColorEncoding changed{RgbGamut::ACES_AP1, TransferFunction::SRGB};
+  document_detail::setRawWorkingEncoding(app, changed.gamut, changed.gamma, options);
+  CHECK(app.inputEncoding == changed && app.photoRawWorkingEncoding == changed && app.rawWorkingEncoding == sessionDefault);
+  CHECK(std::abs(app.full.px[0] - encodedRed) < 1e-6 && app.full.px[3] == 0.75f);
+  CHECK(idle(app) && std::abs(app.preview->px[0] - encodedRed) < 1e-6);
+  CHECK(saveCurrentInputSidecar(app));
+  auto saved = read(inputSidecarPath(b));
+  CHECK(saved.grade->color.rawColorSpace == "aces-ap1" && saved.grade->color.rawGamma == "srgb");
+  const auto full = app.full.px, previewPixels = app.preview->px;
+  const auto preview = app.preview;
+  Options failed = options;
+  failed.decode = [](const std::string &, Image &out, ColorEncoding &detected, bool &raw, ColorEncoding requested) {
+    out.w = out.h = 1; out.px = {99,99,99,1}; detected = requested; raw = true;
+    return false;
+  };
+  document_detail::setRawWorkingEncoding(app, RgbGamut::Rec709, TransferFunction::Linear, failed);
+  CHECK(app.full.w == 1600 && app.full.h == 2 && app.full.px == full && app.preview == preview && app.preview->px == previewPixels);
+  CHECK(app.inputEncoding == changed && app.photoRawWorkingEncoding == changed && app.rawWorkingEncoding == sessionDefault);
+  CHECK(idle(app) && saveCurrentInputSidecar(app));
+  saved = read(inputSidecarPath(b));
+  CHECK(saved.grade->color.rawColorSpace == "aces-ap1" && saved.grade->color.rawGamma == "srgb");
+
+  // Full-grade Replace is the operation used by legacy grade paste/presets.
+  // Return B to linear first, so Replace has to decode it in the incoming pair.
+  document_detail::setRawWorkingEncoding(app, sessionDefault.gamut, sessionDefault.gamma, options);
+  CHECK(app.full.px[0] == 0.5f && idle(app));
+  PersistChain incoming;
+  PersistNode gain; gain.id = "incoming-gain"; gain.backend = "native";
+  gain.identifier = "rawnode.native.exposure"; gain.paramsJson["exposure"] = "1";
+  incoming.nodes.push_back(gain);
+  const PersistGradeColor colour{"rec2020", "srgb", "display-p3", "srgb"};
+  CHECK(document_detail::applyGrade(app, incoming, colour, options));
+  const ColorEncoding incomingRaw{RgbGamut::Rec2020, TransferFunction::SRGB};
+  CHECK(app.path == b && app.inputEncoding == incomingRaw && app.photoRawWorkingEncoding == incomingRaw);
+  CHECK(app.rawWorkingEncoding == sessionDefault && app.outputEncoding == (ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB}));
+  CHECK(app.nodes.size() == 2 && std::abs(app.full.px[0] - encodedRed) < 1e-6 && idle(app));
+  CHECK(std::abs(app.preview->px[0] - encodedRed) < 1e-6 && app.preview->px[3] == 0.75f);
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.processed.result.state == EvaluationState::Available && app.processed.result.requested == app.documentOutput);
+    const auto result = std::get<ImageValue>(app.processed.result.value);
+    // A.nef's synthetic red is negative: this also catches stale source pixels.
+    CHECK(std::abs(result->px[0] - 2.0 * encodedRed) < 1e-6 && result->px[3] == 0.75f);
+  }
+  CHECK(saveCurrentInputSidecar(app));
+  saved = read(inputSidecarPath(b));
+  CHECK(saved.grade->color.rawColorSpace == "rec2020" && saved.grade->color.rawGamma == "srgb");
+  CHECK(saved.grade->graph.nodes.size() == 2 && saved.grade->graph.documentOutput.nodeId == NodeId{"incoming-gain"});
+  app.renderer.shutdown();
+  return true;
+}
+
 bool twoPhotoColourOwnership() {
   Files files; const auto a = files.path("a.nef"), b = files.path("b.nef");
   const std::string colorA = R"("color":{"rawWorking":{"colorSpace":"rec2020","gamma":"linear"},"output":{"colorSpace":"display-p3","gamma":"srgb"}})";
@@ -375,13 +550,19 @@ bool twoPhotoColourOwnership() {
 
 bool testPhotoDocuments() {
   for (const auto &test : {
+#if defined(__linux__)
+       std::make_pair("Linux dialog exit mapping and safe helper absence", linuxDialogDecisions),
+#endif
        std::make_pair("scan, thumbnails, Source-only and metadata-only initial grades", scanAndInitialGrades),
        std::make_pair("shuffled full graph, off-spine nodes, precision, positions and unchanged saves", restorationAndUnchangedSave),
        std::make_pair("Slots and allocation history through the production open/departure path", slotRestoration),
        std::make_pair("protected views, entry-point refusal, legacy protection and failed source decode", protectionAndDecodeFailure),
        std::make_pair("persistent warnings and Retry/Discard/Cancel before navigation/shutdown", failureDecisions),
+       std::make_pair("folder auto-open after Discard saves and prompts only once", folderDiscardOnlyOnce),
        std::make_pair("same-photo save-before-reload, atomic failures and strict backend UTF-8", samePhotoAndAtomicFailures),
-       std::make_pair("two-photo synthetic RAW colour ownership and coherent full/preview pixels", twoPhotoColourOwnership)}) {
+       std::make_pair("two-photo synthetic RAW colour ownership and coherent full/preview pixels", twoPhotoColourOwnership),
+       std::make_pair("failed decoding retains the full prior document and usable editor", failedDecodeRetainsDocument),
+       std::make_pair("photo RAW controls and full-grade Replace retain defaults and save actual decoding", rawControlsAndReplace)}) {
     if (!test.second()) { std::fprintf(stderr, "photo document group failed: %s\n", test.first); return false; }
     std::printf("ok  Step 7 photo lifecycle: %s\n", test.first);
   }
