@@ -794,7 +794,7 @@ inline void internal::executor::start_process(std::vector<std::string> const &co
         args.push_back(nullptr); // null-terminate argv[]
 
         execvp(args[0], args.data());
-        exit(1);
+        _exit(127);
     }
 
     close(in[1]);

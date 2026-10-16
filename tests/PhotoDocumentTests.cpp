@@ -115,6 +115,11 @@ bool linuxDialogDecisions() {
         fs::permissions(helpers.path("kdialog"), fs::perms::owner_all);
         CHECK(promptSaveFailure("deterministic save failure") == reply.second);
       }
+      pfd::settings::rescan();
+      CHECK(pfd::settings::available() && fs::is_regular_file(helpers.path("kdialog")));
+      // Discovery is cached: a helper disappearing now must never mean No.
+      CHECK(fs::remove(helpers.path("kdialog")));
+      CHECK(promptSaveFailure("helper disappeared after discovery") == Decision::Cancel);
       write(helpers.path("which"), "#!/bin/sh\nexit 1\n");
       pfd::settings::rescan();
       CHECK(!pfd::settings::available());
