@@ -44,6 +44,11 @@ bool decodeGraphFile(const persist_json::Value &root, PersistFile &out, std::str
                      std::vector<std::string> *warnings, bool testOperations);
 bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &error,
                      std::vector<std::string> *warnings, bool testOperations);
+std::string fragmentRecordError(const PersistFragment &fragment, bool testOperations);
+bool encodeTransferPayload(const PersistTransfer &transfer, std::string &json, std::string &error,
+                           bool testOperations);
+bool decodeTransferPayload(const std::string &json, PersistTransfer &out, std::string &error,
+                           bool testOperations);
 // Throws a descriptive error on wrong types or unknown choices.
 ParameterValue parameterValue(const ProcessorParameter &param, const std::string &raw);
 }

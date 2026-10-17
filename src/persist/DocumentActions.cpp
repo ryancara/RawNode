@@ -105,72 +105,103 @@ bool setOutputEncoding(App &app, ColorEncoding encoding) {
   return true;
 }
 
-static bool resolveGradeColor(const PersistGradeColor &color, std::optional<ColorEncoding> &output,
-                              std::optional<ColorEncoding> &raw) {
-  const auto resolve = [](const std::string &gamut, const std::string &gamma,
-                          std::optional<ColorEncoding> &destination) {
-    if (gamut.empty() && gamma.empty()) return true;
-    ColorEncoding encoding;
-    if (gamut.empty() || gamma.empty() || !persistedColorEncoding(gamut, gamma, encoding)) return false;
-    destination = encoding;
-    return true;
-  };
-  return resolve(color.outputColorSpace, color.outputGamma, output) &&
-         resolve(color.rawColorSpace, color.rawGamma, raw);
-}
-
-bool document_detail::applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color,
-                                 const ActionTestOptions &options) {
+bool captureGrade(App &app, PersistGrade &grade) {
   if (!requireEditableGraph(app)) return false;
-  try { (void)captureChain(app); }
-  catch (const std::runtime_error &error) { app.setStatus(error.what()); return false; }
-  std::optional<ColorEncoding> output, raw;
-  if (!resolveGradeColor(color, output, raw)) {
-    app.setStatus("Invalid full-grade colour settings");
-    return false;
-  }
   document_detail::DocumentMutation mutation(app);
   try {
-    auto restored = document_detail::restoreChain(app, chain, true);
-    bool reloadRaw = false;
+    PersistGrade captured;
+    captured.graph = captureGraph({app.nodes, app.primarySource, app.documentOutput});
+    captured.color = captureGradeColor(app);
+    captured.positions = app.nodePositions;
+    std::string json, error;
+    PersistFile file; file.grade = captured;
+    if (!encodeGraphFile(file, json, error) || !decodeGraphFile(json, file, error)) throw std::runtime_error(error);
+    grade = std::move(*file.grade);
+    return true;
+  } catch (const std::exception &failure) {
+    app.setStatus("Could not capture grade: " + std::string(failure.what()));
+    return false;
+  }
+}
+
+bool document_detail::savePreset(App &app, const std::string &path, const OverwritePrompt &confirm,
+                                 const ActionTestOptions &options) {
+  if (!requireEditableGraph(app)) return false;
+  PersistGrade grade;
+  if (!captureGrade(app, grade)) return false;
+  std::string error, json;
+  const auto status = persist_detail::readGraphFileText(path, json, error, options.readFault);
+  if (status == SidecarReadStatus::Error) { app.setStatus(error); return false; }
+  if (status == SidecarReadStatus::Loaded && (!confirm || !confirm(path))) return false;
+  const auto fault = options.beforeSave ? options.beforeSave() : persist_detail::FileFault::None;
+  if (!persist_detail::updateGraphSidecar(path, &grade, PhotoMark::Unmarked, error, fault, options.testOperations)) {
+    app.setStatus("Could not save preset: " + error); return false;
+  }
+  app.setStatus("Saved preset: " + fs::path(path).filename().string());
+  return true;
+}
+bool savePreset(App &app, const std::string &path, const OverwritePrompt &confirm) {
+  return document_detail::savePreset(app, path, confirm, {});
+}
+
+bool document_detail::applyGrade(App &app, const PersistGrade &incoming, const ActionTestOptions &options) {
+  if (!requireEditableGraph(app)) return false;
+  document_detail::DocumentMutation mutation(app);
+  try {
+    // Validate through the shared grade codec before constructing processors;
+    // normalization applies exactly the same position/default rules as opening.
+    PersistFile file; file.grade = incoming;
+    std::string json, error;
+    if (!persist_detail::encodeGraphFile(file, json, error, nullptr, options.testOperations) ||
+        !persist_detail::decodeGraphFile(json, file, error, nullptr, options.testOperations)) throw std::runtime_error(error);
+    auto grade = std::move(*file.grade);
+    ColorEncoding raw, output;
+    if (!colorEncodingFromIds(grade.color.rawColorSpace, grade.color.rawGamma, raw) ||
+        !colorEncodingFromIds(grade.color.outputColorSpace, grade.color.outputGamma, output))
+      throw std::runtime_error("Invalid full-grade colour settings");
+    auto restored = document_detail::restoreGraph(grade.graph);
+    bool reloadRaw;
     {
       std::lock_guard<std::mutex> lock(app.colorMutex);
-      reloadRaw = raw && app.inputIsRaw && app.inputEncoding != *raw;
+      reloadRaw = app.inputIsRaw && app.inputEncoding != raw;
     }
     Image decoded;
     ColorEncoding detected;
     std::shared_ptr<const Image> preview;
     if (reloadRaw) {
       bool decodedRaw = false;
-      if (!options.decode(app.path, decoded, detected, decodedRaw, *raw) || !decodedRaw) {
-        app.setStatus("Could not reload RAW in " + colorEncodingName(*raw));
+      if (!options.decode(app.path, decoded, detected, decodedRaw, raw) || !decodedRaw) {
+        app.setStatus("Could not reload RAW in " + colorEncodingName(raw));
         return false;
       }
       preview = document_detail::makePreviewSource(decoded, detected, app.previewRes);
     }
-    // All decoding, processor creation, parameter restoration and allocation
-    // precede the live replacement. Exclusion also covers old-node destruction.
+    // All fallible work precedes publication. Retired nodes/pixels are destroyed
+    // while this DocumentMutation still excludes preview and full export.
+    app.nodes.swap(restored.nodes);
+    std::swap(app.primarySource, restored.primarySource);
+    std::swap(app.documentOutput, restored.output);
+    app.nodePositions.swap(grade.positions);
+    if (reloadRaw) { app.full.swap(decoded); app.preview.swap(preview); }
     {
       std::lock_guard<std::mutex> lock(app.colorMutex);
-      if (output) app.outputEncoding = *output;
-      if (raw) app.photoRawWorkingEncoding = *raw;
+      app.outputEncoding = output;
+      app.photoRawWorkingEncoding = raw;
       if (reloadRaw) app.inputEncoding = detected;
     }
-    if (reloadRaw) {
-      app.full = std::move(decoded);
-      app.preview = std::move(preview);
-    }
-    document_detail::replaceChain(app, std::move(restored));
+    selectNode(app, std::nullopt);
+    app.paramFilter[0] = '\0';
+    app.renderer.resetInspection();
     mutation.changed();
     return true;
-  } catch (const std::exception &error) {
-    app.setStatus("Could not apply full grade: " + std::string(error.what()));
+  } catch (const std::exception &failure) {
+    app.setStatus("Could not apply full grade: " + std::string(failure.what()));
     return false;
   }
 }
 
-bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color) {
-  return document_detail::applyGrade(app, chain, color, {});
+bool applyGrade(App &app, const PersistGrade &grade) {
+  return document_detail::applyGrade(app, grade, {});
 }
 
 PersistGui captureGui(const App &app) {

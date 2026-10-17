@@ -272,18 +272,14 @@ static bool testLegacySelectionAndTransfers() {
   std::reverse(app.nodes.begin(), app.nodes.end());
   const auto captured = captureChain(app);
   CHECK(captured.selectedNodeId == "second" && captured.nodes.front().id == "second");
-  PersistNode node; CHECK(captureNode(app, *app.selectedNodeId, node) && node.id == "second");
-  PersistChain transfer; transfer.nodes = {node}; transfer.selectedNodeId = node.id;
-  std::string kind; PersistChain decoded;
-  CHECK(parseTransferPayload(serializeTransferPayload("node", transfer), kind, decoded) && kind == "node");
-  CHECK(appendPersistedNode(app, decoded.nodes.front(), app.selectedNodeId));
+  std::vector<std::string> warnings;
+  const auto fragment = captureFragment(app, {*app.selectedNodeId}, warnings);
+  std::string json, error; PersistTransfer decoded;
+  CHECK(encodeTransferPayload(fragment, json, error) && decodeTransferPayload(json, decoded, error));
+  CHECK(pasteFragment(app, std::get<PersistFragment>(decoded), app.selectedNodeId));
   const NodeId pasted = *app.selectedNodeId;
   CHECK(pasted != NodeId{"second"} && exposure(selectedNode(app)) == -2.0);
   CHECK(findNode(app, pasted)->fixedInputs.at(ports::image) == image(NodeId{"second"}));
-  CHECK(savePresetFile(files.path("node.rawnodepreset"), "node", transfer));
-  CHECK(loadPresetFile(files.path("node.rawnodepreset"), kind, decoded));
-  CHECK(appendPersistedNode(app, decoded.nodes.front(), app.selectedNodeId));
-  CHECK(*app.selectedNodeId != pasted && exposure(selectedNode(app)) == -2.0);
   chain.selectedNodeId = "missing"; chain.selectedNode = 1;
   applyChain(app, chain); CHECK(app.selectedNodeId == NodeId{"second"}); // Legacy ordinal fallback.
   chain.selectedNode = 99;
@@ -343,7 +339,7 @@ bool testNodeList() {
       {"6E.1 topology List View keeps off-spine nodes visible, selectable and removable", testProjectionAndOtherNodes},
       {"6E.1 incomplete/non-unary List View retains nodes without guessed rewiring", testIncompleteAndNonUnaryProjection},
       {"6E.1 unsupported/cyclic UI reorders and graph edits preserve topology", testRejectedTopologyEdits},
-      {"6E.1 V1/V2 selection compatibility and NodeId-addressed copy/paste/presets", testLegacySelectionAndTransfers},
+      {"6E.1 historical V1/V2 selection and graph-native fragment paste by NodeId", testLegacySelectionAndTransfers},
       {"6E.1 photo/document replacement resets old selection and inspection", testPhotoAndDocumentReplacement},
   };
   for (const auto &test : cases) {

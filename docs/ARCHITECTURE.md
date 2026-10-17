@@ -279,11 +279,13 @@ Live photo capture/restoration preserves every stored graph node, connection,
 endpoint, Slot allocator and optional position through the shared strict codec.
 Opening stages source/graph/colours/preview before publication. Checked grade saves
 run at editable open and document boundaries, independently of render demand.
-Remaining legacy clipboard/preset capture requires a complete linear spine of
-ordinary Image processors, refusing unsupported topology or layout before writing.
-Full-grade application prepares incoming nodes,
-colour state and any required RAW decode/preview before live replacement;
-selection/filter and inspection state are reset even when NodeIds are reused.
+Sidecars, presets and clipboard grades share that codec. Full-grade Replace
+prepares incoming nodes, both colour pairs and any required RAW decode/preview
+before replacement; selection/filter and inspection reset even when IDs are reused.
+Linear Append and fragment Paste construct detached nodes, remap IDs/positions and
+commit one StagedEdit batch. Only the chosen main-spine successor or Output changes;
+unrelated branches remain. Fragment capture retains internal links independently
+of attachment eligibility and detaches external inputs without matching foreign IDs.
 
 Accepted transition limitations:
 
@@ -295,8 +297,8 @@ Accepted transition limitations:
   bindings, ID high-water marks and every future SlotSettings field.
 - Arbitrary-graph editing still needs a suitable UX for disconnected required
   dependencies. The current List View exposes nodes without guessing repairs.
-- Legacy clipboard/preset replacement and global-preferences retirement remain
-  Step 7 work; live photo sidecars already use checked atomic replacement.
+- Global-preferences retirement remains Step 7 PR 5 work; photo sidecars and
+  presets already use checked atomic replacement.
 
 ## Control-thread contract
 
@@ -524,9 +526,9 @@ The graph-native format must preserve at least:
 - external asset references where relevant;
 - safe copy/paste ID remapping.
 
-Remaining legacy clipboard/preset paths that cannot represent the current graph
-must refuse or be disabled until their replacement. It must never silently flatten
-explicit topology into V2 list order.
+Presets and clipboard now use the same graph-native records and strict codec.
+Incompatible attachments refuse without mutating the destination or clipboard;
+explicit topology is never flattened into V2 list order.
 
 ## Deliberately deferred complexity
 

@@ -101,6 +101,7 @@ add_executable(OfxRawHost
   tests/GraphPersistenceTests.cpp
   tests/SidecarFileTests.cpp
   tests/PhotoDocumentTests.cpp
+  tests/PresetClipboardTests.cpp
   tests/GraphCommandsTests.cpp
   tests/GraphEvaluatorTests.cpp
   tests/GraphRuntimeTests.cpp

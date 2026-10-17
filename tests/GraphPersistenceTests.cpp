@@ -103,16 +103,7 @@ bool v2ByteStrings() {
   CHECK(sidecar.version == 2 && preservesBytes(sidecar.chain));
   std::filesystem::remove(inputSidecarPath(path.string()));
 
-  std::string kind;
-  PersistChain loaded;
-  CHECK(parseTransferPayload(serializeTransferPayload("node", chain), kind, loaded));
-  CHECK(kind == "node" && preservesBytes(loaded));
-  const auto preset = std::filesystem::temp_directory_path() / "rawnode-selftest-v2-bytes.rawnode.json";
-  CHECK(savePresetFile(preset.string(), "node", chain));
-  CHECK(loadPresetFile(preset.string(), kind, loaded));
-  CHECK(kind == "node" && preservesBytes(loaded));
-  std::filesystem::remove(preset);
-  std::puts("ok  V2 sidecar/clipboard/preset writer-reader preserves non-UTF-8 bytes");
+  std::puts("ok  Historical V2 sidecar writer-reader preserves non-UTF-8 bytes");
   return true;
 }
 // Toy arithmetic uses the existing evaluator's test-only interfaces. This

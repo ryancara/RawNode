@@ -17,9 +17,43 @@ Windows atomic writes remain explicitly unsupported. Backend identities, paths
 and parameter strings must be valid UTF-8 to save: invalid bytes cause a useful
 error, preserving live state and original files rather than converting values.
 
-The remaining sections document historical V1/V2 formats and retained helper
-APIs. The live editor does not migrate or overwrite historical sidecars. Legacy
-preset/clipboard and workspace-preference retirement remains PRs 4–5.
+## Presets and clipboard
+
+**Save Preset** writes the complete editable grade to `.rawnode.json`, including
+Source-only and branched graphs, RAW/Output colour pairs and optional positions.
+New presets omit photo metadata. A confirmed overwrite validates the existing
+file, retains its metadata and atomically replaces only the grade. Confirmation
+never permits overwriting an unsupported/protected file.
+
+**Load Preset → Replace** stages the complete graph, preserves incoming NodeIds,
+binds Source to the current photo and applies both colour pairs. Required RAW
+re-decoding and preview preparation complete before publication. Incoming positions
+replace the old arrangement; absent positions clear it. Destination metadata and
+session defaults stay unchanged. Failure keeps the original document available.
+
+**Load Preset → Append** accepts a complete ordinary linear ImageProcessor grade.
+It inserts after the selected main-spine node, or at document Output without a
+selection, allocating fresh IDs and remapping connections/positions in one staged
+splice. Eligible branched destinations retain every unrelated consumer/branch,
+colour pair, metadata and existing position. Source-only Append does nothing.
+Branched incoming attachment and stale/off-spine selections are refused atomically;
+no implicit colour conversions or automatic position offsets are introduced.
+
+Copy Node/Paste and Copy Full Grade/Paste remain separate editing operations.
+Clipboard JSON uses `format: "rawnode-transfer"`, `version: 2`: `kind: "grade"`
+wraps the shared `grade` object; `kind: "fragment"` carries shared `nodes` and
+optional `positions`. Fragments preserve supported internal connections, processor
+state and Slot identities/order/settings/allocation, excluding Source and transient
+group expansion. External inputs detach; omitted external Mask/Reference inputs
+are reported during copy. Copy eligibility is independent of paste eligibility.
+Initially only ordinary linear fragments attach through the same batch splice as
+Append. Refusal changes neither the document nor clipboard.
+
+Copy Grade, Save Preset and application refuse protected source views. Clipboard
+version 1, `rawnode-preset` and `.rawnodepreset` are retired without readers or
+migration; existing files are not deleted. Historical V1/V2 sidecar helpers below
+remain for legacy tests until the separate PR 5 retirement of folder preferences.
+
 
 ## Principles
 

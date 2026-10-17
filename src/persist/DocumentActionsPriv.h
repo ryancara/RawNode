@@ -15,7 +15,9 @@ struct ActionTestOptions {
 };
 void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma,
                            const ActionTestOptions &options);
-bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color,
+bool applyGrade(App &app, const PersistGrade &grade,
+                const ActionTestOptions &options);
+bool savePreset(App &app, const std::string &path, const OverwritePrompt &confirm,
                 const ActionTestOptions &options);
 bool savePhoto(App &app, std::string &error, const ActionTestOptions &options);
 bool leavePhoto(App &app, const SaveFailurePrompt &prompt, const ActionTestOptions &options);

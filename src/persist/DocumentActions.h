@@ -13,7 +13,12 @@ void applyGui(App &app, const PersistGui &g);
 PersistGradeColor captureGradeColor(const App &app);
 // Clipboard/preset grade replacement: prepare all nodes and colour/source
 // changes before committing. Failure leaves the current document intact.
-bool applyGrade(App &app, const PersistChain &chain, const PersistGradeColor &color);
+bool applyGrade(App &app, const PersistGrade &grade);
+// Complete capture also supports editable Source-only grades. Owns execution
+// exclusion while reading processor parameters, and excludes photo metadata.
+bool captureGrade(App &app, PersistGrade &grade);
+using OverwritePrompt = std::function<bool(const std::string &path)>;
+bool savePreset(App &app, const std::string &path, const OverwritePrompt &confirm = {});
 enum class SaveFailureDecision { Retry, Discard, Cancel };
 using SaveFailurePrompt = std::function<SaveFailureDecision(const std::string &error)>;
 bool saveCurrentInputSidecar(App &app, std::string *error = nullptr);

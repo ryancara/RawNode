@@ -274,8 +274,8 @@ bool protectionAndDecodeFailure() {
     CHECK(app.inputEncoding == input && app.outputEncoding == output && !app.renderer.canEditParameters());
     CHECK(!setNodeParameterValue(app, app.primarySource, "exposure", 1.0));
     CHECK(!resetNodeParameter(app, app.primarySource, "exposure") && !activateNodeParameter(app, app.primarySource, "button"));
-    CHECK(!pasteFromClipboard(app) && !copyGrade(app) && !saveGradePreset(app, files.path("forbidden.rawnodepreset")));
-    CHECK(!applyGrade(app, {}, {}) && !appendPersistedNode(app, PersistNode{}));
+    CHECK(!pasteFromClipboard(app) && !copyGrade(app) && !savePreset(app, files.path("forbidden.rawnode.json")));
+    CHECK(!applyGrade(app, {}) && !appendPersistedNode(app, PersistNode{}));
     clearNodes(app); applyChain(app, {}); setNodeEnabled(app, app.primarySource, false);
     CHECK(!saveCurrentInputSidecar(app) && preparePhotoDeparture(app));
     app.setStatus("Ordinary render/export status");
@@ -486,16 +486,22 @@ bool rawControlsAndReplace() {
   saved = read(inputSidecarPath(b));
   CHECK(saved.grade->color.rawColorSpace == "aces-ap1" && saved.grade->color.rawGamma == "srgb");
 
-  // Full-grade Replace is the operation used by legacy grade paste/presets.
+  // Full-grade Replace is the operation used by grade paste/presets.
   // Return B to linear first, so Replace has to decode it in the incoming pair.
   document_detail::setRawWorkingEncoding(app, sessionDefault.gamut, sessionDefault.gamma, options);
   CHECK(app.full.px[0] == 0.5f && idle(app));
-  PersistChain incoming;
+  PersistGrade incoming;
+  incoming.graph.primarySource = NodeId{"incoming-source"};
+  PersistNode root; root.id = "incoming-source"; root.operation = NodeOperation::Source;
+  incoming.graph.nodes.push_back(root);
   PersistNode gain; gain.id = "incoming-gain"; gain.backend = "native";
   gain.identifier = "rawnode.native.exposure"; gain.paramsJson["exposure"] = "1";
-  incoming.nodes.push_back(gain);
+  gain.inputs[ports::image] = OutputRef{incoming.graph.primarySource, ports::image};
+  incoming.graph.nodes.push_back(gain);
+  incoming.graph.documentOutput = {NodeId{gain.id}, ports::image};
   const PersistGradeColor colour{"rec2020", "srgb", "display-p3", "srgb"};
-  CHECK(document_detail::applyGrade(app, incoming, colour, options));
+  incoming.color = colour;
+  CHECK(document_detail::applyGrade(app, incoming, options));
   const ColorEncoding incomingRaw{RgbGamut::Rec2020, TransferFunction::SRGB};
   CHECK(app.path == b && app.inputEncoding == incomingRaw && app.photoRawWorkingEncoding == incomingRaw);
   CHECK(app.rawWorkingEncoding == sessionDefault && app.outputEncoding == (ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB}));
