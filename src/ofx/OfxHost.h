@@ -49,7 +49,6 @@ struct Effect;
 struct Clip {
   std::string name;
   PropSet props;
-  PropSet imgProps;  // reusable buffer for clipGetImage (avoids new/delete per request)
   Effect *owner = nullptr;
 };
 struct Effect {
