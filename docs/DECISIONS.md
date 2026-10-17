@@ -392,8 +392,7 @@ Step 7 may replace V2 with a graph-native versioned format. Until then, any
 save/autosave/clipboard/preset path that cannot represent the Step 6 graph must
 refuse or be disabled rather than silently flattening topology.
 
-V2 source sidecars are now historical and protected without migration. Legacy
-clipboard/preset capture remains guarded until its graph-native replacement.
+V2 source sidecars are now historical and protected without migration. Clipboard/presets use the graph-native codec; legacy transfer readers are retired.
 
 ## D046 — Step 6 List View is a topology view, not execution order
 

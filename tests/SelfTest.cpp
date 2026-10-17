@@ -4,6 +4,7 @@
 #include "GraphPersistenceTests.h"
 #include "SidecarFileTests.h"
 #include "PhotoDocumentTests.h"
+#include "PresetClipboardTests.h"
 #include "GraphCommandsTests.h"
 #include "GraphEvaluatorTests.h"
 #include "GraphRuntimeTests.h"
@@ -1304,7 +1305,7 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       if (!appendPersistedNode(app, pasted, app.nodes[1].id) || app.nodes.size() != 4 ||
           app.selectedNodeId != app.nodes[3].id || app.nodes[3].id.value == exposure.id || app.nodes[2].id.value != "cst" ||
           captureChain(app).nodes[1].paramsJson.at("unknown") != pasted.paramsJson.at("unknown") ||
-          !app.nodes[3].groupOpen.at("group")) return false;
+          !app.nodes[3].groupOpen.empty()) return false;
       if (edit == GraphEditCase::AppendMissing) {
         if (app.nodes[3].processor || app.nodes[3].enabled) return false;
       } else {
@@ -1471,16 +1472,16 @@ static bool testReusedNodeIdGradePaste() {
       !cst.setParameterValue("output_space", (int)RgbGamut::Rec709) ||
       !cst.setParameterValue("output_gamma", (int)TransferFunction::SRGB) ||
       !addNativeExposureNode(incoming) || !selectedNode(incoming)->processor->setParameterValue("exposure", 1.0)) return false;
-  PersistChain grade = captureChain(incoming);
-  grade.nodes[0].id = shared.value;
-  grade.nodes[1].id = "grade-output";
-  grade.selectedNodeId = shared.value;
-  const auto color = captureGradeColor(incoming);
-  clipboard.text = serializeTransferPayload("grade", grade, &color);
-  if (!pasteFromClipboard(app) || !previewIdle(app)) return false;
-  const Node *replacement = selectedNode(app);
-  if (app.selectedNodeId != shared || !replacement || replacement != findNode(app, shared) ||
-      !replacement->processor || replacement->processor.get() == previousProcessor ||
+  incoming.nodes[1].id = shared;
+  incoming.nodes[2].id = NodeId{"grade-output"};
+  incoming.nodes[2].fixedInputs.at(ports::image) = OutputRef{shared, ports::image};
+  incoming.documentOutput = {incoming.nodes[2].id, ports::image};
+  PersistGrade grade;
+  if (!captureGrade(incoming, grade)) return false;
+  std::string error;
+  if (!encodeTransferPayload(grade, clipboard.text, error) || !pasteFromClipboard(app) || !previewIdle(app)) return false;
+  const Node *replacement = findNode(app, shared);
+  if (app.selectedNodeId || !replacement || !replacement->processor || replacement->processor.get() == previousProcessor ||
       replacement->processor->identifier() != NativeCstProcessor::kIdentifier ||
       app.paramFilter[0] != '\0' || app.nodes.size() != 3 ||
       app.documentOutput != OutputRef{NodeId{"grade-output"}, ports::image}) return false;
@@ -1499,47 +1500,18 @@ static bool testReusedNodeIdGradePaste() {
 static bool testCaptureRefusalPreservesDestinations() {
   TestClipboard clipboard;
   ExportTestFiles files;
-  const auto read = [](const std::string &path) {
-    std::ifstream input(path, std::ios::binary);
-    return std::string(std::istreambuf_iterator<char>(input), {});
-  };
-  for (int structure = 0; structure < 4; ++structure) {
+  for (auto operation : {NodeOperation::TestSlotted, NodeOperation::TestImage}) {
     App app; graphPreviewSource(app);
-    if (!addNativeExposureNode(app)) return false;
-    const auto selected = *app.selectedNodeId;
-    app.path = (files.dir / "source.nef").string();
-    const auto nodePreset = (files.dir / "node.rawnodepreset").string();
-    const auto gradePreset = (files.dir / "grade.rawnodepreset").string();
-    if (!copySelectedNode(app) || !copyGrade(app) || clipboard.text.empty() ||
-        !saveNodePreset(app, nodePreset) || !saveGradePreset(app, gradePreset)) return false;
-    saveCurrentInputSidecar(app);
-    const auto sidecar = inputSidecarPath(app.path);
-    const auto originalSidecar = read(sidecar), originalNode = read(nodePreset), originalGrade = read(gradePreset);
+    if (!addNativeExposureNode(app) || !copySelectedNode(app)) return false;
     const auto originalClipboard = clipboard.text;
-    if (originalSidecar.empty() || originalNode.empty() || originalGrade.empty()) return false;
-    if (structure == 0) {
-      Node branch; branch.id = NodeId{"branch"};
-      branch.storedBackend = "ofx"; branch.storedIdentifier = "missing.branch";
-      branch.fixedInputs.at(ports::image) = OutputRef{selected, ports::image};
-      if (!graph::addNode(app, std::move(branch)).ok()) return false;
-    } else if (structure == 1) {
-      if (!graph::disconnect(app, {selected, std::nullopt, ports::image}).ok()) return false;
-    } else {
-      Node unsupported(structure == 2 ? NodeOperation::TestSlotted : NodeOperation::TestImage);
-      unsupported.id = NodeId{"unsupported"};
-      unsupported.fixedInputs.at(structure == 2 ? ports::reference : ports::image) = OutputRef{selected, ports::image};
-      if (!graph::addNode(app, std::move(unsupported)).ok() ||
-          !graph::setDocumentOutput(app, {NodeId{"unsupported"}, ports::image}).ok()) return false;
-    }
-    PersistNode untouched; untouched.id = "sentinel";
-    if (captureNode(app, selected, untouched) || untouched.id != "sentinel" ||
-        copySelectedNode(app) || copyGrade(app) || saveNodePreset(app, nodePreset) ||
-        saveGradePreset(app, gradePreset)) return false;
-    const bool savedGraph = saveCurrentInputSidecar(app);
-    if ((structure < 2 ? !savedGraph : savedGraph) ||
-        (structure >= 2 && read(sidecar) != originalSidecar) || read(nodePreset) != originalNode || read(gradePreset) != originalGrade ||
-        clipboard.text != originalClipboard || app.selectedNodeId != selected || !documentStateError(app).empty())
-      return false;
+    Node unsupported(operation); unsupported.id = NodeId{"unsupported"};
+    if (!graph::addNode(app, std::move(unsupported)).ok() || !selectNode(app, NodeId{"unsupported"})) return false;
+    const auto path = (files.dir / "protected.rawnode.json").string();
+    { std::ofstream file(path); file << "original bytes"; }
+    if (copySelectedNode(app) || copyGrade(app) || savePreset(app, path, [](const auto &) { return true; }) ||
+        clipboard.text != originalClipboard) return false;
+    std::ifstream file(path);
+    if (std::string(std::istreambuf_iterator<char>(file), {}) != "original bytes") return false;
   }
   return true;
 }
@@ -1554,8 +1526,10 @@ static bool testFailedTransferApplication() {
   ExportTestFiles files;
   App app; graphPreviewSource(app);
   if (!addNativeExposureNode(app) || !selectedNode(app)->processor->setParameterValue("exposure", 1.0)) return false;
-  const auto original = captureChain(app);
-  const auto originalPayload = serializeTransferPayload("grade", original);
+  PersistGrade original;
+  if (!captureGrade(app, original)) return false;
+  std::string originalPayload, error;
+  if (!encodeTransferPayload(original, originalPayload, error)) return false;
   const auto id = *app.selectedNodeId;
   const auto *processor = selectedNode(app)->processor.get();
   const auto preview = app.preview;
@@ -1566,58 +1540,63 @@ static bool testFailedTransferApplication() {
   PreviewWorkerGuard guard{app}; app.renderer.start();
   if (!previewIdle(app)) return false;
   const auto unchanged = [&] {
+    PersistGrade current; std::string payload;
     if (!previewIdle(app) || !selectedNode(app) || selectedNode(app)->processor.get() != processor || app.selectedNodeId != id ||
         app.paramFilter[0] != 'e' || app.preview != preview || app.full.px != full.px ||
         app.full.w != full.w || app.full.h != full.h || app.inputEncoding != input || app.outputEncoding != output ||
         app.rawWorkingEncoding != rawDefault || app.nodes.size() != 2 || app.documentOutput != OutputRef{id, ports::image} ||
-        serializeTransferPayload("grade", captureChain(app)) != originalPayload) return false;
+        !captureGrade(app, current) || !encodeTransferPayload(current, payload, error) || payload != originalPayload) return false;
     std::lock_guard<std::mutex> lock(app.displayMutex);
     return app.processed.result.requested == OutputRef{id, ports::image} &&
            app.processed.result.state == EvaluationState::Available && testDisplay(app).px[0] == 0.25f;
   };
-  // Until PR 4 retires the V2 clipboard, an unknown stable choice must
-  // refuse before insertion/replacement instead of creating an unsaveable grade.
   PersistNode futureChoice; futureChoice.id = "future-choice";
   futureChoice.backend = "native"; futureChoice.identifier = NativeCstProcessor::kIdentifier;
   futureChoice.paramsJson["input_space"] = "\"future-gamut\"";
-  PersistChain incompatible; incompatible.nodes.push_back(futureChoice);
-  clipboard.text = serializeTransferPayload("node", incompatible);
+  futureChoice.inputs.emplace(ports::image, std::nullopt);
+  if (!encodeTransferPayload(PersistFragment{{futureChoice}, {}}, clipboard.text, error)) return false;
   const auto unsupportedClipboard = clipboard.text;
   if (pasteFromClipboard(app) || !unchanged() || clipboard.text != unsupportedClipboard) return false;
-  clipboard.text = serializeTransferPayload("grade", incompatible);
-  if (pasteFromClipboard(app) || !unchanged()) return false;
-  if (appendPersistedNode(app, futureChoice, id) || !unchanged()) return false;
+  PersistGrade incompatible = original;
+  incompatible.graph.nodes[1] = futureChoice;
+  incompatible.graph.nodes[1].inputs.at(ports::image) = OutputRef{incompatible.graph.primarySource, ports::image};
+  incompatible.graph.documentOutput = {NodeId{futureChoice.id}, ports::image};
+  if (!encodeTransferPayload(incompatible, clipboard.text, error) || pasteFromClipboard(app) || !unchanged()) return false;
 
-  PersistChain replacement = original;
-  replacement.nodes[0].id = "replacement";
-  replacement.nodes[0].paramsJson["exposure"] = "4";
-  PersistNode throws; throws.backend = "ofx"; throws.identifier = fixture.plugin.pluginIdentifier;
-  replacement.nodes.push_back(throws);
-  PersistGradeColor color;
-  color.outputColorSpace = rgbGamutId(RgbGamut::ACES_AP1);
-  color.outputGamma = transferFunctionId(TransferFunction::Linear);
-  clipboard.text = serializeTransferPayload("grade", replacement, &color);
+  PersistGrade replacement = original;
+  replacement.graph.nodes[1].id = "replacement";
+  replacement.graph.nodes[1].paramsJson["exposure"] = "4";
+  PersistNode throws; throws.id = "throws"; throws.backend = "ofx"; throws.identifier = fixture.plugin.pluginIdentifier;
+  throws.inputs[ports::image] = OutputRef{NodeId{"replacement"}, ports::image};
+  replacement.graph.nodes.push_back(throws);
+  replacement.graph.documentOutput = {NodeId{"throws"}, ports::image};
+  replacement.color.outputColorSpace = "aces-ap1";
+  replacement.color.outputGamma = "linear";
+  if (!encodeTransferPayload(replacement, clipboard.text, error)) return false;
   const auto clipboardBefore = clipboard.text;
   if (pasteFromClipboard(app) || !unchanged() || clipboard.text != clipboardBefore) return false;
-  const auto path = (files.dir / "throwing.rawnodepreset").string();
-  if (!savePresetFile(path, "grade", replacement, &color)) return false;
-  std::string kind; PersistChain loaded; PersistGradeColor loadedColor;
-  if (!loadPresetFile(path, kind, loaded, &loadedColor) || kind != "grade" ||
-      applyGrade(app, loaded, loadedColor) || !unchanged()) return false;
-  clipboard.text = serializeTransferPayload("node", PersistChain{"", -1, {throws}});
-  if (pasteFromClipboard(app) || !unchanged() || appendPersistedNode(app, throws, id) || !unchanged()) return false;
-  replacement.nodes.pop_back();
-  color.outputGamma = "unknown";
-  if (applyGrade(app, replacement, color) || !unchanged()) return false;
-  color.outputGamma = transferFunctionId(TransferFunction::Linear);
-  color.rawColorSpace = rgbGamutId(RgbGamut::ACES_AP1);
-  color.rawGamma = transferFunctionId(TransferFunction::Linear);
+  const auto path = (files.dir / "throwing.rawnode.json").string();
+  if (!updateSidecarGrade(path, replacement, error)) return false;
+  PersistGrade loaded;
+  if (!loadPresetFile(path, loaded, error) || applyGrade(app, loaded) || !unchanged()) return false;
+  // A later processor fails after the first has been constructed: the batch
+  // must remain wholly detached for both preset Append and fragment Paste.
+  if (appendGrade(app, replacement, id) || !unchanged()) return false;
+  auto fragment = PersistFragment{{replacement.graph.nodes[1], throws}, {}};
+  fragment.nodes[0].inputs.at(ports::image).reset();
+  if (!encodeTransferPayload(fragment, clipboard.text, error) || pasteFromClipboard(app) || !unchanged()) return false;
+  replacement.graph.nodes.pop_back();
+  replacement.graph.documentOutput = {NodeId{"replacement"}, ports::image};
+  replacement.color.outputGamma = "unknown";
+  if (applyGrade(app, replacement) || !unchanged()) return false;
+  replacement.color.outputGamma = "linear";
+  replacement.color.rawColorSpace = "aces-ap1";
+  replacement.color.rawGamma = "linear";
   app.inputIsRaw = true;
   app.path = (files.dir / "missing.nef").string();
-  if (applyGrade(app, replacement, color) || !unchanged() || !app.inputIsRaw) return false;
-  // Recovery proves the successful shared clipboard/preset application path.
+  if (applyGrade(app, replacement) || !unchanged() || !app.inputIsRaw) return false;
   app.inputIsRaw = false;
-  if (!applyGrade(app, replacement, color) || !previewIdle(app) || app.nodes.size() != 2 ||
+  if (!applyGrade(app, replacement) || !previewIdle(app) || app.nodes.size() != 2 ||
       app.nodes[1].id.value != "replacement" || app.outputEncoding != ColorEncoding{RgbGamut::ACES_AP1, TransferFunction::Linear} ||
       app.paramFilter[0] != '\0') return false;
   std::lock_guard<std::mutex> lock(app.displayMutex);
@@ -1853,9 +1832,11 @@ static bool testFailedDocumentEdit(FailedDocumentEdit edit, bool pending = true,
       color.rawGamma = transferFunctionId(requested.gamma);
       color.outputColorSpace = "display-p3";
       color.outputGamma = "srgb";
-      PersistChain grade = captureChain(app);
-      grade.nodes.front().paramsJson["exposure"] = "4";
-      if (applyGrade(app, grade, color)) return false;
+      PersistGrade grade;
+      grade.graph = captureGraph({app.nodes, app.primarySource, app.documentOutput});
+      grade.graph.nodes[1].paramsJson["exposure"] = "4";
+      grade.color = color;
+      if (applyGrade(app, grade)) return false;
       error = "Could not reload RAW in " + colorEncodingName(requested);
       break;
     }
@@ -1907,7 +1888,7 @@ static bool testUnavailableProcessorRestore(bool append, bool ctl) {
       app.nodes[restored].enabled || (app.nodes[restored].id.value == missing.id) == append ||
       app.nodes[restored].storedBackend != missing.backend ||
       captureChain(app).nodes[1].paramsJson.at("opaque") != missing.paramsJson.at("opaque") ||
-      !app.nodes[restored].groupOpen.at("group")) return false;
+      (append ? !app.nodes[restored].groupOpen.empty() : !app.nodes[restored].groupOpen.at("group"))) return false;
   return finishGraphPreview(app, before, 0.25f);
 }
 
@@ -2079,6 +2060,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 int runSelfTests() {
+  if (!testPresetsAndClipboard()) return fail("Step 7 presets and clipboard");
   if (!testPhotoDocuments()) return fail("Step 7 photo lifecycle");
   if (!testSidecarFiles()) return fail("Step 7 safe sidecar files");
   if (!testGraphPersistence()) return fail("Step 7 graph persistence");
@@ -2090,7 +2072,7 @@ int runSelfTests() {
   printf("ok  6F T2 real full-grade paste replaces a selected processor with the same NodeId\n");
   if (!testNodeList()) return fail("Step 6E.1 List View and NodeId selection");
   if (!testCaptureRefusalPreservesDestinations()) return fail("6E.2 unsupported capture must preserve sidecar, presets and clipboard");
-  printf("ok  6E.2 unsupported graph capture preserves sidecar, preset files and real UI clipboard\n");
+  printf("ok  6E.2 unsupported capture preserves preset files and real UI clipboard\n");
   if (!testFailedTransferApplication()) return fail("6E.2 failed clipboard/preset application must preserve graph, colour and inspection");
   printf("ok  6E.2 failed clipboard/preset application preserves document and colour settings; recovery succeeds\n");
 #if !defined(NDEBUG) && !defined(_WIN32)
@@ -2710,261 +2692,6 @@ int runSelfTests() {
       if (!testPreviewAfterExport(ExportPreviewWork::Pending, ending))
         return fail("preview after export cancellation/mutation/shutdown");
     printf("ok  Preview restoration and parameter editability after export (7 deterministic cases)\n");
-  }
-
-  {
-    // Copy/paste uses a versioned transfer payload built from the same
-    // PersistNode/Sidecar V2 representation as normal project persistence.
-    App copyApp;
-    if (!addNativeExposureNode(copyApp) || copyApp.nodes.size() != 2 ||
-        !copyApp.nodes[1].processor ||
-        !copyApp.nodes[1].processor->setParameterValue("exposure", 2.25))
-      return fail("node copy setup");
-    copyApp.nodes[1].enabled = false;
-
-    PersistNode copied;
-    if (!captureNode(copyApp, copyApp.nodes[1].id, copied) ||
-        copied.backend != "native" ||
-        copied.identifier != NativeExposureProcessor::kIdentifier ||
-        copied.paramsJson.at("exposure") != "2.25")
-      return fail("node copy capture");
-
-    PersistChain transfer;
-    transfer.selectedNodeId = copied.id;
-    transfer.nodes.push_back(copied);
-    const std::string payload = serializeTransferPayload("node", transfer);
-
-    std::string transferKind;
-    PersistChain decoded;
-    if (!parseTransferPayload(payload, transferKind, decoded) ||
-        transferKind != "node" || decoded.nodes.size() != 1 ||
-        decoded.nodes[0].paramsJson.at("exposure") != "2.25")
-      return fail("node copy transfer payload");
-
-    const std::string originalId = copyApp.nodes[1].id.value;
-    if (!appendPersistedNode(copyApp, decoded.nodes[0], copyApp.nodes[1].id) ||
-        copyApp.nodes.size() != 3 || copyApp.selectedNodeId != copyApp.nodes[2].id ||
-        copyApp.nodes[2].id.value == originalId ||
-        copyApp.nodes[2].enabled ||
-        !copyApp.nodes[2].processor ||
-        copyApp.nodes[2].processor->identifier() != NativeExposureProcessor::kIdentifier)
-      return fail("node paste restore");
-
-    bool exposureRestored = false;
-    for (const ProcessorParameter &param : copyApp.nodes[2].processor->parameters()) {
-      if (param.id == "exposure") {
-        const double *value = std::get_if<double>(&param.value);
-        exposureRestored = value && *value == 2.25;
-      }
-    }
-    if (!exposureRestored) return fail("node paste parameter");
-
-    // Missing/future processors must remain transferable rather than being
-    // discarded just because this build cannot instantiate them.
-    PersistNode future;
-    future.id = "foreign-id";
-    future.backend = "dctl";
-    future.identifier = "FutureNode.dctl";
-    future.label = "Future Node";
-    future.enabled = true;
-    future.paramsJson["future"] = "{\"curve\":[0,0.5,1]}";
-    if (!appendPersistedNode(copyApp, future, copyApp.selectedNodeId) ||
-        copyApp.nodes.size() != 4 || copyApp.selectedNodeId != copyApp.nodes[3].id ||
-        copyApp.nodes[3].processor ||
-        copyApp.nodes[3].id.value == "foreign-id" ||
-        copyApp.nodes[3].storedBackend != "dctl" ||
-        copyApp.nodes[3].preservedParamsJson.at("future") != "{\"curve\":[0,0.5,1]}")
-      return fail("node paste missing processor preservation");
-
-    if (parseTransferPayload(
-            "{\"format\":\"rawnode-transfer\",\"version\":2,\"kind\":\"node\",\"graph\":{\"nodes\":[]}}",
-            transferKind, decoded))
-      return fail("node transfer future version rejection");
-
-    printf("ok  Node copy/paste transfer\n");
-  }
-
-  {
-    // Full-grade transfer uses the same versioned payload but replaces the
-    // destination chain as one coherent serial grade.
-    App sourceGrade;
-    if (!addNativeExposureNode(sourceGrade) || !addNativeCstNode(sourceGrade) ||
-        sourceGrade.nodes.size() != 3 ||
-        !sourceGrade.nodes[1].processor->setParameterValue("exposure", -1.25) ||
-        !sourceGrade.nodes[2].processor->setParameterValue("output_space", 5))
-      return fail("full grade copy setup");
-    sourceGrade.nodes[1].enabled = false;
-    selectNode(sourceGrade, sourceGrade.nodes[2].id);
-    {
-      std::lock_guard<std::mutex> lock(sourceGrade.colorMutex);
-      sourceGrade.outputEncoding = {RgbGamut::DisplayP3, TransferFunction::Rec709};
-    }
-
-    const PersistChain sourceChain = captureChain(sourceGrade);
-    PersistGradeColor sourceColor = captureGradeColor(sourceGrade);
-    // Exercise RAW colour fields in the envelope even though this synthetic
-    // source app has no decoded RAW image attached.
-    sourceColor.rawColorSpace = "davinci-wide-gamut";
-    sourceColor.rawGamma = "davinci-intermediate";
-    const std::string payload = serializeTransferPayload("grade", sourceChain, &sourceColor);
-    std::string kind;
-    PersistChain decoded;
-    PersistGradeColor decodedColor;
-    if (!parseTransferPayload(payload, kind, decoded, &decodedColor) ||
-        kind != "grade" || decoded.nodes.size() != 2 ||
-        decoded.selectedNodeId != sourceGrade.nodes[2].id.value ||
-        decodedColor.rawColorSpace != "davinci-wide-gamut" ||
-        decodedColor.rawGamma != "davinci-intermediate" ||
-        decodedColor.outputColorSpace != "display-p3" ||
-        decodedColor.outputGamma != "rec709-camera")
-      return fail("full grade transfer payload");
-
-    App destinationGrade;
-    if (!addNativeExposureNode(destinationGrade) ||
-        !destinationGrade.nodes[1].processor->setParameterValue("exposure", 4.0))
-      return fail("full grade destination setup");
-    if (!applyGrade(destinationGrade, decoded, decodedColor))
-      return fail("full grade apply");
-
-    ColorEncoding pastedOutput;
-    {
-      std::lock_guard<std::mutex> lock(destinationGrade.colorMutex);
-      pastedOutput = destinationGrade.outputEncoding;
-    }
-    if (pastedOutput != ColorEncoding{RgbGamut::DisplayP3, TransferFunction::Rec709})
-      return fail("full grade output colour restore");
-
-    if (destinationGrade.nodes.size() != 3 || destinationGrade.selectedNodeId != destinationGrade.nodes[2].id ||
-        destinationGrade.nodes[1].id.value != sourceGrade.nodes[1].id.value ||
-        destinationGrade.nodes[2].id.value != sourceGrade.nodes[2].id.value ||
-        destinationGrade.nodes[1].enabled ||
-        !destinationGrade.nodes[1].processor ||
-        !destinationGrade.nodes[2].processor ||
-        destinationGrade.nodes[1].processor->identifier() != NativeExposureProcessor::kIdentifier ||
-        destinationGrade.nodes[2].processor->identifier() != NativeCstProcessor::kIdentifier)
-      return fail("full grade paste restore");
-
-    bool exposureRestored = false;
-    for (const ProcessorParameter &param : destinationGrade.nodes[1].processor->parameters()) {
-      if (param.id == "exposure") {
-        const double *value = std::get_if<double>(&param.value);
-        exposureRestored = value && *value == -1.25;
-      }
-    }
-    bool cstRestored = false;
-    for (const ProcessorParameter &param : destinationGrade.nodes[2].processor->parameters()) {
-      if (param.id == "output_space") {
-        const int *value = std::get_if<int>(&param.value);
-        cstRestored = value && *value == 5;
-      }
-    }
-    if (!exposureRestored || !cstRestored)
-      return fail("full grade pasted parameters");
-
-    printf("ok  Full grade copy/paste transfer\n");
-  }
-
-  {
-    // Presets use their own versioned file envelope but retain the exact same
-    // PersistChain/PersistNode representation as clipboard transfer and Sidecar V2.
-    const fs::path nodePresetPath =
-        fs::temp_directory_path() / "rawnode-selftest-node.rawnodepreset";
-    const fs::path gradePresetPath =
-        fs::temp_directory_path() / "rawnode-selftest-grade.rawnodepreset";
-    const fs::path futurePresetPath =
-        fs::temp_directory_path() / "rawnode-selftest-future.rawnodepreset";
-
-    App presetSource;
-    if (!addNativeExposureNode(presetSource) || !addNativeCstNode(presetSource) ||
-        !presetSource.nodes[1].processor->setParameterValue("exposure", 1.75) ||
-        !presetSource.nodes[2].processor->setParameterValue("output_gamma", 3))
-      return fail("preset source setup");
-    presetSource.nodes[1].enabled = false;
-    selectNode(presetSource, presetSource.nodes[1].id);
-
-    PersistNode nodeState;
-    if (!captureNode(presetSource, presetSource.nodes[1].id, nodeState))
-      return fail("node preset capture");
-    PersistChain nodePreset;
-    nodePreset.selectedNodeId = nodeState.id;
-    nodePreset.nodes.push_back(nodeState);
-    if (!savePresetFile(nodePresetPath.string(), "node", nodePreset))
-      return fail("node preset save");
-
-    std::string kind;
-    PersistChain loadedNodePreset;
-    if (!loadPresetFile(nodePresetPath.string(), kind, loadedNodePreset) ||
-        kind != "node" || loadedNodePreset.nodes.size() != 1 ||
-        loadedNodePreset.nodes[0].identifier != NativeExposureProcessor::kIdentifier ||
-        loadedNodePreset.nodes[0].enabled ||
-        loadedNodePreset.nodes[0].paramsJson.at("exposure") != "1.75")
-      return fail("node preset load");
-
-    App nodePresetTarget;
-    if (!appendPersistedNode(nodePresetTarget, loadedNodePreset.nodes[0]) ||
-        nodePresetTarget.nodes.size() != 2 || !nodePresetTarget.nodes[1].processor)
-      return fail("node preset apply");
-    bool presetExposure = false;
-    for (const ProcessorParameter &param : nodePresetTarget.nodes[1].processor->parameters()) {
-      if (param.id == "exposure") {
-        const double *value = std::get_if<double>(&param.value);
-        presetExposure = value && *value == 1.75;
-      }
-    }
-    if (!presetExposure) return fail("node preset parameter");
-
-    {
-      std::lock_guard<std::mutex> lock(presetSource.colorMutex);
-      presetSource.outputEncoding = {RgbGamut::ACES_AP1, TransferFunction::Linear};
-    }
-    const PersistChain gradeState = captureChain(presetSource);
-    const PersistGradeColor gradeColor = captureGradeColor(presetSource);
-    if (!savePresetFile(gradePresetPath.string(), "grade", gradeState, &gradeColor))
-      return fail("grade preset save");
-    PersistChain loadedGradePreset;
-    PersistGradeColor loadedGradeColor;
-    if (!loadPresetFile(gradePresetPath.string(), kind, loadedGradePreset, &loadedGradeColor) ||
-        kind != "grade" || loadedGradePreset.nodes.size() != 2 ||
-        loadedGradeColor.outputColorSpace != "aces-ap1" ||
-        loadedGradeColor.outputGamma != "linear")
-      return fail("grade preset load");
-
-    App gradePresetTarget;
-    if (!addNativeExposureNode(gradePresetTarget))
-      return fail("grade preset target setup");
-    if (!applyGrade(gradePresetTarget, loadedGradePreset, loadedGradeColor))
-      return fail("grade preset apply");
-    ColorEncoding presetOutput;
-    {
-      std::lock_guard<std::mutex> lock(gradePresetTarget.colorMutex);
-      presetOutput = gradePresetTarget.outputEncoding;
-    }
-    if (presetOutput != ColorEncoding{RgbGamut::ACES_AP1, TransferFunction::Linear})
-      return fail("grade preset output colour restore");
-    if (gradePresetTarget.nodes.size() != 3 ||
-        !gradePresetTarget.nodes[1].processor ||
-        !gradePresetTarget.nodes[2].processor ||
-        gradePresetTarget.nodes[1].processor->identifier() != NativeExposureProcessor::kIdentifier ||
-        gradePresetTarget.nodes[2].processor->identifier() != NativeCstProcessor::kIdentifier)
-      return fail("grade preset apply");
-
-    {
-      std::ofstream future(futurePresetPath.string(), std::ios::binary);
-      future << "{\"format\":\"rawnode-preset\",\"version\":2,\"kind\":\"grade\","
-                "\"graph\":{\"selectedNodeId\":\"\",\"nodes\":[]}}";
-      if (!future.good()) return fail("future preset write");
-    }
-    PersistChain rejected;
-    if (loadPresetFile(futurePresetPath.string(), kind, rejected))
-      return fail("future preset version rejection");
-
-    if (savePresetFile(nodePresetPath.string(), "unknown", nodePreset))
-      return fail("invalid preset kind save");
-
-    fs::remove(nodePresetPath);
-    fs::remove(gradePresetPath);
-    fs::remove(futurePresetPath);
-    printf("ok  Node and full-grade presets\n");
   }
 
   {

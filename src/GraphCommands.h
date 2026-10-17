@@ -49,6 +49,11 @@ CommandResult reorderSlot(Document document, const NodeId &node, SlotId slot,
 // before is absent. The new node must have a required image input/image output.
 CommandResult insertImageNode(Document document, Node &&node,
                               std::optional<InputAddress> before = std::nullopt);
+// Atomic linear batch splice. Nodes are ordered by their internal Image edges,
+// with a detached entry. Validate the whole destination and selected spine point
+// before moving any processor. Caller owns execution exclusion for live storage.
+CommandResult insertImageChain(Document document, std::vector<Node> &nodes,
+                               std::optional<NodeId> after = std::nullopt);
 CommandResult deleteImageNode(Document document, const NodeId &node);
 // Derive the unary spine from documentOutput to Source and rewrite its image
 // edges. Off-spine consumers keep their references; storage order never moves.

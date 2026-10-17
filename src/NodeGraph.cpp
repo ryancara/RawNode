@@ -33,6 +33,7 @@ static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor);
 static bool addOfxWithinMutation(App &app, int pluginIndex);
 static bool addCtlWithinMutation(App &app, const std::string &path);
 static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor);
+static NodeId makeNodeId(const std::vector<Node> &nodes);
 
 static PersistNode capturePersistedNode(const Node &node, bool graphNative = false);
 static std::vector<NodeId> linearCaptureOrder(const App &app);
@@ -209,11 +210,12 @@ void setNodeEnabled(App &app, const NodeId &id, bool enabled) {
 }
 
 bool captureNode(const App &app, const NodeId &id, PersistNode &out) {
-  const Node *node = findNode(app, id);
-  if (!node || node->operation != NodeOperation::ImageProcessor) return false;
-  try { (void)linearCaptureOrder(app); } catch (const std::runtime_error &) { return false; }
-  out = capturePersistedNode(*node);
-  return true;
+  try {
+    std::vector<std::string> warnings;
+    auto fragment = captureFragment(app, {id}, warnings);
+    out = std::move(fragment.nodes.front());
+    return true;
+  } catch (const std::exception &) { return false; }
 }
 
 static std::vector<NodeId> linearCaptureOrder(const App &app) {
@@ -241,38 +243,11 @@ PersistChain captureChain(const App &app) {
 }
 
 bool appendPersistedNode(App &app, const PersistNode &persisted, std::optional<NodeId> insertAfter) {
-  if (!requireEditableGraph(app)) return false;
-  std::optional<InputAddress> before;
-  if (insertAfter) {
-    std::vector<NodeId> spine;
-    const auto error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
-    if (!error.empty()) { app.setStatus(error); return false; }
-    const auto after = *insertAfter;
-    auto next = after == app.primarySource ? spine.begin() : std::find(spine.begin(), spine.end(), after);
-    if (after != app.primarySource && next == spine.end()) {
-      app.setStatus("Insertion requires a node on the main Image spine");
-      return false;
-    }
-    if (after != app.primarySource) ++next;
-    if (next != spine.end()) before = InputAddress{*next, std::nullopt, ports::image};
-  }
-  DocumentMutation mutation(app);
-  try {
-    Node node = restoredNode(app.nodes, persisted, false, true);
-    // Retain legacy transfer UI state until PR 4 retires that format. Photo
-    // graph restoration/capture never includes group expansion.
-    node.groupOpen = persisted.groupOpen;
-    std::optional<NodeId> selection = node.id;
-    const auto result = graph::insertImageNode(graph::Document{app.nodes, app.primarySource, app.documentOutput},
-                                               std::move(node), before);
-    if (!result.ok()) { app.setStatus(result.error); return false; }
-    mutation.changed();
-    selectNode(app, std::move(selection));
-    return true;
-  } catch (const std::exception &error) {
-    app.setStatus(error.what());
-    return false;
-  }
+  auto node = persisted;
+  // A single-node attachment has no internal incoming links. In particular,
+  // foreign IDs must never resolve to nodes already in this document.
+  node.inputs = {{ports::image, std::nullopt}};
+  return pasteFragment(app, PersistFragment{{std::move(node)}, {}}, std::move(insertAfter));
 }
 
 void applyChain(App &app, const PersistChain &chain) {
@@ -286,6 +261,169 @@ void applyChain(App &app, const PersistChain &chain) {
   auto restored = document_detail::restoreChain(app, chain);
   document_detail::replaceChain(app, std::move(restored));
   mutation.changed();
+}
+
+PersistFragment captureFragment(const App &app, const std::vector<NodeId> &ids,
+                                std::vector<std::string> &warnings) {
+  if (app.isPhotoProtected()) throw std::runtime_error("The saved grade was not loaded; capture is disabled");
+  PersistFragment fragment;
+  std::vector<std::string> omitted;
+  for (const auto &id : ids) {
+    const Node *node = findNode(app, id);
+    if (!node || node->operation == NodeOperation::Source) throw std::runtime_error("Cannot copy Source or a stale node");
+    auto record = capturePersistedNode(*node, true);
+    const auto detach = [&](InputBindings &bindings) {
+      for (auto &binding : bindings) {
+        if (!binding.second || std::find(ids.begin(), ids.end(), binding.second->nodeId) != ids.end()) continue;
+        if (binding.first == ports::reference || binding.first == ports::mask)
+          omitted.push_back("Omitted external " + binding.first.value + " connection on " + id.value);
+        binding.second.reset();
+      }
+    };
+    detach(record.inputs);
+    for (auto &slot : record.slots) detach(slot.inputs);
+    fragment.nodes.push_back(std::move(record));
+    const auto position = app.nodePositions.find(id.value);
+    if (position != app.nodePositions.end()) fragment.positions.emplace(*position);
+  }
+  std::string json, error;
+  if (!persist_detail::encodeTransferPayload(fragment, json, error, true)) throw std::runtime_error(error);
+  warnings = std::move(omitted);
+  return fragment;
+}
+
+// Attachment eligibility is a topology-only check. Backend construction below
+// consumes this derived order, never node-array order.
+static std::vector<NodeId> linearFragmentOrder(const PersistFragment &fragment) {
+  // Validate attachment using topology only, before constructing processors.
+  // A synthetic Source binds only the fragment's one detached ordinary entry.
+  auto record = PersistGraph{fragment.nodes, NodeId{"fragment-source"}, {NodeId{}, ports::image}};
+  while (std::any_of(record.nodes.begin(), record.nodes.end(), [&](const auto &n) { return n.id == record.primarySource.value; }))
+    record.primarySource.value += '-';
+  PersistNode source; source.id = record.primarySource.value; source.operation = NodeOperation::Source;
+  std::vector<Node> topology;
+  std::optional<NodeId> entry;
+  std::vector<NodeId> tails;
+  for (auto &node : record.nodes) {
+    if (node.operation != NodeOperation::ImageProcessor || !node.slots.empty() || node.inputs.size() != 1)
+      throw std::runtime_error("Only ordinary linear fragments can be attached");
+    auto &input = node.inputs.at(ports::image);
+    if (!input) {
+      if (entry) throw std::runtime_error("Fragment has multiple entries");
+      entry = NodeId{node.id}; input = OutputRef{record.primarySource, ports::image};
+    }
+    bool consumed = false;
+    for (const auto &consumer : fragment.nodes)
+      if (consumer.inputs.at(ports::image) == std::optional<OutputRef>{{NodeId{node.id}, ports::image}}) consumed = true;
+    if (!consumed) tails.push_back(NodeId{node.id});
+  }
+  if (!entry || tails.size() != 1) throw std::runtime_error("Fragment is not a complete linear chain");
+  record.nodes.push_back(std::move(source));
+  record.documentOutput = {tails.front(), ports::image};
+  for (const auto &saved : record.nodes) {
+    Node node(saved.operation); node.id = NodeId{saved.id}; node.fixedInputs = saved.inputs;
+    topology.push_back(std::move(node));
+  }
+  std::vector<NodeId> order;
+  const auto error = graph::imageSpine({topology, record.primarySource, record.documentOutput}, order);
+  if (!error.empty() || order.size() != fragment.nodes.size())
+    throw std::runtime_error("Fragment is not a complete linear chain");
+  return order;
+}
+
+static bool insertFragment(App &app, const PersistFragment &fragment, std::optional<NodeId> after) {
+  if (!requireEditableGraph(app)) return false;
+  document_detail::DocumentMutation::assertControlThread(app);
+  try {
+    std::string json, error;
+    if (!encodeTransferPayload(fragment, json, error)) throw std::runtime_error(error);
+    const auto order = linearFragmentOrder(fragment);
+    std::vector<NodeId> destinationSpine;
+    error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, destinationSpine);
+    if (!error.empty()) throw std::runtime_error(error);
+    if (after && *after != app.primarySource && std::find(destinationSpine.begin(), destinationSpine.end(), *after) == destinationSpine.end())
+      throw std::runtime_error("Insertion requires a current main Image spine node");
+    std::map<std::string, NodeId> ids;
+    for (const auto &id : order) {
+      NodeId fresh;
+      do { fresh = makeNodeId(app.nodes); }
+      while (std::any_of(fragment.nodes.begin(), fragment.nodes.end(), [&](const auto &n) { return n.id == fresh.value; }));
+      ids.emplace(id.value, std::move(fresh));
+    }
+    auto positions = app.nodePositions;
+    for (const auto &position : fragment.positions) {
+      const auto remap = ids.find(position.first);
+      if (remap != ids.end()) positions.emplace(remap->second.value, position.second);
+    }
+    std::optional<NodeId> selection = ids.at(order.back().value);
+    document_detail::DocumentMutation mutation(app);
+    std::vector<Node> additions;
+    additions.reserve(order.size());
+    for (const auto &id : order) {
+      const auto saved = std::find_if(fragment.nodes.begin(), fragment.nodes.end(), [&](const auto &n) { return n.id == id.value; });
+      Node node = restoredNode(additions, *saved, true, true);
+      node.id = ids.at(saved->id);
+      node.fixedInputs = saved->inputs;
+      for (auto &binding : node.fixedInputs) if (binding.second) binding.second->nodeId = ids.at(binding.second->nodeId.value);
+      additions.push_back(std::move(node));
+    }
+    const auto result = graph::insertImageChain({app.nodes, app.primarySource, app.documentOutput}, additions, after);
+    if (!result.ok()) throw std::runtime_error(result.error);
+    app.nodePositions.swap(positions);
+    selectNode(app, std::move(selection));
+    mutation.changed();
+    return true;
+  } catch (const std::exception &failure) {
+    app.setStatus("Could not insert grade/fragment: " + std::string(failure.what()));
+    return false;
+  }
+}
+
+bool pasteFragment(App &app, const PersistFragment &fragment, std::optional<NodeId> after) {
+  return insertFragment(app, fragment, std::move(after));
+}
+
+bool appendGrade(App &app, const PersistGrade &grade, std::optional<NodeId> after) {
+  if (!requireEditableGraph(app)) return false;
+  try {
+    PersistFile file; file.grade = grade;
+    std::string json, error;
+    if (!encodeGraphFile(file, json, error)) throw std::runtime_error(error);
+    // All records (including off-spine nodes) participate in validation.
+    std::vector<Node> topology;
+    for (const auto &saved : grade.graph.nodes) {
+      Node node(saved.operation); node.id = NodeId{saved.id}; node.fixedInputs = saved.inputs;
+      node.slots = saved.slots;
+      topology.push_back(std::move(node));
+    }
+    std::vector<NodeId> order;
+    error = graph::imageSpine({topology, grade.graph.primarySource, grade.graph.documentOutput}, order);
+    if (!error.empty() || order.size() + 1 != topology.size()) throw std::runtime_error("Append requires a complete ordinary linear grade");
+    // Validate destination/selection even for the Source-only no-op.
+    std::vector<NodeId> destination;
+    error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, destination);
+    if (!error.empty()) throw std::runtime_error(error);
+    if (after && *after != app.primarySource && std::find(destination.begin(), destination.end(), *after) == destination.end())
+      throw std::runtime_error("Insertion requires a current main Image spine node");
+    if (order.empty()) return true;
+    // Detach only Source.image; no auxiliary dependency can be omitted here.
+    PersistFragment fragment;
+    for (const auto &saved : grade.graph.nodes) if (saved.operation != NodeOperation::Source) {
+      auto node = saved;
+      for (auto &binding : node.inputs) if (binding.second && binding.second->nodeId == grade.graph.primarySource) {
+        if (binding.first != ports::image || binding.second->outputPortId != ports::image)
+          throw std::runtime_error("Append cannot attach auxiliary connections");
+        binding.second.reset();
+      }
+      fragment.nodes.push_back(std::move(node));
+      const auto position = grade.positions.find(saved.id);
+      if (position != grade.positions.end()) fragment.positions.emplace(*position);
+    }
+    return insertFragment(app, fragment, std::move(after));
+  } catch (const std::exception &failure) {
+    app.setStatus("Could not append grade: " + std::string(failure.what()));
+    return false;
+  }
 }
 
 PersistGraph captureGraph(GraphView graph) {

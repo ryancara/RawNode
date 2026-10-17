@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <variant>
 
 struct PersistGui {
   // Read-only migration value for older V2/workspace JSON.
@@ -140,22 +141,18 @@ bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui
 std::string jsonStringValue(const std::string &value);
 bool parseJsonStringValue(const std::string &raw, std::string &out);
 
-// Versioned processor-transfer payload used by copy/paste and presets.
-// kind is currently "node" or "grade"; the graph itself stays Sidecar V2-shaped.
-// Additive optional fields may remain within a version only when older readers
-// can safely ignore them. Any field that changes the meaning of existing data
-// or must not be ignored requires a format-version bump.
-std::string serializeTransferPayload(const std::string &kind, const PersistChain &chain,
-                                     const PersistGradeColor *color = nullptr);
-bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain,
-                          PersistGradeColor *color = nullptr);
-
-// Portable node/full-grade presets use the same graph representation as
-// transfer payloads, with an independent file-format version.
-bool savePresetFile(const std::string &path, const std::string &kind, const PersistChain &chain,
-                    const PersistGradeColor *color = nullptr);
-bool loadPresetFile(const std::string &path, std::string &kind, PersistChain &chain,
-                    PersistGradeColor *color = nullptr);
+// Clipboard v2 is a thin wrapper around the shared grade/node codec. Fragments
+// contain no Source and only internal connections; absent inputs stay detached.
+struct PersistFragment {
+  std::vector<PersistNode> nodes;
+  PersistPositions positions;
+};
+using PersistTransfer = std::variant<PersistGrade, PersistFragment>;
+bool encodeTransferPayload(const PersistTransfer &transfer, std::string &json, std::string &error);
+bool decodeTransferPayload(const std::string &json, PersistTransfer &out, std::string &error);
+// Presets are ordinary graph-native files. Loading requires a grade and ignores
+// photo metadata; saving uses updateSidecarGrade after overwrite confirmation.
+bool loadPresetFile(const std::string &path, PersistGrade &out, std::string &error);
 
 
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);

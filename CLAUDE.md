@@ -358,16 +358,17 @@ visually.
 
 The processing graph is persistent image state.
 
-The live photo editor uses graph-native sidecars and protects historical V1/V2
-files without migration. Remaining legacy clipboard/preset paths still require
-representable linear graphs; they must refuse unsupported topology/layout or
-unknown installed choices until PR 4 replaces their format. No path may silently
+The live photo editor, presets and clipboard share the strict graph-native codec.
+Historical V1/V2 sidecars remain protected without migration; legacy transfers
+are retired. Complete grades preserve supported branching, colour pairs and
+positions. Append and compatible fragment Paste use one staged linear batch;
+copy eligibility is independent of attachment support. No path may silently
 flatten or corrupt the authoritative graph.
 
 Processor/node identity must remain stable enough for persistence, presets and
 copy/paste.
 
-Unavailable processors should remain represented in persisted chains rather
+Unavailable processors should remain represented in persisted graphs rather
 than silently disappearing.
 
 Do not make persistence behaviour depend on transient renderer state.

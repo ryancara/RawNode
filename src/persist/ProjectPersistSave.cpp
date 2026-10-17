@@ -111,31 +111,6 @@ void appendChainJson(std::ostringstream &o, const PersistChain &chain) {
   o << "]}";
 }
 
-static std::string serializeGraphEnvelope(const char *format, const std::string &kind,
-                                          const PersistChain &chain,
-                                          const PersistGradeColor *color) {
-  std::ostringstream o;
-  o << '{'
-    << "\"format\":\"" << jsonEscape(format) << "\","
-    << "\"version\":1,"
-    << "\"kind\":\"" << jsonEscape(kind) << "\",";
-  if (color && kind == "grade") {
-    o << "\"color\":{"
-      << "\"rawColorSpace\":\"" << jsonEscape(color->rawColorSpace) << "\","
-      << "\"rawGamma\":\"" << jsonEscape(color->rawGamma) << "\","
-      << "\"outputColorSpace\":\"" << jsonEscape(color->outputColorSpace) << "\","
-      << "\"outputGamma\":\"" << jsonEscape(color->outputGamma) << "\"},";
-  }
-  appendChainJson(o, chain);
-  o << '}';
-  return o.str();
-}
-
-std::string serializeTransferPayload(const std::string &kind, const PersistChain &chain,
-                                     const PersistGradeColor *color) {
-  return serializeGraphEnvelope("rawnode-transfer", kind, chain, color);
-}
-
 bool writeFile(const fs::path &path, const std::string &body) {
   std::error_code ec;
   fs::create_directories(path.parent_path(), ec);
@@ -207,12 +182,6 @@ std::string relativeToWorkspace(const std::string &workspaceDir, const std::stri
     return rel.string();
   }
   return absPath;
-}
-
-bool savePresetFile(const std::string &path, const std::string &kind,
-                    const PersistChain &chain, const PersistGradeColor *color) {
-  if (kind != "node" && kind != "grade") return false;
-  return writeFile(fs::path(path), serializeGraphEnvelope("rawnode-preset", kind, chain, color));
 }
 
 bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui, const std::string &activeImageRel) {
@@ -314,9 +283,83 @@ void appendGraphNode(std::ostream &out, const PersistNode &node, bool testOperat
 void appendColorPair(std::ostream &out, const std::string &space, const std::string &gamma) {
   out << "{\"colorSpace\": " << jsonStringValue(space) << ", \"gamma\": " << jsonStringValue(gamma) << '}';
 }
+void appendPositions(std::ostream &out, const PersistPositions &positions, const std::vector<PersistNode> &nodes,
+                     std::vector<std::string> *warnings = nullptr) {
+  if (!positions.empty()) {
+    out << ",\n    \"positions\": {";
+    size_t count = 0;
+    for (const auto &position : positions) {
+      if (!std::isfinite(position.second.x) || !std::isfinite(position.second.y))
+        throw std::runtime_error("Non-finite node position: " + position.first);
+      bool exists = false;
+      for (const auto &node : nodes) if (node.id == position.first) exists = true;
+      if (!exists) {
+        if (warnings) warnings->push_back("Dropped position for nonexistent node: " + position.first);
+        continue;
+      }
+      if (count++) out << ',';
+      out << "\n      " << jsonStringValue(position.first) << ": {\"x\": " << position.second.x
+          << ", \"y\": " << position.second.y << '}';
+    }
+    out << "\n    }";
+  }
+}
+void appendGrade(std::ostream &out, const PersistGrade &grade, bool testOperations,
+                 std::vector<std::string> *warnings = nullptr) {
+  const auto error = persist_detail::graphRecordError(grade.graph, testOperations);
+  if (!error.empty()) throw std::runtime_error(error);
+  out << "{\n    \"color\": {\n      \"rawWorking\": ";
+  appendColorPair(out, grade.color.rawColorSpace, grade.color.rawGamma);
+  out << ",\n      \"output\": ";
+  appendColorPair(out, grade.color.outputColorSpace, grade.color.outputGamma);
+  out << "\n    },\n    \"graph\": {\n      \"primarySource\": " << jsonStringValue(grade.graph.primarySource.value)
+      << ",\n      \"documentOutput\": ";
+  appendEndpoint(out, grade.graph.documentOutput);
+  out << ",\n      \"nodes\": [\n";
+  for (size_t i = 0; i < grade.graph.nodes.size(); ++i) {
+    if (i) out << ",\n";
+    appendGraphNode(out, grade.graph.nodes[i], testOperations);
+  }
+  out << "\n      ]\n    }";
+  appendPositions(out, grade.positions, grade.graph.nodes, warnings);
+  out << "\n  }";
+}
 }  // namespace
 
 namespace persist_detail {
+bool encodeTransferPayload(const PersistTransfer &transfer, std::string &json, std::string &error,
+                           bool testOperations) {
+  try {
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out.precision(std::numeric_limits<double>::max_digits10);
+    out << "{\n  \"format\": \"rawnode-transfer\",\n  \"version\": 2,\n  \"kind\": ";
+    if (const auto *grade = std::get_if<PersistGrade>(&transfer)) {
+      out << "\"grade\",\n  \"grade\": ";
+      appendGrade(out, *grade, testOperations);
+    } else {
+      const auto &fragment = std::get<PersistFragment>(transfer);
+      error = fragmentRecordError(fragment, testOperations);
+      if (!error.empty()) return false;
+      out << "\"fragment\",\n  \"nodes\": [";
+      for (size_t i = 0; i < fragment.nodes.size(); ++i) {
+        if (i) out << ',';
+        appendGraphNode(out, fragment.nodes[i], testOperations);
+      }
+      out << ']';
+      appendPositions(out, fragment.positions, fragment.nodes);
+    }
+    out << "\n}\n";
+    std::string candidate = out.str();
+    PersistTransfer checked;
+    if (!decodeTransferPayload(candidate, checked, error, testOperations)) return false;
+    json = std::move(candidate);
+    return true;
+  } catch (const std::runtime_error &failure) {
+    error = failure.what();
+    return false;
+  }
+}
 bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &error,
                      std::vector<std::string> *warnings, bool testOperations) {
   error.clear();
@@ -332,38 +375,8 @@ bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &er
       out << ",\n  \"metadata\": " << metadata.raw;
     }
     if (file.grade) {
-      const auto &grade = *file.grade;
-      error = graphRecordError(grade.graph, testOperations);
-      if (!error.empty()) return false;
-      out << ",\n  \"grade\": {\n    \"color\": {\n      \"rawWorking\": ";
-      appendColorPair(out, grade.color.rawColorSpace, grade.color.rawGamma);
-      out << ",\n      \"output\": ";
-      appendColorPair(out, grade.color.outputColorSpace, grade.color.outputGamma);
-      out << "\n    },\n    \"graph\": {\n      \"primarySource\": " << jsonStringValue(grade.graph.primarySource.value)
-          << ",\n      \"documentOutput\": ";
-      appendEndpoint(out, grade.graph.documentOutput);
-      out << ",\n      \"nodes\": [\n";
-      for (size_t i = 0; i < grade.graph.nodes.size(); ++i) {
-        if (i) out << ",\n";
-        appendGraphNode(out, grade.graph.nodes[i], testOperations);
-      }
-      out << "\n      ]\n    }";
-      if (!grade.positions.empty()) {
-        out << ",\n    \"positions\": {";
-        size_t count = 0;
-        for (const auto &position : grade.positions) {
-          if (!std::isfinite(position.second.x) || !std::isfinite(position.second.y))
-            throw std::runtime_error("Non-finite node position: " + position.first);
-          bool exists = false;
-          for (const auto &node : grade.graph.nodes) if (node.id == position.first) exists = true;
-          if (!exists) { collected.push_back("Dropped position for nonexistent node: " + position.first); continue; }
-          if (count++) out << ',';
-          out << "\n      " << jsonStringValue(position.first) << ": {\"x\": " << position.second.x
-              << ", \"y\": " << position.second.y << '}';
-        }
-        out << "\n    }";
-      }
-      out << "\n  }";
+      out << ",\n  \"grade\": ";
+      appendGrade(out, *file.grade, testOperations, &collected);
     }
     out << "\n}\n";
     std::string candidate = out.str();
@@ -513,4 +526,8 @@ bool updateSidecarGrade(const std::string &path, const PersistGrade &grade, std:
 }
 bool updateSidecarMark(const std::string &path, PhotoMark mark, std::string &error) {
   return persist_detail::updateGraphSidecar(path, nullptr, mark, error, persist_detail::FileFault::None, false);
+}
+
+bool encodeTransferPayload(const PersistTransfer &transfer, std::string &json, std::string &error) {
+  return persist_detail::encodeTransferPayload(transfer, json, error, false);
 }

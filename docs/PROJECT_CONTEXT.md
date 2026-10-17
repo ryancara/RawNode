@@ -166,9 +166,10 @@ Important implemented foundations include:
 Since Step 6 merged in PR #58, explicit consumer-owned topology and a sequential
 requested-endpoint evaluator now drive preview, Image/Mask inspection and export.
 List View derives topology order and keeps off-spine nodes accessible; selection
-uses stable NodeIds. Unsupported linear sidecar/clipboard/preset capture refuses
-before writing, and full-grade application stages graph/colour/source changes
-before committing. Independent whole-Step-6 implementation and architecture
+uses stable NodeIds. Graph-native sidecar/preset/clipboard capture preserves complete grades;
+full-grade application stages graph/colour/source changes before committing.
+Linear Append and fragment Paste commit one batch while retaining unrelated
+destination branches. Independent whole-Step-6 implementation and architecture
 review is complete.
 
 The renderer/concurrency baseline established by PRs #32-#34 is important:
@@ -543,8 +544,8 @@ These are known but are not reasons to expand unrelated focused PRs:
 - thumbnail worker exceptional-unwind lifetime, the macOS pthread-to-joiner
   exception gap, and `makePreview` partial helper-thread launch remain focused
   lifetime/exception-safety follow-ups; normal thumbnail shutdown is safe;
-- legacy clipboard/preset and workspace-preference paths still use their
-  development-era formats; their retirement remains Step 7 PRs 4–5;
+- folder workspace-preference paths still use their development-era formats;
+  retirement remains Step 7 PR 5;
 - exporting over the exact path of an editable raster source can overwrite the
   source image itself; this pre-existing hazard is separate from export sidecars.
 
@@ -570,7 +571,13 @@ photo opening/saving. Editable opening establishes a grade; document departure,
 same-photo reopening and shutdown save it through checked atomic replacement.
 Protected photographs remain viewable but noneditable. Photo colours are separate
 from defaults, and save warnings remain separate from render/export status.
-Legacy preset/clipboard formats and global-preferences retirement remain PRs 4–5;
+Presets and clipboard now use the shared graph-native grade/node codec. Unified
+Save Preset supports complete Source-only/branched grades and validated metadata-
+preserving overwrites. Replace retains incoming identity and applies colours;
+Append and fragment Paste stage one linear splice into eligible branched destinations
+with fresh IDs and position remapping. Fragment capture retains internal links and
+detaches/reports external Mask/Reference links independently of attachment support.
+Legacy transfers are retired. Global-preferences retirement remains PR 5;
 no dirty-state or background-save system is introduced.
 
 Reported macOS testing found normal operation. No complete macOS/NEF

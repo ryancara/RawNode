@@ -16,5 +16,4 @@ void DrawUiFrame(App &app);
 bool copySelectedNode(App &app);
 bool copyGrade(App &app);
 bool pasteFromClipboard(App &app);
-bool saveNodePreset(App &app, std::string path = {});
-bool saveGradePreset(App &app, std::string path = {});
+bool savePresetDialog(App &app, std::string path = {});

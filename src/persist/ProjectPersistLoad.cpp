@@ -186,45 +186,15 @@ bool readAllText(const std::string &path, std::string &out) {
   return true;
 }
 
-static bool parseGraphEnvelope(const std::string &json, const char *expectedFormat,
-                               std::string &kind, PersistChain &chain,
-                               PersistGradeColor *color) {
-  std::string format;
-  int version = 0;
-  if (!extractStringField(json, "format", format) || format != expectedFormat ||
-      !extractIntField(json, "version", version) || version != 1 ||
-      !extractStringField(json, "kind", kind) ||
-      (kind != "node" && kind != "grade"))
+bool loadPresetFile(const std::string &path, PersistGrade &out, std::string &error) {
+  PersistFile file;
+  if (readGraphSidecar(path, file, error) != SidecarReadStatus::Loaded) {
+    if (error.empty()) error = path + ": Preset does not exist";
     return false;
-
-  if (color) {
-    *color = PersistGradeColor{};
-    if (kind == "grade") {
-      std::string colorObj;
-      if (extractObject(json, "color", colorObj)) {
-        extractStringField(colorObj, "rawColorSpace", color->rawColorSpace);
-        extractStringField(colorObj, "rawGamma", color->rawGamma);
-        extractStringField(colorObj, "outputColorSpace", color->outputColorSpace);
-        extractStringField(colorObj, "outputGamma", color->outputGamma);
-      }
-    }
   }
-
-  std::string graphObj;
-  if (!extractObject(json, "graph", graphObj)) return false;
-  return loadGraphV2FromJson(graphObj, chain);
-}
-
-bool parseTransferPayload(const std::string &json, std::string &kind, PersistChain &chain,
-                          PersistGradeColor *color) {
-  return parseGraphEnvelope(json, "rawnode-transfer", kind, chain, color);
-}
-
-bool loadPresetFile(const std::string &path, std::string &kind, PersistChain &chain,
-                    PersistGradeColor *color) {
-  std::string json;
-  if (!readAllText(path, json)) return false;
-  return parseGraphEnvelope(json, "rawnode-preset", kind, chain, color);
+  if (!file.grade) { error = path + ": Preset has no grade"; return false; }
+  out = std::move(*file.grade);
+  return true;
 }
 
 bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std::string &activeImageRel) {
@@ -390,6 +360,26 @@ void colorPair(const Value &value, std::string &gamut, std::string &gamma) {
   ColorEncoding encoding;
   if (!colorEncodingFromIds(gamut, gamma, encoding)) throw std::runtime_error("Unknown colour identifier");
 }
+PersistPositions positionRecords(const Value &value, const std::vector<PersistNode> &nodes,
+                                 std::vector<std::string> &warnings) {
+  PersistPositions result;
+  const auto positions = value.object.find("positions");
+  if (positions != value.object.end()) {
+    expect(positions->second, Type::Object, "positions");
+    for (const auto &entry : positions->second.object) {
+      fields(entry.second, {"x", "y"}, "position");
+      PersistPosition position;
+      if (!persist_json::finiteNumber(field(entry.second, "x"), position.x) ||
+          !persist_json::finiteNumber(field(entry.second, "y"), position.y))
+        throw std::runtime_error("Position requires finite numeric x/y: " + entry.first);
+      bool exists = false;
+      for (const auto &node : nodes) if (node.id == entry.first) exists = true;
+      if (exists) result.emplace(entry.first, position);
+      else warnings.push_back("Dropped position for nonexistent node: " + entry.first);
+    }
+  }
+  return result;
+}
 PersistGrade gradeRecord(const Value &value, bool testOperations, std::vector<std::string> &warnings) {
   fields(value, {"color", "graph", "positions"}, "grade");
   PersistGrade grade;
@@ -406,21 +396,7 @@ PersistGrade gradeRecord(const Value &value, bool testOperations, std::vector<st
   for (const auto &node : nodes.array) grade.graph.nodes.push_back(nodeRecord(node, testOperations));
   const auto error = persist_detail::graphRecordError(grade.graph, testOperations);
   if (!error.empty()) throw std::runtime_error(error);
-  const auto positions = value.object.find("positions");
-  if (positions != value.object.end()) {
-    expect(positions->second, Type::Object, "positions");
-    for (const auto &entry : positions->second.object) {
-      fields(entry.second, {"x", "y"}, "position");
-      PersistPosition position;
-      if (!persist_json::finiteNumber(field(entry.second, "x"), position.x) ||
-          !persist_json::finiteNumber(field(entry.second, "y"), position.y))
-        throw std::runtime_error("Position requires finite numeric x/y: " + entry.first);
-      bool exists = false;
-      for (const auto &node : grade.graph.nodes) if (node.id == entry.first) exists = true;
-      if (exists) grade.positions.emplace(entry.first, position);
-      else warnings.push_back("Dropped position for nonexistent node: " + entry.first);
-    }
-  }
+  grade.positions = positionRecords(value, grade.graph.nodes, warnings);
   return grade;
 }
 }  // namespace
@@ -476,6 +452,73 @@ std::string graphRecordError(const PersistGraph &graph, bool testOperations) {
     nodes.push_back(std::move(node));
   }
   return graphStructureError({nodes, graph.primarySource, graph.documentOutput});
+}
+std::string fragmentRecordError(const PersistFragment &fragment, bool testOperations) {
+  if (fragment.nodes.empty()) return "Empty fragment";
+  PersistGraph graph;
+  graph.nodes = fragment.nodes;
+  std::string sourceId = "fragment-validation-source";
+  for (;;) {
+    bool exists = false;
+    for (const auto &node : graph.nodes) {
+      if (node.operation == NodeOperation::Source) return "A fragment cannot contain Source";
+      if (node.id == sourceId) exists = true;
+    }
+    if (!exists) break;
+    sourceId += '-';
+  }
+  // Reuse structural validation with a detached synthetic Source. Fragment
+  // inputs still refer only to fragment members, never to this sentinel.
+  for (const auto &node : fragment.nodes) {
+    const auto internal = [&](const InputBindings &bindings) {
+      for (const auto &binding : bindings) if (binding.second) {
+        bool exists = false;
+        for (const auto &member : fragment.nodes) if (member.id == binding.second->nodeId.value) exists = true;
+        if (!exists) return false;
+      }
+      return true;
+    };
+    if (!internal(node.inputs)) return "External connection in fragment";
+    for (const auto &slot : node.slots) if (!internal(slot.inputs)) return "External Slot connection in fragment";
+  }
+  PersistNode source;
+  source.id = sourceId; source.operation = NodeOperation::Source;
+  graph.nodes.push_back(std::move(source));
+  graph.primarySource = NodeId{sourceId}; graph.documentOutput = {graph.primarySource, ports::image};
+  return graphRecordError(graph, testOperations);
+}
+bool decodeTransferPayload(const std::string &json, PersistTransfer &out, std::string &error,
+                           bool testOperations) {
+  Value root;
+  if (!persist_json::read(json, root, error)) return false;
+  try {
+    if (textField(root, "format") != "rawnode-transfer") throw std::runtime_error("Unsupported transfer format");
+    int version = 0;
+    if (!persist_json::integer(field(root, "version"), version) || version != 2)
+      throw std::runtime_error("Unsupported transfer version");
+    std::vector<std::string> warnings;
+    const auto kind = textField(root, "kind");
+    if (kind == "grade") {
+      fields(root, {"format", "version", "kind", "grade"}, "transfer");
+      auto grade = gradeRecord(field(root, "grade"), testOperations, warnings);
+      out = std::move(grade);
+    } else if (kind == "fragment") {
+      fields(root, {"format", "version", "kind", "nodes", "positions"}, "transfer");
+      const auto &nodes = field(root, "nodes");
+      expect(nodes, Type::Array, "nodes");
+      PersistFragment fragment;
+      for (const auto &node : nodes.array) fragment.nodes.push_back(nodeRecord(node, testOperations));
+      error = fragmentRecordError(fragment, testOperations);
+      if (!error.empty()) return false;
+      fragment.positions = positionRecords(root, fragment.nodes, warnings);
+      out = std::move(fragment);
+    } else throw std::runtime_error("Unsupported transfer kind");
+    error.clear();
+    return true;
+  } catch (const std::runtime_error &failure) {
+    error = failure.what();
+    return false;
+  }
 }
 bool decodeGraphFile(const std::string &json, PersistFile &out, std::string &error,
                      std::vector<std::string> *warnings, bool testOperations) {
@@ -636,4 +679,8 @@ SidecarReadStatus readGraphSidecar(const std::string &path, PersistFile &out, st
   if (decodeGraphFile(json, out, error, warnings)) return SidecarReadStatus::Loaded;
   error = path + ": " + error;
   return SidecarReadStatus::Error;
+}
+
+bool decodeTransferPayload(const std::string &json, PersistTransfer &out, std::string &error) {
+  return persist_detail::decodeTransferPayload(json, out, error, false);
 }

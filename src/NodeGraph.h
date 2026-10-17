@@ -38,13 +38,24 @@ void setNodeEnabled(App &app, const NodeId &id, bool enabled);
 
 // Capture preserves unavailable processors and opaque parameter values.
 bool captureNode(const App &app, const NodeId &id, PersistNode &out);
-// Narrow 6D guard: capture only an ordinary complete linear processor spine.
-// Throws runtime_error before output is written when V2 would lose topology.
+// Historical V2 sidecar support only; live capture uses captureGraph/captureGrade.
+// Refuse before writing when V2 cannot represent the topology.
 PersistChain captureChain(const App &app);
 
-// Restoring persisted nodes uses the same structural transaction boundary.
+// Single-node convenience uses the same graph-native fragment batch splice.
+// Group expansion is transient and external inputs are detached.
 bool appendPersistedNode(App &app, const PersistNode &node, std::optional<NodeId> insertAfter = std::nullopt);
 void applyChain(App &app, const PersistChain &chain);
+
+// Fragment capture preserves arbitrary supported internal topology, detaches
+// external inputs and reports omitted Mask/Reference links. No paste eligibility
+// check is made here. Caller owns processor execution exclusion.
+PersistFragment captureFragment(const App &app, const std::vector<NodeId> &ids,
+                                std::vector<std::string> &warnings);
+// Append a complete linear grade, or paste a compatible detached linear fragment.
+// These own reconstruction, fresh identity/position remapping and one mutation.
+bool appendGrade(App &app, const PersistGrade &grade, std::optional<NodeId> after = std::nullopt);
+bool pasteFragment(App &app, const PersistFragment &fragment, std::optional<NodeId> after = std::nullopt);
 
 // Capture all stored nodes. Caller owns graph/processor execution exclusion;
 // these worker-free helpers never schedule or publish a live document.

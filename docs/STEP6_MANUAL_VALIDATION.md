@@ -138,3 +138,21 @@ the owner performs this separate validation:
       the save problem must be fixed to leave. Launch with a supported helper
       available for Retry/Discard. The library's echo fallback supplies no usable
       dialog. No automatic discard or alternative recovery UI is provided.
+
+## Step 7 PR 4 manual checks still required
+
+Linux deterministic tests cover graph-native Replace with synthetic RAW decoding,
+complete preset capture/overwrites and batch Append/Paste. They do not establish
+macOS native-dialog or actual Nikon NEF behaviour. The recorded historical waiver
+was for PR 3; these PR 4 checks remain unverified:
+
+- Save Preset from Source-only, one-processor and branched grades; cancel a save
+  and an overwrite, including after automatic `.rawnode.json` extension addition.
+- Confirm overwrite of a valid photo sidecar preserves its metadata; unsupported
+  or protected destinations retain their bytes even after confirmation.
+- Load Preset → Replace/Append; verify middle/end insertion, unrelated branches
+  and disabled unsupported attachments. Check Copy Node and Copy Full Grade/Paste.
+- Repeat T3 above using `.rawnode.json` Save Preset and Load Preset → Replace,
+  and full-grade clipboard Paste, on actual Nikon NEFs with differing RAW pairs.
+- Repeat while preview/export owns the old graph; verify the accepted old export
+  and settled new preview. Record tested commit, macOS/hardware and NEF models.

@@ -35,7 +35,7 @@ class StagedEdit {
     const auto found = bindings.find(address.inputPortId);
     return found == bindings.end() ? nullptr : &found->second;
   }
-  std::string add(const Node &added) {
+  std::string add(const Node &added, bool validate = true) {
     if (added.id.value.empty()) return "Empty NodeId";
     if (node(added.id)) return "Duplicate NodeId";
     if (added.operation == NodeOperation::Source) return "Cannot add a second Source";
@@ -47,7 +47,7 @@ class StagedEdit {
     } catch (const std::invalid_argument &) {
       return "Unknown graph operation";
     }
-    return graphStructureError(view());
+    return validate ? graphStructureError(view()) : std::string();
   }
   void erase(const NodeId &id, const std::optional<OutputRef> &imageSubstitute = std::nullopt) {
     const auto disconnectConsumers = [&](InputBindings &bindings) {
@@ -66,10 +66,10 @@ class StagedEdit {
   }
   OutputRef &output() { return output_; }
 
-  graph::CommandResult commit(Node *addition, std::optional<SlotId> addedSlot, App *owner) {
+  graph::CommandResult commit(const std::vector<Node *> &additions, std::optional<SlotId> addedSlot, App *owner) {
     auto invalid = graphStructureError(view());
     if (!invalid.empty()) return {invalid, std::nullopt};
-    if (!addition && unchanged()) return {{}, addedSlot};
+    if (additions.empty() && unchanged()) return {{}, addedSlot};
     // Staging reads immutable topology on the control thread. Only a validated
     // change drains preview/export, before touching live storage or processors.
     std::optional<document_detail::DocumentMutation> mutation;
@@ -81,12 +81,12 @@ class StagedEdit {
     static_assert(std::is_nothrow_swappable_v<InputBindings>);
     static_assert(std::is_nothrow_swappable_v<std::vector<Slot>>);
     static_assert(std::is_nothrow_swappable_v<OutputRef>);
-    if (addition) document_.nodes.reserve(document_.nodes.size() + 1);
+    document_.nodes.reserve(document_.nodes.size() + additions.size());
     for (auto &live : document_.nodes) {
       Node *staged = node(live.id);
       if (staged) swapTopology(live, *staged);
     }
-    if (addition) {
+    for (auto *addition : additions) {
       swapTopology(*addition, *node(addition->id));
       document_.nodes.push_back(std::move(*addition));
     }
@@ -164,7 +164,7 @@ static CommandResult editGraph(graph::Document document, Change change, Node *ad
   if (!staged.error.empty()) return {staged.error, std::nullopt};
   auto result = change(staged);
   if (!result.ok()) return result;
-  return staged.commit(addition, result.addedSlot, owner);
+  return staged.commit(addition ? std::vector<Node *>{addition} : std::vector<Node *>{}, result.addedSlot, owner);
 }
 
 template <typename Change>
@@ -319,6 +319,44 @@ static CommandResult insertImageNodeGraph(Target &document, Node &&node, std::op
     inserted->fixedInputs.at(ports::image) = producer;
     return {};
   }, &node);
+}
+
+CommandResult insertImageChain(Document document, std::vector<Node> &nodes, std::optional<NodeId> after) {
+  StagedEdit edit(document);
+  if (!edit.error.empty()) return {edit.error, std::nullopt};
+  std::vector<NodeId> spine;
+  auto error = imageSpine(document, spine);
+  if (!error.empty()) return {error, std::nullopt};
+  auto successor = spine.end();
+  if (after) {
+    if (*after == document.primarySource) successor = spine.begin();
+    else {
+      successor = std::find(spine.begin(), spine.end(), *after);
+      if (successor == spine.end()) return {"Insertion requires a current main Image spine node", std::nullopt};
+      ++successor;
+    }
+  }
+  if (nodes.empty()) return {};
+  std::vector<Node *> additions;
+  additions.reserve(nodes.size());
+  for (size_t i = 0; i < nodes.size(); ++i) {
+    const auto &node = nodes[i];
+    if (node.operation != NodeOperation::ImageProcessor || !isUnaryImageNode(node) || node.fixedInputs.size() != 1)
+      return {"Insertion requires an ordinary linear ImageProcessor chain", std::nullopt};
+    const auto &input = node.fixedInputs.at(ports::image);
+    if ((i == 0 && input) || (i && input != std::optional<OutputRef>{{nodes[i-1].id, ports::image}}))
+      return {"Incoming chain has incompatible connections", std::nullopt};
+    // Forward/internal references are validated after the complete batch exists.
+    error = edit.add(node, false);
+    if (!error.empty()) return {error, std::nullopt};
+  }
+  const OutputRef predecessor = after ? OutputRef{*after, ports::image} : edit.output();
+  edit.node(nodes.front().id)->fixedInputs.at(ports::image) = predecessor;
+  const OutputRef tail{nodes.back().id, ports::image};
+  if (successor == spine.end()) edit.output() = tail;
+  else *edit.input({*successor, std::nullopt, ports::image}) = tail;
+  for (auto &node : nodes) additions.push_back(&node);
+  return edit.commit(additions, std::nullopt, nullptr);
 }
 
 template <typename Target>

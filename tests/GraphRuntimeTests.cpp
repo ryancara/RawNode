@@ -427,6 +427,65 @@ static bool testPhotoSwitch(bool exporting) {
 static bool testExportPhotoSwitch() { return testPhotoSwitch(true); }
 static bool testPreviewPhotoSwitch() { return testPhotoSwitch(false); }
 
+// Both transfer operations must drain borrowers before swapping nodes or
+// reallocating storage. The old export writes the accepted old grade; a preview
+// after the edit evaluates the complete new grade through the shared runtime.
+static bool testTransferLifetime(bool append, bool exporting) {
+  Files files; Gate gate; App app; source(app);
+  const NodeId oldId{"transfer-borrowed"};
+  auto *processor = numeric(app, oldId, 2.0f); CHECK(processor);
+  App incoming; CHECK(addNativeExposureNode(incoming));
+  CHECK(selectedNode(incoming)->processor->setParameterValue("exposure", 1.0));
+  PersistGrade grade; CHECK(captureGrade(incoming, grade));
+  const auto oldFull = app.full.px.data(); const auto oldPreview = app.preview;
+  const auto output = files.path("transfer-old.png"), expected = files.path("transfer-expected.png");
+  auto reference = app.full;
+  for (size_t i = 0; i < reference.px.size(); ++i) if (i % 4 != 3) reference.px[i] *= 2.0f;
+  CHECK(writeImage(reference, expected, app.outputEncoding, 92));
+  processor->renderGate = &gate; gate.arm();
+  struct Probe {
+    App &app; Processor *processor; const float *pixels;
+    std::mutex mutex; std::condition_variable cv;
+    bool observed = false, intact = false;
+  } probe{app, processor, oldFull};
+  RenderRuntimeTestAccess::observe(app.renderer, &probe, [](void *context, auto event) noexcept {
+    if (event != RenderRuntimeTestAccess::Event::MutationWaiting) return;
+    auto &probe = *static_cast<Probe *>(context);
+    std::lock_guard<std::mutex> lock(probe.mutex);
+    const auto *old = findNode(probe.app, NodeId{"transfer-borrowed"});
+    probe.intact = old && old->processor.get() == probe.processor && probe.app.full.px.data() == probe.pixels;
+    probe.observed = true; probe.cv.notify_all();
+  });
+  GateWorkerGuard guard{app, gate};
+  if (exporting) CHECK(startExport(app, output));
+  app.renderer.start(); CHECK(gate.wait(1));
+  bool waited = false;
+  std::thread release([&] {
+    std::unique_lock<std::mutex> lock(probe.mutex);
+    waited = probe.cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe.observed; }) && probe.intact;
+    lock.unlock(); gate.unblock();
+  });
+  const bool applied = append ? appendGrade(app, grade) : applyGrade(app, grade);
+  release.join(); app.renderer.joinExport();
+  CHECK(applied && waited && idle(app) && app.full.px.data() == oldFull && app.preview == oldPreview);
+  CHECK(app.nodes.size() == (append ? 3u : 2u));
+  const auto frame = publication(app);
+  CHECK(frame.result.state == EvaluationState::Available && frame.result.requested == app.documentOutput);
+  // Source red=.25. Replace: .25*2=.5. Append: (.25*2)*2=1.
+  CHECK(std::get<ImageValue>(frame.result.value)->px[0] == (append ? 1.0f : 0.5f));
+  if (exporting) {
+    Image exported, reference; ColorEncoding detected; bool raw;
+    CHECK(loadImage(output, exported, detected, raw) && loadImage(expected, reference, detected, raw));
+    CHECK(exported.w == 2 && exported.h == 1 && exported.px == reference.px);
+  }
+  return true;
+}
+static bool testTransferLifetimes() {
+  for (bool append : {false, true}) for (bool exporting : {false, true})
+    if (!testTransferLifetime(append, exporting)) return false;
+  return true;
+}
+
 static bool testPresentationGate(bool refresh) {
   Executor executor; App app; source(app);
   const NodeId effect{"presentation-image"}, maskNode{"presentation-mask"};
@@ -695,6 +754,7 @@ bool testGraphRuntime() {
       {"6D allocation-style worker exception publishes Error and worker survives mutation", testWorkerExceptionBoundary},
       {"6D B1 async export retains Photo A while openPath waits to commit Photo B", testExportPhotoSwitch},
       {"6D I1 photo switching drains active preview and keeps Source dimensions coherent", testPreviewPhotoSwitch},
+      {"Step 7 Replace/Append drain borrowed preview/export nodes and pixels", testTransferLifetimes},
       {"6D I2 prepared preview/recolour remains responsive and rejects stale presentation", testPresentationResponsiveness},
       {"6D I3 no-image processor edits preserve initial guidance without evaluation", testNoImageGuidance},
       {"6D I4 quiet restoration reports current failures and preserves successful export status", testQuietOutcomes},
