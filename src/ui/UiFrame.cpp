@@ -13,6 +13,7 @@
 
 #include <GLFW/glfw3.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <stdexcept>
@@ -129,7 +130,11 @@ static void openUrl(const std::string &url) {
 void DrawUiFrame(App &app) {
   if (!app.preferencesWarning.empty()) {
     bool visible = true;
-    if (ImGui::Begin("Application preferences warning", &visible, ImGuiWindowFlags_AlwaysAutoResize))
+    // Set the width every frame: old ini files may contain a collapsed width.
+    const float width = std::max(1.0f, std::min(560.0f, ImGui::GetMainViewport()->WorkSize.x - 32.0f));
+    ImGui::SetNextWindowSize(ImVec2(width, 0.0f), ImGuiCond_Always);
+    if (ImGui::Begin("Application preferences warning", &visible,
+                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
       ImGui::TextWrapped("%s", app.preferencesWarning.c_str());
     ImGui::End();
     if (!visible) app.preferencesWarning.clear();

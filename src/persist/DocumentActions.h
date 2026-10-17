@@ -4,6 +4,8 @@
 #include "persist/ProjectPersist.h"
 #include <functional>
 
+struct ConfigPaths;
+
 // Control-thread photo/folder actions. ProjectPersist owns durable records;
 // NodeGraph restores nodes. Folder selection is transient.
 PersistGradeColor captureGradeColor(const App &app);
@@ -21,7 +23,9 @@ bool saveCurrentInputSidecar(App &app, std::string *error = nullptr);
 // Resolve before replacement or shutdown intent. An absent prompt cancels a
 // failed departure; only an explicit Discard permits leaving without saving.
 bool preparePhotoDeparture(App &app, const SaveFailurePrompt &prompt = {});
-bool prepareShutdown(App &app, const std::string &preferencesPath, const SaveFailurePrompt &prompt = {});
+// Unsupported/unreadable startup preferences must not be overwritten on close.
+bool prepareShutdown(App &app, const ConfigPaths &config, bool preferencesLoaded,
+                     const SaveFailurePrompt &prompt = {});
 bool openFolder(App &app, const std::string &dir, const SaveFailurePrompt &prompt = {});
 bool openPath(App &app, const std::string &path, const SaveFailurePrompt &prompt = {});
 void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma);

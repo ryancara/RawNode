@@ -221,19 +221,19 @@ bool preparePhotoDeparture(App &app, const SaveFailurePrompt &prompt) {
   return document_detail::leavePhoto(app, prompt, {});
 }
 
-bool document_detail::prepareShutdown(App &app, const std::string &preferencesPath,
+bool document_detail::prepareShutdown(App &app, const ConfigPaths &config, bool preferencesLoaded,
                                       const SaveFailurePrompt &prompt, const ActionTestOptions &options) {
   if (!leavePhoto(app, prompt, options)) return false;
-  if (!preferencesPath.empty()) {
+  if (preferencesLoaded && !config.preferences.empty()) {
     std::string error;
-    if (!savePreferences(preferencesPath, capturePreferences(app), error))
+    if (!savePreferences(config.preferences, capturePreferences(app), error))
       app.preferencesWarning = "Could not save application preferences: " + error;
   }
   return true;
 }
 
-bool prepareShutdown(App &app, const std::string &preferencesPath, const SaveFailurePrompt &prompt) {
-  return document_detail::prepareShutdown(app, preferencesPath, prompt, {});
+bool prepareShutdown(App &app, const ConfigPaths &config, bool preferencesLoaded, const SaveFailurePrompt &prompt) {
+  return document_detail::prepareShutdown(app, config, preferencesLoaded, prompt, {});
 }
 
 namespace document_detail {

@@ -71,7 +71,7 @@ int runApp(const std::string &optionalPath) {
     glfwPollEvents();
     if (glfwWindowShouldClose(app.window)) {
       // Resolve saving while all workers and editor resources are still usable.
-      if (prepareShutdown(app, preferencesLoaded ? config.preferences : "", promptSaveFailure)) {
+      if (prepareShutdown(app, config, preferencesLoaded, promptSaveFailure)) {
         if (!app.preferencesWarning.empty()) {
           std::fprintf(stderr, "%s\n", app.preferencesWarning.c_str());
           pfd::message("Application preferences", app.preferencesWarning, pfd::choice::ok, pfd::icon::warning).result();

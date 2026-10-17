@@ -5,6 +5,7 @@
 #include "persist/PreferencesPriv.h"
 #include "persist/DocumentActionsPriv.h"
 #include "ui/ImGuiBackend.h"
+#include "ui/UiContext.h"
 #include "ui/DockLayout.h"
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -15,6 +16,9 @@
 #include <fstream>
 #include <set>
 #include <stdexcept>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 
 #define CHECK(expression) do { if (!(expression)) { \
   std::fprintf(stderr, "preferences check failed at line %d: %s\n", __LINE__, #expression); return false; \
@@ -143,7 +147,8 @@ bool atomicFailuresAndPaths() {
 #endif
       ).string());
 #endif
-  CHECK(preferences_detail::configPaths("", "", error).preferences.empty() && !error.empty());
+  const auto unresolved = preferences_detail::configPaths("", "", error);
+  CHECK(unresolved.preferences.empty() && unresolved.layout.empty() && !error.empty());
   write(files.path("blocker"), "not a directory");
   const auto blocked = preferences_detail::configPaths(files.path("blocker/child"), files.path("blocker/child"), error);
   CHECK(blocked.preferences.empty() && blocked.layout.empty() && !error.empty());
@@ -156,12 +161,58 @@ bool atomicFailuresAndPaths() {
     CHECK(bytes(config.preferences) == original);
     CHECK(entries(expected) == std::set<std::string>{"preferences.json"});
   }
+  // Each invalid destination must disable layout persistence, without changing
+  // the preferences path or falling back to CWD/photo folders.
+  const auto layoutPath = expected / "layout.ini";
+  const auto disabledLayout = [&] {
+    const auto invalid = preferences_detail::configPaths(home, xdg, error);
+    return invalid.preferences == config.preferences && invalid.layout.empty() && !error.empty();
+  };
+  fs::create_directory(layoutPath);
+  CHECK(disabledLayout());
+  fs::remove(layoutPath);
+#ifndef _WIN32
+  // A valid regular-file target distinguishes lstat from accidentally following
+  // the link. A dangling link must be refused as well.
+  write(files.path("layout-target.ini"), "[Window][Target]\nPos=1,2\n");
+  fs::create_symlink(files.path("layout-target.ini"), layoutPath);
+  CHECK(disabledLayout());
+  CHECK(bytes(files.path("layout-target.ini")) == "[Window][Target]\nPos=1,2\n");
+  fs::remove(layoutPath);
+  fs::create_symlink(files.path("missing-layout-target.ini"), layoutPath);
+  CHECK(disabledLayout());
+  fs::remove(layoutPath);
+  // FIFO is deterministically unusable as a native ini file, independent of
+  // the test user's effective permissions.
+  CHECK(mkfifo(layoutPath.c_str(), 0600) == 0);
+  CHECK(disabledLayout());
+  fs::remove(layoutPath);
+#endif
   CHECK(!savePreferences("", p, error) && !error.empty());
   CHECK(!savePreferences(files.path("missing/preferences.json"), p, error));
 #ifndef _WIN32
   fs::create_symlink(config.preferences, files.path("linked.json"));
   CHECK(!savePreferences(files.path("linked.json"), p, error) && bytes(config.preferences) == original);
 #endif
+  return true;
+}
+
+bool protectedPreferencesShutdown() {
+  Files files;
+  const ConfigPaths config{files.path("preferences.json"), files.path("layout.ini")};
+  // Future version and unknown setting are authored independently of the writer.
+  // Malformed JSON uses the same protected startup/shutdown behaviour.
+  for (const std::string original : {
+       R"({"format":"rawnode-preferences","version":2,"futureShortcutMap":{"open":"Q"}})",
+       "{ malformed preferences"}) {
+    write(config.preferences, original);
+    App app;
+    const bool preferencesLoaded = initialisePreferences(app, config);
+    app.themeIndex = 1;
+    CHECK(prepareShutdown(app, config, preferencesLoaded));
+    CHECK(bytes(config.preferences) == original);
+    CHECK(!preferencesLoaded && !app.preferencesWarning.empty());
+  }
   return true;
 }
 
@@ -234,12 +285,31 @@ bool startupPhotoFolderAndShutdown() {
   const auto originalPreferences = bytes(config.preferences);
   options.beforeSave = [] { return Fault::Replace; };
   app.jpegQuality = 81;
-  CHECK(!document_detail::prepareShutdown(app, config.preferences, {}, options));
+  CHECK(!document_detail::prepareShutdown(app, config, true, {}, options));
   CHECK(!app.quit && bytes(config.preferences) == originalPreferences && app.path == saved);
   // Cancellation leaves the actual renderer/editor available for another edit.
-  CHECK(addNativeExposureNode(app)); app.renderer.requestPreview(); CHECK(idle(app));
+  int previousGeneration;
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    previousGeneration = app.processed.generation;
+  }
+  CHECK(addNativeExposureNode(app));
+  CHECK(setNodeParameterValue(app, app.nodes.back().id, "exposure", 1.0));
+  app.renderer.requestPreview();
+  CHECK(idle(app));
+  const int requestedGeneration = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.processed.generation > previousGeneration);
+    CHECK(app.processed.generation == requestedGeneration);
+    CHECK(app.processed.result.state == EvaluationState::Available);
+    const auto *rendered = std::get_if<ImageValue>(&app.processed.result.value);
+    // Synthetic RAW is exactly 0.25; +1 stop must publish a new 0.5 raster.
+    CHECK(rendered && *rendered && (*rendered)->px[0] == 0.5f);
+  }
+  CHECK(bytes(config.preferences) == originalPreferences && app.path == saved);
   options.beforeSave = {};
-  CHECK(document_detail::prepareShutdown(app, config.preferences, {}, options));
+  CHECK(document_detail::prepareShutdown(app, config, true, {}, options));
   Preferences p;
   CHECK(loadPreferences(config.preferences, p, warning) && p.jpegQuality == 81 && p.rawWorking == storedRaw && p.output == storedOutput);
   CHECK(readGraphSidecar(inputSidecarPath(saved), grade, error) == SidecarReadStatus::Loaded && grade.grade->graph.nodes.size() == 2);
@@ -252,7 +322,7 @@ bool startupPhotoFolderAndShutdown() {
   app.renderer.shutdown();
   // Preferences save without any photo/folder having been opened.
   App empty; CHECK(initialisePreferences(empty, config)); empty.themeIndex = 0;
-  CHECK(prepareShutdown(empty, config.preferences));
+  CHECK(prepareShutdown(empty, config, true));
   CHECK(loadPreferences(config.preferences, p, warning) && p.themeIndex == 0);
   return true;
 }
@@ -261,12 +331,63 @@ struct ImGuiContextScope {
   ImGuiContextScope() { ImGui::CreateContext(); }
   ~ImGuiContextScope() { ImGui::DestroyContext(); }
 };
-void beginFrame() {
-  auto &io = ImGui::GetIO(); io.DisplaySize = {1200, 800}; io.DeltaTime = 1.0f / 60;
+void beginFrame(ImVec2 displaySize = {1200, 800}) {
+  auto &io = ImGui::GetIO(); io.DisplaySize = displaySize; io.DeltaTime = 1.0f / 60;
   unsigned char *pixels; int width, height;
   io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
   ImGui::NewFrame();
 }
+bool warningGeometry() {
+  const char *name = "Application preferences warning";
+  for (const bool staleLayout : {false, true}) {
+    ImGuiContextScope context;
+    ImGuiBackend_ConfigureLayout("");
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    if (staleLayout)
+      ImGui::LoadIniSettingsFromMemory("[Window][Application preferences warning]\nPos=60,60\nSize=36,500\nCollapsed=0\n\n");
+    App app;
+    app.preferencesWarning = "/a/long/configuration/path/" + std::string(240, 'x') +
+        "/preferences.json: unsupported preferences version.\n"
+        "Using in-memory defaults. The original file will remain untouched.";
+    for (const auto display : {ImVec2{1200, 800}, ImVec2{420, 800}}) {
+      // Auto-fit and content geometry settle over frames, as in the real UI.
+      for (int frame = 0; frame < 3; ++frame) {
+        beginFrame(display); DrawUiFrame(app); ImGui::EndFrame();
+      }
+      const auto *window = ImGui::FindWindowByName(name);
+      CHECK(window && (window->Flags & ImGuiWindowFlags_NoSavedSettings));
+      const float expectedWidth = display.x == 1200 ? 560.0f : 388.0f;
+      CHECK(window->Size.x >= expectedWidth - 1 && window->Size.x <= expectedWidth + 1);
+      CHECK(window->ContentSize.y > ImGui::GetTextLineHeight() * 2);
+      CHECK(window->ContentSize.x <= window->InnerRect.GetWidth() + 1);
+      CHECK(!app.preferencesWarning.empty());
+    }
+    if (!staleLayout) {
+      const std::string saved = ImGui::SaveIniSettingsToMemory();
+      CHECK(saved.find("[Window][Application preferences warning]") == std::string::npos);
+    }
+    // Restore the full viewport before clicking the close button; changing the
+    // viewport above deliberately leaves ordinary window positioning to ImGui.
+    for (int frame = 0; frame < 3; ++frame) {
+      beginFrame(); DrawUiFrame(app); ImGui::EndFrame();
+    }
+    // Exercise the unchanged close-button path with real ImGui input events.
+    const auto *window = ImGui::FindWindowByName(name);
+    const ImVec2 close(window->Pos.x + window->Size.x - ImGui::GetStyle().FramePadding.x - ImGui::GetFontSize() * 0.5f,
+                       window->Pos.y + ImGui::GetStyle().FramePadding.y + ImGui::GetFontSize() * 0.5f);
+    ImGui::SetWindowFocus(name);
+    auto &io = ImGui::GetIO();
+    io.AddMousePosEvent(close.x, close.y);
+    beginFrame(); DrawUiFrame(app); ImGui::EndFrame();
+    io.AddMouseButtonEvent(0, true);
+    beginFrame(); DrawUiFrame(app); ImGui::EndFrame();
+    io.AddMouseButtonEvent(0, false);
+    beginFrame(); DrawUiFrame(app); ImGui::EndFrame();
+    CHECK(app.preferencesWarning.empty());
+  }
+  return true;
+}
+
 bool globalLayout() {
   Files files; fs::create_directory(files.path("cwd")); fs::create_directory(files.path("folder"));
   CurrentDirectory cwd(files.path("cwd"));
@@ -307,8 +428,10 @@ bool testPreferences() {
   for (const auto &test : {
        std::make_pair("codec, optional fields and pair fallbacks", codecAndOptionalFields),
        std::make_pair("config paths and checked atomic failures", atomicFailuresAndPaths),
+       std::make_pair("unsupported/malformed preferences survive shutdown", protectedPreferencesShutdown),
        std::make_pair("startup colours, folder retirement and shutdown cancellation", startupPhotoFolderAndShutdown),
-       std::make_pair("global native ImGui layout", globalLayout)}) {
+       std::make_pair("global native ImGui layout", globalLayout),
+       std::make_pair("warning geometry, stale ini and dismissal", warningGeometry)}) {
     if (!test.second()) { std::fprintf(stderr, "FAILED preferences: %s\n", test.first); return false; }
     std::printf("ok  Step 7 preferences: %s\n", test.first);
   }

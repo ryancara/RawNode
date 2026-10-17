@@ -31,7 +31,9 @@ Windows atomic file replacement is not yet supported and reports a warning.
 The format is a small JSON object with `format: "rawnode-preferences"`, `version: 1`.
 All settings are optional. Missing fields receive built-in defaults independently;
 invalid individual fields warn and default without losing other valid settings.
-Unknown optional fields are ignored. Future implemented application preferences
+Unknown optional fields do not invalidate a supported file, but are not currently
+preserved when that file is saved again. Unsupported future file versions are
+protected from overwriting. Future implemented application preferences
 can add optional fields with sensible defaults without replacing this persistence
 system; no shortcut, MIDI, plugin-path or preset-path schema is defined here.
 
