@@ -4,11 +4,10 @@
 
 struct GLFWwindow;
 
-bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex);
+bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex, const std::string &layoutPath);
 void ImGuiBackend_NewFrame();
 void ImGuiBackend_Render();
 void ImGuiBackend_Shutdown();
-// Switches IniFilename to workspace/.ofxrawhost-layout.ini and loads it if present.
-// Returns true if a layout file was loaded (caller should not force DockBuilder).
-bool ImGuiBackend_SetWorkspaceIni(const std::string &workspaceDir);
-void ImGuiBackend_SetDefaultIni();
+// Configure immediately after context creation, before the first frame.
+// layoutPath must outlive the context; empty disables disk persistence.
+void ImGuiBackend_ConfigureLayout(const std::string &layoutPath);

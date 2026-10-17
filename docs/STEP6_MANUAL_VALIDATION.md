@@ -156,3 +156,30 @@ was for PR 3; these PR 4 checks remain unverified:
   and full-grade clipboard Paste, on actual Nikon NEFs with differing RAW pairs.
 - Repeat while preview/export owns the old graph; verify the accepted old export
   and settled new preview. Record tested commit, macOS/hardware and NEF models.
+
+## Step 7 PR 5 manual checks still required
+
+Linux tests exercise platform path inputs, native ImGui ini save/reload with a
+headless context, synthetic RAW opening and cancelled shutdown. They do not
+establish macOS filesystem, Retina/native-window docking or actual NEF decoding.
+No new macOS validation result is claimed. On the reviewed PR head:
+
+- Launch from different CWDs, including Finder, without preferences/layout. Confirm
+  `~/Library/Application Support/RawNode/` receives both files, correct default
+  docking appears, and no settings files appear in CWD, installation or photos.
+- Change theme, visibility, preview/export choices and dock/window placement;
+  close/restart with and without an opened folder. Check restoration immediately
+  on the first frame, then switch folders and confirm docking stays unchanged.
+- With valid stored non-default colour pairs, open a new Nikon NEF and confirm
+  decoding/new grade uses them. Open a saved grade and apply preset Replace;
+  confirm photo colours restore while future-photo defaults remain unchanged.
+- Exercise absent/unwritable configuration directory and read-only/bad settings
+  destinations. Confirm visible warnings, in-memory operation, no alternate writes
+  and preservation of an existing valid file on failed preference replacement.
+- Keep historical workspace/layout files in multiple folders and CWD; verify
+  bytes/mtime remain unchanged through navigation, restart and shutdown.
+- Force photo save failure on Quit; Cancel must keep rendering/editing working.
+  Retry or explicit Discard may close, saving application preferences. Confirm
+  preference-write errors are visible without silently writing elsewhere.
+
+Record macOS/hardware, tested head SHA and Nikon models alongside the results.

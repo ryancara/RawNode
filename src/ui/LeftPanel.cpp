@@ -38,7 +38,7 @@ void drawLeftPanel(App &app) {
   if (ImGui::Button("Open Folder")) {
     auto f = pfd::select_folder("Open folder");
     auto r = f.result();
-    if (!r.empty()) app.pendingWorkspaceDir = r;
+    if (!r.empty()) app.pendingFolderDir = r;
   }
   ImGui::SameLine();
   if (ImGui::Button("Export")) doExport(app);
@@ -114,8 +114,6 @@ void drawLeftPanel(App &app) {
   ImGui::TextWrapped("%s", status.c_str());
   if (!app.persistenceWarning.empty())
     ImGui::TextWrapped("%s", app.persistenceWarning.c_str());
-  if (app.workspaceWriteBlocked)
-    ImGui::TextWrapped("Workspace metadata is read-only — workspace changes will not be saved.");
   ImGui::Separator();
 
   ImGui::TextUnformatted("Processing Nodes");

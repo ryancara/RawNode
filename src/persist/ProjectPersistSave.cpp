@@ -56,23 +56,10 @@ std::string jsonStringValue(const std::string &value) {
   return std::string("\"") + jsonEscape(value) + "\"";
 }
 
-void appendGuiJson(std::ostringstream &o, const PersistGui &g, bool includeSessionDefaults) {
-  // Kept in V2 for behaviour compatibility. Essential edit reconstruction
-  // lives in graph/document fields; layout state may move fully to workspace state later.
-  o << "\"gui\":{"
-    << "\"outputColorSpace\":\"" << jsonEscape(g.outputColorSpace) << "\","
-    << "\"outputGamma\":\"" << jsonEscape(g.outputGamma) << "\",";
-  if (includeSessionDefaults) {
-    o << "\"rawDefaultColorSpace\":\"" << jsonEscape(g.rawDefaultColorSpace) << "\","
-      << "\"rawDefaultGamma\":\"" << jsonEscape(g.rawDefaultGamma) << "\",";
-  }
-  o << "\"exportFormat\":" << g.exportFormat << ","
-    << "\"jpegQuality\":" << g.jpegQuality << ","
-    << "\"previewRes\":" << g.previewRes << ","
-    << "\"themeIndex\":" << g.themeIndex << ","
-    << "\"showLeft\":" << (g.showLeft ? "true" : "false") << ","
-    << "\"showRight\":" << (g.showRight ? "true" : "false") << ","
-    << "\"showFilmstrip\":" << (g.showFilmstrip ? "true" : "false") << "}";
+// Historical V2 fixture writer, never used by live settings/photo saves.
+void appendGuiJson(std::ostringstream &o, const PersistGui &g) {
+  o << "\"gui\":{\"outputColorSpace\":" << jsonStringValue(g.outputColorSpace)
+    << ",\"outputGamma\":" << jsonStringValue(g.outputGamma) << '}';
 }
 
 void appendChainJson(std::ostringstream &o, const PersistChain &chain) {
@@ -120,10 +107,6 @@ bool writeFile(const fs::path &path, const std::string &body) {
   return f.good();
 }
 
-std::string workspaceProjectPath(const std::string &workspaceDir) {
-  return (fs::path(workspaceDir) / "workspace.ofxrawhost.json").string();
-}
-
 std::string inputSidecarPath(const std::string &imagePath) { return imagePath + ".rawnode.json"; }
 
 std::string legacyInputSidecarPath(const std::string &imagePath) { return imagePath + ".ofxrawhost.json"; }
@@ -154,11 +137,11 @@ std::vector<std::string> openImageDialogFilters() {
   return {"Images", patterns};
 }
 
-std::vector<std::string> listWorkspaceImages(const std::string &workspaceDir) {
+std::vector<std::string> listFolderImages(const std::string &folderDir) {
   std::vector<std::string> out;
   std::error_code ec;
-  if (!fs::is_directory(workspaceDir, ec)) return out;
-  for (const auto &ent : fs::recursive_directory_iterator(workspaceDir, fs::directory_options::skip_permission_denied, ec)) {
+  if (!fs::is_directory(folderDir, ec)) return out;
+  for (const auto &ent : fs::recursive_directory_iterator(folderDir, fs::directory_options::skip_permission_denied, ec)) {
     if (ec) break;
     if (!ent.is_regular_file()) continue;
     const std::string p = ent.path().string();
@@ -168,31 +151,6 @@ std::vector<std::string> listWorkspaceImages(const std::string &workspaceDir) {
   }
   std::sort(out.begin(), out.end());
   return out;
-}
-
-std::string relativeToWorkspace(const std::string &workspaceDir, const std::string &absPath) {
-  std::error_code ec;
-  fs::path base = fs::weakly_canonical(fs::path(workspaceDir), ec);
-  fs::path file = fs::weakly_canonical(fs::path(absPath), ec);
-  if (ec) return absPath;
-  auto mm = std::mismatch(base.begin(), base.end(), file.begin(), file.end());
-  if (mm.first == base.end()) {
-    fs::path rel;
-    for (auto it = mm.second; it != file.end(); ++it) rel /= *it;
-    return rel.string();
-  }
-  return absPath;
-}
-
-bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui, const std::string &activeImageRel) {
-  std::ostringstream o;
-  o << '{'
-    << "\"format\":\"ofxrawhost-workspace\","
-    << "\"version\":1,"
-    << "\"activeImage\":\"" << jsonEscape(activeImageRel) << "\",";
-  appendGuiJson(o, gui, true);
-  o << '}';
-  return writeFile(workspaceProjectPath(workspaceDir), o.str());
 }
 
 static void appendSidecarHeader(std::ostringstream &o, const std::string &kind,
@@ -219,7 +177,7 @@ bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,
                       const PersistChain &chain, const ColorEncoding *rawEncoding) {
   std::ostringstream o;
   appendSidecarHeader(o, "input", fs::path(imagePath).filename().string(), rawEncoding);
-  appendGuiJson(o, gui, false);
+  appendGuiJson(o, gui);
   o << ',';
   appendChainJson(o, chain);
   o << '}';
@@ -411,10 +369,12 @@ struct SiblingTemporaryFile {
 };
 #endif
 
-bool replaceGraphFile(const std::string &path, const std::string &body, std::string &error,
+}  // namespace
+
+bool persist_detail::replaceFileAtomically(const std::string &path, const std::string &body, std::string &error,
                       persist_detail::FileFault fault) {
 #ifdef _WIN32
-  error = path + ": Atomic sidecar replacement is not yet supported on Windows";
+  error = path + ": Atomic file replacement is not yet supported on Windows";
   return false;
 #else
   using Fault = persist_detail::FileFault;
@@ -483,8 +443,6 @@ bool replaceGraphFile(const std::string &path, const std::string &body, std::str
   return true;
 #endif
 }
-}  // namespace
-
 namespace persist_detail {
 bool updateGraphSidecar(const std::string &path, const PersistGrade *grade, PhotoMark mark,
                         std::string &error, FileFault fault, bool testOperations) {
@@ -516,7 +474,7 @@ bool updateGraphSidecar(const std::string &path, const PersistGrade *grade, Phot
     PersistFile checked;
     if (!decodeGraphFile(outgoing, checked, error, nullptr, testOperations)) return fail();
   }
-  return replaceGraphFile(path, outgoing, error, fault);
+  return replaceFileAtomically(path, outgoing, error, fault);
 }
 }  // namespace persist_detail
 

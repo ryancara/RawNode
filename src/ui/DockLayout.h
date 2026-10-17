@@ -10,7 +10,7 @@ inline constexpr const char *kParams = "OFX Parameters";
 inline constexpr const char *kFilmstrip = "Filmstrip";
 
 // Host dockspace for the frame. Builds a default layout when no .ini exists
-// or when app.layoutApplyPending (legacy panel sizes / first workspace open).
+// using preference fallback sizes.
 void BeginMainDockSpace(App &app);
 
 }  // namespace DockLayout

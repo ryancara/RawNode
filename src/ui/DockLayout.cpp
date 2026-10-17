@@ -51,9 +51,8 @@ void BeginMainDockSpace(App &app) {
 
   const ImGuiID dockspaceId = ImGui::GetID("OfxRawHostDock");
   const bool missingNode = ImGui::DockBuilderGetNode(dockspaceId) == nullptr;
-  if (missingNode || app.layoutApplyPending) {
+  if (missingNode) {
     buildDefaultLayout(app, dockspaceId);
-    app.layoutApplyPending = false;
   }
 
   ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);

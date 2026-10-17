@@ -9,23 +9,10 @@
 #include <vector>
 #include <variant>
 
+// Historical V1/V2 fixture support only; never used by live preferences.
 struct PersistGui {
-  // Read-only migration value for older V2/workspace JSON.
-  int legacyOutputIndex = 0;
   std::string outputColorSpace;
   std::string outputGamma;
-  std::string rawDefaultColorSpace;
-  std::string rawDefaultGamma;
-  int exportFormat = 1;
-  int jpegQuality = 92;
-  int previewRes = 1;
-  int themeIndex = 2;
-  bool showLeft = true;
-  bool showRight = true;
-  float leftW = 280.0f;
-  float rightW = 420.0f;
-  bool showFilmstrip = true;
-  float filmstripH = 96.0f;
 };
 
 struct PersistNode {
@@ -124,17 +111,13 @@ struct PersistSidecar {
   PersistChain chain;
 };
 
-std::string workspaceProjectPath(const std::string &workspaceDir);
 std::string inputSidecarPath(const std::string &imagePath);
 std::string legacyInputSidecarPath(const std::string &imagePath);
 
 bool isSupportedImagePath(const std::string &path);
 bool isHostMetadataPath(const std::string &path);
 std::vector<std::string> openImageDialogFilters();
-std::vector<std::string> listWorkspaceImages(const std::string &workspaceDir);
-
-bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std::string &activeImageRel);
-bool saveWorkspaceProject(const std::string &workspaceDir, const PersistGui &gui, const std::string &activeImageRel);
+std::vector<std::string> listFolderImages(const std::string &folderDir);
 
 // Encode/decode one JSON string value, including quotes. These helpers keep
 // processor string parameters valid JSON and correctly handle escaped Unicode.
@@ -158,5 +141,3 @@ bool loadPresetFile(const std::string &path, PersistGrade &out, std::string &err
 bool loadSidecarFile(const std::string &path, PersistSidecar &out);
 bool saveInputSidecar(const std::string &imagePath, const PersistGui &gui,
                       const PersistChain &chain, const ColorEncoding *rawEncoding = nullptr);
-
-std::string relativeToWorkspace(const std::string &workspaceDir, const std::string &absPath);

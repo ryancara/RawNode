@@ -52,8 +52,22 @@ Append. Refusal changes neither the document nor clipboard.
 Copy Grade, Save Preset and application refuse protected source views. Clipboard
 version 1, `rawnode-preset` and `.rawnodepreset` are retired without readers or
 migration; existing files are not deleted. Historical V1/V2 sidecar helpers below
-remain for legacy tests until the separate PR 5 retirement of folder preferences.
+remain only for legacy self-test fixtures; folder persistence is retired.
 
+
+## Global application settings
+
+Application preferences and ImGui layout now live together in the platform user
+configuration directory, as `preferences.json` and `layout.ini`. They load before
+the UI/first photo and save at normal shutdown. RAW/Output defaults initialise
+new grades; changing photo controls, opening saved grades or applying Replace
+never changes those defaults. See [application settings](docs/workspace-format.md)
+for locations, optional-field defaults and error handling.
+
+Workspace JSON, per-folder layout and CWD ini persistence are retired without
+migration or automatic deletion. Folder browsing/filmstrip auto-open remains.
+Historical sections below describe older formats only; their readers/writers
+are retained for self-test fixtures and do not participate in live persistence.
 
 ## Principles
 
@@ -73,7 +87,7 @@ Input sidecars are written beside the source image as:
 DSC_0001.NEF.rawnode.json
 ```
 
-The current V2 shape is:
+The historical V2 shape was:
 
 ```json
 {
@@ -141,9 +155,9 @@ The Output tag is represented by an independent colour-space + gamma pair:
 - `gui.outputColorSpace`
 - `gui.outputGamma`
 
-These fields use the same stable IDs and shared colour registry as RAW and the native CST. The legacy numeric `gui.outputIndex` is accepted only when reading older Sidecar V2/workspace files and is not written by current builds.
+These historical fields used the same stable IDs and shared colour registry as RAW and the native CST. Legacy `gui.outputIndex` belonged to older builds; no live workspace reader remains.
 
-RAW session defaults are **not** per-image edit state. They are stored only in the optional workspace file as `gui.rawDefaultColorSpace` and `gui.rawDefaultGamma`. Per-image sidecars neither write nor apply those fields. Development sidecars that already contain recognised values are ignored; unknown future values are protected from destructive rewrite.
+Historically, RAW defaults lived in the optional workspace file as `gui.rawDefaultColorSpace` and `gui.rawDefaultGamma`. Current defaults live only in global preferences; the live editor protects historical V1/V2 sidecars without migration.
 
 ### Serial order and graph migration
 
@@ -235,7 +249,7 @@ Future RAW decoder/developer settings should be added here without changing the 
 
 V2 currently retains the inherited `gui` block for behaviour compatibility.
 
-Essential edit reconstruction should not depend on layout/theme state. Folder-level UI state may move fully into the optional workspace state as RawNode evolves.
+This GUI block is historical. Current grades contain only photo state; global preferences and ImGui own interface state.
 
 ## V1 migration
 
@@ -285,13 +299,8 @@ actually useful. The Step 7 graph format may instead replace V2 cleanly.
 No version may silently discard unavailable processors/interfaces, parameter
 state or topology merely because it cannot execute them.
 
-## Folder-level state
+## Retired folder-level state
 
-A separate optional workspace file may store non-essential UI/session state such as:
-
-- active image;
-- filmstrip position;
-- sort order;
-- panel visibility/layout.
-
-That file must never be required to reproduce an image edit.
+Older optional workspace files held active-image and interface state. These files
+are now ignored and left untouched. Only source sidecars and global application
+settings remain authoritative; no replacement workspace file is created.

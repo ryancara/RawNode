@@ -97,21 +97,8 @@ bool extractBoolField(const std::string &json, const char *key, bool &out) {
 }
 
 void loadGuiFromJson(const std::string &guiObj, PersistGui &g) {
-  extractIntField(guiObj, "outputIndex", g.legacyOutputIndex);
   extractStringField(guiObj, "outputColorSpace", g.outputColorSpace);
   extractStringField(guiObj, "outputGamma", g.outputGamma);
-  extractStringField(guiObj, "rawDefaultColorSpace", g.rawDefaultColorSpace);
-  extractStringField(guiObj, "rawDefaultGamma", g.rawDefaultGamma);
-  extractIntField(guiObj, "exportFormat", g.exportFormat);
-  extractIntField(guiObj, "jpegQuality", g.jpegQuality);
-  extractIntField(guiObj, "previewRes", g.previewRes);
-  extractIntField(guiObj, "themeIndex", g.themeIndex);
-  extractBoolField(guiObj, "showLeft", g.showLeft);
-  extractBoolField(guiObj, "showRight", g.showRight);
-  extractFloatField(guiObj, "leftW", g.leftW);
-  extractFloatField(guiObj, "rightW", g.rightW);
-  extractBoolField(guiObj, "showFilmstrip", g.showFilmstrip);
-  extractFloatField(guiObj, "filmstripH", g.filmstripH);
 }
 
 // Returns false on malformed input so the caller rejects the whole sidecar
@@ -194,15 +181,6 @@ bool loadPresetFile(const std::string &path, PersistGrade &out, std::string &err
   }
   if (!file.grade) { error = path + ": Preset has no grade"; return false; }
   out = std::move(*file.grade);
-  return true;
-}
-
-bool loadWorkspaceProject(const std::string &workspaceDir, PersistGui &gui, std::string &activeImageRel) {
-  std::string json;
-  if (!readAllText(workspaceProjectPath(workspaceDir), json)) return false;
-  std::string guiObj;
-  if (extractObject(json, "gui", guiObj)) loadGuiFromJson(guiObj, gui);
-  extractStringField(json, "activeImage", activeImageRel);
   return true;
 }
 

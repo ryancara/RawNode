@@ -33,6 +33,22 @@ Other OFX filter plugins should work 🤞 If you confirm one, a PR to this table
 
 ---
 
+## Settings and photo persistence
+
+RawNode stores edits beside each editable photograph in `.rawnode.json` sidecars.
+Application preferences and ImGui docking layout live in `preferences.json` and
+`layout.ini` under `~/Library/Application Support/RawNode/` (macOS),
+`$XDG_CONFIG_HOME/RawNode/` or `~/.config/RawNode/` (Linux), and roaming
+application data when Windows is supported. Settings load at startup and save
+on normal shutdown, including sessions with no opened folder. Folder changes
+keep the same preferences and docking layout. Photo colours stay with each grade;
+photo controls never change future-photo defaults.
+
+Old workspace JSON, per-folder layout and CWD ini files are ignored and left
+untouched. See [settings locations and format](docs/workspace-format.md) and
+[photo sidecars](SIDECAR.md). New application preferences can be added as optional
+fields with defaults; no Settings UI or future preference features are added yet.
+
 ## Bundled plugins
 
 ### Crop
