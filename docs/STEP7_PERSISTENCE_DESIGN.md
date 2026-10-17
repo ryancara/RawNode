@@ -12,8 +12,8 @@ have passed verification. This document records that design checkpoint.
 [#68](https://github.com/ryancara/RawNode/pull/68) and
 [#69](https://github.com/ryancara/RawNode/pull/69), ending at
 `69572b265075cc44cc9b06ee52ad1c803263f345`. Graph-native records serve live photo
-opening/saving, presets and clipboard; checked atomic writes protect file updates.
-Global preferences/layout
+opening/saving, presets and clipboard; checked POSIX atomic writes protect file
+updates (Windows replacement remains unsupported). Global preferences/layout
 replace folder workspace persistence. Graph/List is next, followed by Step 8.
 
 Sections 2–7 specify the accepted format and lifecycle implemented by Step 7.
@@ -21,7 +21,9 @@ Sections 1 and 8 retain the pre-implementation inventory and PR plan; their
 "current" findings and instructions describe that historical baseline, not
 outstanding work. Section 9 records test expectations, not a new test run.
 The owner waived historical Step 6 manual prerequisites on 2026-10-16;
-macOS/native-dialog and actual Nikon NEF validation of the new workflow remains unverified. See
+the owner subsequently reported five basic PR #69 macOS checks passing on
+2026-10-17, including NEF grade/colour restoration. Comprehensive native-dialog,
+Nikon NEF/T3 and failure-path checks remain outstanding. See
 [the manual validation record](STEP6_MANUAL_VALIDATION.md).
 
 **Historical design baseline:** `main` including PR #61,
@@ -537,9 +539,9 @@ its first frame; missing docking uses existing fallback sizes. Tests include
 hand-authored preferences, startup-to-new-grade colour assertions, native ini
 save/reload without a GL context, atomic failures and cancelled shutdown. Legacy
 V1/V2 sidecar helpers remain solely for historical self-test fixtures; all workspace
-read/write and folder ini-switch functions are removed. Windows atomic writes and
-macOS manual layout/filesystem validation remain explicitly unverified/unsupported
-as described in the manual validation record.
+read/write and folder ini-switch functions are removed. Windows atomic writes
+remain unsupported. The manual validation record distinguishes the owner's five
+passed macOS checks from the remaining platform/failure cases.
 
 ## 9. Deterministic tests
 

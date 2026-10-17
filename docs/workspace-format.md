@@ -126,7 +126,7 @@ not receive sidecar JSON; export writes the rendered derivative without changing
 the source sidecar. Legacy export sidecars may remain on disk but are not used
 by export. See [SIDECAR.md](../SIDECAR.md) for the current source-sidecar format.
 
-## Sidecar document shape
+## Historical V1 sidecar document shape
 
 The legacy input-sidecar document shape is:
 
@@ -162,6 +162,9 @@ The legacy input-sidecar document shape is:
 - `params`: keyed by OFX parameter **name** (stable). Values are numbers, booleans, or strings depending on type; multi-dimensional params are JSON arrays.
 - `pluginIdentifier`: used to rebind plugins if install order changes; `pluginLabel` is informational.
 
-## Versioning
+## Historical V1 versioning
 
-`version` is incremented when incompatible changes are made. The host ignores unknown keys and fills missing fields with defaults.
+Historical V1 builds incremented `version` for incompatible changes, ignored
+unknown keys and filled missing fields with defaults. This was the retired V1
+reader's policy. The current graph-native reader strictly rejects unsupported
+structure; see [the current schema](STEP7_PERSISTENCE_DESIGN.md#2-file-shape).

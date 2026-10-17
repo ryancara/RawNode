@@ -42,8 +42,8 @@ Successfully opening an editable photograph establishes or restores a complete
 grade, including Source-only. New grades are saved to `.rawnode.json` after
 opening succeeds; existing grades need no immediate rewrite. Save failures retain
 the in-memory grade with a warning. Grade and photo metadata are independent
-sections. Global `preferences.json` and ImGui `layout.ini` own
-application settings and layout; folder-level settings persistence is retired.
+sections. Global `preferences.json` and ImGui `layout.ini` own application
+settings and layout; folder-level settings persistence is retired.
 
 ### Non-destructive
 
@@ -94,9 +94,11 @@ RAW -> Exposure -> WB -> Contrast -> Spektrafilm -> Output
 
 List view is not a separate processing system. It is another representation of the same underlying structure.
 
-Branching topology and graph-native persistence are implemented. The switchable
-Graph/List editor is the next UI milestone; user-facing masking/compositing
-follows in Step 8. Both views use the same graph and evaluation architecture.
+The document model, evaluator and persistence already support branching. The
+current List View does not provide general user-facing branch connection or
+reconnection controls. The next milestone, the switchable Graph/List editor,
+will expose user-facing graph editing on that same graph and evaluator;
+masking/compositing follows in Step 8.
 
 ## Future local adjustments
 

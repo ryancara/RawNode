@@ -578,7 +578,8 @@ of PR #62's design, D050 lifecycle and final corrections at
 (result supplied by the user).
 Graph-native records, the strict codec and atomic file updates now support live
 photo opening/saving. Editable opening establishes a grade; document departure,
-same-photo reopening and shutdown save it through checked atomic replacement.
+same-photo reopening and shutdown save it through checked POSIX atomic
+replacement; Windows replacement remains unsupported.
 Protected photographs remain viewable but noneditable. Photo colours are separate
 from defaults, and save warnings remain separate from render/export status.
 Presets and clipboard now use the shared graph-native grade/node codec. Unified
@@ -591,19 +592,31 @@ Legacy transfers and folder workspace/layout persistence are retired. Global
 preferences/layout complete the final Step 7 PR 5 scope. No dirty-state or
 background-save system is introduced.
 
-The independent post-Step-7 Codex and Claude architecture audits both concluded
-**HEALTHY — TARGETED FIXES RECOMMENDED** (results supplied by the user). No
-substantial architecture refactor is required before the Graph/List milestone;
-remaining focused implementation findings do not change the accepted sequence.
+The owner confirms that independent post-Step-7 Codex and Claude architecture
+audits both concluded **HEALTHY — TARGETED FIXES RECOMMENDED**. Both found RawNode
+ready for the Graph/List editor without another major architecture refactor.
+Their unresolved findings are tracked under "Quality and verification roadmap"
+below; none is claimed fixed by this documentation update.
 
-Reported macOS testing found normal operation. No complete macOS/NEF
-manual-validation results are recorded for `docs/STEP6_MANUAL_VALIDATION.md`,
-including native-dialog and successful Nikon NEF full-grade re-decode checks
-across differing RAW colour settings. The owner explicitly waived those historical
-prerequisites for PR 3 on 2026-10-16; this is not a passing validation result.
-The new workflow still needs separate macOS/native-dialog and actual Nikon NEF
-validation. Record per-check evidence through the quality checklist below; completed Step 6
-implementation and independent architecture review remain closed.
+**Owner-reported macOS evidence, 2026-10-17:** all five basic PR #69 checks passed
+before merge (reviewed head `6dec6e4848f039cbb8528ebda71c4636893000bb`):
+
+1. After Quit, `~/Library/Application Support/RawNode/` contained both
+   `preferences.json` and `layout.ini`.
+2. Docking changes survived restart.
+3. Two photograph folders retained the same global layout and preferences.
+4. Neither folder acquired new `workspace.ofxrawhost.json` or
+   `.ofxrawhost-layout.ini` files.
+5. A Nikon NEF opened and was edited; its grade and colour settings restored
+   after switching photographs and restarting.
+
+See [the dated manual record](STEP6_MANUAL_VALIDATION.md#owner-reported-pr-69-macos-results--2026-10-17).
+This establishes basic NEF opening/editing/restoration, not full historical T3,
+native-dialog, preset or failure-path coverage. Those remaining checks, including
+invalid/unwritable settings, quit-time save failures and real Linux desktop
+dialogs, remain outstanding. The 2026-10-16 PR 3 prerequisite waiver remains
+historical and is not passing evidence. Completed Step 6 implementation and
+independent architecture review remain closed.
 
 Steps 1–4 are complete: owned export execution, frozen parameter edits during
 export, centralized graph-edit transactions and encapsulated renderer ownership.
@@ -728,16 +741,28 @@ verification checks to implementation PRs. Follow the design/acceptance workflow
 above, `CLAUDE.md` for review expectations and `docs/CODE_STYLE.md` for source
 guidance.
 
+**Unresolved post-Step-7 audit follow-ups (owner-confirmed):** track these as
+focused fixes/tests within the accepted architecture; none is implemented by
+this documentation PR.
+
+- Fix OFX outstanding image-handle lifetime, including the reproduced
+  use-after-free.
+- Correct export close-error reporting and protect editable source paths from
+  export overwrites.
+- Correct TIFF photometric/channel handling, EXR chromaticities, PNG colour
+  metadata and ICC chunk ordering, and JPEG writer undefined behaviour.
+- Correct parameter-edit preview scheduling and Copy Node ownership boundaries.
+- Bound graph traversal depth.
+- Add targeted CI, sanitizer and regression-test coverage for these findings.
+
 **Completed Step 7 checkpoint and implementation — retained verification criteria:**
 The criteria below describe the implemented contract and remain useful for
 regression review. They do not claim completion of outstanding manual checks.
 [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) records how
 the existing graph model, identifiers, interfaces and ownership can be persisted
-reliably and understood without unnecessary
-architectural changes. The completed work used the accepted Step 5 contract and
-completed
-Step 6 review findings, including the transition limitations in
-`docs/ARCHITECTURE.md`. Use `docs/STEP5_GRAPH_CONTRACT.md` ("Step 7 graph
+reliably and understood without unnecessary architectural changes. The completed
+work used the accepted Step 5 contract and completed Step 6 review findings,
+including the transition limitations in `docs/ARCHITECTURE.md`. Use `docs/STEP5_GRAPH_CONTRACT.md` ("Step 7 graph
 persistence target"), D045, D047 and D048 in `docs/DECISIONS.md`, and the minimal
 layout-persistence requirement under "Graph / List interface" in `ROADMAP.md`.
 
@@ -803,13 +828,13 @@ The remaining quality improvements are tracked work, not automatic blockers for
 unrelated features; tooling can proceed alongside the next milestone where practical.
 
 - [x] Complete the whole-Step-6 independent implementation/architecture review.
-- [ ] Record macOS manual-validation results from
-      `docs/STEP6_MANUAL_VALIDATION.md`, confirming native-dialog behaviour and
-      successful Nikon NEF full-grade re-decode across differing RAW colour
-      settings; identify individual checks still unverified. The owner waived
-      historical prerequisites for PR 3 on 2026-10-16; that waiver is not passing
-      evidence. Step 7 photo, preset and global-layout checks remain outstanding
-      as recorded in that manual validation document.
+- [x] Record the five owner-reported PR #69 macOS checks from 2026-10-17:
+      configuration-file presence, docking restart/folder continuity, no new
+      folder settings files and Nikon NEF grade/colour restoration.
+- [ ] Complete the remaining manual checks in `docs/STEP6_MANUAL_VALIDATION.md`:
+      historical native dialogs and comprehensive Nikon NEF/T3 re-decode cases,
+      PR 4 presets, remaining PR 5 settings/failure cases and real Linux desktop
+      dialogs. The 2026-10-16 PR 3 prerequisite waiver is not passing evidence.
 - [x] Final independent Claude verification of the design, D050 lifecycle and
       remaining corrections at `75e7affd4014f090a90293d69b6a157050576864`:
       **SAFE TO MERGE** (result supplied by the user).

@@ -11,8 +11,8 @@ unsupported or unreadable sidecars permit protected source viewing, never edits
 or overwrite. Failed saves retain the editable document, show a persistent
 warning, and offer Retry / Discard / Cancel before departure/reopen/shutdown.
 
-Grade updates preserve metadata and use checked sibling-temp atomic replacement.
-Existing POSIX permissions survive; new files default to owner-only `0600`.
+Grade updates preserve metadata and use checked sibling-temp atomic replacement
+on POSIX. Existing permissions survive; new files default to owner-only `0600`.
 Windows atomic writes remain explicitly unsupported. Backend identities, paths
 and parameter strings must be valid UTF-8 to save: invalid bytes cause a useful
 error, preserving live state and original files rather than converting values.
@@ -102,6 +102,14 @@ versioned; unsupported semantics protect the original file from overwrite.
 Unavailable processors, opaque parameters and topology must not be silently
 discarded merely because they cannot execute. See the accepted Step 7
 specification for exact fields and validation rules.
+
+## Current missing-processor evaluation
+
+The graph-native format retains unavailable processor identity, parameters and
+connections. A missing unary ImageProcessor uses the evaluator's warned
+pass-through; this is not a universal fallback for unknown graph operations.
+Unavailable Mask values follow the Step 5 propagation/fail-open contract. Group
+expansion is transient and is excluded from current grades and transfers.
 
 ## Retired folder-level state
 
@@ -231,9 +239,8 @@ The schema uses strings for backend identity so future backend names can still b
 
 ### Missing processors
 
-If a processor is unavailable, RawNode keeps the node as a missing placeholder rather than deleting it.
-
-The placeholder preserves:
+The historical V2 loader kept an unavailable processor as a missing placeholder
+rather than deleting it. Its placeholder preserved:
 
 - node ID;
 - backend;
@@ -243,14 +250,9 @@ The placeholder preserves:
 - group UI state;
 - raw parameter JSON.
 
-In historical V2 serial rendering, missing unary processors are bypassed while
-their saved state remains available for restoration.
-
-The explicit graph keeps unavailable node/interface identity and connections
-separate from evaluation availability. A defined pass-through may yield an
-available value plus a warning; unavailable Mask data follows the Step 5
-propagation/fail-open rules. Do not generalize the historical unary-bypass rule
-into a universal fallback for future graph operations.
+In historical V2 serial rendering, missing unary processors were bypassed while
+their saved state remained available for restoration. Current graph evaluation
+is described separately above; historical group UI state is not current grade data.
 
 ### Unknown parameters
 
@@ -293,13 +295,18 @@ both files existed. This migration is not part of live photo opening.
 
 ### Invalid and newer sidecars
 
-If a V2 sidecar exists but cannot be parsed safely, RawNode clears the inherited on-screen chain for that image and blocks automatic sidecar writes to the file. This prevents edits from the previously viewed image from overwriting a damaged sidecar.
+When a V2 sidecar could not be parsed safely, the historical reader cleared
+that image's inherited on-screen chain and blocked automatic writes, preventing
+the previous image's edits from overwriting a damaged sidecar.
 
-A `rawnode-sidecar` with a version newer than this build understands is handled the same way. RawNode does not reinterpret or downgrade future schema versions.
+It handled newer `rawnode-sidecar` versions the same way, without reinterpreting
+or downgrading them. Recognised V2 files with unknown RAW/Output colour IDs or
+unknown stable processor choice IDs were also protected from overwrite.
 
-Recognised V2 sidecars containing an unknown future RAW or Output colour-space/gamma ID are also protected from overwrite. Unknown stable processor choice IDs (for example a future CST gamma) use the same rule.
-
-A protected sidecar remains read-only for that session. The protection clears after the unsupported data is fixed or the sidecar is removed and the image is reopened.
+Protection lasted for that session; it cleared after the unsupported data was
+fixed or the sidecar removed and the image reopened. This describes the retired
+V2 reader, not live photo opening; current graph-native protection is described
+at the start of this document.
 
 #### Older-build compatibility
 

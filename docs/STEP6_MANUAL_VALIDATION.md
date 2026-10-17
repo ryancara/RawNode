@@ -1,28 +1,53 @@
 # Step 6 macOS validation
 
 **Status:** Step 6 implementation and independent whole-Step-6 review are complete
-and merged in PR #58 (`6294a034`). Reported macOS testing found normal operation,
-but complete per-check native-dialog and Nikon NEF validation evidence is not
-recorded. Step 7 PRs 1–5 are now merged. The historical prerequisite waiver is
-recorded below; it is not passing evidence. Unverified checks remain outstanding
-and are tracked in `docs/PROJECT_CONTEXT.md`.
+and merged in PR #58 (`6294a034`). Step 7 PRs 1–5 are now merged. Five basic
+macOS checks passed according to the owner's PR #69 report recorded below;
+comprehensive native-dialog and Nikon NEF/T3 coverage remains incomplete.
+The historical prerequisite waiver is not passing evidence. Remaining checks
+are tracked here and in `docs/PROJECT_CONTEXT.md`.
 
 The initial Editing/native-dialog and T3 sections retain the Step 6 procedures
-(including retired node presets and linear formats). Use the Step 7 follow-up
-sections for current persistence, preset and global-settings checks; the original
-procedures remain historical validation criteria, not completed results.
+(including retired node presets and linear formats). The old Save Node Preset
+steps are superseded by the PR 4 procedures below, using Save Preset and
+Load Preset → Replace/Append. Use the Step 7 follow-up sections for current
+persistence, preset and global-settings checks; the original procedures remain
+historical validation criteria, not completed results.
 
 The implementation environment is Linux. No suitable Nikon NEF/RAW fixture was
 available there, so successful camera-RAW grade application (T3) is not claimed
 as automated coverage. Synthetic raster tests do not replace this check.
 
+## Owner-reported PR #69 macOS results — 2026-10-17
+
+The owner reported that all five checks below passed on macOS against the
+PR #69 implementation before merge. The reviewed PR head was
+`6dec6e4848f039cbb8528ebda71c4636893000bb`.
+
+1. After quitting RawNode, `~/Library/Application Support/RawNode/` contained
+   `preferences.json` and `layout.ini`.
+2. Docking-layout changes persisted across restarting RawNode.
+3. Opening two different photograph folders preserved the same global
+   application layout and preferences.
+4. Neither folder acquired new `workspace.ofxrawhost.json` or
+   `.ofxrawhost-layout.ini` files.
+5. A Nikon NEF opened and was edited; after switching photographs and
+   restarting, its grade and colour settings restored correctly.
+
+This is owner-reported manual evidence, separate from automated coverage. The
+fifth check establishes NEF opening, editing and grade/colour restoration; it
+does not complete the historical T3 RAW re-decode matrix, every native-dialog
+operation or failure scenarios. Hardware and Nikon model details were not
+supplied. The unchecked historical, PR 3/4, remaining PR 5 and real Linux
+desktop-dialog cases below remain outstanding; the waiver is unchanged.
+
 ## Step 7 live-persistence prerequisite
 
 PR 3 preflight checked `main` at
 `fccd9e53e9a3878cce9678d64c5f362323743646`, including merged PRs #63–#65.
-The available manual evidence remains the general report of normal macOS
-operation above. No tested commit, OS/hardware details or per-check results are
-recorded here for the native-dialog checklist or Nikon NEF T3 re-decode checks,
+At that preflight, the available manual evidence was a general report of normal
+macOS operation. No tested commit, OS/hardware details or per-check results were
+recorded for the native-dialog checklist or Nikon NEF T3 re-decode checks,
 including differing RAW/Output encodings and downscaled previews.
 The repository documentation and discussions on PRs
 [#58](https://github.com/ryancara/RawNode/pull/58),
@@ -35,8 +60,9 @@ Step 6 macOS/native-dialog and Nikon NEF validation prerequisites so Step 7 PR 3
 can replace the affected live paths. This satisfies the prerequisite in
 [the Step 7 design](STEP7_PERSISTENCE_DESIGN.md#8-focused-implementation-prs);
 it is not evidence that any check passed. All unchecked items below remain
-unverified. The new opening, saving and RAW re-decode workflow will be validated
-separately on macOS, including native dialogs and actual Nikon NEFs.
+unverified. The later PR #69 report establishes the five basic checks above;
+remaining opening/saving, native-dialog and actual Nikon NEF re-decode cases
+still require separate macOS validation.
 
 Use merged Step 6 (`6294a034`) or later `main` and record the tested commit.
 Use working copies of two visibly different Nikon NEFs (A and B), and a separate
@@ -103,7 +129,7 @@ and output encodings must match the grade, and the session RAW default must stay
 unchanged by grade application. The published endpoint must be the new
 `documentOutput`, rather than a retained inspection request.
 
-## Step 7 photo workflow follow-up — unverified
+## Step 7 photo workflow follow-up — remaining checks
 
 The historical prerequisite waiver does not complete these checks. Record the
 actual tested PR 3 commit, macOS/hardware and Nikon models/compression modes when
@@ -162,22 +188,23 @@ was for PR 3; these PR 4 checks remain unverified:
 - Repeat while preview/export owns the old graph; verify the accepted old export
   and settled new preview. Record tested commit, macOS/hardware and NEF models.
 
-## Step 7 PR 5 manual checks still required
+## Step 7 PR 5 remaining manual checks
 
 Linux tests exercise platform path inputs, native ImGui ini save/reload with a
 headless context, synthetic RAW opening and cancelled shutdown. They do not
 establish macOS filesystem, Retina/native-window docking or actual NEF decoding.
-No new macOS validation result is claimed. On the reviewed PR head:
+The owner-reported PR #69 results above cover basic configuration-file presence,
+docking restart/folder continuity, absence of new folder settings and NEF
+grade/colour restoration. The following broader checks remain outstanding:
 
-- Launch from different CWDs, including Finder, without preferences/layout. Confirm
-  `~/Library/Application Support/RawNode/` receives both files, correct default
-  docking appears, and no settings files appear in CWD, installation or photos.
-- Change theme, visibility, preview/export choices and dock/window placement;
-  close/restart with and without an opened folder. Check restoration immediately
-  on the first frame, then switch folders and confirm docking stays unchanged.
-- With valid stored non-default colour pairs, open a new Nikon NEF and confirm
-  decoding/new grade uses them. Open a saved grade and apply preset Replace;
-  confirm photo colours restore while future-photo defaults remain unchanged.
+- Launch from different CWDs, including Finder, without preferences/layout. Check
+  correct default docking and absence of settings writes in CWD or installation
+  directories; the owner report did not cover these launch/initialisation cases.
+- Change theme, visibility and preview/export choices; restart with and without
+  an opened folder and check restoration immediately on the first frame.
+- With stored non-default colour pairs, confirm a new Nikon NEF uses them on
+  decoding/grade creation. Apply preset Replace and confirm future-photo defaults
+  stay unchanged. Basic NEF grade/colour restoration alone does not cover this.
 - Exercise absent/unwritable configuration directory and read-only/bad settings
   destinations. Confirm visible warnings, in-memory operation, no alternate writes
   and preservation of an existing valid file on failed preference replacement.
