@@ -119,6 +119,9 @@ Document responsibilities are:
 - `docs/ARCHITECTURE_AUDIT.md` — audit evidence and the Codex/Claude
   reconciliation that led to the approved architecture.
 - `docs/CODE_STYLE.md` — human-readability and source-organisation principles.
+- `docs/STEP7_PERSISTENCE_DESIGN.md` — accepted graph-native persistence schema
+  and lifecycle; `docs/workspace-format.md` — global settings format.
+- `SIDECAR.md` — current persistence overview and labelled historical formats.
 - `CLAUDE.md` — Claude Code's persistent review/development instructions.
 - `AGENTS.md` — Codex discovery/pointer to authoritative project documents.
 - `ROADMAP.md` — feature and product roadmap; detailed quality follow-ups live
@@ -148,8 +151,8 @@ RawNode has already moved substantially beyond the original ofxrawhost design.
 Important implemented foundations include:
 
 - generic processor abstraction and parameter API;
-- Sidecar V2 with migration from V1, persistent node IDs and preservation of
-  unavailable processors;
+- graph-native `.rawnode.json` sidecars with stable node IDs, complete topology,
+  independent grade/photo metadata and preservation of unavailable processors;
 - native Exposure processor;
 - CTL backend using the CTL reference runtime;
 - CTL scalar parameters;
@@ -203,8 +206,9 @@ endpoint, value kind, state and diagnostics. Preview Source frames use shared
 ownership; per-evaluation consumer counts bound intermediate raster lifetime.
 Presentation buffers remain in the display path and file production in export.
 The runtime owns **when** evaluation may execute safely, not what the document
-or export means. List View and the minimal V2 safety boundary are implemented
-and included in the completed independent whole-Step-6 review and merged code.
+or export means. List View was included in the completed independent Step 6
+review; Step 7 has replaced its temporary V2 persistence boundary with the
+shared graph-native codec.
 
 ## Architectural direction
 
@@ -215,8 +219,9 @@ reference and found the direction **sound for the next stage**. Step 5 has now
 closed after independent final Codex/Claude implementation-readiness review.
 No further broad architectural refactor was required before Step 6. The explicit
 graph and sequential evaluator are now implemented, independently reviewed and
-merged; persistence and concrete production Mask features remain later
-steps. The approved target is documented in `docs/ARCHITECTURE.md`; checkpoint
+merged. Step 7 persistence is also complete; the Graph/List editor and concrete
+production Mask features remain upcoming milestones. The approved target is
+documented in `docs/ARCHITECTURE.md`; checkpoint
 evidence is in `docs/ARCHITECTURE_AUDIT.md`.
 
 The architectural north star is:
@@ -327,7 +332,7 @@ is inconsistent across formats.
 
 ## Persistence direction
 
-Step 7 should use one versioned, human-readable `.rawnode.json` sidecar per
+Step 7 implements one versioned, human-readable `.rawnode.json` sidecar per
 editable source photograph. Sidecars remain authoritative per-photo state;
 exported derivatives receive none (D002, D038). Keep the folder-based workflow
 without a separate metadata file, project system, catalogue or database
@@ -452,17 +457,18 @@ Paste separately validates the destination and refuses unsupported attachments.
 Parameter-group expansion is transient and excluded from sidecars, presets and
 all clipboard payloads; optional node X/Y positions remain graph layout.
 
-Step 7 replaces the existing linear preset/clipboard paths with this shared
+Step 7 replaced the linear preset/clipboard paths with this shared
 representation and reusable graph validation, identity and reconstruction
-mechanisms for Replace/Append. Focused implementation PRs may stage the work;
-Step 7 does not require a new preset-management UI. The later Preset Panel can
+mechanisms for Replace/Append. It added no preset-management UI. The later
+Preset Panel can
 expose both actions. Branched incoming Append can be staged separately if
 existing graph commands cannot support it safely; refuse unsupported operations
-without speculative graph-editing machinery. Until replacement, preserve the
-D045 safeguards against silently flattening unsupported graphs.
+without speculative graph-editing machinery. D045's no-flattening requirement
+continues to apply to the graph-native paths.
 
-Historical Sidecar V1/V2 and `.rawnodepreset` compatibility is not required;
-the old preset format can be retired. Do not add legacy migration readers or
+Historical Sidecar V1/V2 files are protected without migration; live legacy
+preset/clipboard readers and `.rawnodepreset` workflows are retired. Do not add
+legacy migration readers or
 compatibility frameworks solely for development-era files, and do not
 automatically delete existing files. Protection from accidental destruction
 remains required independently of backwards compatibility. Preset browsing,
@@ -562,11 +568,12 @@ need.
 `6294a034d30168063e2aa92e984a51666f56ca22`.** Step 5's product/architecture
 contract is complete. The full graph transition, NodeId selection, topology List
 View and minimal linear capture / transactional grade safety are implemented.
-Step 7 graph-native persistence has passed its focused design checkpoint.
-[STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) records the current-code
-inventory, reviewed schema, safe reconstruction/write contracts and five focused
-implementation PRs. Claude's final independent verification of PR #62's design,
-D050 lifecycle and final corrections at
+**Step 7 is complete: PRs 1–5 merged as #63, #65, #66, #68 and #69, ending at
+`69572b265075cc44cc9b06ee52ad1c803263f345`.**
+[STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) records the historical
+pre-implementation inventory, accepted schema, safe reconstruction/write contracts
+and five completed implementation PRs. Claude's final independent verification
+of PR #62's design, D050 lifecycle and final corrections at
 `75e7affd4014f090a90293d69b6a157050576864` returned **SAFE TO MERGE**
 (result supplied by the user).
 Graph-native records, the strict codec and atomic file updates now support live
@@ -581,8 +588,13 @@ Append and fragment Paste stage one linear splice into eligible branched destina
 with fresh IDs and position remapping. Fragment capture retains internal links and
 detaches/reports external Mask/Reference links independently of attachment support.
 Legacy transfers and folder workspace/layout persistence are retired. Global
-preferences/layout implement the final Step 7 PR 5 scope and await independent
-whole-PR review. No dirty-state or background-save system is introduced.
+preferences/layout complete the final Step 7 PR 5 scope. No dirty-state or
+background-save system is introduced.
+
+The independent post-Step-7 Codex and Claude architecture audits both concluded
+**HEALTHY — TARGETED FIXES RECOMMENDED** (results supplied by the user). No
+substantial architecture refactor is required before the Graph/List milestone;
+remaining focused implementation findings do not change the accepted sequence.
 
 Reported macOS testing found normal operation. No complete macOS/NEF
 manual-validation results are recorded for `docs/STEP6_MANUAL_VALIDATION.md`,
@@ -617,10 +629,10 @@ The remaining sequence is:
     Step 6: Explicit topology + sequential DAG evaluator [complete; reviewed and merged]
           |
           v
-    Step 7: Versioned graph persistence
+    Step 7: Versioned graph persistence              [complete; PRs 1–5 merged]
           |
           v
-    Switchable Graph/List editor                   [UI milestone, D047]
+    Switchable Graph/List editor                   [next UI milestone, D047]
           |
           v
     Step 8: Concrete first mask path + remaining implementation details
@@ -684,8 +696,8 @@ compositing or alpha-carrying I/O requires it.
 
 Next architecture/product work:
 
-- Step 7 graph-native persistence, then the switchable Graph/List editor (D047),
-  then Step 8's first concrete production Mask path.
+- The switchable Graph/List editor (D047) is next, followed by Step 8's first
+  concrete production Mask path. Step 7 graph-native persistence is complete.
 - Both editor views share the authoritative document graph and NodeId selection;
   switching views introduces no additional execution model.
 
@@ -702,8 +714,8 @@ The Step 6 implementation retains the existing ownership boundary and sequential
 whole-graph invalidation. Processor creation may enter a mutation even on failure;
 staging assumes one control thread and fixed port interfaces. Future SlotSettings
 fields must be included in no-op comparison, and arbitrary editing needs a UX for
-disconnected required inputs. Sidecar-loading exceptions and persistence atomicity
-remain Step 7 work. No further compatibility infrastructure is required for the
+disconnected required inputs. Step 7 added staged sidecar loading and checked
+atomic persistence. No further compatibility infrastructure is required for the
 historical linear format.
 
 Do not introduce speculative caches, schedulers or broad optimisation
@@ -716,11 +728,14 @@ verification checks to implementation PRs. Follow the design/acceptance workflow
 above, `CLAUDE.md` for review expectations and `docs/CODE_STYLE.md` for source
 guidance.
 
-**Step 7 design checkpoint — final independent verification passed:**
+**Completed Step 7 checkpoint and implementation — retained verification criteria:**
+The criteria below describe the implemented contract and remain useful for
+regression review. They do not claim completion of outstanding manual checks.
 [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) records how
 the existing graph model, identifiers, interfaces and ownership can be persisted
 reliably and understood without unnecessary
-architectural changes. Begin with the accepted Step 5 contract and completed
+architectural changes. The completed work used the accepted Step 5 contract and
+completed
 Step 6 review findings, including the transition limitations in
 `docs/ARCHITECTURE.md`. Use `docs/STEP5_GRAPH_CONTRACT.md` ("Step 7 graph
 persistence target"), D045, D047 and D048 in `docs/DECISIONS.md`, and the minimal
@@ -749,8 +764,8 @@ independent grade/metadata updates, shared JSON reconstruction, existing identit
 behaviour and photo/global settings ownership in "Persistence direction" above.
 Editor opening establishes a grade; unopened metadata-only photos remain valid.
 No live dirty/presence tracking is required for lifecycle saves (D050).
-Include existing preset/clipboard transition and workspace-persistence cleanup
-in Step 7 scope. Default-preset UI/application, culling UI, multi-photo operations
+Step 7 completed the preset/clipboard transition and workspace-persistence
+cleanup. Default-preset UI/application, culling UI, multi-photo operations
 and batch/workspace export remain separate focused workflow milestones.
 
 **Accepted sidecar/layout direction (D048):** each editable source photograph
@@ -774,25 +789,27 @@ minimise file size. Binary serialization, compression or an elaborate
 persistence framework needs a demonstrated requirement.
 
 The reviewed serialization schema, field names and optional-field handling are
-recorded in the checkpoint; implementation remains separate.
+recorded in the checkpoint and implemented by the five merged Step 7 PRs.
 D048 in `docs/DECISIONS.md` records the accepted sidecar/layout
 direction; D049 records independent metadata, shared grades and global preferences;
-D050 records the editor-opening/save lifecycle. These do not imply implementation.
+D050 records the editor-opening/save lifecycle. Implementation is complete;
+manual platform evidence remains a separate requirement below.
 Step 7 supports the subsequent Graph/List milestone (D047), without implementing
 Graph View as part of Step 7.
 This design checkpoint remains focused on persistence; the completed
 whole-Step-6 review remains closed.
 
 The remaining quality improvements are tracked work, not automatic blockers for
-unrelated features; tooling can proceed alongside Step 7 where practical.
+unrelated features; tooling can proceed alongside the next milestone where practical.
 
 - [x] Complete the whole-Step-6 independent implementation/architecture review.
 - [ ] Record macOS manual-validation results from
       `docs/STEP6_MANUAL_VALIDATION.md`, confirming native-dialog behaviour and
       successful Nikon NEF full-grade re-decode across differing RAW colour
-      settings; identify individual checks still unverified. Before Step 7
-      replaces the relevant capture/sidecar paths, record the outstanding
-      results or an explicit, documented waiver for the unverified checks.
+      settings; identify individual checks still unverified. The owner waived
+      historical prerequisites for PR 3 on 2026-10-16; that waiver is not passing
+      evidence. Step 7 photo, preset and global-layout checks remain outstanding
+      as recorded in that manual validation document.
 - [x] Final independent Claude verification of the design, D050 lifecycle and
       remaining corrections at `75e7affd4014f090a90293d69b6a157050576864`:
       **SAFE TO MERGE** (result supplied by the user).

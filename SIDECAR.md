@@ -72,16 +72,53 @@ are retained for self-test fixtures and do not participate in live persistence.
 ## Principles
 
 - Sidecars are the source of truth for edits.
-- Original image files are never modified.
+- Edits are stored in sidecars; exporting over a raster source remains a known
+  overwrite hazard (see `docs/PROJECT_CONTEXT.md`).
 - No catalogue or project file is required to reconstruct an edit.
 - Sidecars are human-readable and versioned.
 - Node instance identity survives reordering and application restarts.
 - Unavailable processors and unknown parameter values should survive load-save cycles rather than being silently deleted.
-- RAW initial working space is edit state and is stored per image when explicitly available.
+- Both RAW working and Output colour pairs are required per-grade state,
+  including for raster photographs.
 
-## Historical Sidecar V2
+## Exported derivatives
 
-Input sidecars are written beside the source image as:
+RawNode sidecars belong to editable source images/documents. Exported JPEG,
+PNG, TIFF and other rendered derivatives do not receive RawNode sidecars.
+Export consumes the evaluated document and writes the derivative; it does not
+save a second editable document or modify the source sidecar.
+
+Older RawNode versions may have created export sidecars. Those legacy files may
+remain on disk; current export does not read, update, migrate or delete them.
+
+RawNode ICC profiles include stable colour-encoding IDs so supported wide-gamut exports can be identified on re-import. DaVinci Intermediate is scene-referred and can map encoded values to linear values above 1.0, which a conventional matrix/TRC ICC profile cannot fully represent. RawNode therefore warns on DI export that external ICC-managed applications may clip highlights.
+
+## Versioning
+
+Current files use `format: "rawnode"`, `version: 1`, with independent optional
+`grade` and `metadata` objects. Presets use the same file/grade format; clipboard
+uses the transfer envelope described above. Schema changes must be explicitly
+versioned; unsupported semantics protect the original file from overwrite.
+Unavailable processors, opaque parameters and topology must not be silently
+discarded merely because they cannot execute. See the accepted Step 7
+specification for exact fields and validation rules.
+
+## Retired folder-level state
+
+Older optional workspace files held active-image and interface state. These files
+are now ignored and left untouched. Only source sidecars and global application
+settings remain authoritative; no replacement workspace file is created.
+
+## Historical Sidecar V2 and V1 migration
+
+Everything below describes retired formats and their original reader behaviour.
+It is retained to explain old files and self-test fixtures. Live photo opening
+does not call these compatibility readers or migrate V1/V2. A V2 file at the
+`.rawnode.json` path is protected; if that path is absent, a lone sibling
+`.ofxrawhost.json` also protects the photo without creating a new sidecar.
+Current schema and unknown-data rules are in `docs/STEP7_PERSISTENCE_DESIGN.md`.
+
+V2 input sidecars were written beside the source image as:
 
 ```text
 DSC_0001.NEF.rawnode.json
@@ -138,15 +175,15 @@ RAW colour space (primaries/gamut) and gamma/transfer function are persisted ind
 - `raw.colorSpace`
 - `raw.gamma`
 
-Current colour-space choices are Rec.709, Rec.2020, Display P3, ACES AP0, ACES AP1, and DaVinci Wide Gamut. Current gamma choices are Linear, sRGB, Rec.709 (camera), and DaVinci Intermediate.
+V2 colour-space choices were Rec.709, Rec.2020, Display P3, ACES AP0, ACES AP1, and DaVinci Wide Gamut. V2 gamma choices were Linear, sRGB, Rec.709 (camera), and DaVinci Intermediate.
 
-New writes use stable IDs such as `rec2020`, `aces-ap1`, `display-p3`, `linear`, and `davinci-intermediate` rather than UI list positions or display labels. Historical display names and aliases remain accepted when reading older sidecars.
+V2 writes used stable IDs such as `rec2020`, `aces-ap1`, `display-p3`, `linear`, and `davinci-intermediate` rather than UI list positions or display labels. The compatibility reader accepted historical display names and aliases.
 
 `raw.workingSpace` is a read-only migration field for older PR #16-era sidecars. New files write only the independent stable IDs. Older V2 sidecars that contain only `raw.workingSpace` map the three historical choices to Rec.709 + Linear, Rec.2020 + Linear, or ACES AP0 + Linear. V2/V1 RAW sidecars that predate selectable RAW working space still reopen as Rec.709 + Linear, preserving their historical colour-boundary behaviour.
 
 Legacy combined top-level colour strings may still be present in older development sidecars, but current files do not write or depend on them.
 
-If an explicit RAW colour-space or gamma ID is present but is not recognised by the current build, RawNode may use a safe fallback for display/decoding but write-protects the sidecar so the unknown value is not destroyed.
+The historical reader used a display/decoding fallback for unrecognised RAW colour IDs and protected the sidecar from overwrite. The live editor now protects all V1/V2 formats, without interpreting their grade.
 
 ### Output encoding
 
@@ -162,21 +199,12 @@ Historically, RAW defaults lived in the optional workspace file as `gui.rawDefau
 ### Serial order and graph migration
 
 In Sidecar V2, the order of `graph.nodes` is the authoritative processing order
-because V2 describes RawNode's current serial renderer.
+because V2 described the former serial renderer. Step 6 introduced explicit
+in-memory topology with a temporary representability guard. Step 7 replaced V2
+with graph-native persistence; node-array order now has no execution meaning.
+The guard and V1/V2 migration below are historical, outside live photo opening.
 
-This is a historical/current-V2 rule, not the future graph model.
-
-Step 6 introduces explicit in-memory topology. Step 7 may replace V2 with a
-graph-native versioned format rather than extending V2 additively. There is no
-product requirement to keep old V2 files compatible with the replacement
-format.
-
-Until graph persistence exists, any save/autosave/clipboard/preset path that
-cannot faithfully represent the current graph must refuse or be disabled. It
-must never serialize graph topology by pretending node-array order is execution
-order.
-
-## Node identity
+### Node identity
 
 `id` identifies one node instance and is separate from the processor identifier.
 
@@ -187,9 +215,9 @@ node-1 -> com.example.exposure
 node-2 -> com.example.exposure
 ```
 
-The ID is restored from Sidecar V2 and remains attached to the node through reordering.
+The historical reader restored the ID from Sidecar V2 and retained it through reordering.
 
-## Processor identity
+### Processor identity
 
 Each node stores:
 
@@ -201,7 +229,7 @@ Each node stores:
 
 The schema uses strings for backend identity so future backend names can still be read and preserved by older builds.
 
-## Missing processors
+### Missing processors
 
 If a processor is unavailable, RawNode keeps the node as a missing placeholder rather than deleting it.
 
@@ -215,16 +243,16 @@ The placeholder preserves:
 - group UI state;
 - raw parameter JSON.
 
-In current V2 serial rendering, missing unary processors are bypassed while
+In historical V2 serial rendering, missing unary processors are bypassed while
 their saved state remains available for restoration.
 
 The explicit graph keeps unavailable node/interface identity and connections
 separate from evaluation availability. A defined pass-through may yield an
 available value plus a warning; unavailable Mask data follows the Step 5
-propagation/fail-open rules. Do not generalize the current unary-bypass sentence
+propagation/fail-open rules. Do not generalize the historical unary-bypass rule
 into a universal fallback for future graph operations.
 
-## Unknown parameters
+### Unknown parameters
 
 Loaded parameter JSON is retained on the node even when the installed processor version does not expose that parameter.
 
@@ -239,43 +267,31 @@ This lets removed, future, or currently unsupported parameter values survive a r
 
 RawNode does not yet guarantee preservation of every unknown top-level or unknown node-level metadata field. That can be expanded additively if future schema versions require it.
 
-## RAW state
+### RAW state
 
 The V2 `raw` object stores the initial RAW colour encoding through `colorSpace` and `gamma`. Older combined `workingSpace` values are accepted only during migration.
 
 Future RAW decoder/developer settings should be added here without changing the graph node model.
 
-## GUI state
+### GUI state
 
-V2 currently retains the inherited `gui` block for behaviour compatibility.
+V2 retained the inherited `gui` block for behaviour compatibility.
 
 This GUI block is historical. Current grades contain only photo state; global preferences and ImGui own interface state.
 
-## V1 migration
+### V1 migration
 
-RawNode still reads inherited sidecars named:
+The historical reader accepted inherited sidecars named:
 
 ```text
 DSC_0001.NEF.ofxrawhost.json
 ```
 
-V1 nodes are normalised as `backend: "ofx"`. They receive stable node IDs when loaded and are written in Sidecar V2 format the next time the image is saved.
+The historical reader normalised V1 nodes as `backend: "ofx"`, assigned stable
+node IDs and wrote V2 on the next save. It preferred V2 `.rawnode.json` when
+both files existed. This migration is not part of live photo opening.
 
-When both files exist, RawNode prefers the V2 `.rawnode.json` sidecar.
-
-## Exported derivatives
-
-RawNode sidecars belong to editable source images/documents. Exported JPEG,
-PNG, TIFF and other rendered derivatives do not receive RawNode sidecars.
-Export consumes the evaluated document and writes the derivative; it does not
-save a second editable document or modify the source sidecar.
-
-Older RawNode versions may have created export sidecars. Those legacy files may
-remain on disk; current export does not read, update, migrate or delete them.
-
-RawNode ICC profiles include stable colour-encoding IDs so supported wide-gamut exports can be identified on re-import. DaVinci Intermediate is scene-referred and can map encoded values to linear values above 1.0, which a conventional matrix/TRC ICC profile cannot fully represent. RawNode therefore warns on DI export that external ICC-managed applications may clip highlights.
-
-## Invalid and newer sidecars
+### Invalid and newer sidecars
 
 If a V2 sidecar exists but cannot be parsed safely, RawNode clears the inherited on-screen chain for that image and blocks automatic sidecar writes to the file. This prevents edits from the previously viewed image from overwriting a damaged sidecar.
 
@@ -285,22 +301,6 @@ Recognised V2 sidecars containing an unknown future RAW or Output colour-space/g
 
 A protected sidecar remains read-only for that session. The protection clears after the unsupported data is fixed or the sidecar is removed and the image is reopened.
 
-### Older-build compatibility
+#### Older-build compatibility
 
-Sidecars written by this version contain independent colour-space/gamma IDs that PR #16 and earlier builds do not understand. Those older builds can fall back to their historical Rec.709/Linear interpretation and may overwrite newer colour settings if they save the file. Avoid editing newly written sidecars with an older RawNode build.
-
-## Versioning
-
-Schema changes must use an explicit versioned format.
-
-For Sidecar V2 maintenance, additive changes remain reasonable where they are
-actually useful. The Step 7 graph format may instead replace V2 cleanly.
-
-No version may silently discard unavailable processors/interfaces, parameter
-state or topology merely because it cannot execute them.
-
-## Retired folder-level state
-
-Older optional workspace files held active-image and interface state. These files
-are now ignored and left untouched. Only source sidecars and global application
-settings remain authoritative; no replacement workspace file is created.
+Historical later V2 sidecars contain independent colour-space/gamma IDs that PR #16 and earlier builds do not understand. Those older builds can fall back to their historical Rec.709/Linear interpretation and may overwrite newer colour settings if they save the file. Avoid editing newly written sidecars with an older RawNode build.

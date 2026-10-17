@@ -7,7 +7,9 @@ practice or prescribe every formatting choice. Its purpose is to keep RawNode's
 source understandable to a human programmer as the editor grows.
 
 Read it together with `docs/ARCHITECTURE.md`: source organisation should make
-that architecture easier to recover from the code.
+that architecture easier to recover from the code. Accepted persistence schema
+and lifecycle details live in `docs/STEP7_PERSISTENCE_DESIGN.md`; current milestone
+status lives in `docs/PROJECT_CONTEXT.md`.
 
 ## Primary rule
 

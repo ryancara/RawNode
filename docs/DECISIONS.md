@@ -7,7 +7,8 @@ decisions, not implementation history.
 
 ## Existing durable decisions
 
-The following earlier decisions remain accepted:
+The following earlier decisions remain accepted except where explicitly
+superseded below:
 
 - **D001:** Folder-based workflow, no catalogue.
 - **D002:** Sidecars are authoritative per-image edit state.
@@ -26,7 +27,10 @@ The following earlier decisions remain accepted:
 - **D011:** Assignable controls target node instances, not processor types.
 - **D012:** Prefer reversible staged refactors.
 - **D013:** Prefer upstream-friendly infrastructure where practical.
-- **D015:** Sidecar V2 is backend-neutral and preserves unavailable processors.
+- **D015 — historical format, superseded by D045 and D048–D050:** Sidecar V2
+  established backend-neutral persistence and preservation of unavailable
+  processors. Those preservation goals remain; V2 is no longer the live format.
+  Step 7 uses graph-native records, with V1/V2 files protected without migration.
 - **D016:** Native Exposure is a reference processor, not a mandate that all
   tools be native.
 - **D017:** Standard CTL is the core CTL backend; host-specific conventions are
@@ -216,6 +220,8 @@ The authoritative project documents are:
 - `docs/ARCHITECTURE.md`;
 - `docs/DECISIONS.md`;
 - `docs/ARCHITECTURE_AUDIT.md` for audit evidence/reconciliation;
+- `docs/CODE_STYLE.md` for coding guidance;
+- `docs/STEP7_PERSISTENCE_DESIGN.md` for the accepted persistence specification;
 - `CLAUDE.md` for Claude workflow/review instructions.
 
 Old root-level architecture/decision files are historical only.
@@ -276,10 +282,10 @@ rule could resolve an export such as `DSC_0001.NEF.png` to the existing source
 sidecar `DSC_0001.NEF.rawnode.json` and overwrite its grade, including when an
 export was named after another source image.
 
-Source Sidecar V2 semantics remain unchanged. Legacy export sidecars may remain
-on disk, but are not part of the product model and require no migration or
-deletion. Source-sidecar write reliability/atomic replacement remains separate
-Step 7 work.
+At acceptance, D038 left source Sidecar V2 semantics unchanged and deferred
+checked atomic source writes to Step 7. Step 7 has since implemented those writes
+and replaced V2 under D045 and D048–D050. Legacy export sidecars may remain on
+disk, but are not part of the product model and require no migration or deletion.
 
 ## D039 — Raster-local Image/Mask graph values
 
@@ -388,9 +394,10 @@ export. Warnings are derived from reachable dependencies.
 RawNode has no external user base requiring Sidecar V2 backwards compatibility
 to constrain the explicit graph.
 
-Step 7 may replace V2 with a graph-native versioned format. Until then, any
-save/autosave/clipboard/preset path that cannot represent the Step 6 graph must
-refuse or be disabled rather than silently flattening topology.
+The accepted transition allowed Step 7 to replace V2 with a graph-native
+versioned format. Before that replacement, paths unable to represent the Step 6
+graph had to refuse or be disabled rather than silently flattening topology.
+Step 7 has completed that replacement; the temporary V2 boundary is historical.
 
 V2 source sidecars are now historical and protected without migration. Clipboard/presets use the graph-native codec; legacy transfer readers are retired.
 
@@ -437,8 +444,9 @@ transient UI state. Keep the format simple and readable. Separate project files
 and catalogue databases remain non-goals (D001, D010); compression or binary
 serialization requires a demonstrated need.
 
-Exact schema details, field names and optional-field handling remain Step 7
-design decisions. The Graph View itself remains the UI milestone between Steps
+Exact schema details, field names and optional-field handling were settled in
+[STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md) and implemented in Step 7.
+The Graph View itself remains the UI milestone between Steps
 7 and 8 (D047), sharing the authoritative graph and NodeId selection with List
 View.
 
@@ -480,7 +488,7 @@ photo graph layout (D048).
 
 See [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md#persistence-direction) for accepted
 workflow semantics and [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md)
-for the proposed schema and implementation boundaries.
+for the accepted schema and implemented persistence boundaries.
 
 ## D050 — Editor opening establishes a grade; save at document boundaries
 
@@ -541,9 +549,10 @@ The D037 stabilisation gate and immediate checkpoint follow-ups are complete.
 5. Settle the first mask/graph product contract — complete.
 6. Introduce topology and sequential DAG evaluation together — implementation and
    independent whole-Step-6 review complete and merged in PR #58.
-7. Add versioned graph persistence.
+7. Add versioned graph persistence — complete; PRs 1–5 merged as #63, #65, #66,
+   #68 and #69.
 
-   Then add the switchable Graph/List editor UI milestone (D047), before Step 8.
+   Next, add the switchable Graph/List editor UI milestone (D047), before Step 8.
 
 8. Settle remaining concrete mask details and add the first mask path under the
    Step 5 contract.

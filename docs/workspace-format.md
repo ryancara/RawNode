@@ -66,11 +66,14 @@ See [SIDECAR.md](../SIDECAR.md) for current source-sidecar and preset behaviour.
 The following describes older ofxrawhost builds only. None of its workspace or
 layout paths is active in current RawNode. Historical V1/V2 sidecar helpers remain
 only for self-test fixtures and compatibility assertions, outside the live editor.
+All reader/writer descriptions below refer to those historical builds, not to
+current photo opening or global preferences. The current graph-native schema
+is specified in [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md).
 
 
 OFX Raw Host persists reproducible processing state as JSON beside your files.
 
-## Workspace file
+## Historical workspace file
 
 When you **Open Workspace…** on a folder, the host reads and writes:
 
@@ -108,7 +111,7 @@ Paths in `activeImage` are relative to the workspace directory when possible.
 
 Older files may still contain `leftW`, `rightW`, and `filmstripH` under `gui`. The host still **reads** them to seed a default DockSpace layout when no `.ofxrawhost-layout.ini` exists. They are no longer written on save; ImGui’s `.ini` owns panel geometry.
 
-## Input image sidecar
+## Historical V1 input image sidecar
 
 For each source file `photo.cr2`, settings are stored in:
 

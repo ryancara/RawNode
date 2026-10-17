@@ -5,7 +5,9 @@ Step 5 product-contract work are complete, independently reviewed and
 reconciled. Step 6 explicit topology/evaluator implementation and independent
 whole-Step-6 review are complete and merged in PR #58 (`6294a034`). Complete
 per-check macOS/native-dialog and NEF validation evidence is not recorded; see
-`docs/STEP6_MANUAL_VALIDATION.md`. The approved target architecture lives in
+`docs/STEP6_MANUAL_VALIDATION.md`. Step 7 PRs 1–5 are now merged (#63, #65,
+#66, #68, #69). The switchable Graph/List editor is next, before Step 8.
+The approved target architecture lives in
 `docs/ARCHITECTURE.md` and accepted decisions live in `docs/DECISIONS.md`.
 
 **RawNode audit baseline:** `07808451f72bba9bc59a6e9a6889ec5a4f7c07de`
@@ -17,6 +19,10 @@ architecture audit, the independent Claude plan review, and the completed
 post-Step-4 Codex and Claude architecture checkpoint.
 
 It is retained as the audit trail rather than the authoritative architecture.
+Findings and recommendations below describe their named historical baselines;
+they are not a current task list. Step 7 resolved the checkpoint's in-place
+sidecar-write and per-photo GUI-preference findings through checked atomic
+writes and global preferences/layout; the original findings are retained below.
 Where this file differs from `docs/ARCHITECTURE.md` or `docs/DECISIONS.md`,
 those reviewed documents take precedence.
 

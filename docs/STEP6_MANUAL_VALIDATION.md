@@ -3,9 +3,14 @@
 **Status:** Step 6 implementation and independent whole-Step-6 review are complete
 and merged in PR #58 (`6294a034`). Reported macOS testing found normal operation,
 but complete per-check native-dialog and Nikon NEF validation evidence is not
-recorded. Unverified checks below remain unchecked; evidence or an explicit
-documented waiver is tracked in `docs/PROJECT_CONTEXT.md` before Step 7 replaces
-the relevant capture/sidecar paths.
+recorded. Step 7 PRs 1–5 are now merged. The historical prerequisite waiver is
+recorded below; it is not passing evidence. Unverified checks remain outstanding
+and are tracked in `docs/PROJECT_CONTEXT.md`.
+
+The initial Editing/native-dialog and T3 sections retain the Step 6 procedures
+(including retired node presets and linear formats). Use the Step 7 follow-up
+sections for current persistence, preset and global-settings checks; the original
+procedures remain historical validation criteria, not completed results.
 
 The implementation environment is Linux. No suitable Nikon NEF/RAW fixture was
 available there, so successful camera-RAW grade application (T3) is not claimed

@@ -9,12 +9,16 @@ complete. Step 6 implementation and independent whole-Step-6 review are complete
 and merged in PR #58 (`6294a034`). Preview, inspection, export and List View use
 one explicit document graph. Complete per-check macOS/native-dialog and NEF
 manual-validation evidence is not recorded; see `docs/STEP6_MANUAL_VALIDATION.md`.
-Graph-native persistence is Step 7 work.
+Step 7 PRs 1–5 are merged (#63, #65, #66, #68, #69), completing graph-native
+photo/preset/clipboard persistence and global preferences/workspace retirement.
+The switchable Graph/List editor is next (D047), followed by Step 8 masking.
 
 Read this together with:
 
 - `docs/PROJECT_CONTEXT.md` for current project state and roadmap;
 - `docs/DECISIONS.md` for accepted durable design decisions;
+- `docs/CODE_STYLE.md` for coding guidance and
+  `docs/STEP7_PERSISTENCE_DESIGN.md` for the accepted persistence specification;
 - `docs/ARCHITECTURE_AUDIT.md` for the audit evidence and reconciliation that
   led here.
 
@@ -262,7 +266,7 @@ Required invariants include:
 These invariants are more important than preserving the current implementation
 shape.
 
-## Completed Step 6 implementation
+## Completed graph and persistence implementation (Steps 6–7)
 
 `App::nodes`, including the primary Source, is the authoritative graph storage.
 Static named Image/Mask ports and consumer-owned upstream references define
@@ -616,9 +620,9 @@ validation evidence is tracked separately in `docs/PROJECT_CONTEXT.md`.
    Equivalent linear behaviour is preserved. The first concrete production
    Mask application remains Step 8.
 
-7. **Add versioned graph persistence.**
+7. **Add versioned graph persistence — complete; PRs #63, #65, #66, #68, #69.**
 
-   After graph persistence, add the switchable Graph/List editor before Step 8.
+   Next, add the switchable Graph/List editor before Step 8.
    This is a UI milestone (D047), not another numbered architecture step.
    Both views edit the same authoritative document graph and share NodeId
    selection; no additional renderer or execution model is introduced.

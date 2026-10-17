@@ -5,15 +5,26 @@
 (result supplied by the user). The design, D050 lifecycle and final corrections
 have passed verification. This document records that design checkpoint.
 
-**Implementation phase:** Graph-native records, strict validation and atomic
-sidecar updates are connected to photo opening/saving. PR 4 replaced presets and
-clipboard with shared graph-native records. PR 5 implements global preferences
-and layout, removes workspace persistence and completes the persistence scope. The owner waived historical
-Step 6 manual prerequisites on 2026-10-16; macOS/native-dialog and actual Nikon
-NEF validation of the new workflow remains unverified. See
+**Implementation status: complete.** Step 7 PRs 1–5 merged as
+[#63](https://github.com/ryancara/RawNode/pull/63),
+[#65](https://github.com/ryancara/RawNode/pull/65),
+[#66](https://github.com/ryancara/RawNode/pull/66),
+[#68](https://github.com/ryancara/RawNode/pull/68) and
+[#69](https://github.com/ryancara/RawNode/pull/69), ending at
+`69572b265075cc44cc9b06ee52ad1c803263f345`. Graph-native records serve live photo
+opening/saving, presets and clipboard; checked atomic writes protect file updates.
+Global preferences/layout
+replace folder workspace persistence. Graph/List is next, followed by Step 8.
+
+Sections 2–7 specify the accepted format and lifecycle implemented by Step 7.
+Sections 1 and 8 retain the pre-implementation inventory and PR plan; their
+"current" findings and instructions describe that historical baseline, not
+outstanding work. Section 9 records test expectations, not a new test run.
+The owner waived historical Step 6 manual prerequisites on 2026-10-16;
+macOS/native-dialog and actual Nikon NEF validation of the new workflow remains unverified. See
 [the manual validation record](STEP6_MANUAL_VALIDATION.md).
 
-**Baseline:** `main` including PR #61,
+**Historical design baseline:** `main` including PR #61,
 `20e3ba75165e38edf9bd97a6266342dde0a41b1d`. The accepted Step 5/6 graph and
 renderer need no architectural replacement. Extend the existing persistence
 records, graph validation and document-mutation path.
@@ -25,7 +36,7 @@ Read with [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md#persistence-direction),
 [SIDECAR.md](../SIDECAR.md) and [workspace-format.md](workspace-format.md)
 describe current persistence and explicitly labelled historical formats.
 
-## 1. What changes in the existing code
+## 1. Historical pre-implementation inventory
 
 | Existing code | Finding and minimum change |
 | --- | --- |
@@ -358,8 +369,9 @@ Scripted helper tests cover mapping, with real desktop checks still listed in
 Protected source views are never saved and can be left normally. Export remains
 sidecar-free (D038).
 
-No readers/migrations for Sidecar V1/V2 or `.rawnodepreset` are required. Existing
-files are never silently overwritten/deleted. An old `.rawnode.json` is protected;
+Live Sidecar V1/V2 and `.rawnodepreset` readers/migrations are retired; historical
+sidecar helpers remain only in self-tests. Existing files are never silently
+overwritten/deleted. An old `.rawnode.json` is protected;
 a lone legacy `.ofxrawhost.json` is detected as protected legacy state without
 parsing/migrating it. Do not silently create a replacement grade alongside it.
 When a valid new sidecar also exists, use it and leave the legacy file untouched.
@@ -392,9 +404,9 @@ and positions; copy incoming non-Source positions under remapped IDs only.
 Missing positions stay absent; automatic placement/offsets wait for Graph View.
 A Source-only incoming Append is a no-op.
 
-Stage and validate the entire splice. `StagedEdit` currently commits at most
-one addition, so extend that existing mechanism narrowly for a batch of linear
-insertions; repeated committing insert calls could leave half a preset applied.
+Stage and validate the entire splice. Step 7 PR 4 extended `StagedEdit` to
+commit a batch of linear insertions once; repeated committing insert calls could
+leave half a preset applied.
 Attaching branched incoming presets is deferred to graph-editing needs. File capture,
 opening and Replace still preserve supported branching topology fully.
 
@@ -497,6 +509,11 @@ the implementation that retires their behaviour.
 
 ## 8. Focused implementation PRs
 
+**Status: all merged.** The table preserves the original implementation plan
+and acceptance criteria.
+PRs 1–5 correspond to #63, #65, #66, #68 and #69 respectively. The prerequisite
+waiver and outstanding platform checks remain in the manual validation record.
+
 Each PR extends the current functions/types and includes its tests. Do not add
 unused service interfaces to prepare later PRs. Before replacing affected live
 capture/sidecar paths, record outstanding macOS/native-dialog and successful
@@ -560,16 +577,17 @@ do not expose those ports/kinds in production.
 | Runtime/export | Existing barriers prove open/Replace waits for old borrowed nodes/pixels, with coherent source/colour publication. Export produces no derivative sidecar and does not update the source sidecar (D038). |
 
 Run the full existing self-test suite for implementation PRs. Keep real Nikon
-NEF/native-dialog evidence distinct from synthetic tests. This documentation PR
-needs JSON-example/link checks, contract review and `git diff --check`, not a
-C++ rebuild.
+NEF/native-dialog evidence distinct from synthetic tests. The original design-only
+PR #62 needed JSON-example/link checks, contract review
+and `git diff --check`, not a C++ rebuild; that statement does not substitute for
+the implementation PRs' test evidence.
 
 ## 10. Review boundary and remaining questions
 
-Claude's final independent verification passed at the head recorded above.
-The required RAW working pair for raster grades is unchanged by this revision.
-JSON-library choice and the supported-platform atomic replacement calls are
-bounded PR 1/2 implementation choices, not reasons for a persistence framework.
+Claude's design verification passed at the head recorded above. The required
+RAW working pair for raster grades remains part of the implemented schema.
+PRs 1–2 subsequently implemented the strict JSON reader and checked POSIX atomic
+replacement; Windows atomic writes remain unsupported.
 Outstanding manual evidence/waivers apply only to the relevant live paths.
 Future automatic default-preset application failure handling remains deferred to
 that feature's implementation milestone.
@@ -578,4 +596,6 @@ Defer branched incoming attachment, dynamic unknown-operation interfaces, asset
 relocation, default-preset/culling UI, Graph View and masks to their actual
 features. Keep one authoritative graph and two persistence scopes.
 
-Do not merge PR #62 or begin Step 7 implementation as part of this task.
+**Historical task boundary for PR #62:** its scope was design only, with no
+merge or Step 7 implementation in that task. PR #62 and the five implementation
+PRs have since merged; this is not a current instruction to defer Step 7.
