@@ -2,6 +2,7 @@
 
 #include "NodeGraph.h"
 #include "GraphCommands.h"
+#include "GraphEvaluator.h"
 #include "GraphPersistenceTestAccess.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActionsPriv.h"
@@ -14,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <stdexcept>
 
 #define CHECK(expression) do { if (!(expression)) { \
@@ -144,9 +146,13 @@ bool completePresetsAndOverwrite() {
 
 bool replaceAndProtection() {
   Files files; Clipboard clipboard; App app;
-  app.path = files.path("destination.nef");
+  app.path = files.path("destination.tif");
   app.full = {{0.25f, -0.5f, 2, 0.75f}, 1, 1};
   app.preview = std::make_shared<Image>(app.full);
+  // Raster pixels have an actual encoding independent of the stored RAW pair.
+  const ColorEncoding rasterEncoding{RgbGamut::ACES_AP1, TransferFunction::Linear};
+  app.inputIsRaw = false;
+  app.inputEncoding = rasterEncoding;
   CHECK(addNativeExposureNode(app));
   app.nodePositions[app.nodes[1].id.value] = {100,200};
   app.rawWorkingEncoding = {RgbGamut::ACES_AP0, TransferFunction::Linear};
@@ -157,8 +163,16 @@ bool replaceAndProtection() {
   auto incoming = grade(file(processor("b", "a", "2") + ',' + source + ',' + processor("a", "camera"), "b",
                              R"(,"positions":{"a":{"x":4,"y":8}})"));
   const auto preview = app.preview; const auto pixels = app.full.px.data();
-  CHECK(applyGrade(app, incoming) && app.primarySource == NodeId{"camera"} && app.documentOutput == image("b"));
-  CHECK(app.preview == preview && app.full.px.data() == pixels && app.path == files.path("destination.nef"));
+  static int rasterDecodeCalls;
+  rasterDecodeCalls = 0;
+  document_detail::ActionTestOptions options;
+  options.decode = [](const std::string &, Image &, ColorEncoding &, bool &, ColorEncoding) {
+    ++rasterDecodeCalls;
+    return false;
+  };
+  CHECK(document_detail::applyGrade(app, incoming, options) && app.primarySource == NodeId{"camera"} && app.documentOutput == image("b"));
+  CHECK(app.preview == preview && app.full.px.data() == pixels && app.path == files.path("destination.tif"));
+  CHECK(rasterDecodeCalls == 0 && !app.inputIsRaw && app.inputEncoding == rasterEncoding);
   CHECK(app.nodePositions.size() == 1 && hasPosition(app, "a", 4, 8));
   CHECK(app.photoRawWorkingEncoding == (ColorEncoding{RgbGamut::Rec2020, TransferFunction::Linear}));
   CHECK(app.outputEncoding == (ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB}));
@@ -229,6 +243,84 @@ bool linearAppendAndRejection() {
   CHECK(graph::disconnect(app, {NodeId{"end"}, std::nullopt, ports::image}).ok());
   const auto disconnected = payload(app);
   CHECK(!appendGrade(app, incoming) && payload(app) == disconnected);
+  return true;
+}
+
+bool insertAfterSelectedFinalNode() {
+  Clipboard clipboard;
+  const auto destination = grade(file(processor("end", "start", "-1") + ',' + processor("branch", "start", "3") + ',' +
+                                     source + ',' + processor("start", "camera", "1"), "end"));
+  const auto incoming = grade(file(processor("tail", "entry", "-1") + ',' + source + ',' + processor("entry", "camera", "2"), "tail"));
+  for (bool paste : {false, true}) {
+    App app;
+    CHECK(applyGrade(app, destination) && selectNode(app, NodeId{"end"}));
+    auto pixels = std::make_shared<Image>();
+    pixels->w = pixels->h = 1;
+    pixels->px = {0.25f, -0.5f, 2.0f, 0.75f};
+    std::map<std::string, const Processor *> processors;
+    for (const auto &node : app.nodes) processors.emplace(node.id.value, node.processor.get());
+    if (paste) {
+      PersistFragment fragment{{record(incoming, "entry"), record(incoming, "tail")}, {}};
+      fragment.nodes.front().inputs.at(ports::image).reset();
+      std::string error;
+      CHECK(encodeTransferPayload(fragment, clipboard.text, error) && pasteFromClipboard(app));
+    } else CHECK(appendGrade(app, incoming, app.selectedNodeId));
+    CHECK(app.nodes.size() == 6 && app.selectedNodeId && app.documentOutput == (OutputRef{*app.selectedNodeId, ports::image}));
+    const auto tail = app.documentOutput.nodeId;
+    CHECK(tail != NodeId{"end"});
+    const auto *tailNode = findNode(app, tail);
+    CHECK(tailNode && tailNode->fixedInputs.at(ports::image));
+    const auto entry = tailNode->fixedInputs.at(ports::image)->nodeId;
+    CHECK(entry != NodeId{"end"} && findNode(app, entry)->fixedInputs.at(ports::image) == image("end"));
+    PersistGrade after;
+    CHECK(captureGrade(app, after));
+    for (const auto &saved : destination.graph.nodes) {
+      const auto &retained = record(after, saved.id);
+      CHECK(retained.operation == saved.operation && retained.inputs == saved.inputs && retained.enabled == saved.enabled);
+      CHECK(retained.paramsJson == saved.paramsJson && retained.identifier == saved.identifier);
+      CHECK(findNode(app, NodeId{saved.id})->processor.get() == processors.at(saved.id));
+    }
+    const auto result = evaluateGraph({app.nodes, app.primarySource, app.documentOutput}, app.documentOutput,
+                                      {EvaluationPurpose::Preview, 1, 1, 1, 1}, pixels);
+    CHECK(result.state == EvaluationState::Available);
+    const auto rendered = std::get<ImageValue>(result.value);
+    // Destination +1/-1 EV cancels. Both incoming +2/-1 EV processors
+    // must contribute: skipping either yields a different power-of-two result.
+    CHECK(rendered && rendered->px == std::vector<float>({0.5f, -1.0f, 4.0f, 0.75f}));
+  }
+  return true;
+}
+
+bool rejectIncomingOffSpineConsumer() {
+  App app;
+  const auto destination = grade(file(processor("end", "start", "-1") + ',' + processor("branch", "start", "3") + ',' +
+                                     source + ',' + processor("start", "camera", "1"), "end",
+                                     R"(,"positions":{"start":{"x":10,"y":20},"branch":{"x":30,"y":40}})"));
+  CHECK(applyGrade(app, destination) && selectNode(app, NodeId{"end"}));
+  app.paramFilter[0] = 'e';
+  const auto before = payload(app);
+  const auto selection = app.selectedNodeId;
+  const auto inputEncoding = app.inputEncoding;
+  const auto rawDefault = app.rawWorkingEncoding, outputDefault = app.defaultOutputEncoding;
+  const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+  std::map<std::string, const Processor *> processors;
+  for (const auto &node : app.nodes) processors.emplace(node.id.value, node.processor.get());
+  // b consumes a, but Output is a: dropping the full-node-coverage check
+  // would incorrectly append both nodes as if b were part of the saved spine.
+  const auto incoming = grade(R"({"format":"rawnode","version":1,"grade":{
+    "color":{"rawWorking":{"colorSpace":"aces-ap1","gamma":"srgb"},"output":{"colorSpace":"rec709","gamma":"linear"}},
+    "graph":{"primarySource":"source","documentOutput":{"node":"a","port":"image"},"nodes":[
+      {"id":"source","kind":"source"},
+      {"id":"a","kind":"image-processor","backend":"native","identifier":"rawnode.native.exposure","enabled":true,"params":{"exposure":2},"inputs":{"image":{"node":"source","port":"image"}}},
+      {"id":"b","kind":"image-processor","backend":"native","identifier":"rawnode.native.exposure","enabled":true,"params":{"exposure":-1},"inputs":{"image":{"node":"a","port":"image"}}}
+    ]},"positions":{"a":{"x":-5,"y":-6},"b":{"x":7,"y":8}}}})");
+  CHECK(!appendGrade(app, incoming, app.selectedNodeId));
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch);
+  CHECK(app.nodes.size() == 4 && app.documentOutput == image("end") && payload(app) == before);
+  CHECK(app.selectedNodeId == selection && app.paramFilter[0] == 'e' && app.inputEncoding == inputEncoding);
+  CHECK(app.rawWorkingEncoding == rawDefault && app.defaultOutputEncoding == outputDefault);
+  CHECK(!findNode(app, NodeId{"a"}) && !findNode(app, NodeId{"b"}));
+  for (const auto &node : app.nodes) CHECK(node.processor.get() == processors.at(node.id.value));
   return true;
 }
 
@@ -317,6 +409,8 @@ bool testPresetsAndClipboard() {
       std::make_pair("complete Source-only/branched presets, metadata, overwrite and atomic failures", completePresetsAndOverwrite),
       std::make_pair("Replace preserves pixels, metadata/defaults, replaces positions and enforces protection", replaceAndProtection),
       std::make_pair("linear middle/end Append preserves branches, bindings/positions and rejects atomically", linearAppendAndRejection),
+      std::make_pair("selected final-node Append/Paste updates Output and evaluates the complete chain", insertAfterSelectedFinalNode),
+      std::make_pair("incoming off-spine consumer rejects without changing document state", rejectIncomingOffSpineConsumer),
       std::make_pair("independent fragment capture, fresh IDs, detached links and real clipboard refusal", fragmentsAndClipboard),
       std::make_pair("internal Mask/Reference/Slot state and external-link diagnostics", fragmentSlotsAndExternalLinks)}) {
     if (!test.second()) { std::fprintf(stderr, "preset/clipboard group failed: %s\n", test.first); return false; }

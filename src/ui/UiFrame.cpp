@@ -105,7 +105,7 @@ bool savePresetDialog(App &app, std::string path) {
 static bool loadPreset(App &app, bool append) {
   if (!requireEditableGraph(app)) return false;
   const auto paths = pfd::open_file(append ? "Append Preset" : "Replace Grade from Preset", "",
-                                   {"RawNode grade", "*.rawnode.json"}).result();
+                                   {"RawNode grade", "*.json"}).result();
   if (paths.empty()) return false;
   PersistGrade grade;
   std::string error;
