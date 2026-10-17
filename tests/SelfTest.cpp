@@ -1,5 +1,6 @@
 #include "SelfTest.h"
 #include "OfxThreadPoolTests.h"
+#include "OfxImageHandleTests.h"
 #include "GraphModelTests.h"
 #include "GraphPersistenceTests.h"
 #include "SidecarFileTests.h"
@@ -2082,6 +2083,7 @@ int runSelfTests() {
   printf("ok  Debug control-thread contract (10 expected child assertions)\n");
 #endif
   if (!testOfxThreadPool()) return fail("OFX host multithread lifetime");
+  if (!testOfxImageHandles()) return fail("OFX outstanding image-handle lifetime");
   for (bool started : {false, true})
     for (bool pending : {false, true})
       if (!testRuntimeIdleLifecycle(started, pending)) return fail("runtime idle/pending start/shutdown");
