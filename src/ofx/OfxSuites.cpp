@@ -17,8 +17,10 @@
 #include <cstring>
 #include <atomic>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 // ------------------------------------------------------------------ properties
@@ -293,6 +295,13 @@ static OfxStatus clipGetPropertySet(OfxImageClipHandle c, OfxPropertySetHandle *
   *props = H(&C(c)->props);
   return kOfxStatOK;
 }
+// Each successful clipGetImage returns a separate property set, owned here until
+// its clipReleaseImage. A plugin may hold several at once, including repeated
+// requests for the same clip, and may fetch or release them on any render thread.
+// The pixel buffers they describe remain shared and borrowed from renderEffect.
+static std::mutex gImagesMutex;
+static std::unordered_map<PropSet *, std::unique_ptr<PropSet>> gImages;
+
 static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, OfxPropertySetHandle *out) {
   Clip *c = C(ch);
   Effect *e = c->owner;
@@ -300,9 +309,8 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, 
   OfxMetalBuffer *mbuf = e->metalEnabled ? (isOutput ? (OfxMetalBuffer *)e->dstMtl : (OfxMetalBuffer *)e->srcMtl) : nullptr;
   void *data = mbuf ? ofxMetalBufferHandle(mbuf) : (isOutput ? (void *)e->dst : (void *)e->src);
   if (!data) return kOfxStatFailed;
-  // Reuse the clip's pooled PropSet instead of heap-allocating per request.
-  c->imgProps.m.clear();
-  OfxPropertySetHandle h = H(&c->imgProps);
+  auto image = std::make_unique<PropSet>();
+  OfxPropertySetHandle h = H(image.get());
   propSetString(h, kOfxPropType, 0, kOfxTypeImage);
   propSetString(h, kOfxImageEffectPropPixelDepth, 0, kOfxBitDepthFloat);
   propSetString(h, kOfxImageEffectPropComponents, 0, kOfxImageComponentRGBA);
@@ -317,12 +325,17 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, 
   propSetN<int, propSetInt>(h, kOfxImagePropBounds, 4, bounds);
   propSetN<int, propSetInt>(h, kOfxImagePropRegionOfDefinition, 4, bounds);
   propSetInt(h, kOfxImagePropRowBytes, 0, bounds[2] * 4 * (int)sizeof(float));
+  {
+    std::lock_guard<std::mutex> lock(gImagesMutex);
+    gImages.emplace(P(h), std::move(image));
+  }
   *out = h;
   return kOfxStatOK;
 }
-static OfxStatus clipReleaseImage(OfxPropertySetHandle) {
-  // PropSet is owned by the Clip; cleared on next clipGetImage.
-  return kOfxStatOK;
+static OfxStatus clipReleaseImage(OfxPropertySetHandle h) {
+  // Only an outstanding clipGetImage result is destroyed, exactly once.
+  std::lock_guard<std::mutex> lock(gImagesMutex);
+  return gImages.erase(P(h)) ? kOfxStatOK : kOfxStatErrBadHandle;
 }
 static OfxStatus clipGetRegionOfDefinition(OfxImageClipHandle c, OfxTime, OfxRectD *rod) {
   Clip *clip = C(c);
