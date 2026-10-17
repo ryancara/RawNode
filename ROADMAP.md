@@ -8,7 +8,7 @@ The original backend-neutral architecture work is now in place:
 
 - generic processor/node model;
 - generic parameters;
-- Sidecar V2 persistence;
+- graph-native photo sidecars with independent grade and metadata sections;
 - native processors;
 - CTL backend;
 - shared colour architecture based on `ColorEncoding`;
@@ -20,13 +20,15 @@ The original backend-neutral architecture work is now in place:
 - Linux CI and extracted self-tests;
 - node copy / paste;
 - full-grade copy / paste;
-- portable node and full-grade presets.
+- unified `.rawnode.json` grade presets and graph-native clipboard transfers;
+- global `preferences.json` and ImGui `layout.ini`; folder workspace persistence
+  is retired.
 
 The current codebase is a clean base for feature development. New work should return to small, focused PRs.
 
 ## Current architecture/stabilisation sequence
 
-The approved eight-step architecture migration is in progress. Steps 1–6 are
+The approved eight-step architecture migration is in progress. Steps 1–7 are
 complete. Step 4 (renderer ownership encapsulation) landed in PR #45 after
 independent review, sanitizer/stress validation and routine macOS validation.
 
@@ -49,12 +51,12 @@ are non-blocking follow-ups.
 - **Step 6 — complete and independently reviewed:** explicit topology and one
   sequential requested-endpoint DAG evaluator, merged in PR #58
   (`6294a034d30168063e2aa92e984a51666f56ca22`).
-- Step 7 (next): graph-native sidecars and unified presets, shared clipboard graph
-  serialization, independent grade/photo metadata, optional node layout, safe
-  atomic writes and photo/global settings ownership. Transition existing
-  preset/copy/paste functionality and retire workspace settings persistence in
-  focused changes.
-- **Graph View UI milestone (between Steps 7 and 8; not a new architecture
+- **Step 7 — complete:** PRs 1–5 merged as #63, #65, #66, #68 and #69
+  (final merge `69572b265075cc44cc9b06ee52ad1c803263f345`). Graph-native sidecars,
+  unified presets, shared clipboard serialization, independent grade/photo
+  metadata, optional node layout, checked atomic writes and global preferences
+  are implemented; folder workspace persistence is retired.
+- **Next: Graph View UI milestone (between Steps 7 and 8; not a new architecture
   step; D047):** implement a switchable Graph/List editor on the same
   authoritative document graph with shared NodeId selection.
 - Step 8: first concrete mask path and remaining implementation details under
@@ -69,25 +71,21 @@ they can proceed independently without changing the architecture sequence.
 
 Post-Step-6 code quality, CI, verification and milestone readability follow-ups
 are tracked in `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
-The focused pre-persistence checkpoint is due before Step 7 finalises the format;
-the whole-Step-6 implementation/architecture review is already complete.
+The focused Step 7 design checkpoint and implementation are complete; outstanding
+manual platform checks remain tracked separately and are not passing results.
 
 ## Completed editing workflow milestone
 
-RawNode now supports:
+RawNode now supports node/fragment and complete-grade copy/paste through the
+shared graph-native codec, plus one **Save Preset** action for complete grades in
+`.rawnode.json`, including Source-only and branched grades. **Replace** applies
+the graph and RAW/Output colours; **Append** inserts an ordinary linear incoming
+grade at a validated main-spine point while retaining unrelated destination
+branches and colours. Fragment capture and attachment eligibility are separate.
+See `SIDECAR.md` and `docs/STEP7_PERSISTENCE_DESIGN.md` for exact semantics.
 
-- copying and pasting a single processor node through a versioned system-clipboard payload;
-- copying and pasting the complete serial processing chain between images, including RAW working and Output colour space/gamma;
-- portable `.rawnodepreset` files for both single nodes and full grades.
-
-These currently use the linear `PersistNode` / `PersistChain` representation and
-`.rawnodepreset` files. Step 7 moves saved presets to one unified `.rawnode.json`
-grade format containing one processor or a connected graph; the old format can
-be retired. **Replace** applies the graph and preset RAW/Output settings;
-**Append** inserts nodes while preserving destination colours, using validated
-connections. Clipboard node fragments and complete-grade transfers remain
-supported through shared graph code; a fragment need not be a complete document.
-Detailed semantics and staging boundaries are in `docs/PROJECT_CONTEXT.md`.
+The former linear `PersistChain` transfers and `.rawnodepreset` files are
+historical; live legacy transfer readers are retired without migration or deletion.
 
 A follow-up editing workflow should add filmstrip multi-selection and allow a
 copied full grade or preset to be applied to all selected photos in
@@ -96,7 +94,8 @@ do not add a second graph model or persistence path for batch application.
 
 ## Default grade preset
 
-Add a configurable default preset selected from the user's preset folder, applied
+**Planned; not implemented.** Add a configurable default preset selected from
+the user's preset folder, applied
 using **Replace**. Opening precedence is **saved grade → configured default preset
 → global RAW/Output defaults**, following the saved-grade and protected-sidecar rules in
 `docs/PROJECT_CONTEXT.md`. Folder scanning and thumbnail generation create no
@@ -166,8 +165,8 @@ Add a simple photo-culling workflow:
 - later, hide rejects or move rejected photos (and associated sidecars) to the
   operating system Trash through an explicit, confirmed user action.
 
-Keep this folder-based with no catalogue/database or automatic deletion. The
-Step 7 establishes minimal photo-metadata persistence support; the culling UI
+Keep this folder-based with no catalogue/database or automatic deletion. Step 7
+establishes minimal photo-metadata persistence support; the culling UI
 and file actions can follow later.
 
 ## Batch / workspace export
@@ -185,7 +184,7 @@ required.
 
 ## Graph / List interface
 
-**Delivery milestone:** After Step 7 graph-native persistence and before Step 8
+**Next delivery milestone:** Step 7 is complete. Before Step 8
 introduces the first user-facing masks, build the graphical Node/Graph View.
 This is a UI/product milestone, not an additional numbered architecture refactor.
 
@@ -206,7 +205,7 @@ Initial Graph View scope:
 - connection editing through the existing validated graph commands;
 - shared selection/inspection and editing actions with List View;
 - node layout positions saved with the editable source document, and restored
-  when reopened; Step 7 should make room for this without coupling layout to
+  when reopened; Step 7 already stores optional positions separately from
   graph evaluation.
 
 Add number-key node selection as a separate small interaction improvement.
@@ -264,11 +263,12 @@ Mixed backends now share the same chain, parameter, persistence, UI, and render 
 
 OFX, native and CTL processors expose controls through the common parameter abstraction.
 
-### Sidecar V2
+### Sidecar V2 — historical, superseded by Step 7
 
-Persistence stores processor/backend identity, order, bypass state, parameter state, RAW/output colour state, and stable choice IDs.
-
-Unknown future data is protected from destructive overwrite where possible.
+V2 established backend-neutral identity and opaque parameter preservation, but
+encoded serial order. The live editor now uses graph-native `rawnode` version 1
+sidecars with explicit connections and endpoints. V1/V2 files are protected
+without migration; compatibility helpers remain only for self-tests.
 
 ### Native processors
 

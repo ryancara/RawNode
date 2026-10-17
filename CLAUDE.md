@@ -5,9 +5,10 @@
 RawNode is a lightweight, modular RAW photo editor written in C++17 and derived
 from ofxrawhost.
 
-It supports a processing chain containing native processors, OpenFX plugins and
-CTL processors. Future plans include DCTL, LUTs, masks, compositing, local
-adjustments and a more capable node graph.
+It supports one explicit processing graph containing native processors, OpenFX
+plugins and CTL processors, with a topology-derived List View. Future plans
+include the switchable Graph/List editor, DCTL, LUTs, masks, compositing and local
+adjustments.
 
 macOS is currently the primary development platform, but the architecture should
 remain cross-platform for macOS, Windows and Linux.
@@ -30,6 +31,8 @@ Document responsibilities:
 - `docs/ARCHITECTURE.md` — authoritative technical architecture.
 - `docs/DECISIONS.md` — significant durable decisions and their rationale.
 - `docs/CODE_STYLE.md` — human-readability and source-organisation guidance.
+- `docs/STEP7_PERSISTENCE_DESIGN.md` — accepted graph-native persistence schema
+  and lifecycle; `docs/workspace-format.md` — global settings format.
 - `CLAUDE.md` — Claude Code working and review instructions.
 - Git history and pull requests — implementation history.
 
@@ -116,7 +119,7 @@ values, and alpha preservation. Keep test support proportionate and understandab
 
 Milestone checkpoint timing and post-Step-6 infrastructure tasks are tracked in
 `docs/PROJECT_CONTEXT.md`. The whole-Step-6 review is complete; the focused
-pre-persistence checkpoint does not reopen it.
+Step 7 design checkpoint and implementation are complete and do not reopen it.
 
 ## Development philosophy
 
@@ -172,8 +175,9 @@ checkpoint and Step 5 product-contract work are complete. Codex and Claude
 independently found the direction **sound for the next stage** and again found
 the final Step 5 contract sound after small clarifications. Step 6 is complete
 and merged in PR #58 (`6294a034d30168063e2aa92e984a51666f56ca22`): the explicit
-graph, sequential DAG evaluator, topology List View and minimal V2 safety
-boundary are implemented. Preview, inspection and export share the evaluator.
+graph, sequential DAG evaluator and topology List View are implemented. Preview,
+inspection and export share the evaluator. Step 7 PRs 1–5 are merged (#63, #65,
+#66, #68, #69), replacing the temporary V2 boundary with graph-native persistence.
 Independent whole-Step-6 review is complete; no further broad architecture audit
 is required. The authoritative architecture is in `docs/ARCHITECTURE.md`;
 current milestone and validation status are in `docs/PROJECT_CONTEXT.md`.
@@ -316,8 +320,8 @@ fail-opens to full coverage only at optional effect/layer coverage use, with a
 persistent warning. A bypassed source-like Mask generator produces real white
 coverage only when its Reference frame resolves.
 
-The agreed next sequence is Step 7 graph-native persistence, then the switchable
-Graph/List editor (D047), then Step 8's first concrete production Mask path.
+Step 7 graph-native persistence is complete. The next milestone is the switchable
+Graph/List editor (D047), followed by Step 8's first concrete production Mask path.
 Both editor views share the authoritative document graph and NodeId selection.
 Step 6 proves typed Mask/evaluation contracts with tests; user-facing masking
 remains Step 8 work.
@@ -328,7 +332,8 @@ RenderRuntime while held; no pre-Step-5 lock redesign is required.
 Thumbnail exceptional lifetime, the macOS pthread handoff and `makePreview`
 partial thread-launch safety remain focused follow-ups, not architecture
 blockers or reasons to reopen the audit. Dead `uploadTexture` cleanup is complete
-in Step 6; persistence atomicity and GUI-state cleanup belong with Step 7.
+in Step 6; Step 7 completed checked atomic persistence and global settings
+ownership. Outstanding platform checks remain in `docs/STEP6_MANUAL_VALIDATION.md`.
 
 ## Colour and image-processing principles
 

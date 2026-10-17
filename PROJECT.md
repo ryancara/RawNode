@@ -2,7 +2,13 @@
 
 RawNode is a lightweight, cross-platform, non-destructive RAW photo editor built around a modular processing pipeline.
 
-This document defines the product direction and high-level constraints. Implementation details belong in `ARCHITECTURE.md`; staged work belongs in `ROADMAP.md`; persistent edit-state details belong in `SIDECAR.md`; important choices and their rationale belong in `DECISIONS.md`.
+This document defines the product direction and high-level constraints.
+Authoritative technical guidance lives in `docs/ARCHITECTURE.md`, accepted
+decisions in `docs/DECISIONS.md`, current state in `docs/PROJECT_CONTEXT.md` and
+coding guidance in `docs/CODE_STYLE.md`. Root-level `ARCHITECTURE.md` and
+`DECISIONS.md` are historical pointers. `ROADMAP.md` tracks staged work;
+`docs/STEP7_PERSISTENCE_DESIGN.md` specifies graph-native persistence, with
+`SIDECAR.md` as the overview and `docs/workspace-format.md` for global settings.
 
 ## Core idea
 
@@ -27,15 +33,23 @@ The architecture must remain modular enough that individual backends, decoders, 
 
 ### Folder-based, never catalogue-based
 
-Opening a folder is the workspace. RawNode must not require a Lightroom Classic-style catalogue/database or a project file.
+Open folders and browse photographs without a catalogue/database or project
+file. Folder/photo selection is transient; no folder workspace file is used.
 
 ### Sidecars are the source of truth
 
-Each edited image has a sidecar containing everything required to reconstruct its edit. A small optional folder-level UI-state file may remember things such as the selected image, sort order, filmstrip position, or panel layout, but it must never contain essential image-edit data.
+Successfully opening an editable photograph establishes or restores a complete
+grade, including Source-only. New grades are saved to `.rawnode.json` after
+opening succeeds; existing grades need no immediate rewrite. Save failures retain
+the in-memory grade with a warning. Grade and photo metadata are independent
+sections. Global `preferences.json` and ImGui `layout.ini` own application
+settings and layout; folder-level settings persistence is retired.
 
 ### Non-destructive
 
-Original image files are never modified. Removing the sidecar returns the image to its unedited state.
+Edits are stored separately from original images. Removing the sidecar removes
+the saved grade and photo metadata. Exporting over an editable raster source
+path remains a known overwrite hazard; see `docs/PROJECT_CONTEXT.md`.
 
 ### Lightweight
 
@@ -51,7 +65,9 @@ Photographic adjustments should be implemented as modular processors wherever pr
 
 ## Processing model
 
-RawNode should use a graph-capable internal representation, while initially keeping user processing serial and simple.
+RawNode uses one authoritative document graph with typed connections, stable
+NodeIds and validated mutation APIs. One sequential evaluator serves preview,
+inspection and export. The current List View derives order from topology.
 
 Example serial path:
 
@@ -78,7 +94,11 @@ RAW -> Exposure -> WB -> Contrast -> Spektrafilm -> Output
 
 List view is not a separate processing system. It is another representation of the same underlying structure.
 
-Graph branching is not required initially, but the internal model should avoid making it impossible later.
+The document model, evaluator and persistence already support branching. The
+current List View does not provide general user-facing branch connection or
+reconnection controls. The next milestone, the switchable Graph/List editor,
+will expose user-facing graph editing on that same graph and evaluator;
+masking/compositing follows in Step 8.
 
 ## Future local adjustments
 
@@ -114,7 +134,7 @@ RawNode should not require or evolve around:
 - project files;
 - mandatory library/import workflows.
 
-Possible future features include masks, local adjustments, groups, AI-assisted masking, and graph branching.
+Possible future features include masks, local adjustments, groups and AI-assisted masking.
 
 ## Current technology direction
 
@@ -124,25 +144,26 @@ The current preferred direction is:
 - UI: Dear ImGui + GLFW;
 - build system: CMake;
 - current RAW decoder: LibRaw initially;
-- processing: OFX + CTL + DCTL compatibility;
+- processing: native + OFX + CTL; DCTL compatibility is planned;
 - edit persistence: JSON sidecars.
 
-These are current choices, not permanent constraints. Change them only for a concrete technical benefit and record significant changes in `DECISIONS.md`.
+These are current choices, not permanent constraints. Change them only for a concrete technical benefit and record significant changes in `docs/DECISIONS.md`.
 
-## Immediate objective
+## Current milestone
 
-The first architectural milestone is to fork OFX Raw Host and change its OFX-specific node representation into a generic processor/node architecture **without changing existing behaviour**.
-
-If that refactor remains clean, the fork becomes the long-term foundation. If it exposes severe architectural limitations, reassess before adding CTL, DCTL, alternate RAW decoders, masks, or other major features.
+The original backend-neutral refactor and architecture Steps 1–7 are complete.
+Step 7 PRs 1–5 are merged (#63, #65, #66, #68, #69). Next is the switchable
+Graph/List editor (D047), followed by Step 8's first concrete masking path.
+Outstanding manual platform checks remain in `docs/STEP6_MANUAL_VALIDATION.md`.
 
 ## For collaborators and AI assistants
 
 Before proposing substantial architectural changes, read:
 
-1. `PROJECT.md`
-2. `ARCHITECTURE.md`
-3. `ROADMAP.md`
-4. `DECISIONS.md`
-5. `SIDECAR.md`
+1. `docs/PROJECT_CONTEXT.md`
+2. `docs/ARCHITECTURE.md`
+3. `docs/DECISIONS.md`
+4. `docs/CODE_STYLE.md`
+5. `ROADMAP.md` and `docs/STEP7_PERSISTENCE_DESIGN.md` for the relevant milestone
 
 Prefer small, reversible changes. Do not silently redefine product goals or introduce catalogue/project/cloud concepts that conflict with this document.

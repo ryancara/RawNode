@@ -8,7 +8,10 @@ validation evidence is not recorded; see `docs/STEP6_MANUAL_VALIDATION.md`.
 **Goal:** replace RawNode's implicit serial `App::nodes` execution with one authoritative explicit graph and a sequential requested-endpoint evaluator, while preserving existing runtime/lifetime guarantees and equivalent linear behaviour.
 
 The original implementation plan below is preserved as historical planning
-content, not a list of pending tasks. Claude's independent whole-Step-6 review of
+content, not a list of pending tasks. Its temporary V2 boundary and V2 loading
+instructions were superseded by Step 7 PRs 1–5; live photo opening now protects
+V1/V2 files without migration. See `docs/STEP7_PERSISTENCE_DESIGN.md`.
+Claude's independent whole-Step-6 review of
 `1c32409567755d2559ff861df0df36996ea9dd8b` concluded **STEP 6 SAFE AFTER SMALL
 FIXES**: no code defects were found; the required fixes were documentation only.
 Outstanding platform checks are recorded in `docs/STEP6_MANUAL_VALIDATION.md`.

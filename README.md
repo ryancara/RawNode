@@ -2,7 +2,18 @@
   <img src="docs/logo.png" width="320" alt="OFX Raw Host logo">
 </p>
 
-# OFX Raw Host
+# RawNode
+
+RawNode is a fork of OFX Raw Host with native, OFX and CTL processors sharing
+one document graph and evaluator. Architecture Steps 1–7 are complete, including
+all five Step 7 persistence PRs through #69. The switchable Graph/List editor is
+next, followed by Step 8 masking/compositing. See [project context](docs/PROJECT_CONTEXT.md),
+[architecture](docs/ARCHITECTURE.md), [coding guidance](docs/CODE_STYLE.md) and
+[roadmap](ROADMAP.md). Manual platform checks remain tracked separately in
+[the validation record](docs/STEP6_MANUAL_VALIDATION.md).
+
+The upstream release badges, installation instructions and release history below
+refer to OFX Raw Host, not current RawNode release or validation status.
 
 [![Latest release](https://img.shields.io/github/v/release/aaronmurniadi/ofxrawhost)](https://github.com/aaronmurniadi/ofxrawhost/releases/latest)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
@@ -127,8 +138,8 @@ brew install cmake libraw libtiff little-cms2 openexr
 # Debian/Ubuntu
 sudo apt install cmake pkg-config libraw-dev libtiff-dev liblcms2-dev libopenexr-dev libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
 
-git clone --recursive https://github.com/aaronmurniadi/ofxrawhost.git
-cd ofxrawhost
+git clone --recursive https://github.com/ryancara/RawNode.git
+cd RawNode
 ./build.sh
 ```
 
@@ -147,7 +158,11 @@ build/OfxRawHost --selftest
 
 ---
 
-## Development Roadmap
+## Historical upstream release milestones
+
+This table records upstream ofxrawhost milestones. Project/workspace persistence
+here is historical and retired; current RawNode uses photo sidecars and global
+settings. Current development milestones are in [ROADMAP.md](ROADMAP.md).
 
 | Feature                                                             | Status         |
 | ------------------------------------------------------------------- | -------------- |

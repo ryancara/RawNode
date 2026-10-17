@@ -4,7 +4,11 @@
 **Purpose:** Product and architecture contract settled by Step 5 of the RawNode architecture migration.  
 **Final independent review head:** `43935dd2bd815e0eecfe43b9a3e418610fe62f70`
 
-This document records the current product and architecture contract being settled before Step 6 implements explicit graph topology and sequential DAG evaluation.
+This document records the accepted product and architecture contract settled
+before Step 6. Steps 6 and 7 have since merged. Historical transition language
+below (including temporary V2 guards) describes those completed stages; current
+graph-native persistence is specified in `docs/STEP7_PERSISTENCE_DESIGN.md`.
+The switchable Graph/List editor is next (D047), followed by Step 8 masking.
 
 Items marked **Accepted** are the Step 5 contract. Items marked **Open** are deliberately deferred feature details and must not be silently decided by unrelated Step 6 implementation. The durable architecture and decision documents summarize the accepted contract; this file remains the detailed design record.
 
@@ -29,7 +33,7 @@ Items marked **Accepted** are the Step 5 contract. Items marked **Open** are del
 - [x] Reconcile final availability / bypass / runtime ambiguities
 - [x] Review this document against current source
 - [x] Close Step 5 in durable architecture / decision docs
-- [ ] Begin Step 6 implementation
+- [x] Begin Step 6 implementation (completed and merged in PR #58)
 
 ## Product model
 
@@ -1394,9 +1398,11 @@ The following still remain intentionally deferred until their corresponding feat
 - caching;
 - parallel graph evaluation.
 
-## Proposed next steps
+## Historical proposed next steps
 
-Step 5 is closed.
+Step 5 is closed. The original sequence below is retained as history; Steps 6
+and 7 have since merged. D047 adds the switchable Graph/List editor before
+Step 8; current milestone status lives in `docs/PROJECT_CONTEXT.md`.
 
 1. Merge the reconciled Step 5 contract and durable-document updates.
 2. Begin Step 6 with a focused implementation plan and regression-test matrix.
