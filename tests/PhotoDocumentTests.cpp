@@ -149,8 +149,8 @@ bool scanAndInitialGrades() {
   Files files;
   const auto a = photo(files, "a.png"), b = photo(files, "b.png", 0.5f);
   const auto before = entries(files.dir);
-  CHECK(listWorkspaceImages(files.dir.string()).size() == 2);
-  App scan; scan.workspaceDir = files.dir.string(); refreshFilmstrip(scan);
+  CHECK(listFolderImages(files.dir.string()).size() == 2);
+  App scan; scan.folderDir = files.dir.string(); refreshFilmstrip(scan);
   CHECK(scan.filmstrip.size() == 2);
   std::vector<unsigned char> rgba; int w = 0, h = 0;
   CHECK(loadThumbnailRGBA(a, 16, rgba, w, h) && !rgba.empty());
@@ -171,7 +171,7 @@ bool scanAndInitialGrades() {
   Files folder;
   const auto first = photo(folder, "a.png"), second = photo(folder, "b.png");
   App browsing;
-  CHECK(openWorkspace(browsing, folder.dir.string()));
+  CHECK(openFolder(browsing, folder.dir.string()));
   // Folder opening resolves aliases such as macOS /var -> /private/var.
   CHECK(fs::equivalent(browsing.path, first) && fs::exists(inputSidecarPath(first)) && !fs::exists(inputSidecarPath(second)));
   return true;
@@ -321,7 +321,7 @@ bool failureDecisions() {
   CHECK(!document_detail::openPhoto(app, b, cancel, options));
   CHECK(app.path == a && app.full.px.data() == pixels && app.preview == preview && app.persistenceWarning == warning);
   CHECK(entries(files.dir) == before && app.renderer.canEditParameters());
-  CHECK(!document_detail::openFolder(app, files.dir.string(), cancel, options) && app.workspaceDir.empty());
+  CHECK(!document_detail::openFolder(app, files.dir.string(), cancel, options) && app.folderDir.empty());
   // This is the exact departure helper called before shutdown intent/teardown.
   const auto runtime = RenderRuntimeTestAccess::snapshot(app.renderer);
   CHECK(!document_detail::leavePhoto(app, cancel, options));
@@ -364,7 +364,7 @@ bool folderDiscardOnlyOnce() {
   const auto discard = [&](const std::string &) { ++prompts; return Decision::Discard; };
   CHECK(document_detail::openFolder(app, newFolder.dir.string(), discard, options));
   CHECK(saves == 1 && prompts == 1 && bytes(inputSidecarPath(a)) == original);
-  CHECK(fs::equivalent(app.path, b) && fs::equivalent(app.workspaceDir, newFolder.dir));
+  CHECK(fs::equivalent(app.path, b) && fs::equivalent(app.folderDir, newFolder.dir));
   CHECK(app.filmstrip.size() == 1 && app.filmstripIndex == 0 && fs::equivalent(app.filmstrip[0].path, b));
   CHECK(!app.isPhotoProtected() && app.persistenceWarning.empty() && idle(app));
   CHECK(addNativeExposureNode(app) && app.renderer.canEditParameters() && saveCurrentInputSidecar(app));

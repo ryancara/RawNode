@@ -227,6 +227,18 @@ It owns:
 Renderer pending flags, busy flags, cancellation tokens and worker state must
 never become persistent edit state.
 
+Application preferences have a separate lightweight path/load/save implementation
+in `persist/Preferences`. It resolves one platform user configuration directory
+before UI initialisation. `preferences.json` owns theme, visibility/fallback
+sizes, preview/export choices and RAW/Output defaults. Optional fields default
+independently for additive extension. `layout.ini` remains ImGui-owned, configured
+before its first frame and never switched by folder opening. No folder workspace
+persistence remains; historical files are ignored and left untouched. Folder/photo
+selection stays transient. Preferences save only after photo departure succeeds
+or Discard is explicit, before teardown; Cancel leaves the app operational.
+Configuration errors warn without selecting another directory. Historical V1/V2
+helpers serve self-tests only, outside live photo/settings paths.
+
 ## Current safe renderer baseline
 
 PRs #32-#34 established behaviour that must survive the architectural
@@ -297,8 +309,8 @@ Accepted transition limitations:
   bindings, ID high-water marks and every future SlotSettings field.
 - Arbitrary-graph editing still needs a suitable UX for disconnected required
   dependencies. The current List View exposes nodes without guessing repairs.
-- Global-preferences retirement remains Step 7 PR 5 work; photo sidecars and
-  presets already use checked atomic replacement.
+- Photograph sidecars, presets and global preferences use checked atomic replacement.
+  ImGui retains its native ini persistence.
 
 ## Control-thread contract
 

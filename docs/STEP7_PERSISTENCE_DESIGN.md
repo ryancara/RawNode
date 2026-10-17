@@ -6,8 +6,9 @@
 have passed verification. This document records that design checkpoint.
 
 **Implementation phase:** Graph-native records, strict validation and atomic
-sidecar updates are connected to photo opening/saving. Legacy clipboard/preset
-replacement and global preferences remain PRs 4–5. The owner waived historical
+sidecar updates are connected to photo opening/saving. PR 4 replaced presets and
+clipboard with shared graph-native records. PR 5 implements global preferences
+and layout, removes workspace persistence and completes the persistence scope. The owner waived historical
 Step 6 manual prerequisites on 2026-10-16; macOS/native-dialog and actual Nikon
 NEF validation of the new workflow remains unverified. See
 [the manual validation record](STEP6_MANUAL_VALIDATION.md).
@@ -22,7 +23,7 @@ Read with [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md#persistence-direction),
 [DECISIONS.md](DECISIONS.md) D038–D050 and the
 [Step 5 persistence target](STEP5_GRAPH_CONTRACT.md#step-7-graph-persistence-target).
 [SIDECAR.md](../SIDECAR.md) and [workspace-format.md](workspace-format.md)
-describe the existing formats until their implementation is retired.
+describe current persistence and explicitly labelled historical formats.
 
 ## 1. What changes in the existing code
 
@@ -510,6 +511,18 @@ waiver for unverified checks. This does not block format-only PR 1.
 | **3. Photo opening and saving** | Stage restoration/protection in `NodeGraph`/`GraphCommands`/`DocumentActions`; separate photo/default colours in `AppState`. Update `UI`/`UiFrame` open/close and `LeftPanel`/`ParamWidgets` protection: initial save only after successful opening; complete saves on leave/reopen/close before replacement/teardown. Keep persistent save-warning text and a small Retry / Discard / Cancel helper; document actions refuse departure after failure without explicit Discard. Test unchanged-grade preservation and warning/cancel behaviour. No presence/dirty flags or edit notifications. | PRs 1–2 and applicable manual evidence/waiver. Risk: initial writes before successful opening, wrong RAW encoding, or premature teardown. Resolve/test native-dialog limitations here. Mutation ownership stays unchanged. |
 | **4. Presets and clipboard** | Move `UiFrame`, shared persistence/`NodeGraph` helpers and the narrow `GraphCommands` batch splice to the common codec. One Save Preset action with normal validated overwrites; Replace and linear incoming Append into eligible branched destinations. Retain node/grade copy/paste; implement explicit external-link and position rules. Retire old transfer/chain paths. | PRs 1–3 and applicable native-dialog evidence. Risk: changing unrelated branches, partial splice, metadata loss on overwrite or wrong ID/position remapping. |
 | **5. Global preferences and retirement** | Separate `PersistGui` preferences; update `DocumentActions`, `UI`, `ImGuiBackend` and menus. Remove workspace persistence, retaining scanning/essential preferences. Read/validate stored default-colour pairs with built-in fallback; test global round-trip and no per-folder/CWD files. Update `SIDECAR.md`/`workspace-format.md`; no Settings UI. | PR 3 colour ownership; land after PR 4 for final retirement. Risk: ini writes before configuring its global path, defaults ignored on read, or photo colours saved as defaults. |
+
+PR 5 implementation: `persist/Preferences` supplies path/load/save functions and
+startup application; `DocumentActions::prepareShutdown` saves preferences only
+after accepted photo departure. Folder opening only scans and auto-opens.
+ImGui receives the stable global path immediately after context creation, before
+its first frame; missing docking uses existing fallback sizes. Tests include
+hand-authored preferences, startup-to-new-grade colour assertions, native ini
+save/reload without a GL context, atomic failures and cancelled shutdown. Legacy
+V1/V2 sidecar helpers remain solely for historical self-test fixtures; all workspace
+read/write and folder ini-switch functions are removed. Windows atomic writes and
+macOS manual layout/filesystem validation remain explicitly unverified/unsupported
+as described in the manual validation record.
 
 ## 9. Deterministic tests
 

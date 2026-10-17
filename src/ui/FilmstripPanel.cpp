@@ -12,8 +12,8 @@
 namespace fs = std::filesystem;
 
 void drawFilmstripPanel(App &app) {
-  if (app.workspaceDir.empty() || app.filmstrip.empty()) {
-    ImGui::TextDisabled("Open a workspace folder to browse images.");
+  if (app.folderDir.empty() || app.filmstrip.empty()) {
+    ImGui::TextDisabled("Open a folder to browse images.");
     return;
   }
 

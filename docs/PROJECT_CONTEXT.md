@@ -37,7 +37,7 @@ RawNode should remain fast, lightweight and understandable.
 It is not intended to become a cloud photo service or a heavyweight catalogue
 application. The current direction is:
 
-- minimal DAM/workspace functionality rather than a central catalogue;
+- folder browsing and photo sidecars without a central catalogue;
 - image edits stored in sidecars rather than project/catalogue databases;
 - a modular processor model that can host native, OFX, CTL and future DCTL/LUT
   processing;
@@ -483,22 +483,27 @@ management system.
 
 Photo sidecars own each photograph's complete grade, colour settings and photo
 metadata. Global application preferences own theme, dock/window layout, export
-defaults, default RAW working and Output settings, the selected default grade
-preset, CTL/DCTL/OFX/preset folder locations, keyboard shortcuts and future input
-mappings. There are no competing folder-level RAW defaults.
+defaults and default RAW working/Output settings. Future default-preset choice,
+CTL/DCTL/OFX/preset locations, shortcuts and input mappings belong to this same
+scope when implemented. There are no competing folder-level RAW defaults.
 
-As focused Step 7-related persistence cleanup with its own tests, retire
-per-folder `workspace.ofxrawhost.json` and `.ofxrawhost-layout.ini` persistence,
-and the working-directory `ofxrawhost.ini` fallback wherever it conflicts with
-global settings ownership. Move appropriate session/UI preferences, dock/window
-layout and defaults to the global settings location; inventory and verify that
-essential preferences remain available. Actual photograph processing state stays
-in sidecars. No replacement workspace file or folder-specific settings system
-is needed. No migration readers are required for these development-era files,
-and existing files must not be automatically deleted. Removal and relocation
-belong to Step 7-related implementation work.
+Step 7 PR 5 implements global `preferences.json` and ImGui `layout.ini` in
+`~/Library/Application Support/RawNode/` on macOS and `$XDG_CONFIG_HOME/RawNode/`
+(or `~/.config/RawNode/`) on Linux. Windows uses roaming application data when
+supported; checked atomic writes remain unsupported there. Paths resolve once
+before UI/photo startup. Unavailable locations warn and keep settings in memory,
+never falling back to CWD or photograph folders. Preferences save at normal
+shutdown even with no folder; cancelled photo departure keeps the app usable.
+Theme, visibility, fallback sizes, preview/export choices and both default colour
+pairs are retained. ImGui owns docking/window geometry. Optional fields and
+sensible defaults allow later implemented preferences without new infrastructure.
 
-The selected photograph/workspace may remain transient session state. Remembering
+`workspace.ofxrawhost.json`, `.ofxrawhost-layout.ini` and CWD `ofxrawhost.ini` are
+retired without readers, writers, migration or automatic deletion. Folder browsing,
+scanning and first-photo auto-open remain. There is no replacement workspace JSON.
+See [application settings](workspace-format.md) for format/error details.
+
+The selected photograph/folder may remain transient session state. Remembering
 the last opened folder or photograph can be a later global preference. Global
 RAW/Output defaults are read and validated from global preferences; valid stored
 pairs initialise new grades, with sensible built-in fallback for absent/invalid
@@ -544,8 +549,6 @@ These are known but are not reasons to expand unrelated focused PRs:
 - thumbnail worker exceptional-unwind lifetime, the macOS pthread-to-joiner
   exception gap, and `makePreview` partial helper-thread launch remain focused
   lifetime/exception-safety follow-ups; normal thumbnail shutdown is safe;
-- folder workspace-preference paths still use their development-era formats;
-  retirement remains Step 7 PR 5;
 - exporting over the exact path of an editable raster source can overwrite the
   source image itself; this pre-existing hazard is separate from export sidecars.
 
@@ -577,8 +580,9 @@ preserving overwrites. Replace retains incoming identity and applies colours;
 Append and fragment Paste stage one linear splice into eligible branched destinations
 with fresh IDs and position remapping. Fragment capture retains internal links and
 detaches/reports external Mask/Reference links independently of attachment support.
-Legacy transfers are retired. Global-preferences retirement remains PR 5;
-no dirty-state or background-save system is introduced.
+Legacy transfers and folder workspace/layout persistence are retired. Global
+preferences/layout implement the final Step 7 PR 5 scope and await independent
+whole-PR review. No dirty-state or background-save system is introduced.
 
 Reported macOS testing found normal operation. No complete macOS/NEF
 manual-validation results are recorded for `docs/STEP6_MANUAL_VALIDATION.md`,

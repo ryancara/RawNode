@@ -92,7 +92,7 @@ struct App {
   ColorEncoding inputEncoding{RgbGamut::Rec2020, TransferFunction::Linear};
   bool inputIsRaw = false;
 
-  // Session/default preference for RAWs that do not yet have an explicit
+  // Global default preference for RAWs that do not yet have an explicit
   // per-image setting. Sidecars may override the current image without changing
   // this default. Photo controls never change it.
   ColorEncoding rawWorkingEncoding{RgbGamut::Rec2020, TransferFunction::Linear};
@@ -107,7 +107,7 @@ struct App {
   int previewRes = 1;  // 1080p
   bool showLeft = true;
   bool showRight = true;
-  // Legacy layout sizes (read from old JSON; DockBuilder uses them once if no .ini).
+  // Fallback DockBuilder sizes when the global ImGui layout has no dock node.
   float leftW = 280.0f;
   float rightW = 420.0f;
   char paramFilter[128] = {};
@@ -126,10 +126,8 @@ struct App {
   }
   std::optional<NodeId> selectedNodeId;  // UI identity; storage position has no selection meaning.
 
-  std::string workspaceDir;
-  // Protect a workspace file containing future colour IDs this build cannot
-  // interpret, just as we protect forward-versioned per-image sidecars.
-  bool workspaceWriteBlocked = false;
+  std::string folderDir;
+  std::string preferencesWarning;
   std::vector<FilmstripEntry> filmstrip;
   int filmstripIndex = -1;
   bool showFilmstrip = true;
@@ -150,9 +148,8 @@ struct App {
   std::unordered_set<std::string> thumbQueued;
   std::deque<ThumbReady> thumbReady;
 
-  std::string pendingWorkspaceDir;
+  std::string pendingFolderDir;
   bool themeApplyPending = false;
-  bool layoutApplyPending = false;
 
   // Application/thumbnail intent is independent of renderer shutdown.
   std::atomic<bool> quit{false};

@@ -2,6 +2,9 @@
 
 #include "AppState.h"
 #include "persist/DocumentActions.h"
+#include "persist/Preferences.h"
+#include "portable-file-dialogs.h"
+#include <cstdio>
 #include "ui/Filmstrip.h"
 #include "NodeGraph.h"
 #include "ofx/OfxHost.h"
@@ -31,6 +34,9 @@ int runApp(const std::string &optionalPath) {
 #endif
 
   App app;
+  const ConfigPaths config = applicationConfigPaths(app.preferencesWarning);
+  const bool preferencesLoaded = initialisePreferences(app, config);
+  if (!app.preferencesWarning.empty()) std::fprintf(stderr, "%s\n", app.preferencesWarning.c_str());
   app.window = glfwCreateWindow(1400, 900, "OFX Raw Host", nullptr, nullptr);
   if (!app.window) {
     glfwTerminate();
@@ -42,7 +48,7 @@ int runApp(const std::string &optionalPath) {
   MacPinch_Install();
 #endif
 
-  ImGuiBackend_Init(app.window, app.themeIndex);
+  ImGuiBackend_Init(app.window, app.themeIndex, config.layout);
 
   gOnMessage = [&app](const std::string &msg) { app.setStatus(msg); };
   loadPlugins();
@@ -65,7 +71,13 @@ int runApp(const std::string &optionalPath) {
     glfwPollEvents();
     if (glfwWindowShouldClose(app.window)) {
       // Resolve saving while all workers and editor resources are still usable.
-      if (preparePhotoDeparture(app, promptSaveFailure)) break;
+      if (prepareShutdown(app, preferencesLoaded ? config.preferences : "", promptSaveFailure)) {
+        if (!app.preferencesWarning.empty()) {
+          std::fprintf(stderr, "%s\n", app.preferencesWarning.c_str());
+          pfd::message("Application preferences", app.preferencesWarning, pfd::choice::ok, pfd::icon::warning).result();
+        }
+        break;
+      }
       glfwSetWindowShouldClose(app.window, GLFW_FALSE);
     }
     pumpDisplayUpload(app);
@@ -89,7 +101,6 @@ int runApp(const std::string &optionalPath) {
   app.thumbCv.notify_one();
   app.renderer.shutdown();
   if (app.thumbThread.joinable()) app.thumbThread.join();
-  persistWorkspace(app);
   clearNodes(app);
 
   freeFilmstripTextures(app.filmstrip);

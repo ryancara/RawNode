@@ -4,6 +4,7 @@
 #include "GraphPersistenceTests.h"
 #include "SidecarFileTests.h"
 #include "PhotoDocumentTests.h"
+#include "PreferencesTests.h"
 #include "PresetClipboardTests.h"
 #include "GraphCommandsTests.h"
 #include "GraphEvaluatorTests.h"
@@ -258,7 +259,7 @@ static bool testExportPreservesSourceSidecar(bool crossImage) {
   if (crossImage) {
     PersistChain otherGrade = captureChain(app);
     otherGrade.nodes[0].paramsJson["exposure"] = "-2";
-    if (!saveInputSidecar(targetSource, captureSidecarGui(app), otherGrade, &app.inputEncoding))
+    if (!saveInputSidecar(targetSource, PersistGui{}, otherGrade, &app.inputEncoding))
       return false;
   }
   const auto readBytes = [](const std::string &path) {
@@ -2060,6 +2061,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 int runSelfTests() {
+  if (!testPreferences()) return fail("Step 7 preferences");
   if (!testPresetsAndClipboard()) return fail("Step 7 presets and clipboard");
   if (!testPhotoDocuments()) return fail("Step 7 photo lifecycle");
   if (!testSidecarFiles()) return fail("Step 7 safe sidecar files");
@@ -2914,11 +2916,11 @@ int runSelfTests() {
       std::ifstream in(defaultSidecar, std::ios::binary);
       defaultJson.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     }
-    const std::string outputGammaField = "\"outputGamma\":\"srgb\",";
+    const std::string outputGammaField = "\"outputGamma\":\"srgb\"";
     const size_t outputGammaPos = defaultJson.find(outputGammaField);
     if (outputGammaPos == std::string::npos) return fail("RAW default owner JSON locate");
     defaultJson.insert(outputGammaPos + outputGammaField.size(),
-                       "\"rawDefaultColorSpace\":\"rec709\",\"rawDefaultGamma\":\"linear\",");
+                       ",\"rawDefaultColorSpace\":\"rec709\",\"rawDefaultGamma\":\"linear\"");
     {
       std::ofstream out(defaultSidecar, std::ios::binary | std::ios::trunc);
       out << defaultJson;

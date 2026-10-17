@@ -21,6 +21,8 @@ bool savePreset(App &app, const std::string &path, const OverwritePrompt &confir
                 const ActionTestOptions &options);
 bool savePhoto(App &app, std::string &error, const ActionTestOptions &options);
 bool leavePhoto(App &app, const SaveFailurePrompt &prompt, const ActionTestOptions &options);
+bool prepareShutdown(App &app, const std::string &preferencesPath, const SaveFailurePrompt &prompt,
+                     const ActionTestOptions &options);
 bool openPhoto(App &app, const std::string &path, const SaveFailurePrompt &prompt,
                const ActionTestOptions &options);
 bool openFolder(App &app, const std::string &dir, const SaveFailurePrompt &prompt,

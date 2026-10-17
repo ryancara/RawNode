@@ -17,30 +17,13 @@
 
 namespace fs = std::filesystem;
 
-static std::string gIniPath = "ofxrawhost.ini";
-
-void ImGuiBackend_SetDefaultIni() {
-  gIniPath = "ofxrawhost.ini";
-  if (ImGui::GetCurrentContext()) ImGui::GetIO().IniFilename = gIniPath.c_str();
+void ImGuiBackend_ConfigureLayout(const std::string &layoutPath) {
+  // The caller retains this path for the entire context lifetime. Empty disables
+  // disk persistence; ImGui must never use its CWD default.
+  ImGui::GetIO().IniFilename = layoutPath.empty() ? nullptr : layoutPath.c_str();
 }
 
-bool ImGuiBackend_SetWorkspaceIni(const std::string &workspaceDir) {
-  if (workspaceDir.empty()) {
-    ImGuiBackend_SetDefaultIni();
-    return false;
-  }
-  if (ImGui::GetCurrentContext()) ImGui::SaveIniSettingsToDisk(ImGui::GetIO().IniFilename);
-  gIniPath = (fs::path(workspaceDir) / ".ofxrawhost-layout.ini").string();
-  if (!ImGui::GetCurrentContext()) return false;
-  ImGui::GetIO().IniFilename = gIniPath.c_str();
-  if (fs::exists(gIniPath)) {
-    ImGui::LoadIniSettingsFromDisk(gIniPath.c_str());
-    return true;
-  }
-  return false;
-}
-
-bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex) {
+bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex, const std::string &layoutPath) {
   IMGUI_CHECKVERSION();
   ImGui::CreateContext();
   ImGuiIO &io = ImGui::GetIO();
@@ -48,7 +31,7 @@ bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex) {
 #if defined(__APPLE__)
   io.ConfigMacOSXBehaviors = true;
 #endif
-  io.IniFilename = gIniPath.c_str();
+  ImGuiBackend_ConfigureLayout(layoutPath);
 
   // Rasterize fonts at framebuffer DPI so Retina text stays sharp.
   float dpiX = 1.0f, dpiY = 1.0f;

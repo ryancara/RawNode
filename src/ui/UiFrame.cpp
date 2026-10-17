@@ -127,14 +127,21 @@ static void openUrl(const std::string &url) {
 }
 
 void DrawUiFrame(App &app) {
+  if (!app.preferencesWarning.empty()) {
+    bool visible = true;
+    if (ImGui::Begin("Application preferences warning", &visible, ImGuiWindowFlags_AlwaysAutoResize))
+      ImGui::TextWrapped("%s", app.preferencesWarning.c_str());
+    ImGui::End();
+    if (!visible) app.preferencesWarning.clear();
+  }
   if (app.themeApplyPending) {
     applyTheme(app.themeIndex);
     app.themeApplyPending = false;
   }
-  if (!app.pendingWorkspaceDir.empty()) {
-    const std::string dir = std::move(app.pendingWorkspaceDir);
-    app.pendingWorkspaceDir.clear();
-    openWorkspace(app, dir, promptSaveFailure);
+  if (!app.pendingFolderDir.empty()) {
+    const std::string dir = std::move(app.pendingFolderDir);
+    app.pendingFolderDir.clear();
+    openFolder(app, dir, promptSaveFailure);
   }
 
   if (ImGui::BeginMainMenuBar()) {
@@ -155,7 +162,7 @@ void DrawUiFrame(App &app) {
 #endif
         auto f = pfd::select_folder("Open folder");
         auto r = f.result();
-        if (!r.empty()) app.pendingWorkspaceDir = r;
+        if (!r.empty()) app.pendingFolderDir = r;
       }
       if (ImGui::MenuItem("Save Grade", nullptr, false, !app.path.empty() && !app.isPhotoProtected()))
         saveCurrentInputSidecar(app);
@@ -265,7 +272,7 @@ void DrawUiFrame(App &app) {
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_O)) {
     auto f = pfd::select_folder("Open folder");
     auto r = f.result();
-    if (!r.empty()) app.pendingWorkspaceDir = r;
+    if (!r.empty()) app.pendingFolderDir = r;
   }
 
   DockLayout::BeginMainDockSpace(app);

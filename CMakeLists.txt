@@ -100,6 +100,7 @@ add_executable(OfxRawHost
   tests/GraphModelTests.cpp
   tests/GraphPersistenceTests.cpp
   tests/SidecarFileTests.cpp
+  tests/PreferencesTests.cpp
   tests/PhotoDocumentTests.cpp
   tests/PresetClipboardTests.cpp
   tests/GraphCommandsTests.cpp
@@ -128,6 +129,7 @@ add_executable(OfxRawHost
   src/RenderRuntime.cpp
   src/DocumentMutation.cpp
   src/Export.cpp
+  src/persist/Preferences.cpp
   src/persist/DocumentActions.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp

@@ -31,6 +31,8 @@ namespace persist_detail {
 enum class FileFault {
   None, Read, PermissionStat, PermissionCheck, TempCreate, Write, Flush, PermissionCopy, Close, Replace
 };
+bool replaceFileAtomically(const std::string &path, const std::string &body, std::string &error,
+                           FileFault fault = FileFault::None);
 SidecarReadStatus readGraphFileText(const std::string &path, std::string &json, std::string &error,
                                   FileFault fault);
 bool updateGraphSidecar(const std::string &path, const PersistGrade *grade, PhotoMark mark,

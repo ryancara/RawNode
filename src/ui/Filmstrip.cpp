@@ -219,11 +219,11 @@ std::thread startFilmstripThumbThread(App *app) { return std::thread(filmstripTh
 void refreshFilmstrip(App &app) {
   clearFilmstripThumbJobs(app);
   freeFilmstripTextures(app.filmstrip);
-  if (app.workspaceDir.empty()) {
+  if (app.folderDir.empty()) {
     app.filmstripIndex = -1;
     return;
   }
-  const auto paths = listWorkspaceImages(app.workspaceDir);
+  const auto paths = listFolderImages(app.folderDir);
   app.filmstrip.reserve(paths.size());
   for (const std::string &p : paths) {
     FilmstripEntry e;

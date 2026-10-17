@@ -468,7 +468,9 @@ Ordinary save failures preserve unsaved edits until retry or explicit discard;
 cancel leaves the current document available.
 
 Only photo state and global application preferences persist; retire folder
-workspace/layout files without a replacement workspace or catalogue. Photo
+workspace/layout files without a replacement workspace or catalogue. This is
+implemented through one platform configuration directory with `preferences.json`
+and ImGui `layout.ini`; optional settings receive independent defaults. Photo
 colour controls affect the photo only. Read/validate stored global colour
 defaults with built-in fallback; the future Settings UI configures these same
 fields, without temporary default controls.

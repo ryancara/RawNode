@@ -1,5 +1,6 @@
 #include "persist/DocumentActions.h"
 #include "persist/DocumentActionsPriv.h"
+#include "persist/Preferences.h"
 
 #include "ui/Filmstrip.h"
 #include "imgio/ImageIO.h"
@@ -7,51 +8,11 @@
 #include "color/TransferFunction.h"
 #include "NodeGraph.h"
 #include "DocumentMutation.h"
-#include "ui/Themes.h"
-#include "ui/ImGuiBackend.h"
 
 #include <filesystem>
 #include <stdexcept>
 
 namespace fs = std::filesystem;
-
-static bool persistedColorEncoding(const std::string &gamutId,
-                                   const std::string &transferId,
-                                   ColorEncoding &encoding) {
-  if (colorEncodingFromIds(gamutId, transferId, encoding)) return true;
-
-  // Persistence-only migration for development builds that briefly wrote
-  // display names instead of stable IDs. Runtime colour APIs remain IDs-only.
-  RgbGamut gamut;
-  if (gamutId == "Rec.709") gamut = RgbGamut::Rec709;
-  else if (gamutId == "Rec.2020") gamut = RgbGamut::Rec2020;
-  else if (gamutId == "Display P3") gamut = RgbGamut::DisplayP3;
-  else if (gamutId == "ACES AP0" || gamutId == "ACES2065-1" || gamutId == "AP0") gamut = RgbGamut::ACES_AP0;
-  else if (gamutId == "ACES AP1" || gamutId == "ACEScg" || gamutId == "AP1") gamut = RgbGamut::ACES_AP1;
-  else if (gamutId == "DaVinci Wide Gamut") gamut = RgbGamut::DaVinciWideGamut;
-  else return false;
-
-  TransferFunction gamma;
-  if (transferId == "Linear") gamma = TransferFunction::Linear;
-  else if (transferId == "sRGB") gamma = TransferFunction::SRGB;
-  else if (transferId == "Rec.709 (camera)" || transferId == "Rec.709") gamma = TransferFunction::Rec709;
-  else if (transferId == "DaVinci Intermediate") gamma = TransferFunction::DaVinciIntermediate;
-  else return false;
-
-  encoding = {gamut, gamma};
-  return true;
-}
-
-static ColorEncoding legacyOutputEncoding(int index) {
-  switch (std::clamp(index, 0, 4)) {
-    case 0: return {RgbGamut::Rec709, TransferFunction::SRGB};
-    case 1: return {RgbGamut::DisplayP3, TransferFunction::SRGB};
-    case 2: return {RgbGamut::Rec709, TransferFunction::Linear};
-    case 3: return {RgbGamut::Rec2020, TransferFunction::Linear};
-    case 4: return {RgbGamut::ACES_AP0, TransferFunction::Linear};
-  }
-  return {RgbGamut::Rec709, TransferFunction::SRGB};
-}
 
 PersistGradeColor captureGradeColor(const App &app) {
   PersistGradeColor color;
@@ -204,70 +165,6 @@ bool applyGrade(App &app, const PersistGrade &grade) {
   return document_detail::applyGrade(app, grade, {});
 }
 
-PersistGui captureGui(const App &app) {
-  PersistGui g;
-  {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    g.outputColorSpace = rgbGamutId(app.defaultOutputEncoding.gamut);
-    g.outputGamma = transferFunctionId(app.defaultOutputEncoding.gamma);
-    g.rawDefaultColorSpace = rgbGamutId(app.rawWorkingEncoding.gamut);
-    g.rawDefaultGamma = transferFunctionId(app.rawWorkingEncoding.gamma);
-  }
-  g.exportFormat = app.exportFormat;
-  g.jpegQuality = app.jpegQuality;
-  g.previewRes = app.previewRes;
-  g.themeIndex = app.themeIndex;
-  g.showLeft = app.showLeft;
-  g.showRight = app.showRight;
-  g.leftW = app.leftW;
-  g.rightW = app.rightW;
-  g.showFilmstrip = app.showFilmstrip;
-  g.filmstripH = app.filmstripH;
-  return g;
-}
-
-void applyGui(App &app, const PersistGui &g) {
-  ColorEncoding output = legacyOutputEncoding(g.legacyOutputIndex);
-  ColorEncoding persistedOutput;
-  if (!g.outputColorSpace.empty() && !g.outputGamma.empty() &&
-      persistedColorEncoding(g.outputColorSpace, g.outputGamma, persistedOutput))
-    output = persistedOutput;
-  {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    app.defaultOutputEncoding = output;
-    if (app.path.empty()) app.outputEncoding = output;
-  }
-
-  app.exportFormat = std::clamp(g.exportFormat, 0, 1);
-  app.jpegQuality = std::clamp(g.jpegQuality, 1, 100);
-  app.previewRes = std::clamp(g.previewRes, 0, kPreviewResCount - 1);
-  if (g.themeIndex >= 0 && g.themeIndex < themeCount()) app.themeIndex = g.themeIndex;
-  app.showLeft = g.showLeft;
-  app.showRight = g.showRight;
-  app.leftW = g.leftW;
-  app.rightW = g.rightW;
-  app.showFilmstrip = g.showFilmstrip;
-  app.filmstripH = std::clamp(g.filmstripH, 48.0f, 240.0f);
-  app.themeApplyPending = true;
-}
-
-static void applyWorkspaceSessionDefaults(App &app, const PersistGui &g) {
-  ColorEncoding rawDefault;
-  if (!g.rawDefaultColorSpace.empty() && !g.rawDefaultGamma.empty() &&
-      persistedColorEncoding(g.rawDefaultColorSpace, g.rawDefaultGamma, rawDefault)) {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    app.rawWorkingEncoding = rawDefault;
-  }
-}
-
-PersistGui captureSidecarGui(const App &app) {
-  PersistGui g = captureGui(app);
-  // RAW session defaults belong to workspace/app state, not to one image.
-  g.rawDefaultColorSpace.clear();
-  g.rawDefaultGamma.clear();
-  return g;
-}
-
 namespace document_detail {
 bool savePhoto(App &app, std::string &error, const ActionTestOptions &options) {
   error.clear();
@@ -324,23 +221,19 @@ bool preparePhotoDeparture(App &app, const SaveFailurePrompt &prompt) {
   return document_detail::leavePhoto(app, prompt, {});
 }
 
-void persistWorkspace(App &app) {
-  if (app.workspaceDir.empty() || app.workspaceWriteBlocked) return;
-  const std::string active =
-      app.path.empty() ? std::string() : relativeToWorkspace(app.workspaceDir, app.path);
-  saveWorkspaceProject(app.workspaceDir, captureGui(app), active);
+bool document_detail::prepareShutdown(App &app, const std::string &preferencesPath,
+                                      const SaveFailurePrompt &prompt, const ActionTestOptions &options) {
+  if (!leavePhoto(app, prompt, options)) return false;
+  if (!preferencesPath.empty()) {
+    std::string error;
+    if (!savePreferences(preferencesPath, capturePreferences(app), error))
+      app.preferencesWarning = "Could not save application preferences: " + error;
+  }
+  return true;
 }
 
-static bool hasUnknownEncodingPair(const std::string &gamutId, const std::string &transferId) {
-  if (gamutId.empty() && transferId.empty()) return false;
-  if (gamutId.empty() || transferId.empty()) return true;
-  ColorEncoding encoding;
-  return !persistedColorEncoding(gamutId, transferId, encoding);
-}
-
-static bool workspaceHasUnknownColourEncoding(const PersistGui &g) {
-  return hasUnknownEncodingPair(g.outputColorSpace, g.outputGamma) ||
-         hasUnknownEncodingPair(g.rawDefaultColorSpace, g.rawDefaultGamma);
+bool prepareShutdown(App &app, const std::string &preferencesPath, const SaveFailurePrompt &prompt) {
+  return document_detail::prepareShutdown(app, preferencesPath, prompt, {});
 }
 
 namespace document_detail {
@@ -455,7 +348,6 @@ bool openPhoto(App &app, const std::string &path, const SaveFailurePrompt &promp
   }
   if (!leavePhoto(app, prompt, options)) return false;
   const bool opened = openPreparedPhoto(app, path, options);
-  if (opened) persistWorkspace(app);
   return opened;
 }
 
@@ -466,32 +358,17 @@ bool openFolder(App &app, const std::string &dir, const SaveFailurePrompt &promp
   auto folder = fs::weakly_canonical(fs::path(dir), ec).string();
   if (ec) { app.setStatus("Could not open folder: " + ec.message()); return false; }
   if (!leavePhoto(app, prompt, options)) return false;
-  persistWorkspace(app);
-  app.workspaceDir.swap(folder);
-  app.workspaceWriteBlocked = false;
-  if (!ImGuiBackend_SetWorkspaceIni(app.workspaceDir)) app.layoutApplyPending = true;
+  app.folderDir.swap(folder);
   refreshFilmstrip(app);
-  PersistGui gui;
-  std::string active;
-  if (loadWorkspaceProject(app.workspaceDir, gui, active)) {
-    app.workspaceWriteBlocked = workspaceHasUnknownColourEncoding(gui);
-    applyGui(app, gui);
-    applyWorkspaceSessionDefaults(app, gui);
-  }
   std::string toOpen;
-  if (!active.empty()) {
-    const auto candidate = fs::path(app.workspaceDir) / active;
-    if (fs::is_regular_file(candidate, ec)) toOpen = candidate.string();
-  }
   if (toOpen.empty() && !app.filmstrip.empty()) toOpen = app.filmstrip.front().path;
   if (!toOpen.empty()) openPreparedPhoto(app, toOpen, options);
-  else app.setStatus("Folder: " + app.workspaceDir + " (no images)");
-  persistWorkspace(app);
+  else app.setStatus("Folder: " + app.folderDir + " (no images)");
   return true;
 }
 }  // namespace document_detail
 
-bool openWorkspace(App &app, const std::string &dir, const SaveFailurePrompt &prompt) {
+bool openFolder(App &app, const std::string &dir, const SaveFailurePrompt &prompt) {
   return document_detail::openFolder(app, dir, prompt, {});
 }
 bool openPath(App &app, const std::string &path, const SaveFailurePrompt &prompt) {
