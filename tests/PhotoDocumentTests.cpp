@@ -177,6 +177,65 @@ bool scanAndInitialGrades() {
   return true;
 }
 
+bool folderImagesStayLocal() {
+  Files files;
+  fs::create_directories(files.dir / "0-shoots" / "nested");
+  fs::create_directories(files.dir / "archive" / "2025");
+  fs::create_directory(files.dir / "empty");
+  // Create direct files out of filename order. RAW fixtures exercise discovery;
+  // real JPEGs exercise folder auto-open and photo switching below.
+  const auto raw = files.path("z.NEF");
+  write(raw, "RAW discovery fixture");
+  const auto second = photo(files, "m.JPEG", 0.5f);
+  const auto first = photo(files, "a.jpg");
+  write(files.path("document.pdf"), "unsupported document");
+  write(inputSidecarPath(second), R"({"format":"rawnode","version":1,"metadata":{}})");
+  write(files.path("old.nef.ofxrawhost.json"), "legacy metadata");
+  write(files.path("0-shoots/photo.NEF"), "nested RAW fixture");
+  photo(files, "0-shoots/photo.jpg");
+  write(files.path("0-shoots/nested/photo.NEF"), "deep RAW fixture");
+  photo(files, "0-shoots/nested/photo.jpg");
+  photo(files, "archive/2025/photo.jpg");
+
+  const std::vector<std::string> expected{first, second, raw};
+  CHECK(listFolderImages(files.dir.string()) == expected);
+  CHECK(listFolderImages(files.path("archive")).empty());
+  CHECK(listFolderImages(files.path("empty")).empty());
+  // Direct file symlinks keep their existing regular-file treatment, including
+  // when their target happens to live inside a subfolder.
+  std::error_code error;
+  const auto link = files.path("s-link.jpg");
+  fs::create_symlink(files.path("0-shoots/photo.jpg"), link, error);
+  if (!error) {
+    CHECK(listFolderImages(files.dir.string()) == (std::vector<std::string>{first, second, link, raw}));
+    CHECK(fs::remove(link));
+  } else {
+    std::printf("SKIP folder scan file symlink: %s\n", error.message().c_str());
+  }
+
+  App browsing;
+  CHECK(openFolder(browsing, files.dir.string()));
+  CHECK(browsing.filmstrip.size() == expected.size() && browsing.filmstripIndex == 0);
+  for (size_t i = 0; i < expected.size(); ++i)
+    CHECK(fs::equivalent(browsing.filmstrip[i].path, expected[i]));
+  CHECK(fs::equivalent(browsing.path, first) && browsing.preview && !browsing.full.px.empty());
+  CHECK(openPath(browsing, second) && browsing.filmstripIndex == 1);
+  const auto preview = browsing.preview;
+  CHECK(openFolder(browsing, files.path("archive")));
+  CHECK(browsing.filmstrip.empty() && browsing.filmstripIndex == -1);
+  CHECK(fs::equivalent(browsing.path, second) && browsing.preview == preview);
+
+  App empty;
+  CHECK(openFolder(empty, files.path("archive")));
+  CHECK(empty.filmstrip.empty() && empty.filmstripIndex == -1);
+  CHECK(empty.path.empty() && empty.preview && empty.preview->px.empty() && empty.full.px.empty());
+  CHECK(empty.getStatus().find("(no images)") != std::string::npos);
+  CHECK(!fs::exists(inputSidecarPath(files.path("0-shoots/photo.jpg"))));
+  CHECK(!fs::exists(inputSidecarPath(files.path("0-shoots/nested/photo.jpg"))));
+  CHECK(!fs::exists(inputSidecarPath(files.path("archive/2025/photo.jpg"))));
+  return true;
+}
+
 bool restorationAndUnchangedSave() {
   Files files;
   const auto a = photo(files, "a.png"), b = photo(files, "b.png");
@@ -566,6 +625,7 @@ bool testPhotoDocuments() {
        std::make_pair("Linux dialog exit mapping and safe helper absence", linuxDialogDecisions),
 #endif
        std::make_pair("scan, thumbnails, Source-only and metadata-only initial grades", scanAndInitialGrades),
+       std::make_pair("folder scanning and opening include only direct images", folderImagesStayLocal),
        std::make_pair("shuffled full graph, off-spine nodes, precision, positions and unchanged saves", restorationAndUnchangedSave),
        std::make_pair("Slots and allocation history through the production open/departure path", slotRestoration),
        std::make_pair("protected views, entry-point refusal, legacy protection and failed source decode", protectionAndDecodeFailure),
