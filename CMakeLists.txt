@@ -96,6 +96,7 @@ endif()
 add_executable(OfxRawHost
   src/main.cpp
   tests/SelfTest.cpp
+  tests/ExportSafetyTests.cpp
   tests/OfxThreadPoolTests.cpp
   tests/OfxImageHandleTests.cpp
   tests/GraphModelTests.cpp

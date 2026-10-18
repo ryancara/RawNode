@@ -12,6 +12,10 @@ void flipRows(float *px, int w, int h);
 bool extractPngIcc(const std::string &path, std::vector<uint8_t> &icc);
 bool extractJpgIcc(const std::string &path, std::vector<uint8_t> &icc);
 
+// Encode with the supplied profile (empty means untagged). writeImage supplies
+// the generated profile; self-tests also exercise the untagged encoder branches.
+bool writeImageWithIcc(const Image &img, const std::string &path, const std::vector<uint8_t> &icc, int jpegQuality);
+
 // RawNode-authored ICC profiles carry exact stable IDs and can stay in their
 // native gamut. Other valid RGB ICC profiles are converted through lcms into
 // RawNode's canonical raster working encoding: Linear Rec.2020.

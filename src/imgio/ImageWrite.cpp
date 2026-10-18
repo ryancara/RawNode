@@ -24,6 +24,15 @@ namespace fs = std::filesystem;
 #pragma GCC diagnostic pop
 #endif
 
+static bool writeBuffer(const std::string &path, const void *data, size_t size) {
+  FILE *file = fopen(path.c_str(), "wb");
+  if (!file) return false;
+  const bool written = fwrite(data, 1, size, file) == size;
+  // Close even after a short write. Buffered output can fail only at close.
+  const bool closed = fclose(file) == 0;
+  return written && closed;
+}
+
 static void toTopDown8(const Image &img, std::vector<unsigned char> &out) {
   out.resize((size_t)img.w * img.h * 4);
   for (int y = 0; y < img.h; ++y) {
@@ -77,9 +86,7 @@ static bool writePngWithIcc(const Image &img, const std::string &path, const std
     return false;
   }
   if (icc.empty()) {
-    FILE *f = fopen(path.c_str(), "wb");
-    bool ok = f && fwrite(png, 1, len, f) == (size_t)len;
-    if (f) fclose(f);
+    const bool ok = writeBuffer(path, png, (size_t)len);
     STBIW_FREE(png);
     return ok;
   }
@@ -118,10 +125,7 @@ static bool writePngWithIcc(const Image &img, const std::string &path, const std
   out.insert(out.end(), png + iend, png + len);
   STBIW_FREE(png);
 
-  FILE *f = fopen(path.c_str(), "wb");
-  bool ok = f && fwrite(out.data(), 1, out.size(), f) == out.size();
-  if (f) fclose(f);
-  return ok;
+  return writeBuffer(path, out.data(), out.size());
 }
 
 static bool writeJpgWithIcc(const Image &img, const std::string &path, const std::vector<uint8_t> &icc, int quality) {
@@ -144,10 +148,7 @@ static bool writeJpgWithIcc(const Image &img, const std::string &path, const std
   if (!stbi_write_jpg_to_func(append, &jpg, img.w, img.h, 3, rgb.data(), quality) || jpg.size() < 2) return false;
 
   if (icc.empty()) {
-    FILE *f = fopen(path.c_str(), "wb");
-    bool ok = f && fwrite(jpg.data(), 1, jpg.size(), f) == jpg.size();
-    if (f) fclose(f);
-    return ok;
+    return writeBuffer(path, jpg.data(), jpg.size());
   }
 
   // Split ICC into APP2 segments (max payload after length field: 65533 bytes).
@@ -179,22 +180,23 @@ static bool writeJpgWithIcc(const Image &img, const std::string &path, const std
   out.insert(out.end(), app2.begin(), app2.end());
   out.insert(out.end(), jpg.begin() + 2, jpg.end());
 
-  FILE *f = fopen(path.c_str(), "wb");
-  bool ok = f && fwrite(out.data(), 1, out.size(), f) == out.size();
-  if (f) fclose(f);
-  return ok;
+  return writeBuffer(path, out.data(), out.size());
 }
 
-bool writeImage(const Image &img, const std::string &path, ColorEncoding encoding, int jpegQuality) {
+bool writeImageWithIcc(const Image &img, const std::string &path, const std::vector<uint8_t> &icc, int jpegQuality) {
   if (img.w <= 0 || img.h <= 0) return false;
   std::string e = fs::path(path).extension().string();
   for (char &ch : e) ch = (char)tolower((unsigned char)ch);
 
-  std::vector<uint8_t> icc;
-  if (!profileBytes(encoding, icc)) return false;
-
   if (e == ".png") return writePngWithIcc(img, path, icc);
   if (e == ".jpg" || e == ".jpeg") return writeJpgWithIcc(img, path, icc, jpegQuality);
   return false;
+}
+
+bool writeImage(const Image &img, const std::string &path, ColorEncoding encoding, int jpegQuality) {
+  if (img.w <= 0 || img.h <= 0) return false;
+  std::vector<uint8_t> icc;
+  if (!profileBytes(encoding, icc)) return false;
+  return writeImageWithIcc(img, path, icc, jpegQuality);
 }
 

@@ -1,4 +1,5 @@
 #include "SelfTest.h"
+#include "ExportSafetyTests.h"
 #include "OfxThreadPoolTests.h"
 #include "OfxImageHandleTests.h"
 #include "GraphModelTests.h"
@@ -2062,6 +2063,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 int runSelfTests() {
+  if (!testExportSafety()) return fail("export safety");
   if (!testPreferences()) return fail("Step 7 preferences");
   if (!testPresetsAndClipboard()) return fail("Step 7 presets and clipboard");
   if (!testPhotoDocuments()) return fail("Step 7 photo lifecycle");

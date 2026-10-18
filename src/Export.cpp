@@ -15,6 +15,16 @@ struct ExportRequest {
   ColorEncoding space;
   int jpegQuality;
 };
+static bool refuseActiveSourceOverwrite(App &app, const std::string &outPath) {
+  if (app.path.empty()) return false;
+  // Called on the control thread under the export lease, before evaluation or
+  // file opening. equivalent resolves relative paths and symlink/hardlink aliases;
+  // a nonexistent destination remains available for ordinary export.
+  std::error_code error;
+  if (!fs::equivalent(app.path, outPath, error)) return false;
+  app.setStatus("Export refused: Cannot overwrite the currently opened source photograph");
+  return true;
+}
 static ExportRequest captureExportRequest(App &app, const std::string &path) {
   ColorEncoding space;
   { std::lock_guard<std::mutex> lock(app.colorMutex); space = app.outputEncoding; }
@@ -68,6 +78,7 @@ bool runExportJob(App &app, const std::string &outPath) {
   auto ownership = app.renderer.acquireExport();
   if (!ownership) return false;
   try {
+    if (refuseActiveSourceOverwrite(app, outPath)) return false;
     app.setStatus("Exporting full resolution...");
     return executeExportJob(app, captureExportRequest(app, outPath));
   } catch (...) {
@@ -81,6 +92,7 @@ bool startExport(App &app, const std::string &outPath) {
   auto ownership = app.renderer.acquireExport();
   if (!ownership) return false;
   try {
+    if (refuseActiveSourceOverwrite(app, outPath)) return false;
     app.setStatus("Exporting full resolution...");
     auto request = captureExportRequest(app, outPath);
     ownership.start([&app, request = std::move(request)]() noexcept { executeExportJob(app, request); });

@@ -554,9 +554,7 @@ These are known but are not reasons to expand unrelated focused PRs:
 - export UX can block/wait on a non-cancellable full-resolution export;
 - thumbnail worker exceptional-unwind lifetime, the macOS pthread-to-joiner
   exception gap, and `makePreview` partial helper-thread launch remain focused
-  lifetime/exception-safety follow-ups; normal thumbnail shutdown is safe;
-- exporting over the exact path of an editable raster source can overwrite the
-  source image itself; this pre-existing hazard is separate from export sidecars.
+  lifetime/exception-safety follow-ups; normal thumbnail shutdown is safe.
 
 Address remaining renderer-related deferred issues within the approved staged
 architecture rather than layering more scheduler state onto the design without
@@ -741,14 +739,19 @@ verification checks to implementation PRs. Follow the design/acceptance workflow
 above, `CLAUDE.md` for review expectations and `docs/CODE_STYLE.md` for source
 guidance.
 
-**Unresolved post-Step-7 audit follow-ups (owner-confirmed):** track these as
-focused fixes/tests within the accepted architecture; none is implemented by
-this documentation PR.
+**Completed post-Step-7 safety corrections:** merged PR #71 fixed OFX outstanding
+image-handle lifetime: each fetched handle owns its property set until release,
+while pixel buffers remain borrowed. Export now checks both byte counts and
+stream-close results for tagged/untagged PNG and JPEG. Both export entry points
+refuse destinations identifying the currently opened source, including relative,
+symlink and hardlink aliases. Other photographs and existing derivatives remain
+valid targets; exports remain sidecar-free. Linux Release self-tests cover these
+behaviours and failure recovery. Derivative writes are not atomic or crash-safe;
+a failed write can leave incomplete output.
 
-- Fix OFX outstanding image-handle lifetime, including the reproduced
-  use-after-free.
-- Correct export close-error reporting and protect editable source paths from
-  export overwrites.
+**Unresolved post-Step-7 audit follow-ups (owner-confirmed):** track these as
+focused fixes/tests within the accepted architecture.
+
 - Correct TIFF photometric/channel handling, EXR chromaticities, PNG colour
   metadata and ICC chunk ordering, and JPEG writer undefined behaviour.
 - Correct parameter-edit preview scheduling and Copy Node ownership boundaries.
