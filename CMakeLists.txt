@@ -97,6 +97,7 @@ add_executable(OfxRawHost
   src/main.cpp
   tests/SelfTest.cpp
   tests/OfxThreadPoolTests.cpp
+  tests/OfxImageHandleTests.cpp
   tests/GraphModelTests.cpp
   tests/GraphPersistenceTests.cpp
   tests/SidecarFileTests.cpp
