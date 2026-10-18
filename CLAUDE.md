@@ -320,7 +320,9 @@ fail-opens to full coverage only at optional effect/layer coverage use, with a
 persistent warning. A bypassed source-like Mask generator produces real white
 coverage only when its Reference frame resolves.
 
-Step 7 graph-native persistence is complete. The next milestone is the switchable
+Step 7 graph-native persistence is complete. A short ordered gate of targeted
+correctness fixes comes first (see "Quality and verification roadmap" in
+`docs/PROJECT_CONTEXT.md`); the next UI milestone is then the switchable
 Graph/List editor (D047), followed by Step 8's first concrete production Mask path.
 Both editor views share the authoritative document graph and NodeId selection.
 Step 6 proves typed Mask/evaluation contracts with tests; user-facing masking
