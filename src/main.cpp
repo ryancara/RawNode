@@ -2,6 +2,7 @@
 
 #include "UI.h"
 #include "SelfTest.h"
+#include "ExportSafetyTests.h"
 #include "PhotoDocumentTests.h"
 #include "PreferencesTests.h"
 #include "PresetClipboardTests.h"
@@ -11,6 +12,7 @@
 #include <string>
 
 int main(int argc, char **argv) {
+  if (argc > 1 && std::string(argv[1]) == "--selftest-export-safety") return testExportSafety() ? 0 : 1;
   if (argc > 1 && std::string(argv[1]) == "--selftest-graph-runtime") return testGraphRuntime() ? 0 : 1;
   if (argc > 1 && std::string(argv[1]) == "--selftest-transfers") return testPresetsAndClipboard() ? 0 : 1;
   if (argc > 1 && std::string(argv[1]) == "--selftest-preferences") return testPreferences() ? 0 : 1;
