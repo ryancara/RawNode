@@ -3,6 +3,7 @@
 #include "OfxThreadPoolTests.h"
 #include "OfxImageHandleTests.h"
 #include "GraphModelTests.h"
+#include "GraphDepthTests.h"
 #include "GraphPersistenceTests.h"
 #include "SidecarFileTests.h"
 #include "PhotoDocumentTests.h"
@@ -2070,6 +2071,7 @@ int runSelfTests() {
   if (!testSidecarFiles()) return fail("Step 7 safe sidecar files");
   if (!testGraphPersistence()) return fail("Step 7 graph persistence");
   if (!testGraphModel()) return fail("Step 6A graph model");
+  if (!testGraphDepth()) return fail("Graph traversal depth safety");
   if (!testGraphCommands()) return fail("Step 6B topology commands");
   if (!testGraphEvaluator()) return fail("Step 6C graph evaluator");
   if (!testGraphRuntime()) return fail("Step 6D graph runtime cutover");

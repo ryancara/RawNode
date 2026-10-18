@@ -1,5 +1,6 @@
 #include "GraphPersistenceTests.h"
 #include "GraphPersistenceTestAccess.h"
+#include "GraphDepthFixtures.h"
 
 #include "GraphCommands.h"
 #include "GraphEvaluator.h"
@@ -572,6 +573,27 @@ bool typedParameters() {
 }  // namespace
 
 bool testGraphPersistence() {
+  {
+    PersistFile parsed;
+    std::string error;
+    CHECK(decodeGraphFile(depth_test::fileJson(kMaxGraphDependencyDepth), parsed, error));
+    auto restored = document_detail::restoreGraph(parsed.grade->graph);
+    CHECK(restored.nodes.size() == kMaxGraphDependencyDepth && graphStructureError(view(restored)).empty());
+    const auto result = evaluateGraph(view(restored), restored.output, {EvaluationPurpose::Inspection, 1, 1, 1, 1}, pixel());
+    CHECK(result.state == EvaluationState::Available && std::get<ImageValue>(result.value)->px == pixel()->px);
+    const auto savedOutput = parsed.grade->graph.documentOutput;
+    const auto savedPositions = parsed.grade->positions.size();
+    CHECK(!decodeGraphFile(depth_test::fileJson(kMaxGraphDependencyDepth + 1), parsed, error));
+    CHECK(depth_test::depthError(error) && parsed.grade->graph.documentOutput == savedOutput);
+    CHECK(parsed.grade->graph.nodes.size() == kMaxGraphDependencyDepth && parsed.grade->positions.size() == savedPositions);
+    // Direct record restoration must also reject without a decoder prerequisite.
+    auto unsafe = parsed.grade->graph;
+    auto extra = unsafe.nodes.back(); extra.id = "extra";
+    extra.inputs.at(ports::image) = unsafe.documentOutput;
+    unsafe.documentOutput = {NodeId{"extra"}, ports::image}; unsafe.nodes.push_back(std::move(extra));
+    CHECK(restoreRejects(unsafe));
+    std::puts("ok  Graph depth: production decoder/restoration boundary and no partial publication");
+  }
   CHECK(v2ByteStrings());
   CHECK(sourceAndMetadata());
   CHECK(topologyAndIdentities());

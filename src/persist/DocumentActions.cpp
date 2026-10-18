@@ -135,7 +135,7 @@ bool savePreset(App &app, const std::string &path, const OverwritePrompt &confir
 
 bool document_detail::applyGrade(App &app, const PersistGrade &incoming, const ActionTestOptions &options) {
   if (!requireEditableGraph(app)) return false;
-  document_detail::DocumentMutation mutation(app);
+  document_detail::DocumentMutation::assertControlThread(app);
   try {
     // Validate through the shared grade codec before constructing processors;
     // normalization applies exactly the same position/default rules as opening.
@@ -148,6 +148,9 @@ bool document_detail::applyGrade(App &app, const PersistGrade &incoming, const A
     if (!colorEncodingFromIds(grade.color.rawColorSpace, grade.color.rawGamma, raw) ||
         !colorEncodingFromIds(grade.color.outputColorSpace, grade.color.outputGamma, output))
       throw std::runtime_error("Invalid full-grade colour settings");
+    // Malformed/deep input is refused without interrupting preview/export.
+    // Backend construction still requires the existing execution exclusion.
+    document_detail::DocumentMutation mutation(app);
     auto restored = document_detail::restoreGraph(grade.graph);
     bool reloadRaw;
     {

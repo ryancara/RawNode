@@ -1,41 +1,48 @@
 #include "GraphValidation.h"
 
+#include <algorithm>
 #include <functional>
 #include <set>
 #include <stdexcept>
 #include <unordered_map>
 
 static std::string nodeStateError(const Node &node, const NodeId &primarySource);
-static std::string bindingError(GraphView graph, const InputBindings &bindings,
+using NodeLookup = std::unordered_map<std::string, const Node *>;
+static std::string bindingError(const NodeLookup &nodes, const InputBindings &bindings,
                                 const NodeInterface &interface, bool slotInputs);
-static std::string cycleError(GraphView graph);
+static std::string dependencyError(GraphView graph, const NodeLookup &nodes);
 
 std::string graphStructureError(GraphView graph) {
-  std::set<std::string> nodeIds;
+  NodeLookup nodes;
+  nodes.reserve(graph.nodes.size());
   int sources = 0;
   for (const auto &node : graph.nodes) {
     if (node.id.value.empty()) return "Empty NodeId";
-    if (!nodeIds.insert(node.id.value).second) return "Duplicate NodeId";
+    if (!nodes.emplace(node.id.value, &node).second) return "Duplicate NodeId";
     if (node.operation == NodeOperation::Source) ++sources;
     const auto error = nodeStateError(node, graph.primarySource);
     if (!error.empty()) return error;
   }
   if (sources != 1) return "Document must contain exactly one primary Source";
-  const auto *output = findOutput(graph, graph.documentOutput);
+  const auto producer = nodes.find(graph.documentOutput.nodeId.value);
+  const auto *output = producer == nodes.end() ? nullptr :
+      nodeInterface(producer->second->operation).findFixedPort(graph.documentOutput.outputPortId, PortDirection::Output);
   if (!output || output->type != ValueType::Image) return "Document output must name an existing Image output";
   for (const auto &node : graph.nodes) {
     const auto &interface = nodeInterface(node.operation);
-    auto error = bindingError(graph, node.fixedInputs, interface, false);
+    auto error = bindingError(nodes, node.fixedInputs, interface, false);
     if (!error.empty()) return error;
     for (const auto &slot : node.slots) {
-      error = bindingError(graph, slot.inputs, interface, true);
+      error = bindingError(nodes, slot.inputs, interface, true);
       if (!error.empty()) return error;
     }
   }
-  return cycleError(graph);
+  return dependencyError(graph, nodes);
 }
 
 std::string requestedGraphError(GraphView graph, const OutputRef &requested) {
+  // This gate bounds the recursive closure check below to the shared depth
+  // limit. Required-input readiness still applies only to the requested closure.
   auto error = graphStructureError(graph);
   if (!error.empty()) return error;
   if (!findOutput(graph, requested)) return "Requested output does not exist";
@@ -101,12 +108,13 @@ static std::string nodeStateError(const Node &node, const NodeId &primarySource)
   return {};
 }
 
-static std::string bindingError(GraphView graph, const InputBindings &bindings,
+static std::string bindingError(const NodeLookup &nodes, const InputBindings &bindings,
                                 const NodeInterface &interface, bool slotInputs) {
   for (const auto &entry : bindings) {
     if (!entry.second) continue;
-    if (!findNode(graph, entry.second->nodeId)) return "Connected producer node does not exist";
-    const auto *output = findOutput(graph, *entry.second);
+    const auto producer = nodes.find(entry.second->nodeId.value);
+    if (producer == nodes.end()) return "Connected producer node does not exist";
+    const auto *output = nodeInterface(producer->second->operation).findFixedPort(entry.second->outputPortId, PortDirection::Output);
     if (!output) return "Connected output port does not exist";
     const auto *input = slotInputs ? interface.findSlotInput(entry.first)
                                   : interface.findFixedPort(entry.first, PortDirection::Input);
@@ -117,27 +125,59 @@ static std::string bindingError(GraphView graph, const InputBindings &bindings,
   return {};
 }
 
-static std::string cycleError(GraphView graph) {
-  // Derived marks only; all dependencies still live on the consumers. Disabled,
-  // missing and optional nodes/inputs participate exactly like other edges.
-  enum class Mark { Visiting, Complete };
-  std::unordered_map<std::string, Mark> marks;
-  std::function<bool(const Node &)> visit = [&](const Node &node) {
-    const auto found = marks.find(node.id.value);
-    if (found != marks.end()) return found->second == Mark::Visiting;
-    marks.emplace(node.id.value, Mark::Visiting);
-    const auto cyclic = [&](const InputBindings &bindings) {
-      for (const auto &entry : bindings)
-        if (entry.second && visit(*findNode(graph, entry.second->nodeId))) return true;
-      return false;
-    };
-    if (cyclic(node.fixedInputs)) return true;
-    for (const auto &slot : node.slots)
-      if (cyclic(slot.inputs)) return true;
-    marks.at(node.id.value) = Mark::Complete;
-    return false;
+static std::string dependencyError(GraphView graph, const NodeLookup &nodes) {
+  struct State {
+    bool complete = false;
+    size_t depth = 1;
   };
-  for (const auto &node : graph.nodes)
-    if (visit(node)) return "Graph contains a cycle";
+  struct Frame {
+    const Node *node;
+    size_t bindings = 0; // Fixed inputs, then each Slot in stored order.
+    InputBindings::const_iterator next;
+    size_t depth = 1;
+    explicit Frame(const Node &node) : node(&node), next(node.fixedInputs.begin()) {}
+  };
+  std::unordered_map<const Node *, State> states;
+  states.reserve(nodes.size());
+  std::vector<Frame> stack;
+  stack.reserve(kMaxGraphDependencyDepth);
+  const auto tooDeep = [](const Node &node) {
+    return "Graph dependency depth exceeds supported limit of " +
+        std::to_string(kMaxGraphDependencyDepth) + " nodes at " + node.id.value;
+  };
+  for (const auto &root : graph.nodes) {
+    if (states.count(&root)) continue;
+    states.emplace(&root, State{});
+    stack.emplace_back(root);
+    while (!stack.empty()) {
+      auto &frame = stack.back();
+      const auto &bindings = frame.bindings == 0 ? frame.node->fixedInputs :
+          frame.node->slots[frame.bindings - 1].inputs;
+      if (frame.next == bindings.end()) {
+        if (frame.bindings < frame.node->slots.size()) {
+          frame.next = frame.node->slots[frame.bindings++].inputs.begin();
+        } else {
+          states.at(frame.node) = {true, frame.depth};
+          stack.pop_back();
+        }
+        continue;
+      }
+      if (!frame.next->second) { ++frame.next; continue; }
+      const Node *upstream = nodes.at(frame.next->second->nodeId.value);
+      const auto found = states.find(upstream);
+      if (found == states.end()) {
+        // Explicit frames make even malicious chains safe. Stop early rather
+        // than allocating a frame for every node of an unsupported chain.
+        if (stack.size() == kMaxGraphDependencyDepth) return tooDeep(*upstream);
+        states.emplace(upstream, State{});
+        stack.emplace_back(*upstream);
+        continue; // Revisit this binding with the completed upstream depth.
+      }
+      if (!found->second.complete) return "Graph contains a cycle";
+      frame.depth = std::max(frame.depth, found->second.depth + 1);
+      if (frame.depth > kMaxGraphDependencyDepth) return tooDeep(*frame.node);
+      ++frame.next;
+    }
+  }
   return {};
 }

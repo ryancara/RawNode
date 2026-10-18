@@ -4,6 +4,7 @@
 #include "GraphCommands.h"
 #include "GraphEvaluator.h"
 #include "GraphPersistenceTestAccess.h"
+#include "GraphDepthFixtures.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActionsPriv.h"
 #include "ui/UiContext.h"
@@ -91,6 +92,57 @@ std::string payload(App &app) {
 bool hasPosition(const App &app, const std::string &id, double x, double y) {
   const auto found = app.nodePositions.find(id);
   return found != app.nodePositions.end() && found->second.x == x && found->second.y == y;
+}
+
+bool excessiveDepthTransfers() {
+  Files files; Clipboard clipboard; App app;
+  CHECK(addNativeExposureNode(app));
+  const auto selected = app.selectedNodeId;
+  app.nodePositions[selected->value] = {17, -5};
+  CHECK(setNodeParameterValue(app, *selected, "exposure", 1.25));
+  app.paramFilter[0] = 'e';
+  const auto before = payload(app);
+  const auto *processor = findNode(app, *selected)->processor.get();
+  const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+  const auto path = files.path("deep.rawnode.json");
+  const auto unsafeJson = depth_test::fileJson(kMaxGraphDependencyDepth + 1);
+  write(path, unsafeJson);
+  PersistGrade incoming = grade(depth_test::fileJson(kMaxGraphDependencyDepth));
+  std::string error;
+  CHECK(!loadPresetFile(path, incoming, error));
+  CHECK(depth_test::depthError(error) && incoming.graph.nodes.size() == kMaxGraphDependencyDepth);
+  auto extra = incoming.graph.nodes.back(); extra.id = "extra";
+  extra.inputs.at(ports::image) = incoming.graph.documentOutput;
+  incoming.graph.documentOutput = image("extra"); incoming.graph.nodes.push_back(std::move(extra));
+  CHECK(!applyGrade(app, incoming) && depth_test::depthError(app.getStatus()));
+  CHECK(!appendGrade(app, incoming) && depth_test::depthError(app.getStatus()));
+  for (const auto &text : {
+       "{\"format\":\"rawnode-transfer\",\"version\":2,\"kind\":\"grade\",\"grade\":" +
+           depth_test::gradeJson(kMaxGraphDependencyDepth + 1) + "}",
+       "{\"format\":\"rawnode-transfer\",\"version\":2,\"kind\":\"fragment\",\"nodes\":[" +
+           depth_test::nodesJson(kMaxGraphDependencyDepth + 1, true) + "]}"}) {
+    clipboard.text = text;
+    CHECK(!pasteFromClipboard(app) && depth_test::depthError(app.getStatus()));
+    CHECK(clipboard.text == text);
+  }
+  // captureGrade() itself owns a read-only mutation, so observe refusal demand
+  // before using payload() to compare the complete saved document.
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch && bytes(path) == unsafeJson);
+  CHECK(payload(app) == before && app.selectedNodeId == selected && app.paramFilter[0] == 'e');
+  CHECK(findNode(app, *selected)->processor.get() == processor);
+  // Individually valid input must also be rejected before ownership changes
+  // when attachment would make the destination exceed the limit.
+  App boundary;
+  CHECK(applyGrade(boundary, grade(depth_test::fileJson(kMaxGraphDependencyDepth))));
+  const auto boundaryBefore = payload(boundary);
+  const auto boundaryEpoch = RenderRuntimeTestAccess::snapshot(boundary.renderer).epoch;
+  CHECK(!appendGrade(boundary, grade(depth_test::fileJson(2))));
+  CHECK(depth_test::depthError(boundary.getStatus()));
+  clipboard.text = "{\"format\":\"rawnode-transfer\",\"version\":2,\"kind\":\"fragment\",\"nodes\":[" +
+      depth_test::nodesJson(1, true) + "]}";
+  CHECK(!pasteFromClipboard(boundary) && depth_test::depthError(boundary.getStatus()));
+  CHECK(RenderRuntimeTestAccess::snapshot(boundary.renderer).epoch == boundaryEpoch && payload(boundary) == boundaryBefore);
+  return true;
 }
 
 bool completePresetsAndOverwrite() {
@@ -489,6 +541,7 @@ bool fragmentSlotsAndExternalLinks() {
 
 bool testPresetsAndClipboard() {
   for (const auto &test : {
+      std::make_pair("over-depth preset/direct grade/clipboard refusal preserves complete document and demand", excessiveDepthTransfers),
       std::make_pair("production Copy Node eligibility, detached capture, opaque data and failure atomicity", copyNodeEligibilityAndCapture),
       std::make_pair("complete Source-only/branched presets, metadata, overwrite and atomic failures", completePresetsAndOverwrite),
       std::make_pair("Replace preserves pixels, metadata/defaults, replaces positions and enforces protection", replaceAndProtection),
