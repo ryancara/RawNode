@@ -4,6 +4,7 @@
 #include "DocumentMutation.h"
 #include "Export.h"
 #include "GraphCommands.h"
+#include "GraphDepthFixtures.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActions.h"
@@ -719,6 +720,25 @@ static bool testQuietOutcomes() {
   return true;
 }
 
+static bool testOverDepthWorker() {
+  App app; source(app);
+  depth_test::Chain chain(kMaxGraphDependencyDepth + 1, NodeOperation::ImageProcessor);
+  app.nodes = std::move(chain.nodes); app.primarySource = chain.source; app.documentOutput = chain.output;
+  app.renderer.requestPreview(); app.renderer.start(); CHECK(idle(app));
+  const auto failed = publication(app);
+  CHECK(failed.result.state == EvaluationState::Error);
+  CHECK(std::holds_alternative<std::monostate>(failed.result.value));
+  CHECK(failed.result.diagnostics.size() == 1 && depth_test::depthError(failed.result.diagnostics.front().message));
+  {
+    document_detail::DocumentMutation mutation(app);
+    app.nodes.pop_back(); app.documentOutput = image(app.nodes.back().id);
+    mutation.changed();
+  }
+  CHECK(idle(app) && publication(app).generation > failed.generation);
+  CHECK(publication(app).result.state == EvaluationState::Available);
+  return true;
+}
+
 static bool testUnchangedCommandsRetainDemand() {
   Files files;
   for (int demand = 0; demand < 4; ++demand) {
@@ -732,6 +752,12 @@ static bool testUnchangedCommandsRetainDemand() {
     const auto first = graph::addSlot(app, slots).addedSlot;
     const auto second = graph::addSlot(app, slots).addedSlot;
     CHECK(first && second && selectNode(app, effect));
+    OutputRef deepTail = image(app.primarySource);
+    for (size_t i = 1; i < kMaxGraphDependencyDepth; ++i) {
+      Node node; node.id = depth_test::id(i); node.enabled = false;
+      node.fixedInputs.at(ports::image) = deepTail;
+      deepTail = image(node.id); app.nodes.push_back(std::move(node));
+    }
     app.paramFilter[0] = 'e';
     RenderRuntimeTestAccess::observe(app.renderer, &probe, [](void *context, auto event) noexcept {
       auto &probe = *static_cast<Probe *>(context);
@@ -751,6 +777,9 @@ static bool testUnchangedCommandsRetainDemand() {
     const auto frame = publication(app);
     const int calls = processor->calls;
     Node duplicate; duplicate.id = effect;
+    CHECK(depth_test::depthError(graph::connect(app, deepTail, input(spare)).error));
+    CHECK(depth_test::depthError(graph::reconnect(app, deepTail, input(effect)).error));
+    CHECK(!findNode(app, spare)->fixedInputs.at(ports::image));
     CHECK(!graph::addNode(app, std::move(duplicate)).ok() && duplicate.id == effect);
     CHECK(!graph::connect(app, image(app.primarySource), input(effect)).ok());
     CHECK(!graph::reconnect(app, image(effect), input(effect)).ok()); // Cycle.
@@ -1096,6 +1125,7 @@ static bool testOfxParameterScheduling() {
 
 bool testGraphRuntime() {
   const struct { const char *name; bool (*test)(); } cases[] = {
+      {"Over-depth worker returns Error, then evaluates a repaired boundary graph", testOverDepthWorker},
       {"Shared parameter set/reset schedule numerical previews and preserve inspection", testParameterPreview},
       {"Native/CTL parameter edits stay responsive during preview and supersede old output", testParameterPreviewSupersession},
       {"Rejected parameter edits preserve idle/pending/active/export demand and export pixels; editing recovers", testRejectedParameterEdits},

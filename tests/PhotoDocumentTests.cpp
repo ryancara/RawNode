@@ -7,6 +7,7 @@
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "GraphPersistenceTestAccess.h"
+#include "GraphDepthFixtures.h"
 #include "persist/DocumentActionsPriv.h"
 #include "persist/Json.h"
 #include "ui/Filmstrip.h"
@@ -317,11 +318,14 @@ bool protectionAndDecodeFailure() {
   const auto invalidParameter = file(std::string(exposure).replace(exposure.find("1.0"), 3, "true") + ',' + source, "gain");
   for (const auto &original : {std::string("{"), std::string(R"({"format":"rawnode","version":999})"),
        file(std::string(source).replace(source.find("source"), 6, "future")), invalidParameter,
-       std::string(R"({"format":"rawnode-sidecar","version":2,"chain":{}})")}) {
+       std::string(R"({"format":"rawnode-sidecar","version":2,"chain":{}})"),
+       depth_test::fileJson(kMaxGraphDependencyDepth + 1)}) {
     write(inputSidecarPath(a), original);
     const auto before = entries(files.dir);
     App app; CHECK(openPath(app, a));
     CHECK(app.isPhotoProtected() && app.nodes.size() == 1 && !app.persistenceWarning.empty());
+    if (original == depth_test::fileJson(kMaxGraphDependencyDepth + 1))
+      CHECK(depth_test::depthError(app.persistenceWarning));
     CHECK(app.photoRawWorkingEncoding == (ColorEncoding{RgbGamut::Rec709, TransferFunction::Linear}));
     CHECK(!addNativeExposureNode(app) && !addNativeCstNode(app) && !addCtlNode(app, "absent.ctl"));
     Node node; node.id = NodeId{"forbidden"}; CHECK(!graph::addNode(app, std::move(node)).ok());
@@ -345,6 +349,7 @@ bool protectionAndDecodeFailure() {
     CHECK(app.path == a && app.full.px.data() == oldPixels && app.preview == oldPreview && app.isPhotoProtected());
     CHECK(!fs::exists(inputSidecarPath(bad)) && entries(files.dir) == before);
     CHECK(openPath(app, b) && !app.isPhotoProtected() && app.persistenceWarning.empty());
+    CHECK(bytes(inputSidecarPath(a)) == original);
   }
   fs::remove(inputSidecarPath(a));
   const auto legacy = legacyInputSidecarPath(a);

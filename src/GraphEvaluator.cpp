@@ -46,7 +46,10 @@ class Evaluation {
     }
     // Required-input readiness is deliberately NOT a preflight gate: bypass
     // may avoid a connected branch with missing required inputs. All stored
-    // cycles/types/endpoints still have to be structurally valid.
+    // cycles/types/endpoints still have to be structurally valid. The iterative
+    // validator also bounds plan()/visit() recursion by kMaxGraphDependencyDepth.
+    // Absent Reference adds only the input-free primary Source; bundles and
+    // bypass never introduce a recursive dependency outside those bounds.
     const auto structure = graphStructureError(graph_);
     if (!structure.empty()) return finish(result, failure(requested, structure));
     const auto *port = findOutput(graph_, requested);

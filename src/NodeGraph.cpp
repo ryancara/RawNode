@@ -359,6 +359,25 @@ static bool insertFragment(App &app, const PersistFragment &fragment, std::optio
       if (remap != ids.end()) positions.emplace(remap->second.value, position.second);
     }
     std::optional<NodeId> selection = ids.at(order.back().value);
+    // A safe incoming fragment can still exceed the destination's depth. Run
+    // the same batch command on backend-free topology before draining workers
+    // for processor construction. This is local staging, never execution state.
+    std::vector<Node> topology, pending;
+    topology.reserve(app.nodes.size());
+    for (const auto &live : app.nodes) {
+      Node node(live.operation); node.id = live.id; node.enabled = live.enabled;
+      node.fixedInputs = live.fixedInputs; node.slots = live.slots;
+      topology.push_back(std::move(node));
+    }
+    for (const auto &id : order) {
+      Node node;
+      node.id = ids.at(id.value);
+      if (!pending.empty()) node.fixedInputs.at(ports::image) = OutputRef{pending.back().id, ports::image};
+      pending.push_back(std::move(node));
+    }
+    auto output = app.documentOutput;
+    const auto staged = graph::insertImageChain({topology, app.primarySource, output}, pending, after);
+    if (!staged.ok()) throw std::runtime_error(staged.error);
     document_detail::DocumentMutation mutation(app);
     std::vector<Node> additions;
     additions.reserve(order.size());
