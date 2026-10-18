@@ -4,7 +4,7 @@
 
 // Longest stored dependency chain, counting both endpoints (a leaf is depth 1).
 // Bounds recursive readiness/evaluation after iterative structural validation.
-inline constexpr size_t kMaxGraphDependencyDepth = 256;
+inline constexpr size_t kMaxGraphDependencyDepth = 128;
 
 // Empty means valid; otherwise returns the first diagnostic. Structure includes
 // every stored edge, even on disabled/unavailable/unreachable nodes. A declared

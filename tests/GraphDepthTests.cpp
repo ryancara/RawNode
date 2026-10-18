@@ -60,6 +60,65 @@ bool rejected(const Chain &chain) {
   return true;
 }
 
+bool sourceFirstReverseChain() {
+  for (size_t depth : {kMaxGraphDependencyDepth, kMaxGraphDependencyDepth + 1}) {
+    Chain chain(depth);
+    // Source completes before DFS starts at the tail. Only the processors are
+    // reversed: the active stack excludes Source and cannot alone count depth.
+    std::reverse(chain.nodes.begin() + 1, chain.nodes.end());
+    CHECK(chain.nodes.front().id == chain.source && chain.nodes[1].id == chain.output.nodeId);
+    if (depth > kMaxGraphDependencyDepth) { CHECK(rejected(chain)); continue; }
+    CHECK(graphStructureError(chain.view()).empty() && requestedGraphError(chain.view(), chain.output).empty());
+    Identity executor;
+    const auto result = evaluate(chain, &executor);
+    CHECK(result.state == EvaluationState::Available && result.diagnostics.empty());
+    CHECK(std::get<ImageValue>(result.value)->px == pixel()->px && executor.calls == depth - 1);
+  }
+  return true;
+}
+
+bool deepBeforeShallow() {
+  for (bool slotted : {true, false}) {
+    for (size_t tails : {size_t(1), size_t(2)}) {
+      // The deep prefix has limit-2 nodes; join adds one, then one/two tails
+      // make the longest path exactly limit/limit+1. Both paths share the first
+      // processor, independently of the join's other shallow dependencies.
+      Chain chain(kMaxGraphDependencyDepth - 2);
+      const auto deep = chain.output;
+      Node join(slotted ? NodeOperation::TestSlotted : NodeOperation::TestMaskedImage);
+      join.id = NodeId{"deep-first-join"};
+      if (slotted) {
+        for (const auto &producer : {deep, image(id(1))}) {
+          auto slot = join.makeSlot(); slot.inputs.at(ports::image) = producer;
+          join.slots.push_back(std::move(slot));
+        }
+      } else {
+        Node shallow(NodeOperation::TestReferenceMask); shallow.id = NodeId{"shallow-mask"};
+        shallow.fixedInputs.at(ports::reference) = image(id(1));
+        // InputBindings orders "image" before "mask": deep then shallow.
+        join.fixedInputs.at(ports::image) = deep;
+        join.fixedInputs.at(ports::mask) = OutputRef{shallow.id, ports::mask};
+        chain.nodes.push_back(std::move(shallow));
+      }
+      chain.output = image(join.id); chain.nodes.push_back(std::move(join));
+      for (size_t i = 0; i < tails; ++i) {
+        Node tail(NodeOperation::TestImage); tail.id = NodeId{"tail-" + std::to_string(i)};
+        tail.fixedInputs.at(ports::image) = chain.output;
+        chain.output = image(tail.id); chain.nodes.push_back(std::move(tail));
+      }
+      // The join's own longest depth is still supported. A later shallow
+      // binding must not erase it before downstream tails extend that path.
+      if (tails == 2) { CHECK(rejected(chain)); continue; }
+      CHECK(graphStructureError(chain.view()).empty() && requestedGraphError(chain.view(), chain.output).empty());
+      Identity executor;
+      const auto result = evaluate(chain, &executor);
+      CHECK(result.state == EvaluationState::Available && result.diagnostics.empty());
+      CHECK(std::get<ImageValue>(result.value)->px == pixel()->px && executor.calls == chain.nodes.size() - 1);
+    }
+  }
+  return true;
+}
+
 bool boundaryAndStorageOrder() {
   for (size_t depth : {kMaxGraphDependencyDepth - 1, kMaxGraphDependencyDepth, kMaxGraphDependencyDepth + 1}) {
     for (bool reversed : {false, true}) {
@@ -214,11 +273,16 @@ bool cyclesAndWidth() {
 
 bool testGraphDepth() {
   for (const auto &test : {
+      std::make_pair("Source-first reverse chain counts completed children at the exact boundary", sourceFirstReverseChain),
+      std::make_pair("deep-first then shallow Slot/fixed inputs retain the longest shared DAG path", deepBeforeShallow),
       std::make_pair("exact node-depth boundary, forward/reverse storage and native evaluation", boundaryAndStorageOrder),
       std::make_pair("disconnected, disabled, unavailable, repeated Slot, Reference and Mask edges", allStoredDependencies),
       std::make_pair("implicit Source, multi-output bundles and dynamic bypass at boundary", implicitSourceAndBundles),
       std::make_pair("shallow/deep cycles and broad shallow graphs", cyclesAndWidth)}) {
-    if (!test.second()) return false;
+    if (!test.second()) {
+      std::fprintf(stderr, "graph depth group failed: %s\n", test.first);
+      return false;
+    }
     std::printf("ok  Graph depth: %s\n", test.first);
   }
   return true;

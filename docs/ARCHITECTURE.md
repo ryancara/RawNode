@@ -276,7 +276,7 @@ topology; node storage order has no processing meaning. Ordered node-owned Slots
 retain stable SlotIds. Validation covers every stored connection and cycle,
 including disabled, unavailable and unreachable nodes.
 Structural validation uses iterative traversal and limits each stored dependency
-chain to 256 nodes (255 edges), bounding subsequent readiness/evaluator recursion.
+chain to 128 nodes (127 edges), bounding subsequent readiness/evaluator recursion.
 See `docs/GRAPH_DEPTH_SAFETY.md` for the gate audit and stack-safety rationale.
 
 `GraphEvaluator` borrows that graph without depending on App, UI or scheduling.
