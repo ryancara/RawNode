@@ -141,7 +141,7 @@ std::vector<std::string> listFolderImages(const std::string &folderDir) {
   std::vector<std::string> out;
   std::error_code ec;
   if (!fs::is_directory(folderDir, ec)) return out;
-  for (const auto &ent : fs::recursive_directory_iterator(folderDir, fs::directory_options::skip_permission_denied, ec)) {
+  for (const auto &ent : fs::directory_iterator(folderDir, fs::directory_options::skip_permission_denied, ec)) {
     if (ec) break;
     if (!ent.is_regular_file()) continue;
     const std::string p = ent.path().string();
