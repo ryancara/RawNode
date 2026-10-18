@@ -15,6 +15,12 @@ bool applyGrade(App &app, const PersistGrade &grade);
 // Complete capture also supports editable Source-only grades. Owns execution
 // exclusion while reading processor parameters, and excludes photo metadata.
 bool captureGrade(App &app, PersistGrade &grade);
+// Control-thread, read-only capture. Rejects empty/Source/stale/duplicate IDs
+// before interrupting execution. On success, returns detached graph-native data
+// and omitted-link warnings; on failure, leaves both outputs untouched.
+// Owns preview/export exclusion only during capture, with quiet preview recovery.
+bool captureNodeFragment(App &app, const std::vector<NodeId> &ids, PersistFragment &fragment,
+                         std::vector<std::string> &warnings);
 using OverwritePrompt = std::function<bool(const std::string &path)>;
 bool savePreset(App &app, const std::string &path, const OverwritePrompt &confirm = {});
 enum class SaveFailureDecision { Retry, Discard, Cancel };

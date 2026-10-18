@@ -3,7 +3,6 @@
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
 #include "NodeGraph.h"
-#include "DocumentMutation.h"
 #include "Export.h"
 #include "ui/Themes.h"
 #include "ui/DockLayout.h"
@@ -45,12 +44,17 @@ void doExport(App &app) {
   startExport(app, outPath);
 }
 
+bool canCopySelectedNode(const App &app) {
+  const Node *node = selectedNode(app);
+  return !app.isPhotoProtected() && node && node->operation == NodeOperation::ImageProcessor;
+}
+
 bool copySelectedNode(App &app) {
-  if (!requireEditableGraph(app) || !app.selectedNodeId) return false;
-  document_detail::DocumentMutation mutation(app);
+  if (!requireEditableGraph(app) || !canCopySelectedNode(app)) return false;
+  PersistFragment fragment;
+  std::vector<std::string> warnings;
+  if (!captureNodeFragment(app, {*app.selectedNodeId}, fragment, warnings)) return false;
   try {
-    std::vector<std::string> warnings;
-    auto fragment = captureFragment(app, {*app.selectedNodeId}, warnings);
     std::string json, error;
     if (!encodeTransferPayload(fragment, json, error)) throw std::runtime_error(error);
     ImGui::SetClipboardText(json.c_str());
@@ -191,10 +195,8 @@ void DrawUiFrame(App &app) {
       const char *copyShortcut = "Ctrl+C";
       const char *pasteShortcut = "Ctrl+V";
 #endif
-      const Node *selection = selectedNode(app);
       const bool editable = !app.isPhotoProtected();
-      const bool canCopyNode = editable && selection && selection->operation == NodeOperation::ImageProcessor;
-      if (ImGui::MenuItem("Copy Node", copyShortcut, false, canCopyNode))
+      if (ImGui::MenuItem("Copy Node", copyShortcut, false, canCopySelectedNode(app)))
         copySelectedNode(app);
 #ifdef __APPLE__
       const char *copyGradeShortcut = "⌘+Shift+C";

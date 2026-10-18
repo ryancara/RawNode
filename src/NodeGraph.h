@@ -49,7 +49,8 @@ void applyChain(App &app, const PersistChain &chain);
 
 // Fragment capture preserves arbitrary supported internal topology, detaches
 // external inputs and reports omitted Mask/Reference links. No paste eligibility
-// check is made here. Caller owns processor execution exclusion.
+// check is made here. Caller owns processor execution exclusion; document/UI
+// callers use captureNodeFragment() in persist/DocumentActions.h.
 PersistFragment captureFragment(const App &app, const std::vector<NodeId> &ids,
                                 std::vector<std::string> &warnings);
 // Append a complete linear grade, or paste a compatible detached linear fragment.

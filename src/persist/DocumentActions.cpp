@@ -9,6 +9,7 @@
 #include "NodeGraph.h"
 #include "DocumentMutation.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <stdexcept>
 
@@ -81,6 +82,33 @@ bool captureGrade(App &app, PersistGrade &grade) {
     return true;
   } catch (const std::exception &failure) {
     app.setStatus("Could not capture grade: " + std::string(failure.what()));
+    return false;
+  }
+}
+
+bool captureNodeFragment(App &app, const std::vector<NodeId> &ids, PersistFragment &fragment,
+                         std::vector<std::string> &warnings) {
+  document_detail::DocumentMutation::assertControlThread(app);
+  if (!requireEditableGraph(app)) return false;
+  if (ids.empty()) { app.setStatus("No nodes to capture"); return false; }
+  // Topology and identity belong to the control thread; processor state is
+  // read only after DocumentMutation has drained preview and export execution.
+  for (auto it = ids.begin(); it != ids.end(); ++it) {
+    const Node *node = findNode(app, *it);
+    if (!node || node->operation == NodeOperation::Source || std::find(ids.begin(), it, *it) != it) {
+      app.setStatus("Cannot copy Source, stale or duplicate nodes");
+      return false;
+    }
+  }
+  document_detail::DocumentMutation mutation(app);
+  try {
+    std::vector<std::string> capturedWarnings;
+    auto captured = captureFragment(app, ids, capturedWarnings);
+    fragment = std::move(captured);
+    warnings = std::move(capturedWarnings);
+    return true;
+  } catch (const std::exception &failure) {
+    app.setStatus("Could not capture nodes: " + std::string(failure.what()));
     return false;
   }
 }
