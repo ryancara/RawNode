@@ -552,7 +552,8 @@ The D037 stabilisation gate and immediate checkpoint follow-ups are complete.
 7. Add versioned graph persistence — complete; PRs 1–5 merged as #63, #65, #66,
    #68 and #69.
 
-   Next, add the switchable Graph/List editor UI milestone (D047), before Step 8.
+   After the focused corrections tracked in `docs/PROJECT_CONTEXT.md`, add the
+   switchable Graph/List editor UI milestone (D047), before Step 8.
 
 8. Settle remaining concrete mask details and add the first mask path under the
    Step 5 contract.
