@@ -35,14 +35,19 @@ struct Clipboard {
   ImGuiContext *previous = ImGui::GetCurrentContext();
   ImGuiContext *context = ImGui::CreateContext();
   std::string text = "original clipboard";
+  RenderRuntime *runtime = nullptr;
+  bool wroteUnderOwnership = false;
   Clipboard() {
     auto &platform = ImGui::GetPlatformIO();
-    platform.Platform_ClipboardUserData = &text;
+    platform.Platform_ClipboardUserData = this;
     platform.Platform_GetClipboardTextFn = [](ImGuiContext *) {
-      return static_cast<std::string *>(ImGui::GetPlatformIO().Platform_ClipboardUserData)->c_str();
+      return static_cast<Clipboard *>(ImGui::GetPlatformIO().Platform_ClipboardUserData)->text.c_str();
     };
     platform.Platform_SetClipboardTextFn = [](ImGuiContext *, const char *value) {
-      *static_cast<std::string *>(ImGui::GetPlatformIO().Platform_ClipboardUserData) = value;
+      auto &clipboard = *static_cast<Clipboard *>(ImGui::GetPlatformIO().Platform_ClipboardUserData);
+      if (clipboard.runtime)
+        clipboard.wroteUnderOwnership |= RenderRuntimeTestAccess::snapshot(*clipboard.runtime).mutationDepth != 0;
+      clipboard.text = value;
     };
   }
   ~Clipboard() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
@@ -324,12 +329,86 @@ bool rejectIncomingOffSpineConsumer() {
   return true;
 }
 
+// Exercise the production UI action and its menu predicate without simulating
+// ImGui key events. The shortcut calls this same action.
+bool copyNodeEligibilityAndCapture() {
+  Files files; Clipboard clipboard; App app;
+  clipboard.runtime = &app.renderer;
+  CHECK(applyGrade(app, grade(file(processor("b", "a", "-2") + ',' + source + ',' + processor("a", "camera", "1.5"), "b",
+                                  R"(,"positions":{"a":{"x":1.25,"y":-8},"b":{"x":3,"y":4}})"))));
+  app.path = files.path("photo.nef");
+  write(inputSidecarPath(app.path), "untouched sidecar");
+  CHECK(selectNode(app, NodeId{"a"}));
+  app.paramFilter[0] = 'e';
+  const auto before = payload(app), selection = app.selectedNodeId->value;
+  const auto *processorBefore = selectedNode(app)->processor.get();
+  CHECK(canCopySelectedNode(app) && copySelectedNode(app));
+  CHECK(app.getStatus() == "Copied node" && !clipboard.wroteUnderOwnership);
+  PersistTransfer transfer; std::string error;
+  CHECK(decodeTransferPayload(clipboard.text, transfer, error));
+  const auto &node = std::get<PersistFragment>(transfer);
+  CHECK(node.nodes.size() == 1 && node.nodes[0].id == "a" && node.nodes[0].paramsJson.at("exposure") == "1.5");
+  CHECK(!node.nodes[0].inputs.at(ports::image) && node.positions.at("a").x == 1.25 && node.positions.at("a").y == -8);
+  CHECK(payload(app) == before && app.selectedNodeId->value == selection && app.paramFilter[0] == 'e');
+  CHECK(selectedNode(app)->processor.get() == processorBefore && bytes(inputSidecarPath(app.path)) == "untouched sidecar");
+
+  const auto copied = clipboard.text;
+  Node unsupported(NodeOperation::TestImage); unsupported.id = NodeId{"unsupported"};
+  CHECK(graph::addNode(app, std::move(unsupported)).ok());
+  for (auto id : {std::optional<NodeId>{}, std::optional<NodeId>{app.primarySource},
+                  std::optional<NodeId>{NodeId{"stale"}}, std::optional<NodeId>{NodeId{"unsupported"}}}) {
+    app.selectedNodeId = id; // Include stale/Source identities that normal selection refuses.
+    const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+    CHECK(!canCopySelectedNode(app) && !copySelectedNode(app) && clipboard.text == copied);
+    CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch && app.selectedNodeId == id);
+  }
+  CHECK(selectNode(app, NodeId{"a"}));
+  app.sidecarWriteBlockedPath = app.path;
+  const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+  CHECK(!canCopySelectedNode(app) && !copySelectedNode(app) && clipboard.text == copied);
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch);
+  app.sidecarWriteBlockedPath.clear();
+
+  PersistFragment captured; std::vector<std::string> warnings;
+  CHECK(captureNodeFragment(app, {NodeId{"b"}, NodeId{"a"}}, captured, warnings));
+  CHECK(captured.nodes[0].inputs.at(ports::image) == image("a") && !captured.nodes[1].inputs.at(ports::image));
+  CHECK(captured.positions.size() == 2 && captured.nodes[0].paramsJson.at("exposure") == "-2");
+  // Failure after capturing the first member must not publish a partial result
+  // or warnings. Invalid opaque JSON exercises the shared serializer's refusal.
+  findNode(app, NodeId{"a"})->preservedParamsJson["opaque"] = "invalid json";
+  warnings = {"keep warnings"};
+  CHECK(canCopySelectedNode(app) && !copySelectedNode(app) && clipboard.text == copied);
+  CHECK(!captureNodeFragment(app, {NodeId{"b"}, NodeId{"a"}}, captured, warnings));
+  CHECK(captured.nodes.size() == 2 && captured.nodes[1].paramsJson.count("opaque") == 0);
+  CHECK(warnings == std::vector<std::string>{"keep warnings"});
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).mutationDepth == 0);
+  clearNodes(app);
+  std::string json;
+  CHECK(encodeTransferPayload(captured, json, error) && decodeTransferPayload(json, transfer, error));
+  CHECK(std::get<PersistFragment>(transfer).positions.at("b").y == 4); // Detached after node destruction.
+
+  for (const auto &backend : {"ofx", "ctl", "future"}) {
+    const auto missing = grade(file(source + ',' + processor("opaque", "camera"), "opaque"));
+    auto incoming = missing;
+    auto &record = incoming.graph.nodes[1];
+    record.backend = backend; record.identifier = "unavailable.processor";
+    record.enabled = false; record.paramsJson = {{"big", "9007199254740993"}, {"opaque", R"({"curve":[0,0.12345678901234567890123456789]})"}};
+    CHECK(applyGrade(app, incoming) && selectNode(app, NodeId{"opaque"}));
+    CHECK(!selectedNode(app)->processor && canCopySelectedNode(app) && copySelectedNode(app));
+    CHECK(decodeTransferPayload(clipboard.text, transfer, error));
+    const auto &saved = std::get<PersistFragment>(transfer).nodes[0];
+    CHECK(saved.backend == backend && saved.paramsJson == record.paramsJson && !saved.enabled && saved.id == "opaque");
+  }
+  return true;
+}
+
 bool fragmentsAndClipboard() {
   Clipboard clipboard; App app;
   CHECK(applyGrade(app, grade(file(processor("b", "a") + ',' + processor("branch", "a") + ',' + source + ',' + processor("a", "camera"), "b"))));
   app.nodePositions["a"] = {1,2}; app.nodePositions["b"] = {3,4};
   std::vector<std::string> warnings;
-  auto fragment = captureFragment(app, {NodeId{"b"}, NodeId{"a"}}, warnings);
+  PersistFragment fragment;
+  CHECK(captureNodeFragment(app, {NodeId{"b"}, NodeId{"a"}}, fragment, warnings));
   CHECK(warnings.empty() && fragment.nodes.size() == 2 && fragment.nodes[1].inputs.at(ports::image) == std::nullopt);
   CHECK(fragment.nodes[0].inputs.at(ports::image) == image("a") && fragment.positions.size() == 2);
   std::string error;
@@ -342,7 +421,7 @@ bool fragmentsAndClipboard() {
   CHECK(findNode(app, NodeId{"branch"})->fixedInputs.at(ports::image) == image("a"));
   CHECK(hasPosition(app, entry.value, 1,2) && hasPosition(app, tail.value, 3,4));
   // Capture may represent a branch, even though attachment deliberately cannot.
-  fragment = captureFragment(app, {NodeId{"a"}, NodeId{"b"}, NodeId{"branch"}, entry, tail}, warnings);
+  CHECK(captureNodeFragment(app, {NodeId{"a"}, NodeId{"b"}, NodeId{"branch"}, entry, tail}, fragment, warnings));
   CHECK(encodeTransferPayload(fragment, clipboard.text, error));
   const auto before = payload(app), clipboardBefore = clipboard.text;
   CHECK(!pasteFromClipboard(app) && payload(app) == before && clipboard.text == clipboardBefore);
@@ -373,7 +452,8 @@ bool fragmentSlotsAndExternalLinks() {
   App app; app.nodes.swap(restored.nodes); app.primarySource = restored.primarySource;
   app.documentOutput = restored.output; app.nodePositions = parsed.positions;
   std::vector<std::string> warnings;
-  auto fragment = captureFragment(app, {NodeId{"effect"}, NodeId{"slots"}, NodeId{"mask"}}, warnings);
+  PersistFragment fragment;
+  CHECK(captureNodeFragment(app, {NodeId{"effect"}, NodeId{"slots"}, NodeId{"mask"}}, fragment, warnings));
   CHECK(warnings.size() == 2); // Source Reference on mask and on slots, both reported.
   CHECK(!fragment.nodes[0].enabled && !fragment.nodes[0].inputs.at(ports::image));
   CHECK(fragment.nodes[0].inputs.at(ports::mask) == (OutputRef{NodeId{"mask"}, ports::mask}));
@@ -396,8 +476,11 @@ bool fragmentSlotsAndExternalLinks() {
   CHECK(findNode(destination, NodeId{"slots"})->nextSlotIdForPersistence() == 5);
   CHECK(findNode(destination, NodeId{"slots"})->slots[0].inputs.at(ports::mask) == (OutputRef{NodeId{"mask"}, ports::mask}));
   CHECK(!encodeTransferPayload(fragment, json, error)); // Test kinds never escape into production formats.
-  fragment = captureFragment(app, {NodeId{"effect"}}, warnings);
+  CHECK(captureNodeFragment(app, {NodeId{"effect"}}, fragment, warnings));
   CHECK(warnings.size() == 1 && warnings[0].find("mask") != std::string::npos && !fragment.nodes[0].inputs.at(ports::mask));
+  CHECK(captureNodeFragment(app, {NodeId{"mask"}}, fragment, warnings));
+  CHECK(warnings == std::vector<std::string>{"Omitted external reference connection on mask"});
+  CHECK(!fragment.nodes[0].inputs.at(ports::reference));
   const auto sizes = app.nodes.size();
   CHECK(!pasteFragment(app, fragment) && app.nodes.size() == sizes);
   return true;
@@ -406,6 +489,7 @@ bool fragmentSlotsAndExternalLinks() {
 
 bool testPresetsAndClipboard() {
   for (const auto &test : {
+      std::make_pair("production Copy Node eligibility, detached capture, opaque data and failure atomicity", copyNodeEligibilityAndCapture),
       std::make_pair("complete Source-only/branched presets, metadata, overwrite and atomic failures", completePresetsAndOverwrite),
       std::make_pair("Replace preserves pixels, metadata/defaults, replaces positions and enforces protection", replaceAndProtection),
       std::make_pair("linear middle/end Append preserves branches, bindings/positions and rejects atomically", linearAppendAndRejection),

@@ -7,6 +7,7 @@
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActions.h"
+#include "ui/UiContext.h"
 
 #include <atomic>
 #include <chrono>
@@ -78,7 +79,10 @@ struct Gate {
 };
 struct GateWorkerGuard {
   App &app; Gate &gate;
-  ~GateWorkerGuard() { gate.unblock(); app.renderer.shutdown(); }
+  ~GateWorkerGuard() {
+    gate.unblock(); app.renderer.shutdown();
+    RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  }
 };
 
 class NumericProcessor final : public Processor {
@@ -87,16 +91,33 @@ class NumericProcessor final : public Processor {
   std::atomic<int> calls{0}, width{0}, height{0};
   std::atomic<bool> fail{false};
   Gate *renderGate = nullptr;
+  RenderRuntime *captureRuntime = nullptr;
+  std::atomic<bool> rendering{false};
+  bool failCapture = false;
+  mutable int captures = 0;
+  mutable bool unsafeCapture = false;
   const float *lastInput = nullptr;
   ProcessorBackend backend() const override { return ProcessorBackend::Native; }
   std::string identifier() const override { return "test.numeric"; }
   std::string displayName() const override { return "Test numeric"; }
-  std::vector<ProcessorParameter> parameters() const override { return {}; }
+  std::vector<ProcessorParameter> parameters() const override {
+    if (!captureRuntime) return {};
+    ++captures;
+    const auto state = RenderRuntimeTestAccess::snapshot(*captureRuntime);
+    unsafeCapture |= rendering || state.previewBusy || state.exportBusy;
+    // A missing guard fails deterministically without introducing a test race.
+    if (unsafeCapture || failCapture) throw std::runtime_error("capture fault");
+    ProcessorParameter parameter;
+    parameter.id = "gain"; parameter.type = ParameterType::Double; parameter.value = double(gain);
+    return {parameter};
+  }
   bool setParameterValue(const std::string &, const ParameterValue &, bool) override { return false; }
   bool resetParameter(const std::string &, bool) override { return false; }
   bool activateParameter(const std::string &) override { return false; }
   void setRenderSize(int w, int h) override { width = w; height = h; }
   ProcessorResult render(const Image &in, Image &out, const RenderCancellation &) override {
+    rendering = true;
+    struct RenderGuard { std::atomic<bool> &active; ~RenderGuard() { active = false; } } guard{rendering};
     ++calls; lastInput = in.px.data();
     if (renderGate) renderGate->hold();
     if (fail) return ProcessorResult::failure(91, "runtime backend failure");
@@ -486,6 +507,93 @@ static bool testTransferLifetimes() {
   return true;
 }
 
+static bool testFragmentCaptureOwnership(bool exporting, bool failing) {
+  Files files; Gate gate; App app; source(app);
+  const NodeId id{"capture-borrowed"};
+  auto *processor = numeric(app, id, 2.0f); CHECK(processor);
+  processor->captureRuntime = &app.renderer;
+  processor->renderGate = &gate;
+  CHECK(selectNode(app, id));
+  app.nodePositions[id.value] = {7.5, -3}; app.paramFilter[0] = 'g';
+  const auto *pixels = app.full.px.data(); const auto preview = app.preview;
+  const auto output = app.documentOutput;
+  struct Probe {
+    App &app;
+    std::mutex mutex; std::condition_variable cv;
+    bool waiting = false, completed = false, quiet = false;
+  } probe{app};
+  RenderRuntimeTestAccess::observe(app.renderer, &probe, [](void *context, auto event) noexcept {
+    auto &probe = *static_cast<Probe *>(context);
+    std::lock_guard<std::mutex> lock(probe.mutex);
+    if (event == RenderRuntimeTestAccess::Event::MutationWaiting) {
+      probe.waiting = true; probe.cv.notify_all();
+    }
+    if (event == RenderRuntimeTestAccess::Event::MutationCompleted) {
+      const auto state = RenderRuntimeTestAccess::duringObservation(probe.app.renderer);
+      probe.completed = true;
+      probe.quiet = state.mutationDepth == 1 && !state.previewBusy && !state.exportBusy &&
+                    state.previewPending && state.quietPending;
+    }
+  });
+  GateWorkerGuard guard{app, gate};
+  app.renderer.start(); CHECK(idle(app));
+  // An idle read-only capture must create no render demand or new publication.
+  PersistFragment captured; std::vector<std::string> warnings;
+  const auto calls = processor->calls.load(), generation = publication(app).generation;
+  CHECK(captureNodeFragment(app, {id}, captured, warnings));
+  auto state = RenderRuntimeTestAccess::snapshot(app.renderer);
+  CHECK(!state.previewPending && !state.quietPending && !state.previewBusy && state.mutationDepth == 0);
+  CHECK(processor->calls == calls && publication(app).generation == generation && !probe.quiet);
+  probe.completed = false;
+
+  processor->failCapture = failing;
+  gate.arm();
+  const auto exportPath = files.path("capture.png");
+  if (exporting) CHECK(startExport(app, exportPath)); else app.renderer.requestDocumentPreview();
+  CHECK(gate.wait(1) && processor->rendering);
+  state = RenderRuntimeTestAccess::snapshot(app.renderer);
+  CHECK(exporting ? state.exportBusy : state.previewBusy);
+  bool waited = false;
+  std::thread release([&] {
+    std::unique_lock<std::mutex> lock(probe.mutex);
+    waited = probe.cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe.waiting; });
+    lock.unlock(); gate.unblock();
+  });
+  warnings = {"untouched"};
+  const bool capturedOk = captureNodeFragment(app, {id}, captured, warnings);
+  const auto status = app.getStatus();
+  release.join(); app.renderer.joinExport();
+  CHECK(capturedOk == !failing && waited && probe.completed && probe.quiet);
+  CHECK(!processor->unsafeCapture && processor->captures == 2 && idle(app));
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).mutationDepth == 0);
+  CHECK(app.getStatus() == status); // Quiet recovery preserves export/capture status.
+  CHECK(captured.nodes.size() == 1 && captured.nodes[0].id == id.value && captured.nodes[0].paramsJson.at("gain") == "2");
+  CHECK(captured.positions.at(id.value).x == 7.5 && captured.positions.at(id.value).y == -3);
+  CHECK(failing ? warnings == std::vector<std::string>{"untouched"} : warnings.empty());
+  CHECK(app.selectedNodeId == id && app.paramFilter[0] == 'g' && app.documentOutput == output);
+  CHECK(app.full.px.data() == pixels && app.preview == preview && findNode(app, id)->processor.get() == processor);
+  CHECK(findNode(app, id)->fixedInputs.at(ports::image) == image(app.primarySource));
+  CHECK(publication(app).result.state == EvaluationState::Available && std::get<ImageValue>(publication(app).result.value)->px[0] == 0.5f);
+  if (exporting) {
+    const auto expected = files.path("expected.png"); auto reference = app.full;
+    for (size_t i = 0; i < reference.px.size(); ++i) if (i % 4 != 3) reference.px[i] *= 2;
+    CHECK(writeImage(reference, expected, app.outputEncoding, 92));
+    Image actual, wanted; ColorEncoding encoding; bool raw;
+    CHECK(loadImage(exportPath, actual, encoding, raw) && loadImage(expected, wanted, encoding, raw));
+    CHECK(actual.w == 2 && actual.h == 1 && actual.px == wanted.px);
+  }
+  // Failed capture releases ownership, and a later capture/render succeeds.
+  processor->failCapture = false;
+  CHECK(captureNodeFragment(app, {id}, captured, warnings) && !processor->unsafeCapture);
+  app.renderer.requestDocumentPreview(); CHECK(idle(app) && app.getStatus() == "1×1 preview");
+  return true;
+}
+static bool testFragmentCaptures() {
+  for (bool exporting : {false, true}) for (bool failing : {false, true})
+    if (!testFragmentCaptureOwnership(exporting, failing)) return false;
+  return true;
+}
+
 static bool testPresentationGate(bool refresh) {
   Executor executor; App app; source(app);
   const NodeId effect{"presentation-image"}, maskNode{"presentation-mask"};
@@ -658,6 +766,21 @@ static bool testUnchangedCommandsRetainDemand() {
     CHECK(graph::reorderSlot(app, slots, *first, first).ok());
     CHECK(graph::reorderSlot(app, slots, *first, second).ok()); // Already before.
     CHECK(graph::reorderSlot(app, slots, *second).ok()); // Already last.
+    PersistFragment fragment; std::vector<std::string> warnings{"unchanged"};
+    for (const auto &ids : {std::vector<NodeId>{}, std::vector<NodeId>{app.primarySource},
+                           std::vector<NodeId>{effect, absent}, std::vector<NodeId>{effect, effect}})
+      CHECK(!captureNodeFragment(app, ids, fragment, warnings));
+    CHECK(fragment.nodes.empty() && warnings == std::vector<std::string>{"unchanged"});
+    for (auto selection : {std::optional<NodeId>{}, std::optional<NodeId>{app.primarySource},
+                           std::optional<NodeId>{absent}, std::optional<NodeId>{slots}}) {
+      app.selectedNodeId = selection;
+      CHECK(!canCopySelectedNode(app) && !copySelectedNode(app));
+    }
+    app.selectedNodeId = effect;
+    app.path = files.path("protected.nef"); app.sidecarWriteBlockedPath = app.path;
+    CHECK(!canCopySelectedNode(app) && !copySelectedNode(app));
+    CHECK(!captureNodeFragment(app, {effect}, fragment, warnings));
+    app.sidecarWriteBlockedPath.clear();
     const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
     CHECK(probe.mutations == 0 && after.epoch == before.epoch && after.mutationDepth == 0);
     CHECK(after.previewPending == before.previewPending && after.quietPending == before.quietPending &&
@@ -754,6 +877,7 @@ bool testGraphRuntime() {
       {"6D allocation-style worker exception publishes Error and worker survives mutation", testWorkerExceptionBoundary},
       {"6D B1 async export retains Photo A while openPath waits to commit Photo B", testExportPhotoSwitch},
       {"6D I1 photo switching drains active preview and keeps Source dimensions coherent", testPreviewPhotoSwitch},
+      {"Copy Node read-only capture drains active preview/export, recovers quietly and releases on failure", testFragmentCaptures},
       {"Step 7 Replace/Append drain borrowed preview/export nodes and pixels", testTransferLifetimes},
       {"6D I2 prepared preview/recolour remains responsive and rejects stale presentation", testPresentationResponsiveness},
       {"6D I3 no-image processor edits preserve initial guidance without evaluation", testNoImageGuidance},

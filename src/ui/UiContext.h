@@ -13,6 +13,8 @@ void DrawUiFrame(App &app);
 
 // Transfer actions capture before writing. An empty preset destination opens
 // the save dialog; callers with a destination use the same capture/write path.
+// Shared menu/shortcut eligibility includes unavailable ImageProcessors.
+bool canCopySelectedNode(const App &app);
 bool copySelectedNode(App &app);
 bool copyGrade(App &app);
 bool pasteFromClipboard(App &app);
