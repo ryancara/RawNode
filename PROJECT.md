@@ -96,8 +96,9 @@ List view is not a separate processing system. It is another representation of t
 
 The document model, evaluator and persistence already support branching. The
 current List View does not provide general user-facing branch connection or
-reconnection controls. The next milestone, the switchable Graph/List editor,
-will expose user-facing graph editing on that same graph and evaluator;
+reconnection controls. After the short correction gate in
+`docs/PROJECT_CONTEXT.md`, the next UI milestone is the switchable Graph/List
+editor, exposing user-facing graph editing on that same graph and evaluator;
 masking/compositing follows in Step 8.
 
 ## Future local adjustments
@@ -152,8 +153,9 @@ These are current choices, not permanent constraints. Change them only for a con
 ## Current milestone
 
 The original backend-neutral refactor and architecture Steps 1–7 are complete.
-Step 7 PRs 1–5 are merged (#63, #65, #66, #68, #69). Next is the switchable
-Graph/List editor (D047), followed by Step 8's first concrete masking path.
+Step 7 PRs 1–5 are merged (#63, #65, #66, #68, #69). After the short correction
+gate in `docs/PROJECT_CONTEXT.md`, the switchable Graph/List editor (D047)
+follows, then Step 8's first concrete masking path.
 Outstanding manual platform checks remain in `docs/STEP6_MANUAL_VALIDATION.md`.
 
 ## For collaborators and AI assistants

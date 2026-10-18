@@ -643,7 +643,10 @@ The remaining sequence is:
     Step 7: Versioned graph persistence              [complete; PRs 1–5 merged]
           |
           v
-    Switchable Graph/List editor                   [next UI milestone, D047]
+    Targeted graph safety + PNG colour corrections   [next; focused PRs]
+          |
+          v
+    Switchable Graph/List editor                   [then; UI milestone, D047]
           |
           v
     Step 8: Concrete first mask path + remaining implementation details
@@ -707,14 +710,18 @@ compositing or alpha-carrying I/O requires it.
 
 Next architecture/product work:
 
-- The switchable Graph/List editor (D047) is next, followed by Step 8's first
+- Finish the short, ordered post-Step-7 correction gate listed under "Quality and
+  verification roadmap" below: Copy Node ownership, parameter-edit preview
+  scheduling, graph traversal depth, then PNG colour metadata/ICC placement.
+- Build the switchable Graph/List editor (D047), followed by Step 8's first
   concrete production Mask path. Step 7 graph-native persistence is complete.
 - Both editor views share the authoritative document graph and NodeId selection;
   switching views introduces no additional execution model.
 
 The checkpoint, immediate follow-ups, Step 5 contract and whole-Step-6
-implementation/architecture review are complete. No additional broad audit or
-cleanup is required before the next stage.
+implementation/architecture review are complete. These focused corrections do
+not reopen the architecture audit or add numbered steps. Unrelated image-format
+and lifetime findings stay tracked separately and need not delay Graph View.
 
 Colour-management design and DCTL/LUT or other processor work may continue
 independently when appropriate. Step 5 is not a prerequisite for that unrelated
@@ -749,14 +756,35 @@ valid targets; exports remain sidecar-free. Linux Release self-tests cover these
 behaviours and failure recovery. Derivative writes are not atomic or crash-safe;
 a failed write can leave incomplete output.
 
-**Unresolved post-Step-7 audit follow-ups (owner-confirmed):** track these as
-focused fixes/tests within the accepted architecture.
+**Next: targeted post-Step-7 correction gate (owner-confirmed order):**
+complete these as small, independently reviewed correctness PRs before
+implementing Graph View. No general renderer, graph or I/O refactor is intended.
 
-- Correct TIFF photometric/channel handling, EXR chromaticities, PNG colour
-  metadata and ICC chunk ordering, and JPEG writer undefined behaviour.
-- Correct parameter-edit preview scheduling and Copy Node ownership boundaries.
-- Bound graph traversal depth.
-- Add targeted CI, sanitizer and regression-test coverage for these findings.
+1. **Copy Node ownership/capture boundary:** align node copying with the
+   existing safe graph/processor access protocol; test relevant concurrent
+   rendering/export and document-lifecycle interactions.
+2. **Parameter-edit preview scheduling:** route changes through the accepted
+   render-demand/mutation contract so edits reliably refresh the right preview;
+   test edit, export and recovery ordering.
+3. **Graph traversal depth:** bound or otherwise make deep graph walks safe so
+   unexpectedly large/deep topology cannot exhaust the call stack; verify
+   normal graph behaviour is unchanged.
+4. **PNG colour correctness:** inspect and correct ICC chunk ordering and PNG
+   colour metadata semantics with independent, focused read/write tests.
+
+**Then:** deliver the switchable Graph/List editor (D047) on the same
+authoritative graph; **then Step 8** adds the first concrete Mask path. These
+quality corrections are a short preparatory gate, not additional architecture
+steps or a reason for a new whole-system audit.
+
+**Tracked separately; not prerequisites for Graph View:** TIFF
+photometric/extra-channel handling, EXR chromaticities, and the existing JPEG
+writer undefined behaviour. Give them focused correctness PRs and appropriate
+tests/sanitizer evidence when scheduled; address a concrete user-data or safety
+regression earlier if discovered. TIFF photometric/extra-channel handling
+becomes a Step 8 prerequisite if the first Mask path decodes external TIFF
+mask files. Other documented lifetime/exception-safety follow-ups remain
+tracked, not silently resolved by this plan.
 
 **Completed Step 7 checkpoint and implementation — retained verification criteria:**
 The criteria below describe the implemented contract and remain useful for

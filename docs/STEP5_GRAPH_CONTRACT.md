@@ -8,7 +8,8 @@ This document records the accepted product and architecture contract settled
 before Step 6. Steps 6 and 7 have since merged. Historical transition language
 below (including temporary V2 guards) describes those completed stages; current
 graph-native persistence is specified in `docs/STEP7_PERSISTENCE_DESIGN.md`.
-The switchable Graph/List editor is next (D047), followed by Step 8 masking.
+The switchable Graph/List editor follows the short correction gate in
+`docs/PROJECT_CONTEXT.md` (D047), then Step 8 masking.
 
 Items marked **Accepted** are the Step 5 contract. Items marked **Open** are deliberately deferred feature details and must not be silently decided by unrelated Step 6 implementation. The durable architecture and decision documents summarize the accepted contract; this file remains the detailed design record.
 
