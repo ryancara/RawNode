@@ -1,7 +1,7 @@
 # Application settings and retired workspace files
 
 RawNode has two authoritative persistence scopes: photograph sidecars and global
-application settings. Folder browsing and recursive filmstrip scanning remain;
+application settings. Folder browsing and non-recursive filmstrip scanning remain;
 the active folder, photograph, selection and filmstrip position are transient.
 Opening a folder auto-opens its first supported photograph without a workspace file.
 
