@@ -6,7 +6,8 @@ reconciled. Step 6 explicit topology/evaluator implementation and independent
 whole-Step-6 review are complete and merged in PR #58 (`6294a034`). Complete
 per-check macOS/native-dialog and NEF validation evidence is not recorded; see
 `docs/STEP6_MANUAL_VALIDATION.md`. Step 7 PRs 1–5 are now merged (#63, #65,
-#66, #68, #69). The switchable Graph/List editor is next, before Step 8.
+#66, #68, #69). The switchable Graph/List editor follows the short correction
+gate in `docs/PROJECT_CONTEXT.md`, before Step 8.
 The approved target architecture lives in
 `docs/ARCHITECTURE.md` and accepted decisions live in `docs/DECISIONS.md`.
 
