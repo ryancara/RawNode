@@ -104,20 +104,23 @@ bool requireEditableGraph(App &app) {
   return false;
 }
 
-bool setNodeParameterValue(App &app, const NodeId &id, const std::string &parameter, const ParameterValue &value) {
+template<class Edit>
+static bool editNodeParameter(App &app, const NodeId &id, Edit edit) {
   if (!requireEditableGraph(app) || !app.renderer.canEditParameters()) return false;
   Node *node = findNode(app, id);
-  return node && node->processor && node->processor->setParameterValue(parameter, value);
+  if (!node || !node->processor || !edit(*node->processor)) return false;
+  app.renderer.requestPreview();
+  return true;
+}
+
+bool setNodeParameterValue(App &app, const NodeId &id, const std::string &parameter, const ParameterValue &value) {
+  return editNodeParameter(app, id, [&](Processor &processor) { return processor.setParameterValue(parameter, value); });
 }
 bool resetNodeParameter(App &app, const NodeId &id, const std::string &parameter) {
-  if (!requireEditableGraph(app) || !app.renderer.canEditParameters()) return false;
-  Node *node = findNode(app, id);
-  return node && node->processor && node->processor->resetParameter(parameter);
+  return editNodeParameter(app, id, [&](Processor &processor) { return processor.resetParameter(parameter); });
 }
 bool activateNodeParameter(App &app, const NodeId &id, const std::string &parameter) {
-  if (!requireEditableGraph(app) || !app.renderer.canEditParameters()) return false;
-  Node *node = findNode(app, id);
-  return node && node->processor && node->processor->activateParameter(parameter);
+  return editNodeParameter(app, id, [&](Processor &processor) { return processor.activateParameter(parameter); });
 }
 
 void clearNodes(App &app) {

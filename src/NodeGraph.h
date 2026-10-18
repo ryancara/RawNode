@@ -14,7 +14,9 @@ const std::optional<OutputRef> *findInput(const App &app, const InputAddress &in
 // Empty means valid; otherwise the first invariant violation is returned.
 std::string documentStateError(const App &app);
 bool requireEditableGraph(App &app);
-// Processor edits retain backend synchronization and export exclusion.
+// Control-thread processor edits retain backend synchronization and export
+// exclusion. Accepted edits request processing at the current preview endpoint;
+// ordinary edits do not drain active preview execution.
 bool setNodeParameterValue(App &app, const NodeId &node, const std::string &parameter, const ParameterValue &value);
 bool resetNodeParameter(App &app, const NodeId &node, const std::string &parameter);
 bool activateNodeParameter(App &app, const NodeId &node, const std::string &parameter);
