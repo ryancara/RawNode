@@ -646,7 +646,7 @@ The remaining sequence is:
     Targeted graph safety + PNG colour corrections   [next; focused PRs]
           |
           v
-    Switchable Graph/List editor                   [next UI milestone, D047]
+    Switchable Graph/List editor                   [then; UI milestone, D047]
           |
           v
     Step 8: Concrete first mask path + remaining implementation details
@@ -777,12 +777,14 @@ authoritative graph; **then Step 8** adds the first concrete Mask path. These
 quality corrections are a short preparatory gate, not additional architecture
 steps or a reason for a new whole-system audit.
 
-**Tracked separately; not prerequisites for Graph View/Step 8:** TIFF
+**Tracked separately; not prerequisites for Graph View:** TIFF
 photometric/extra-channel handling, EXR chromaticities, and the existing JPEG
 writer undefined behaviour. Give them focused correctness PRs and appropriate
 tests/sanitizer evidence when scheduled; address a concrete user-data or safety
-regression earlier if discovered. Other documented lifetime/exception-safety
-follow-ups remain tracked, not silently resolved by this plan.
+regression earlier if discovered. TIFF photometric/extra-channel handling
+becomes a Step 8 prerequisite if the first Mask path decodes external TIFF
+mask files. Other documented lifetime/exception-safety follow-ups remain
+tracked, not silently resolved by this plan.
 
 **Completed Step 7 checkpoint and implementation — retained verification criteria:**
 The criteria below describe the implemented contract and remain useful for
