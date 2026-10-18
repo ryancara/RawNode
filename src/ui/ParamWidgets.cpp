@@ -123,10 +123,6 @@ static bool paramEditButton(double &value, bool asInt, double lo, double hi) {
   return commit;
 }
 
-static void finishParameterChange(App &app, bool changed) {
-  if (changed) app.renderer.requestPreview();
-}
-
 static void drawParam(App &app, Node &node, ProcessorParameter param) {
   if (!node.processor) return;
 
@@ -151,8 +147,6 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
   const float labelW = ImGui::CalcTextSize(label.c_str()).x;
   auto valueWidth = [&] { return std::max(40.0f, ImGui::GetContentRegionAvail().x - gap - labelW); };
 
-  bool changed = false;
-
   if (param.type == ParameterType::Double || param.type == ParameterType::Integer) {
     const bool asInt = param.type == ParameterType::Integer;
     double value = 0.0;
@@ -174,17 +168,14 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
         const int iv = (int)std::lround(v);
         if (setValue(iv)) {
           param.value = iv;
-          changed = true;
         }
       } else if (setValue(v)) {
         param.value = v;
-        changed = true;
       }
     };
 
     if (paramResetButton() && reset()) {
       param.value = param.defaultValue;
-      changed = true;
       if (asInt) {
         if (const int *v = std::get_if<int>(&param.value)) value = *v;
       } else if (const double *v = std::get_if<double>(&param.value)) {
@@ -220,7 +211,6 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       }
       ImGui::EndDisabled();
       ImGui::PopID();
-      finishParameterChange(app, changed);
       return;
     }
 
@@ -265,11 +255,10 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
 
     if (paramResetButton() && reset()) {
       if (const bool *v = std::get_if<bool>(&param.defaultValue)) value = *v;
-      changed = true;
     }
 
     ImGui::SameLine(0, gap);
-    if (ImGui::Checkbox(idLabel.c_str(), &value) && setValue(value)) changed = true;
+    if (ImGui::Checkbox(idLabel.c_str(), &value)) setValue(value);
 
   } else if (param.type == ParameterType::Choice) {
     int currentValue = 0;
@@ -277,7 +266,6 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
 
     if (paramResetButton() && reset()) {
       if (const int *v = std::get_if<int>(&param.defaultValue)) currentValue = *v;
-      changed = true;
     }
 
     const bool explicitValues = param.choiceValues.size() == param.choices.size();
@@ -299,11 +287,11 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     ImGui::SetNextItemWidth(valueWidth());
     if (!items.empty() && ImGui::Combo(idLabel.c_str(), &currentIndex, items.data(), (int)items.size())) {
       const int value = explicitValues ? param.choiceValues[(size_t)currentIndex] : currentIndex;
-      if (setValue(value)) changed = true;
+      setValue(value);
     }
 
   } else if (param.type == ParameterType::PushButton) {
-    if (ImGui::Button(idLabel.c_str()) && activate()) changed = true;
+    if (ImGui::Button(idLabel.c_str())) activate();
 
   } else if (param.type == ParameterType::String) {
     std::string value;
@@ -314,15 +302,13 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     } else {
       if (paramResetButton() && reset()) {
         if (const std::string *v = std::get_if<std::string>(&param.defaultValue)) value = *v;
-        changed = true;
       }
 
       ImGui::SameLine(0, gap);
       char buf[512];
       std::snprintf(buf, sizeof buf, "%s", value.c_str());
       ImGui::SetNextItemWidth(valueWidth());
-      if (ImGui::InputText(idLabel.c_str(), buf, sizeof buf) && setValue(std::string(buf)))
-        changed = true;
+      if (ImGui::InputText(idLabel.c_str(), buf, sizeof buf)) setValue(std::string(buf));
     }
 
   } else if (param.type == ParameterType::Vector) {
@@ -332,7 +318,6 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     const float rowW = ImGui::CalcItemWidth();
     if (paramResetButton() && reset()) {
       if (const auto *v = std::get_if<std::vector<double>>(&param.defaultValue)) values = *v;
-      changed = true;
     }
 
     ImGui::SameLine(0, gap);
@@ -343,14 +328,14 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       double typed = values[i];
       if (paramEditButton(typed, param.vectorIsInteger, -1e7, 1e7)) {
         values[i] = param.vectorIsInteger ? std::round(typed) : typed;
-        if (setValue(values)) changed = true;
+        setValue(values);
       }
       ImGui::SameLine(0, gap);
       ImGui::SetNextItemWidth(std::max(40.0f, rowW - btn - gap));
       float fv = (float)values[i];
       if (ImGui::DragFloat("##v", &fv, param.vectorIsInteger ? 1.0f : 0.01f)) {
         values[i] = param.vectorIsInteger ? std::round(fv) : fv;
-        if (setValue(values)) changed = true;
+        setValue(values);
       }
       ImGui::PopID();
     }
@@ -359,7 +344,6 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
 
   ImGui::EndDisabled();
   ImGui::PopID();
-  finishParameterChange(app, changed);
 }
 
 static bool icontains(const std::string &haystack, const std::string &needle) {

@@ -7,13 +7,17 @@
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActions.h"
+#include "ofx/OfxHost.h"
+#include "ofxParam.h"
 #include "ui/UiContext.h"
 
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <stdexcept>
 
 #define CHECK(expression) do { if (!(expression)) { \
@@ -664,6 +668,8 @@ static bool testNoImageGuidance() {
   }, &evaluations);
   WorkerGuard guard{app, executor}; app.renderer.start();
   CHECK(addNativeExposureNode(app) && idle(app));
+  CHECK(setNodeParameterValue(app, *app.selectedNodeId, "exposure", 1.0) && idle(app));
+  CHECK(resetNodeParameter(app, *app.selectedNodeId, "exposure") && idle(app));
   CHECK(app.getStatus() == guidance && evaluations == 0 && publication(app).generation == 0);
   clearNodes(app); CHECK(idle(app));
   CHECK(app.getStatus() == guidance && evaluations == 0 && publication(app).generation == 0);
@@ -866,10 +872,234 @@ static bool testLegacyRefusalAndGraphSave() {
   CHECK(saved.grade->graph.nodes[2].id == "off-spine" && !saved.grade->graph.nodes[2].inputs.at(ports::image));
   return true;
 }
+
+// These tests call only the shared parameter API: no UI completion helper and
+// no explicit preview request after an edit. Binary-exact gains and inputs make
+// the expected RGB multiplication independent of backend/render implementation.
+static bool pixels(App &app, float gain) {
+  const auto frame = publication(app);
+  if (frame.result.state != EvaluationState::Available) return false;
+  const auto *value = std::get_if<ImageValue>(&frame.result.value);
+  if (!value || !*value) return false;
+  auto expected = *app.preview;
+  for (size_t i = 0; i < expected.px.size(); ++i) if (i % 4 != 3) expected.px[i] *= gain;
+  return (*value)->w == expected.w && (*value)->h == expected.h && (*value)->px == expected.px;
+}
+
+static bool testParameterPreview() {
+  App app; source(app);
+  app.preview = std::make_shared<Image>(Image{{-0.25f, 0.5f, 1.25f, 0.75f}, 1, 1});
+  CHECK(addNativeExposureNode(app));
+  const auto effect = *app.selectedNodeId;
+  // No worker can advance the epoch here: exactly one request per acceptance,
+  // even when the backend accepts the same value it already holds.
+  for (int i = 0; i < 2; ++i) {
+    const int before = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+    CHECK(setNodeParameterValue(app, effect, "exposure", 1.0));
+    CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == before + 1);
+  }
+  const auto beforeRestore = RenderRuntimeTestAccess::snapshot(app.renderer);
+  auto restored = document_detail::restoreGraph(captureGraph({app.nodes, app.primarySource, app.documentOutput}));
+  CHECK(restored.nodes.size() == app.nodes.size() &&
+        RenderRuntimeTestAccess::snapshot(app.renderer).epoch == beforeRestore.epoch);
+  app.renderer.start(); CHECK(idle(app) && pixels(app, 2.0f));
+  for (int i = 0; i < 2; ++i) {
+    const int before = publication(app).generation;
+    CHECK(resetNodeParameter(app, effect, "exposure") && idle(app));
+    CHECK(publication(app).generation > before && pixels(app, 1.0f));
+  }
+  // Editing an inspected upstream processor must not switch back to Output.
+  const NodeId downstream{"downstream"}; CHECK(numeric(app, downstream, 8.0f));
+  app.renderer.requestInspection(image(effect)); CHECK(idle(app));
+  const auto before = publication(app).generation;
+  CHECK(setNodeParameterValue(app, effect, "exposure", 2.0) && idle(app));
+  const auto frame = publication(app);
+  CHECK(frame.generation > before && frame.request && *frame.request == image(effect));
+  CHECK(frame.result.requested == image(effect) && app.documentOutput == image(downstream) && pixels(app, 4.0f));
+  return true;
+}
+
+static std::string parameterCtl(Files &files) {
+  const auto path = files.path("ParameterGain.ctl");
+  std::ofstream script(path);
+  script << "void main(input varying float rIn, input varying float gIn, input varying float bIn,\n"
+            " output varying float rOut, output varying float gOut, output varying float bOut,\n"
+            " output varying float aOut, input varying float aIn = 1.0, input uniform float gain = 1.0)\n"
+            "{ rOut = rIn * gain; gOut = gIn * gain; bOut = bIn * gain; aOut = aIn; }\n";
+  return path;
+}
+
+static bool testParameterDuringPreview(bool ctl) {
+  Files files; Gate gate; App app; source(app);
+  CHECK(ctl ? addCtlNode(app, parameterCtl(files)) : addNativeExposureNode(app));
+  const auto effect = *app.selectedNodeId;
+  const auto parameter = ctl ? "gain" : "exposure";
+  const NodeId downstream{"parameter-barrier"};
+  auto *processor = numeric(app, downstream); CHECK(processor);
+  processor->renderGate = &gate;
+  struct Probe { App &app; int evaluations = 0, baseline = 0; bool stale = false; } probe{app};
+  RenderRuntimeTestAccess::evaluation(app.renderer, nullptr, [](void *context) {
+    auto &probe = *static_cast<Probe *>(context);
+    if (++probe.evaluations == 3) probe.stale = publication(probe.app).generation != probe.baseline;
+  }, &probe);
+  GateWorkerGuard guard{app, gate}; app.renderer.start(); CHECK(idle(app) && pixels(app, 1.0f));
+  probe.baseline = publication(app).generation;
+  gate.arm();
+  CHECK(setNodeParameterValue(app, effect, parameter, ctl ? 2.0 : 1.0) && gate.wait(1));
+  // The old numerical result is now held downstream of the real backend.
+  // An independent release path makes an accidental DocumentMutation wait fail
+  // the responsiveness check instead of deadlocking the suite.
+  std::mutex mutex; std::condition_variable cv;
+  bool completed = false, responsive = false;
+  std::thread release([&] {
+    std::unique_lock<std::mutex> lock(mutex);
+    responsive = cv.wait_for(lock, std::chrono::seconds(2), [&] { return completed; });
+    lock.unlock(); gate.unblock();
+  });
+  const bool accepted = setNodeParameterValue(app, effect, parameter, ctl ? 4.0 : 2.0);
+  { std::lock_guard<std::mutex> lock(mutex); completed = true; } cv.notify_one();
+  release.join();
+  CHECK(accepted && responsive && idle(app) && pixels(app, 4.0f));
+  CHECK(probe.evaluations == 3 && !probe.stale && publication(app).generation > probe.baseline);
+  const auto before = publication(app).generation;
+  CHECK(resetNodeParameter(app, effect, parameter) && idle(app));
+  CHECK(publication(app).generation > before && pixels(app, 1.0f));
+  return true;
+}
+static bool testParameterPreviewSupersession() {
+  return testParameterDuringPreview(false) && testParameterDuringPreview(true);
+}
+
+static bool testRejectedParameterEdits() {
+  Files files;
+  for (int demand = 0; demand < 4; ++demand) {
+    Gate gate; App app; source(app);
+    CHECK(addNativeExposureNode(app)); const auto effect = *app.selectedNodeId;
+    CHECK(setNodeParameterValue(app, effect, "exposure", 1.0));
+    CHECK(addNativeExposureNode(app)); const auto stale = *app.selectedNodeId;
+    CHECK(destroyNode(app, stale));
+    const NodeId missing{"missing"}; CHECK(add(app, missing, NodeOperation::ImageProcessor));
+    const NodeId barrier{"rejected-parameter-barrier"};
+    auto *processor = numeric(app, barrier); CHECK(processor); processor->renderGate = &gate;
+    GateWorkerGuard guard{app, gate};
+    if (demand != 1) { app.renderer.start(); CHECK(idle(app) && pixels(app, 2.0f)); }
+    if (demand == 2) { gate.arm(); app.renderer.requestPreview(); CHECK(gate.wait(1)); }
+    const auto output = files.path("parameter-export.png");
+    if (demand == 3) { gate.arm(); CHECK(startExport(app, output) && gate.wait(1)); }
+    const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+    const auto frame = publication(app);
+    const auto calls = processor->calls.load();
+    auto rejectAll = [&](const NodeId &id) {
+      return !setNodeParameterValue(app, id, "exposure", 2.0) &&
+             !resetNodeParameter(app, id, "exposure") && !activateNodeParameter(app, id, "exposure");
+    };
+    CHECK(rejectAll(NodeId{"invalid"}) && rejectAll(stale) && rejectAll(missing) && rejectAll(app.primarySource));
+    CHECK(!setNodeParameterValue(app, effect, "invalid", 1.0));
+    CHECK(!resetNodeParameter(app, effect, "invalid") && !activateNodeParameter(app, effect, "exposure"));
+    CHECK(!setNodeParameterValue(app, effect, "exposure", true));
+    CHECK(!setNodeParameterValue(app, effect, "exposure", std::numeric_limits<double>::quiet_NaN()));
+    app.path = files.path("protected.nef"); app.sidecarWriteBlockedPath = app.path;
+    CHECK(rejectAll(effect)); app.sidecarWriteBlockedPath.clear();
+    if (demand == 3) CHECK(rejectAll(effect));
+    const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(after.epoch == before.epoch && after.previewPending == before.previewPending &&
+          after.previewBusy == before.previewBusy && after.quietPending == before.quietPending &&
+          after.displayPending == before.displayPending && after.exportBusy == before.exportBusy &&
+          after.mutationDepth == 0 && processor->calls == calls && publication(app).generation == frame.generation);
+    CHECK(std::get<double>(findNode(app, effect)->processor->parameters()[0].value) == 1.0);
+    gate.unblock();
+    if (demand == 3) {
+      app.renderer.joinExport();
+      auto expected = app.full;
+      for (size_t i = 0; i < expected.px.size(); ++i) if (i % 4 != 3) expected.px[i] *= 2.0f;
+      const auto reference = files.path("parameter-reference.png");
+      CHECK(writeImage(expected, reference, app.outputEncoding, 92));
+      Image exported, decoded; ColorEncoding encoding; bool raw;
+      CHECK(loadImage(output, exported, encoding, raw) && loadImage(reference, decoded, encoding, raw));
+      CHECK(exported.w == expected.w && exported.h == expected.h && exported.px == decoded.px);
+    }
+    if (demand == 1) app.renderer.start();
+    CHECK(idle(app) && pixels(app, 2.0f));
+    const auto generation = publication(app).generation;
+    CHECK(setNodeParameterValue(app, effect, "exposure", 2.0) && idle(app));
+    CHECK(publication(app).generation > generation && pixels(app, 4.0f));
+  }
+  return true;
+}
+
+// An in-process plugin exercises the real OFX adapter's notification and button
+// semantics without depending on installed plugins or changing backend policy.
+struct ParameterOfxFixture {
+  OfxPlugin plugin{};
+  int index = (int)gPlugins.size();
+  std::vector<std::string> notifications;
+  std::vector<std::string> changedParameters;
+  bool userEdited = true;
+  ParameterOfxFixture() {
+    plugin.pluginIdentifier = "org.rawnode.selftest.parameter-edit";
+    plugin.mainEntry = [](const char *action, const void *handle, OfxPropertySetHandle in, OfxPropertySetHandle) {
+      auto *effect = static_cast<Effect *>(const_cast<void *>(handle));
+      auto &probe = *static_cast<ParameterOfxFixture *>(effect->props.m.at("parameter-probe")[0].p);
+      if (!std::strcmp(action, kOfxActionBeginInstanceChanged) || !std::strcmp(action, kOfxActionInstanceChanged) ||
+          !std::strcmp(action, kOfxActionEndInstanceChanged)) {
+        probe.notifications.push_back(action);
+        probe.userEdited &= sprop(*P(in), kOfxPropChangeReason) == kOfxChangeUserEdited;
+        if (!std::strcmp(action, kOfxActionInstanceChanged))
+          probe.changedParameters.push_back(sprop(*P(in), kOfxPropName));
+        if (!std::strcmp(action, kOfxActionInstanceChanged) && sprop(*P(in), kOfxPropName) == "button") {
+          std::lock_guard<std::mutex> lock(gValueMutex); findParam(effect, "gain")->v[0] = 4.0;
+        }
+        return kOfxStatOK;
+      }
+      if (std::strcmp(action, kOfxImageEffectActionRender)) return kOfxStatReplyDefault;
+      double gain;
+      { std::lock_guard<std::mutex> lock(gValueMutex); gain = findParam(effect, "gain")->v[0]; }
+      for (int i = 0; i < effect->w * effect->h * 4; ++i)
+        effect->dst[i] = effect->src[i] * (i % 4 == 3 ? 1.0f : (float)gain);
+      return kOfxStatOK;
+    };
+    PluginEntry entry{}; entry.plugin = &plugin; entry.descriptor = std::make_unique<Effect>();
+    propSetPointer(H(&entry.descriptor->props), "parameter-probe", 0, this);
+    for (bool button : {false, true}) {
+      auto param = std::make_unique<Param>();
+      param->name = button ? "button" : "gain"; param->type = button ? kOfxParamTypePushButton : kOfxParamTypeDouble;
+      param->v = {1.0}; propSetDouble(H(&param->props), kOfxParamPropDefault, 0, 1.0);
+      entry.descriptor->params.push_back(std::move(param));
+    }
+    gPlugins.push_back(std::move(entry));
+  }
+  ~ParameterOfxFixture() { gPlugins.pop_back(); }
+};
+
+static bool testOfxParameterScheduling() {
+  ParameterOfxFixture fixture; App app; source(app);
+  CHECK(addNode(app, fixture.index)); const auto effect = *app.selectedNodeId;
+  int before = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+  CHECK(setNodeParameterValue(app, effect, "gain", 2.0));
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == ++before);
+  CHECK(resetNodeParameter(app, effect, "gain"));
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == ++before);
+  CHECK(activateNodeParameter(app, effect, "button"));
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == ++before);
+  CHECK(!setNodeParameterValue(app, effect, "gain", false) && !resetNodeParameter(app, effect, "button") &&
+        !activateNodeParameter(app, effect, "gain"));
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == before && fixture.notifications.size() == 9);
+  CHECK(fixture.userEdited && fixture.changedParameters == std::vector<std::string>({"gain", "gain", "button"}));
+  for (size_t i = 0; i < fixture.notifications.size(); i += 3) {
+    CHECK(fixture.notifications[i] == kOfxActionBeginInstanceChanged &&
+          fixture.notifications[i + 1] == kOfxActionInstanceChanged && fixture.notifications[i + 2] == kOfxActionEndInstanceChanged);
+  }
+  app.renderer.start(); CHECK(idle(app) && pixels(app, 4.0f));
+  return true;
+}
 } // namespace
 
 bool testGraphRuntime() {
   const struct { const char *name; bool (*test)(); } cases[] = {
+      {"Shared parameter set/reset schedule numerical previews and preserve inspection", testParameterPreview},
+      {"Native/CTL parameter edits stay responsive during preview and supersede old output", testParameterPreviewSupersession},
+      {"Rejected parameter edits preserve idle/pending/active/export demand and export pixels; editing recovers", testRejectedParameterEdits},
+      {"OFX shared set/reset/activate schedule once, preserve notifications and render button state", testOfxParameterScheduling},
       {"6D creation, move/delete, derived capture order and V2 topology restore", testTopologyAndV2},
       {"6D typed Image/Mask/Unavailable/Error publication and cached display conversion", testTypedPublicationAndDisplay},
       {"6D Image-to-Mask and Mask-to-Image endpoint supersession", testEndpointSupersession},
