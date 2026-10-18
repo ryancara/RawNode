@@ -66,7 +66,8 @@ are non-blocking follow-ups.
 - **Step 8:** first concrete mask path and remaining implementation details
   under the Step 5 product/architectural contract. TIFF and EXR format
   correctness and JPEG encoder UB remain independently tracked follow-ups,
-  not prerequisites for Graph View or masks.
+  not prerequisites for Graph View, nor for masks unless the first Mask path
+  decodes external TIFF files.
 
 The completed stabilisation tasks are not extra migration steps.
 
