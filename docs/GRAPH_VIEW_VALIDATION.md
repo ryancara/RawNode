@@ -1,11 +1,12 @@
 # Graph/List editor validation
 
-PR #79 delivered the visual foundation under D047. PR 2A reorganises the
-workspace and adds contextual inspection under D051; see
-[WORKSPACE_INSPECTOR_VALIDATION.md](WORKSPACE_INSPECTOR_VALIDATION.md) for current
-control mapping, selection behaviour, validation results and macOS checklist.
-Connection editing remains PR 2B and placement/usability PR 2C. No renderer,
-evaluator, graph commands or sidecar schema is replaced by these UI deliveries.
+PR #79 delivered the visual foundation under D047; PR #80 delivered the
+contextual Inspector/workspace under D051; and PR #82 delivered focused typed
+wiring, Output rewiring, Disconnect and deletion interactions. All three are
+merged. See [WORKSPACE_INSPECTOR_VALIDATION.md](WORKSPACE_INSPECTOR_VALIDATION.md)
+for the PR #80 control mapping and historical validation. PR 2C placement/usability
+requires a separate approved scope. None of these UI PRs replaces the renderer,
+evaluator, graph commands or sidecar schema.
 
 ## Graph foundation contracts
 
@@ -60,21 +61,23 @@ merge; fresh PR 2A platform checks remain separately pending.
 
 ## Current limits
 
-Graph provides single selection and header movement; the focused PR 2B adds typed
-wiring and deletion. Reorder and enable/disable remain List controls. Add Processor
-is available in both modes and retains PR #80's append-to-Output behaviour.
+Graph provides single selection and header movement, with typed wiring,
+input Disconnect, virtual Output rewiring and focused deletion merged in
+PR #82. Reorder and enable/disable remain List controls. Add Processor is
+available in both modes and retains PR #80's append-to-Output behaviour.
 Source is movable and opens input inspection. Output is selectable but derived,
 non-draggable and nonpersistent. Pan/zoom reset per photo; zoom spans 0.2–2.5.
 Very large layouts may require panning after Frame All reaches minimum zoom.
-Saved overlaps are preserved. Frame All scales text with zoom; assess Retina/
-non-Retina readability through the manual checklist. Multi-selection, grouping,
-empty nodes and production Mask processors remain outside PR 2A.
+Saved overlaps are preserved. Frame All scales text with zoom. Multi-selection,
+grouping, intentionally empty nodes and production Mask processors remain
+outside the delivered Graph View interactions.
 
-## Focused PR 2B scope and independent acceptance criteria
+## Historical PR 2B scope and independent acceptance criteria
 
-The owner withdrew PR #81's insertion changes. The replacement starts at clean
-main; #81 stays open and intact for independent comparison. D051 retains its
-historical record with a superseding scope clarification. No PR 2C work starts.
+The owner withdrew PR #81's insertion changes. PR #82 started from clean
+main and was merged after independent review and macOS validation; PR #81
+was closed unmerged. D051 retains its historical record with a superseding
+scope clarification. PR 2C placement work has not started.
 
 Only five behaviours are approved: interactive typed wire connections, input
 Disconnect, virtual Output rewiring, Graph node deletion and the menus needed
@@ -112,10 +115,11 @@ rejected/no-op/cancelled actions; save/reopen actual sidecars. Retain PR #80
 Inspector/workspace/picker regressions. Add Processor must append regardless of
 Source/processor/Output selection. Native/CTL/OFX creation, clipboard Paste and
 preset Append remain on their existing paths. Do not retain tests of withdrawn
-insertion functionality. Audit every production file against the five approved
-behaviours before opening the replacement PR; include that table in its description.
+insertion functionality. Before PR #82 was opened, its production diff was
+audited against those five approved behaviours and the PR description recorded
+the resulting per-file scope assessment.
 
-## Focused PR 2B macOS checklist (pending)
+## Focused PR 2B macOS checklist (owner-reported summary below)
 
 1. Open Nikon NEF; adjust real processors and check preview updates after wiring.
 2. Connect/reconnect in both directions; exercise fan-out, invalid types/cycles,
@@ -131,14 +135,17 @@ behaviours before opening the replacement PR; include that table in its descript
 8. Confirm Add Processor still appends in both views for every selection; check
    Native/CTL/OFX, clipboard/preset and PR #80 Inspector/workspace regressions.
 
-Windows GUI validation remains pending. Linux/headless results cannot establish
-macOS/Nikon/Retina behaviour.
+Windows GUI validation remains pending. Linux/headless results alone do not
+establish macOS/Nikon/Retina behaviour; owner-reported macOS results are
+recorded separately below.
 
 ## Focused replacement validation — 2026-10-19
 
 - Ubuntu 24.04 / GCC 13 CMake Release build passed in the isolated validation
-  container with the pinned dependency sources. All 16 Graph View groups passed:
-  11 existing groups retained and five focused wiring/deletion/lifecycle groups.
+  container with the pinned dependency sources. The initial replacement head
+  passed 16 Graph View groups (11 existing and five focused
+  wiring/deletion/lifecycle groups). The corrected final head added a seventeenth
+  regression group for stale menus across same-photo grade replacement.
   The picker regression now checks append for None/Source/processor/Output
   selection in both views, without changing picker or construction code.
 - Separate `--selftest-graph`, `--selftest-photo`, `--selftest-export-safety` and
@@ -164,7 +171,42 @@ macOS/Nikon/Retina behaviour.
   processor backends are identical to current main. No withdrawn insertion tests,
   picker state, insertion preflight, graph-to-canvas callbacks or new systems remain.
 
-GitHub Linux CI results are reported on the replacement PR for its exact head.
-Claude independent review and the macOS checklist remain pending; Windows GUI
-was not tested. PR #81 remains open and unchanged at
-`13054eaf05c249d050a6cd48bb175fff2b9ff5a1`; neither PR is merged and PR 2C is untouched.
+## PR #82 completion and validation — 2026-10-20
+
+- The final reviewed PR #82 head was
+  `551bec78b0288fde4795146a7d8eaaf2b8ca96cf`. The PR was squash-merged
+  into `main` as `7d3fdbe9fb2ff93560f19be5ac4a415653eaee1c`.
+  PR #81 (`13054eaf05c249d050a6cd48bb175fff2b9ff5a1`) was closed
+  without merging; its broader insertion/processor-construction changes were
+  explicitly outside PR #82.
+- In the review transcript supplied by the owner, Claude reported an
+  independent final-delta **SAFE TO MERGE** verdict, local Ubuntu Release build
+  and full `--selftest` pass (173/173 groups), including 17 Graph View groups.
+  Claude also reported running mutation checks in local scratch builds:
+  the original wrong-node Delete/Disconnect regression and removal of either
+  new selection guard failed the tests as intended. These local results come
+  from the supplied review transcript, not a complete GitHub CI log transcript.
+  GitHub Linux CI passed on the final head; the 17 Graph View groups are
+  confirmed in source and CI evidence. Codex separately reported focused
+  ASan/UBSan and GUI smoke checks; Claude did not independently rerun
+  sanitizers on the final correction.
+- The owner reported that the macOS Graph View checklist passed overall,
+  with no unexpected regression, after running the app locally on a Mac.
+  The owner specifically discussed connection endpoints: Source's output
+  itself and the virtual document Output input cannot be disconnected;
+  this is expected. Individual receiving-node inputs can be disconnected,
+  while document Output can be rewired to a valid Image producer. A direct
+  Source-to-Output connection previews the unchanged source, with Export
+  disabled under the existing policy.
+- This was an overall owner report, not item-by-item evidence or an
+  independent macOS build/sanitizer certification. Particular subcases were
+  **not separately confirmed** in the report: full-resolution Export from
+  a processing-node Output; held-key/text-field focus interactions; Retina
+  port targeting and trackpad specifics; all Native/CTL/OFX, clipboard/preset
+  and Inspector regression combinations. Corrupted-sidecar protection and
+  export/edit overlap were discussed but not explicitly verified under the
+  respective native failure/race conditions. Automated regression coverage
+  remains available; these native scenarios are not claimed as individually
+  passed and can receive focused follow-up testing.
+- Windows GUI validation remains pending. PR 2C is not yet implemented or
+  approved in detail; see D052 and the roadmap for the product-scope boundary.

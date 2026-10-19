@@ -12,9 +12,10 @@ manual-validation evidence is not recorded; see `docs/STEP6_MANUAL_VALIDATION.md
 Step 7 PRs 1–5 are merged (#63, #65, #66, #68, #69), completing graph-native
 photo/preset/clipboard persistence and global preferences/workspace retirement.
 The targeted post-Step-7 graph safety and PNG colour correction gate is complete
-(see `docs/PROJECT_CONTEXT.md`). The switchable Graph/List editor (D047) has its
-visual foundation; D051 stages the contextual workspace (PR 2A), visual graph
-editing (PR 2B) and placement/usability (PR 2C), then Step 8 masking.
+(see `docs/PROJECT_CONTEXT.md`). The switchable Graph/List editor (D047)
+has its visual foundation (#79), workspace/Inspector (#80) and focused graph
+editing (#82) merged. PR 2C placement/usability awaits owner approval of its
+exact scope before Step 8 masking.
 These fixes do not add architecture steps.
 
 Read this together with:
@@ -321,7 +322,7 @@ The retired Left Panel has no window, visibility or width preference. Fresh defa
 docking is Preview above Nodes, Inspector right and Filmstrip across the bottom;
 ImGui retains ordinary resizing/floating/custom arrangement persistence. Historical
 UI layouts have no migration/alias path; user configuration is never deleted.
-Connection editing remains PR 2B under D051.
+Connection editing and deletion are delivered by merged PR #82 under D051.
 
 Live photo capture/restoration preserves every stored graph node, connection,
 endpoint, Slot allocator and optional position through the shared strict codec.
@@ -654,10 +655,10 @@ validation evidence is tracked separately in `docs/PROJECT_CONTEXT.md`.
 
 7. **Add versioned graph persistence — complete; PRs #63, #65, #66, #68, #69.**
 
-   The post-Step-7 correction gate is complete. The Graph/List visual foundation
-   is implemented; D051 stages PR 2A workspace, PR 2B visual editing and
-   PR 2C placement/usability before Step 8. This is a UI
-   milestone (D047), not another numbered architecture step. Both views edit the
+   The post-Step-7 correction gate is complete. Graph/List visual foundation
+   (#79), workspace (#80) and editing (#82) are merged; PR 2C placement/
+   usability remains a future owner-scoped UI task before Step 8. This is a
+   UI milestone (D047), not another numbered architecture step. Both views edit the
    same authoritative document graph and share NodeId selection; no additional renderer or
    execution model is introduced.
 
