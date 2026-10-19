@@ -60,9 +60,9 @@ are non-blocking follow-ups.
   parameter-edit preview scheduling, graph traversal depth and PNG colour
   metadata/ICC placement are corrected and independently reviewed.
 - **Graph View UI milestone (between Steps 7 and 8; D047), in progress:**
-  PR #79 supplies the dockable List/Graph visual foundation. PR 2A adds the
-  contextual Inspector and editing workspace; PR 2B adds visual graph editing;
-  PR 2C improves placement and usability. The full milestone is not complete.
+  Foundation #79, contextual workspace PR 2A (#80) and focused interactive
+  graph editing PR 2B (#82) are merged. PR 2C placement/usability still needs
+  agreed acceptance criteria. The full milestone is not complete.
 - **Step 8:** first concrete mask path and remaining implementation details
   under the Step 5 product/architectural contract. TIFF and EXR format
   correctness and JPEG encoder UB remain independently tracked follow-ups,
@@ -191,10 +191,10 @@ required.
 
 ## Graph / List interface
 
-**UI delivery milestone in progress (D047):** the dockable Nodes panel now
-switches between List controls and a visual Graph canvas. The accepted next
-deliveries are PR 2A, PR 2B and PR 2C below (D051), before Step 8 introduces
-user-facing masks.
+**UI delivery milestone in progress (D047):** the dockable Nodes panel switches
+between List and Graph. Foundation #79, workspace PR 2A (#80), and focused
+connections/deletion PR 2B (#82) are merged. PR 2C is a design discussion,
+not yet an approved implementation brief, before Step 8 introduces masks.
 This is a UI/product milestone, not an additional numbered architecture refactor.
 The completed correction gate and deferred image-format issues are tracked in
 `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
@@ -220,7 +220,7 @@ PR 1 visual foundation:
   graph evaluation;
 - global List/Graph preference, with transient canvas pan/zoom.
 
-**PR 2A — Contextual Inspector and workspace**
+**PR 2A — Contextual Inspector and workspace (merged as #80)**
 
 - Preview owns preview-specific controls, including resolution.
 - Nodes owns List/Graph switching and the existing searchable Add Processor picker.
@@ -239,7 +239,7 @@ PR 2A implementation and validation are recorded in
 [WORKSPACE_INSPECTOR_VALIDATION.md](docs/WORKSPACE_INSPECTOR_VALIDATION.md);
 independent review and outstanding platform checks remain separate.
 
-**PR 2B — Visual graph editing**
+**PR 2B — Visual graph editing (merged as #82)**
 
 - Connect, reconnect and disconnect typed ports; edit document Output connections.
 - Delete nodes via Delete/Backspace and context menus.
@@ -250,18 +250,27 @@ independent review and outstanding platform checks remain separate.
   PR 2B by the owner; they require a separate product decision, not an automatic
   move into PR 2C. See D051's superseding scope clarification.
 
-**PR 2C — Graph placement and usability**
+**PR 2C — Graph placement and usability (scope not yet approved)**
 
-- Place inserted serial nodes between connected neighbours and make room
-  predictably in existing arrangements.
-- Prevent pasted/duplicated nodes overlapping and improve contextual interactions.
-- Consider optional user-requested Auto Arrange later; preserve saved positions.
+Possible work includes improving placement for existing append and paste/duplicate
+operations, reducing overlap, and refining contextual interactions. Preserve
+saved positions. Automatic arrangement, new gestures or controls are proposals,
+not implied requirements; agree exact behaviour with the owner first.
 
-**Separate future feature — Empty nodes**
+Selection-aware Add Processor insertion and explicit serial Before/After remain
+a **separate product decision**, not automatic PR 2C work. Add Processor keeps
+appending to document Output regardless of selection. Existing graph commands
+already provide serial insertion capabilities; do not change processor
+construction without an approved workflow.
 
-Intentionally empty pass-through nodes may later receive or replace processors
-without losing NodeId, position or connections. Preserve the distinction between
-an empty node and an unavailable processor.
+**Separate deferred feature — Empty nodes and processor assignment**
+
+Connections and positions already belong to NodeIds, while nodes own optional
+processor instances. An absent processor currently means *unavailable*, not
+intentionally empty. Empty pass-through nodes and processor replacement require
+a separate decision about compatible ports, identity, evaluation and sidecars;
+there is no reason to add a second graph model now. This is not a prerequisite
+for PR 2C or Step 8.
 
 Step 8 remains the first concrete Mask implementation under the accepted Step 5
 contract, followed by compositing and local adjustments. This sequence adds no
