@@ -5,13 +5,14 @@
 # RawNode
 
 RawNode is a fork of OFX Raw Host with native, OFX and CTL processors sharing
-one document graph and evaluator. Architecture Steps 1–7 are complete, including
-all five Step 7 persistence PRs through #69. After the short correction gate in
-`docs/PROJECT_CONTEXT.md`, the switchable Graph/List editor follows, then Step 8
-masking/compositing. See [project context](docs/PROJECT_CONTEXT.md),
-[architecture](docs/ARCHITECTURE.md), [coding guidance](docs/CODE_STYLE.md) and
-[roadmap](ROADMAP.md). Manual platform checks remain tracked separately in
-[the validation record](docs/STEP6_MANUAL_VALIDATION.md).
+one document graph and evaluator. Architecture Steps 1–7 and the targeted
+post-Step-7 corrections are complete. The dockable Graph/List editor,
+contextual workspace (#80) and focused connection/deletion editing (#82)
+are implemented. PR 2C placement/usability needs an agreed scope before
+Step 8 masking/compositing. See [project context](docs/PROJECT_CONTEXT.md),
+[architecture](docs/ARCHITECTURE.md), [coding guidance](docs/CODE_STYLE.md),
+[roadmap](ROADMAP.md) and [Graph View validation](docs/GRAPH_VIEW_VALIDATION.md).
+Older platform checks remain in [the Step 6 record](docs/STEP6_MANUAL_VALIDATION.md).
 
 The upstream release badges, installation instructions and release history below
 refer to OFX Raw Host, not current RawNode release or validation status.
