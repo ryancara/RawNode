@@ -84,6 +84,29 @@ macOS and Windows builds/GUI checks remain unperformed. The full sanitizer suite
 and TSan were not run; this PR changes UI/selection rather than execution ownership.
 Use the platform checklist below; these omissions are not passing evidence.
 
+## Targeted post-review correction pass
+
+The endpoint insertion regressions exercise `copySelectedNode`/`pasteFromClipboard`
+and the menu's `loadPresetDialog` action. A supplied preset path skips only the
+native chooser; the action still reads the file and decides the insertion anchor.
+Source and virtual Output each cover copied-processor Paste and two-processor
+linear Append. Expectations check extension of the previous document Output,
+every incoming Image link and preservation of existing topology/branches.
+
+The Inspector regression writes a tiny uncompressed linear DNG, opens it through
+the normal photo action, selects Source through List UI and clicks RAW gamma's
+sRGB choice. It uses the actual LibRaw decoder and Inspector handler. Independent
+sRGB OETF and +1 EV expectations verify full/preview pixels and rendered output;
+the saved photo gamma changes while in-memory and saved global RAW defaults stay
+unchanged, including after saving preferences again.
+
+Inspector now supplies a 420x600 `FirstUseEver` size before Begin. Existing fresh
+docking and saved custom/floating layout tests pass; there is no migration.
+`canExport()` has only an eligibility comment; `showRight`/`rightW` are unchanged.
+Release Graph View (11 groups), transfers (10), preferences, photo and complete
+`--selftest` pass. The PR description records the corrected SHA and final CI,
+mutation-probe and sanitizer results.
+
 ## macOS manual checklist — pending
 
 Record the head SHA, macOS version, display and results. Use a disposable photo

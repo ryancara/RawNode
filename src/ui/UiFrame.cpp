@@ -108,14 +108,17 @@ bool savePresetDialog(App &app, std::string path) {
   });
 }
 
-static bool loadPreset(App &app, bool append) {
+bool loadPresetDialog(App &app, bool append, std::string path) {
   if (!requireEditableGraph(app)) return false;
-  const auto paths = pfd::open_file(append ? "Append Preset" : "Replace Grade from Preset", "",
-                                   {"RawNode grade", "*.json"}).result();
-  if (paths.empty()) return false;
+  if (path.empty()) {
+    const auto paths = pfd::open_file(append ? "Append Preset" : "Replace Grade from Preset", "",
+                                     {"RawNode grade", "*.json"}).result();
+    if (paths.empty()) return false;
+    path = paths.front();
+  }
   PersistGrade grade;
   std::string error;
-  if (!loadPresetFile(paths.front(), grade, error)) { app.setStatus(error); return false; }
+  if (!loadPresetFile(path, grade, error)) { app.setStatus(error); return false; }
   const bool applied = append ? appendGrade(app, grade, selectedNode(app) ? app.selectedNodeId() : std::nullopt) : applyGrade(app, grade);
   if (applied) app.setStatus(append ? "Appended preset" : "Replaced grade from preset");
   return applied;
@@ -143,6 +146,7 @@ static void openFolderDialog(App &app) {
 }
 
 static bool canExport(const App &app) {
+  // Parameter eligibility also excludes an active export and protected photos.
   return !app.full.px.empty() && app.hasProcessingOutput() && app.renderer.canEditParameters();
 }
 
@@ -248,8 +252,8 @@ void DrawUiFrame(App &app) {
         if (ImGui::MenuItem("Save Preset…", nullptr, false, editable))
           savePresetDialog(app);
         if (ImGui::BeginMenu("Load Preset", editable)) {
-          if (ImGui::MenuItem("Replace…")) loadPreset(app, false);
-          if (ImGui::MenuItem("Append…")) loadPreset(app, true);
+          if (ImGui::MenuItem("Replace…")) loadPresetDialog(app, false);
+          if (ImGui::MenuItem("Append…")) loadPresetDialog(app, true);
           ImGui::EndMenu();
         }
         ImGui::EndMenu();
@@ -318,6 +322,7 @@ void DrawUiFrame(App &app) {
   DockLayout::BeginMainDockSpace(app);
 
   if (app.showRight) {
+    ImGui::SetNextWindowSize(ImVec2(420, 600), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(DockLayout::kInspector, &app.showRight)) drawInspector(app);
     ImGui::End();
   }

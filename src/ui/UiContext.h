@@ -20,3 +20,5 @@ bool copySelectedNode(App &app);
 bool copyGrade(App &app);
 bool pasteFromClipboard(App &app);
 bool savePresetDialog(App &app, std::string path = {});
+// A supplied path skips only the native chooser, retaining the UI anchor policy.
+bool loadPresetDialog(App &app, bool append, std::string path = {});

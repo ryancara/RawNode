@@ -11,6 +11,7 @@
 
 #include "imgui.h"
 #include "imgui_internal.h"
+#include <tiffio.h>
 
 #include <algorithm>
 #include <atomic>
@@ -522,6 +523,85 @@ bool photoLayoutLifecycle() {
   return true;
 }
 
+bool inspectorRawGammaEdit() {
+  Files files;
+  const auto photo = (files.dir / "synthetic.dng").string();
+  const auto preferences = (files.dir / "preferences.json").string();
+  // A tiny uncompressed linear DNG exercises the real LibRaw re-decode path,
+  // without a camera fixture or a test replacement for the Inspector handler.
+  auto *tiff = TIFFOpen(photo.c_str(), "w");
+  CHECK(tiff);
+  TIFFSetField(tiff, TIFFTAG_IMAGEWIDTH, 32);
+  TIFFSetField(tiff, TIFFTAG_IMAGELENGTH, 32);
+  TIFFSetField(tiff, TIFFTAG_SAMPLESPERPIXEL, 3);
+  TIFFSetField(tiff, TIFFTAG_BITSPERSAMPLE, 16);
+  TIFFSetField(tiff, TIFFTAG_PHOTOMETRIC, 34892); // DNG LinearRaw RGB.
+  TIFFSetField(tiff, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
+  TIFFSetField(tiff, TIFFTAG_ROWSPERSTRIP, 32);
+  const uint8_t version[] = {1, 4, 0, 0};
+  TIFFSetField(tiff, TIFFTAG_DNGVERSION, version);
+  TIFFSetField(tiff, TIFFTAG_UNIQUECAMERAMODEL, "RawNode synthetic linear DNG");
+  const float matrix[] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+  TIFFSetField(tiff, TIFFTAG_COLORMATRIX1, 9, matrix);
+  TIFFSetField(tiff, TIFFTAG_CALIBRATIONILLUMINANT1, 21);
+  const uint32_t white = 65535;
+  TIFFSetField(tiff, TIFFTAG_WHITELEVEL, 1, &white);
+  std::vector<uint16_t> pixels(32 * 32 * 3, 12000);
+  const auto written = TIFFWriteEncodedStrip(tiff, 0, pixels.data(), pixels.size() * sizeof(uint16_t));
+  TIFFClose(tiff);
+  CHECK(written > 0);
+
+  App app;
+  Preferences defaults; defaults.rawWorking = {RgbGamut::Rec2020, TransferFunction::Linear};
+  std::string error;
+  CHECK(savePreferences(preferences, defaults, error) && initialisePreferences(app, {preferences, ""}));
+  const auto savedPreferences = bytes(preferences);
+  CHECK(openPath(app, photo));
+  CHECK(app.inputIsRaw && app.inputEncoding == defaults.rawWorking);
+  CHECK(addNativeExposureNode(app));
+  CHECK(setNodeParameterValue(app, *app.selectedNodeId(), "exposure", 1.0));
+  app.renderer.start(); CHECK(idle(app));
+  const auto previousPreview = app.preview;
+  const float linear = app.full.px[0];
+  CHECK(linear > 0.0031308f && linear < 1);
+  const double encoded = 1.055 * std::pow(linear, 1.0 / 2.4) - 0.055;
+  const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+  Ui ui; ui.showInspector = true;
+  ui.tick(app); ui.tick(app); ui.click(app, ui.listSource);
+  CHECK(app.selectedNodeId() == app.primarySource && ui.inspectorLastItem == ui.inspectorId("RAW gamma"));
+  ui.click(app, {ui.inspectorLastRect.Min.x + 30, ui.inspectorLastRect.GetCenter().y});
+  CHECK(ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId));
+  ui.tick(app); ui.tick(app); // Let the auto-sized popup settle before hit testing.
+  // Linear is row 0, sRGB is row 1 in the actual combo popup.
+  ImVec2 srgb{};
+  for (const auto *window : ImGui::GetCurrentContext()->Windows)
+    if (window->Active && (window->Flags & ImGuiWindowFlags_Popup))
+      srgb = {window->DC.CursorStartPos.x + 20, window->DC.CursorStartPos.y + ImGui::GetTextLineHeightWithSpacing() + 5};
+  CHECK(srgb.x > 0); ui.click(app, srgb);
+  const ColorEncoding changed{RgbGamut::Rec2020, TransferFunction::SRGB};
+  CHECK(app.photoRawWorkingEncoding == changed && app.inputEncoding == changed);
+  CHECK(app.rawWorkingEncoding == defaults.rawWorking && capturePreferences(app).rawWorking == defaults.rawWorking);
+  CHECK(bytes(preferences) == savedPreferences);
+  CHECK(app.preview != previousPreview && std::abs(app.full.px[0] - encoded) < 1e-5);
+  CHECK(idle(app) && std::abs(app.preview->px[0] - encoded) < 1e-5);
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch > before.epoch);
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.processed.result.state == EvaluationState::Available);
+    const auto rendered = std::get<ImageValue>(app.processed.result.value);
+    CHECK(rendered && std::abs(rendered->px[0] - 2 * encoded) < 1e-5);
+  }
+  CHECK(saveCurrentInputSidecar(app));
+  PersistFile saved;
+  CHECK(readGraphSidecar(inputSidecarPath(photo), saved, error) == SidecarReadStatus::Loaded && saved.grade);
+  CHECK(saved.grade->color.rawGamma == "srgb");
+  CHECK(savePreferences(preferences, capturePreferences(app), error));
+  Preferences reloaded; std::string warning;
+  CHECK(loadPreferences(preferences, reloaded, warning) && warning.empty());
+  CHECK(reloaded.rawWorking == defaults.rawWorking);
+  return true;
+}
+
 bool inspectorContexts() {
   Ui ui; ui.showInspector = true; ui.captureLog = true;
   App app; app.path = "test.nef";
@@ -713,6 +793,7 @@ bool testGraphView() {
        std::make_pair("Frame All focus, active text input, other panel and view switching", frameShortcutFocus),
        std::make_pair("photo layout save, failure, codec and reopen lifecycle", photoLayoutLifecycle),
        std::make_pair("contextual Inspector, List endpoints, protected controls and selection isolation", inspectorContexts),
+       std::make_pair("Inspector RAW gamma edits re-decode/render the photo and preserve global defaults", inspectorRawGammaEdit),
        std::make_pair("searchable processor picker appends in List and Graph", processorPickerInBothViews),
        std::make_pair("new workspace default and custom/floating ini restart", workspaceDocking),
        std::make_pair("first-launch framing waits for settled docking geometry", firstDockedFrame)}) {

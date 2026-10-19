@@ -3,6 +3,7 @@
 #include "NodeGraph.h"
 #include "GraphCommands.h"
 #include "GraphEvaluator.h"
+#include "GraphValidation.h"
 #include "GraphPersistenceTestAccess.h"
 #include "GraphDepthFixtures.h"
 #include "RenderRuntimeTestAccess.h"
@@ -348,6 +349,49 @@ bool insertAfterSelectedFinalNode() {
   return true;
 }
 
+bool endpointSelectionAppendsThroughActions() {
+  Files files; Clipboard clipboard;
+  const auto destination = grade(file(processor("end", "start", "-1") + ',' + processor("branch", "start", "3") + ',' +
+                                     source + ',' + processor("start", "camera", "1"), "end"));
+  const auto preset = files.path("linear.rawnode.json");
+  write(preset, file(processor("tail", "entry", "-1") + ',' + source + ',' + processor("entry", "camera", "2"), "tail"));
+  for (bool output : {false, true}) {
+    for (bool paste : {true, false}) {
+      App app;
+      CHECK(applyGrade(app, destination));
+      if (paste) {
+        CHECK(selectNode(app, NodeId{"start"}) && copySelectedNode(app));
+      }
+      if (output) selectOutput(app);
+      else CHECK(selectNode(app, app.primarySource));
+      // Exercise the menu/shortcut anchor decision, rather than supplying an
+      // already-filtered anchor directly to the lower-level graph command.
+      CHECK(paste ? pasteFromClipboard(app) : loadPresetDialog(app, true, preset));
+      CHECK(app.nodes.size() == (paste ? 5 : 6) && app.selectedNodeId());
+      const auto tail = *app.selectedNodeId();
+      CHECK(app.documentOutput == (OutputRef{tail, ports::image}) && tail != NodeId{"end"});
+      const auto *tailNode = findNode(app, tail);
+      CHECK(tailNode && tailNode->fixedInputs.at(ports::image));
+      if (paste) {
+        CHECK(tailNode->fixedInputs.at(ports::image) == image("end"));
+      } else {
+        const auto entry = tailNode->fixedInputs.at(ports::image)->nodeId;
+        CHECK(entry != tail && entry != NodeId{"end"});
+        CHECK(findNode(app, entry) && findNode(app, entry)->fixedInputs.at(ports::image) == image("end"));
+      }
+      PersistGrade after;
+      CHECK(captureGrade(app, after));
+      for (const auto &saved : destination.graph.nodes) {
+        const auto &retained = record(after, saved.id);
+        CHECK(retained.inputs == saved.inputs && retained.operation == saved.operation);
+        CHECK(retained.paramsJson == saved.paramsJson && retained.enabled == saved.enabled);
+      }
+      CHECK(graphStructureError({app.nodes, app.primarySource, app.documentOutput}).empty());
+    }
+  }
+  return true;
+}
+
 bool rejectIncomingOffSpineConsumer() {
   App app;
   const auto destination = grade(file(processor("end", "start", "-1") + ',' + processor("branch", "start", "3") + ',' +
@@ -547,6 +591,7 @@ bool testPresetsAndClipboard() {
       std::make_pair("Replace preserves pixels, metadata/defaults, replaces positions and enforces protection", replaceAndProtection),
       std::make_pair("linear middle/end Append preserves branches, bindings/positions and rejects atomically", linearAppendAndRejection),
       std::make_pair("selected final-node Append/Paste updates Output and evaluates the complete chain", insertAfterSelectedFinalNode),
+      std::make_pair("Source/Output selection appends paste and preset through UI actions", endpointSelectionAppendsThroughActions),
       std::make_pair("incoming off-spine consumer rejects without changing document state", rejectIncomingOffSpineConsumer),
       std::make_pair("independent fragment capture, fresh IDs, detached links and real clipboard refusal", fragmentsAndClipboard),
       std::make_pair("internal Mask/Reference/Slot state and external-link diagnostics", fragmentSlotsAndExternalLinks)}) {
