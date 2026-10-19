@@ -90,13 +90,10 @@ Small local fixes need no formal design document or extra approval process.
 Reviews should verify the intended behaviour rather than merely confirm the
 implementation's own output.
 
-Under D052, Codex may decide ordinary implementation details but must first
-discuss discretionary UI/product behaviour or appearance changes. UI PRs
-inventory all visible changes, including necessary interaction feedback;
-optional ideas stay unimplemented suggestions. Reuse existing architecture
-where coherent, but welcome a new component or system when demonstrated
-modularity and maintainability benefits justify its cost. Substantial
-architectural decisions require advance owner approval, not blanket rejection.
+D052 sets the product-approval, visible-change reporting and proportionate
+architecture-reuse rules for implementers and independent reviewers. Reuse
+existing systems by default, but consider justified new modules without
+prematurely building speculative infrastructure.
 
 ChatGPT is the long-running product/architecture discussion partner. Codex is the
 primary implementation agent. Claude Code is primarily the independent,
@@ -231,8 +228,8 @@ merged. Step 7 persistence is also complete. The Graph/List editor now includes 
 PR #79 foundation, PR #80 contextual Inspector/workspace and PR #82 connection/
 deletion editing (D051), all merged and independently reviewed. Owner-reported
 native macOS validation of PR #82 is in `docs/GRAPH_VIEW_VALIDATION.md`;
-protected-photo recovery/export-overlap stress and Windows GUI checks remain
-separate. PR 2C placement/usability is the next **discussion**, not an already
+corrupted-sidecar protection and export/edit overlap scenarios, as well
+as Windows GUI checks, remain separately tracked. PR 2C placement/usability is the next **discussion**, not an already
 approved implementation; the concrete production Mask path follows. PR 2A
 historical validation remains in `docs/WORKSPACE_INSPECTOR_VALIDATION.md`.
 The approved target is
@@ -737,8 +734,9 @@ Next architecture/product work:
 
 - The visual Graph/List foundation (#79), contextual Inspector/workspace (#80)
   and focused connection/deletion editing (#82) are merged after independent
-  review. Native macOS Graph View testing was reported successful; some
-  protection/export stress and Windows GUI checks remain separately tracked.
+  review. Native macOS Graph View testing was reported successful; the
+  corrupted-sidecar protection, export/edit overlap and Windows GUI checks
+  remain separately tracked.
 - Discuss a focused, owner-approved PR 2C placement/usability contract before
   implementation, then continue toward Step 8's first concrete Mask path.
   A roadmap candidate is not approval to change insertion semantics.
