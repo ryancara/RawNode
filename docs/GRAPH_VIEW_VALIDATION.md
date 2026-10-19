@@ -1,10 +1,10 @@
 # Graph/List editor validation
 
-PR #79 delivered the visual foundation under D047. PR 2A reorganises the
-workspace and adds contextual inspection under D051; see
-[WORKSPACE_INSPECTOR_VALIDATION.md](WORKSPACE_INSPECTOR_VALIDATION.md) for current
-control mapping, selection behaviour, validation results and macOS checklist.
-Connection editing remains PR 2B and placement/usability PR 2C. No renderer,
+PR #79 delivered the visual foundation under D047. PR 2A (#80) reorganised
+the workspace and added contextual inspection under D051; see
+[WORKSPACE_INSPECTOR_VALIDATION.md](WORKSPACE_INSPECTOR_VALIDATION.md) for
+control mapping and historical validation. Focused connection/deletion
+editing merged in PR 2B (#82); PR 2C requires a separate approved scope. No renderer,
 evaluator, graph commands or sidecar schema is replaced by these UI deliveries.
 
 ## Graph foundation contracts
@@ -60,21 +60,21 @@ merge; fresh PR 2A platform checks remain separately pending.
 
 ## Current limits
 
-Graph provides single selection and header movement; the focused PR 2B adds typed
+Graph provides single selection and header movement; PR 2B added typed
 wiring and deletion. Reorder and enable/disable remain List controls. Add Processor
 is available in both modes and retains PR #80's append-to-Output behaviour.
 Source is movable and opens input inspection. Output is selectable but derived,
 non-draggable and nonpersistent. Pan/zoom reset per photo; zoom spans 0.2–2.5.
 Very large layouts may require panning after Frame All reaches minimum zoom.
 Saved overlaps are preserved. Frame All scales text with zoom; assess Retina/
-non-Retina readability through the manual checklist. Multi-selection, grouping,
-empty nodes and production Mask processors remain outside PR 2A.
+non-Retina readability through the manual checklist. Multi-selection, grouping, intentionally empty nodes and production Mask
+processors remain outside the current UI milestone.
 
 ## Focused PR 2B scope and independent acceptance criteria
 
-The owner withdrew PR #81's insertion changes. The replacement starts at clean
-main; #81 stays open and intact for independent comparison. D051 retains its
-historical record with a superseding scope clarification. No PR 2C work starts.
+The owner withdrew PR #81's insertion changes. PR #82 was based on clean
+main and merged; PR #81 was closed unmerged. D051 retains the historical
+record with a superseding scope clarification. PR 2C has not started.
 
 Only five behaviours are approved: interactive typed wire connections, input
 Disconnect, virtual Output rewiring, Graph node deletion and the menus needed
@@ -115,7 +115,7 @@ preset Append remain on their existing paths. Do not retain tests of withdrawn
 insertion functionality. Audit every production file against the five approved
 behaviours before opening the replacement PR; include that table in its description.
 
-## Focused PR 2B macOS checklist (pending)
+## Focused PR 2B macOS checklist (owner-reported; details below)
 
 1. Open Nikon NEF; adjust real processors and check preview updates after wiring.
 2. Connect/reconnect in both directions; exercise fan-out, invalid types/cycles,
@@ -164,7 +164,25 @@ macOS/Nikon/Retina behaviour.
   processor backends are identical to current main. No withdrawn insertion tests,
   picker state, insertion preflight, graph-to-canvas callbacks or new systems remain.
 
-GitHub Linux CI results are reported on the replacement PR for its exact head.
-Claude independent review and the macOS checklist remain pending; Windows GUI
-was not tested. PR #81 remains open and unchanged at
-`13054eaf05c249d050a6cd48bb175fff2b9ff5a1`; neither PR is merged and PR 2C is untouched.
+These 16-group results describe the initial replacement head; the final head
+added the stale-menu regression group.
+
+## PR #82 final review and macOS report
+
+- Exact reviewed PR head `551bec78b0288fde4795146a7d8eaaf2b8ca96cf`:
+  Claude reported **SAFE TO MERGE**, independently passing 173/173 Linux
+  Release self-test groups. GitHub Linux CI was green. Targeted mutations
+  caught both stale Delete/Disconnect actions, including reused NodeIds and
+  macOS Ctrl+click semantics. Codex reported additional focused sanitizer and
+  Linux GUI smoke runs; Claude did not independently rerun sanitizers in its
+  final focused review.
+- The owner reported the macOS UI checks passed, including the Graph/List
+  interactions. Source's output cannot itself be disconnected: disconnect at
+  the receiving processor input instead. Virtual Output's input must remain
+  connected but can be rewired. Both are intentional existing semantics.
+- Corrupted-sidecar protection and a timed edit-during-export stress case
+  were not separately confirmed as exercised manually. Existing automated
+  coverage checks these protections. Windows GUI validation remains pending.
+- PR #82 was squash-merged at
+  `7d3fdbe9fb2ff93560f19be5ac4a415653eaee1c`.
+  PR #81 was closed unmerged as superseded. PR 2C remains unapproved.

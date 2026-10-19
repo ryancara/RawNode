@@ -7,9 +7,9 @@ from ofxrawhost.
 
 It supports one explicit processing graph containing native processors, OpenFX
 plugins and CTL processors, with a dockable Nodes panel and switchable List/Graph
-presentation. D051 stages contextual workspace (PR 2A), graph editing (PR 2B) and placement
-(PR 2C); future plans
-include DCTL, LUTs, masks, compositing and local adjustments.
+presentation. Contextual workspace PR 2A (#80) and focused Graph View editing
+PR 2B (#82) are merged. PR 2C placement/usability requires an agreed scope;
+future plans include DCTL, LUTs, masks, compositing and local adjustments.
 
 macOS is currently the primary development platform, but the architecture should
 remain cross-platform for macOS, Windows and Linux.
@@ -323,11 +323,11 @@ coverage only when its Reference frame resolves.
 
 Step 7 graph-native persistence and all four targeted post-Step-7 corrections
 are complete (see "Quality and verification roadmap" in
-`docs/PROJECT_CONTEXT.md`). The Graph/List visual foundation (D047) adds a
-dockable Nodes panel; D051 stages workspace PR 2A, graph editing PR 2B and
-placement/usability PR 2C before Step 8's first
-concrete production Mask path. See `docs/GRAPH_VIEW_VALIDATION.md` for focused
-tests and the pending macOS GUI checklist.
+`docs/PROJECT_CONTEXT.md`). The Graph/List foundation (#79), workspace PR 2A (#80) and interactive editing
+PR 2B (#82) are merged. PR 2C requires separately approved placement/usability
+criteria before Step 8's first concrete Mask path. See
+`docs/GRAPH_VIEW_VALIDATION.md` for automated and owner-reported macOS evidence
+and remaining platform checks.
 Both editor views share the authoritative document graph and NodeId selection.
 Step 6 proves typed Mask/evaluation contracts with tests; user-facing masking
 remains Step 8 work.
@@ -398,6 +398,20 @@ defects and recommend removing unnecessary changes before merge.
 
 Passing tests do not justify additional complexity. Optional improvements should
 be proposed separately rather than incorporated without approval.
+
+For UI PRs, independently inventory every user-visible change against the
+explicitly approved behaviour, including small visual, selection, control and
+shortcut differences. Discretionary design changes are scope findings even when
+sensible; necessary minimal interaction feedback and ordinary implementation
+details need not be separate product decisions. Verify that optional ideas were
+reported but not silently implemented.
+
+Review reuse of the existing document/graph, processor, evaluator, renderer and
+persistence mechanisms. A new module is not automatically a new subsystem:
+justified architectural additions can improve modularity and extensibility.
+For proposed new systems or cross-module boundaries, demand a concrete need,
+comparison with existing mechanisms, acceptable integration cost and owner
+approval. Treat scope, architecture/reuse and correctness as distinct criteria.
 
 ## Scope discipline
 

@@ -31,3 +31,25 @@ Every production-code change must be justified by the agreed acceptance criteria
 Before opening a PR, review the complete diff against the base branch and remove
 unnecessary changes. Correctness, passing tests and potential future usefulness
 do not independently justify scope expansion.
+
+## UI decisions and architecture reuse
+
+Preserve existing user-visible UI behaviour and appearance unless the approved
+acceptance criteria require change. Discuss optional changes to controls,
+labels, icons, shapes, colours, layout, shortcuts and interactions with the owner
+before implementation, even when minor or beneficial. Necessary interaction
+feedback may be implemented minimally without approval for every internal
+detail. PR reports must inventory user-visible changes and separately list
+useful suggestions that were *not* implemented.
+
+Prefer building on the existing graph commands, processor interfaces, evaluator,
+render runtime and persistence. A new file or cohesive module is not necessarily
+a new system. New subsystems or altered cross-module boundaries are acceptable
+when a demonstrated need, alternatives and complexity costs show a clear benefit
+in modularity, maintainability or extensibility; obtain explicit owner approval
+before implementing significant architecture changes. Never add speculative
+machinery just because a future feature might benefit.
+
+Before seeking review, audit the diff for unapproved product/UI decisions,
+unnecessary systems or coupling and unrelated cleanup, independently of
+functional correctness and test results.

@@ -582,6 +582,40 @@ they do not move automatically to PR 2C's placement/usability scope. This
 clarification preserves D051's historical rationale and changes neither Step 8
 nor the graph, rendering or persistence architecture.
 
+## D052 — Approved product choices and deliberate architectural reuse
+
+**Status:** Accepted
+
+AI implementation agents must implement explicitly approved features, rather
+than make optional UI/product decisions on the owner's behalf. Preserve visual
+conventions, controls, menus, shortcuts and interactions unless changes are
+required for accepted functionality. Propose discretionary improvements before
+implementation even when small. UI PRs inventory all user-visible differences
+and record suggestions deliberately left unimplemented; necessary minimal
+feedback and ordinary code decisions do not require separate approval.
+
+Prefer extending the established NodeId graph, document commands, processors,
+evaluator, render runtime and persistence when appropriate. Do not introduce
+duplicate schedulers or graph models. New cohesive modules or systems are not
+forbidden: a significant addition can be worthwhile if concrete requirements
+and alternatives demonstrate better modularity, maintainability or future
+extensibility relative to its complexity and coupling costs. Significant new
+subsystems or changed module ownership need explicit design approval before
+implementation, not incidental inclusion in an unrelated UI PR.
+
+Review scope compliance, architectural fitness/reuse and correctness separately.
+Passing tests or plausible future usefulness cannot by themselves justify
+unapproved changes. These rules reinforce D019 and existing execution and
+persistence boundaries; they do not reopen completed Steps 5–7.
+
+PR 2B (#82) merged after independent review and owner-reported macOS validation;
+its predecessor #81 was closed unmerged because of extra insertion-policy and
+processor-construction changes. Selection-aware insertion, empty nodes and
+processor assignment remain separate design decisions. The graph already
+connects nodes by stable IDs and each node owns its processor; an unavailable
+processor must not be conflated with a deliberately empty node. No empty-node
+implementation has yet been selected.
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:
