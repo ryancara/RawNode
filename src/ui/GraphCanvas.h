@@ -13,6 +13,13 @@ struct GraphCanvasState {
   std::optional<NodeId> dragging;
   bool panningFromEmptyCanvas = false;
   PersistPosition dragOffset;
+  std::optional<GraphPortAddress> wire;
+  std::optional<GraphPortAddress> contextPort;
+  std::optional<NodeId> contextNode;
+  void cancelInteraction() {
+    wire.reset(); dragging.reset(); contextPort.reset(); contextNode.reset();
+    panningFromEmptyCanvas = false;
+  }
 };
 
 void drawGraphCanvas(App &app);

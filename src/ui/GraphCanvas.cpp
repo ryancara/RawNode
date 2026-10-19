@@ -2,6 +2,7 @@
 
 #include "AppState.h"
 #include "NodeGraph.h"
+#include "GraphCommands.h"
 
 #include "imgui.h"
 
@@ -116,7 +117,9 @@ void drawNode(const Canvas &canvas, const GraphNodeLayout &node, bool selected) 
     const auto point = canvas.screen(portPosition(node, port));
     const auto color = portColor(declaration.type);
     const float radius = float(4 * canvas.view.zoom);
-    if (connected) draw.AddCircleFilled(point, radius, color);
+    if (declaration.direction == PortDirection::Output)
+      draw.AddRectFilled({point.x - radius, point.y - radius}, {point.x + radius, point.y + radius}, color);
+    else if (connected) draw.AddCircleFilled(point, radius, color);
     else draw.AddCircle(point, radius, color, 0, declaration.required ? 2.0f : 1.0f);
   }
 }
@@ -148,17 +151,44 @@ const GraphNodeLayout *hitNode(const GraphLayout &layout, PersistPosition point,
   return nullptr;
 }
 
-void interact(App &app, const Canvas &canvas, GraphLayout &layout, bool hovered, bool active) {
+std::optional<GraphPortHit> resolvePort(const GraphLayout &layout, const GraphPortAddress &address) {
+  if (address.isDocumentOutput())
+    return GraphPortHit{address, {layout.output.x, layout.output.y + 48}, ValueType::Image};
+  const auto found = layout.nodes.find(address.nodeId.value);
+  if (found == layout.nodes.end()) return std::nullopt;
+  for (const auto &port : found->second.ports)
+    if (port.slot == address.slot && port.declaration->id == address.port &&
+        port.declaration->direction == address.direction)
+      return GraphPortHit{address, portPosition(found->second, port), port.declaration->type};
+  return std::nullopt;
+}
+
+using WireDrop = std::pair<GraphPortAddress, GraphPortAddress>;
+std::optional<WireDrop> interact(App &app, const Canvas &canvas, GraphLayout &layout, bool hovered, bool active) {
   auto &state = app.graphCanvas;
   const auto &io = ImGui::GetIO();
   const PersistPosition mouse{io.MousePos.x - canvas.origin.x, io.MousePos.y - canvas.origin.y};
+  std::optional<WireDrop> drop;
+  const auto port = hovered ? hitGraphPort(layout, state.view, mouse) : std::nullopt;
+  if (state.wire && (!resolvePort(layout, *state.wire) ||
+                    ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                    !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))) state.wire.reset();
+  if (state.wire && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+    if (port) drop = WireDrop{*state.wire, port->address};
+    state.wire.reset();
+  }
+  if (state.wire && (!active || !ImGui::IsMouseDown(ImGuiMouseButton_Left))) state.wire.reset();
   if (!active || !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
     state.dragging.reset();
     state.panningFromEmptyCanvas = false;
   }
   if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
     const auto point = canvasToGraph(state.view, mouse);
-    if (const auto *node = hitNode(layout, point, app.selectedNodeId())) {
+    if (port) {
+      state.wire = port->address;
+      state.dragging.reset();
+      state.panningFromEmptyCanvas = false;
+    } else if (const auto *node = hitNode(layout, point, app.selectedNodeId())) {
       selectNode(app, node->node->id);
       if (!app.isPhotoProtected() && point.y < node->position.y + graphHeaderHeight) {
         state.dragging = node->node->id;
@@ -185,6 +215,36 @@ void interact(App &app, const Canvas &canvas, GraphLayout &layout, bool hovered,
     if (moveGraphNode(app, *state.dragging, {point.x - state.dragOffset.x, point.y - state.dragOffset.y}))
       layout = layoutGraph({app.nodes, app.primarySource, app.documentOutput}, app.nodePositions);
   }
+  return drop;
+}
+
+void drawWireGesture(const App &app, const Canvas &canvas, const GraphLayout &layout, bool hovered) {
+  if (!app.graphCanvas.wire) return;
+  const auto anchor = resolvePort(layout, *app.graphCanvas.wire);
+  if (!anchor) return;
+  const auto &mouse = ImGui::GetIO().MousePos;
+  const auto target = hovered ? hitGraphPort(layout, canvas.view,
+      {mouse.x - canvas.origin.x, mouse.y - canvas.origin.y}) : std::nullopt;
+  const bool compatible = target && target->address.direction != anchor->address.direction &&
+                          target->type == anchor->type && app.renderer.canEditParameters();
+  const ImU32 color = target ? ImGui::GetColorU32(compatible ? ImGuiCol_NavCursor : ImGuiCol_PlotHistogram)
+                            : portColor(anchor->type);
+  const auto fixed = canvas.screen(anchor->position);
+  const auto from = anchor->address.direction == PortDirection::Output ? fixed : mouse;
+  const auto to = anchor->address.direction == PortDirection::Output ? mouse : fixed;
+  const float bend = std::max(40.0f, std::abs(to.x - from.x) * 0.5f);
+  canvas.draw.AddBezierCubic(from, {from.x + bend, from.y}, {to.x - bend, to.y}, to, color, 2);
+  if (target) {
+    const auto center = canvas.screen(target->position);
+    canvas.draw.AddCircle(center, 8, color, 0, 2);
+    if (!compatible) {
+      canvas.draw.AddLine({center.x - 5, center.y - 5}, {center.x + 5, center.y + 5}, color, 2);
+      canvas.draw.AddLine({center.x - 5, center.y + 5}, {center.x + 5, center.y - 5}, color, 2);
+    }
+    ImGui::SetTooltip("%s", !app.renderer.canEditParameters() ? "Editing unavailable: protected photograph or active export" :
+        target->address.direction == anchor->address.direction ? "Connect an output to an input" :
+        target->type != anchor->type ? "Image/Mask type mismatch" : "Release to connect");
+  }
 }
 }  // namespace
 
@@ -198,13 +258,13 @@ void drawGraphCanvas(App &app) {
   ImGui::SameLine();
   ImGui::TextDisabled("Drag headers / Drag empty canvas or middle-drag to pan / Wheel zoom");
   const auto size = ImGui::GetContentRegionAvail();
-  if (size.x < 1 || size.y < 1) { state.dragging.reset(); return; }
+  if (size.x < 1 || size.y < 1) { state.cancelInteraction(); return; }
   if (!ImGui::BeginChild("##graphCanvasRegion", size, ImGuiChildFlags_None,
                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-    state.dragging.reset(); ImGui::EndChild(); return;
+    state.cancelInteraction(); ImGui::EndChild(); return;
   }
   const auto canvasOrigin = ImGui::GetCursorScreenPos(), canvasSize = ImGui::GetContentRegionAvail();
-  if (canvasSize.x < 1 || canvasSize.y < 1) { ImGui::EndChild(); return; }
+  if (canvasSize.x < 1 || canvasSize.y < 1) { state.cancelInteraction(); ImGui::EndChild(); return; }
   ImGui::InvisibleButton("##graphCanvas", canvasSize, ImGuiButtonFlags_MouseButtonLeft |
                           ImGuiButtonFlags_MouseButtonMiddle | ImGuiButtonFlags_EnableNav);
   ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
@@ -226,7 +286,8 @@ void drawGraphCanvas(App &app) {
     state.framePending = false;
   }
   Canvas canvas{canvasOrigin, canvasSize, state.view, *ImGui::GetWindowDrawList()};
-  interact(app, canvas, layout, hovered, active);
+  const auto drop = interact(app, canvas, layout, hovered, active);
+  (void)drop; // The following connection-editing commit supplies command dispatch.
   const ImVec2 high(canvasOrigin.x + canvasSize.x, canvasOrigin.y + canvasSize.y);
   canvas.draw.PushClipRect(canvasOrigin, high, true);
   canvas.draw.AddRectFilled(canvasOrigin, high, ImGui::GetColorU32(ImGuiCol_FrameBg));
@@ -238,6 +299,7 @@ void drawGraphCanvas(App &app) {
   }
   if (selected) drawNode(canvas, *selected, true);
   drawOutput(canvas, layout.output, app.outputSelected());
+  drawWireGesture(app, canvas, layout, hovered);
   canvas.draw.PopClipRect();
   ImGui::EndChild();
 }

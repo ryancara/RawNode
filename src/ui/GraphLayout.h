@@ -34,6 +34,20 @@ struct GraphLayout {
   PersistPosition output;
 };
 
+// Stable gesture/menu identity. Empty nodeId identifies the virtual Output input.
+struct GraphPortAddress {
+  NodeId nodeId;
+  std::optional<SlotId> slot;
+  PortId port;
+  PortDirection direction;
+  bool isDocumentOutput() const { return nodeId.value.empty(); }
+};
+struct GraphPortHit {
+  GraphPortAddress address;
+  PersistPosition position;
+  ValueType type;
+};
+
 GraphLayout layoutGraph(GraphView graph, const PersistPositions &saved);
 bool moveGraphNode(App &app, const NodeId &id, PersistPosition position);
 
@@ -46,5 +60,9 @@ PersistPosition graphToCanvas(const GraphViewport &view, PersistPosition positio
 PersistPosition canvasToGraph(const GraphViewport &view, PersistPosition position);
 void zoomGraphAt(GraphViewport &view, PersistPosition cursor, double factor);
 void frameGraph(GraphViewport &view, const GraphLayout &layout, PersistPosition canvasSize);
+// Canvas-local screen pixels. Nearest eligible port wins; vertical hit areas
+// shrink with row spacing so neighbouring ports remain unambiguous at low zoom.
+std::optional<GraphPortHit> hitGraphPort(const GraphLayout &layout, const GraphViewport &view,
+                                      PersistPosition point);
 
 }  // namespace ui

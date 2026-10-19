@@ -124,6 +124,31 @@ PersistPosition graphToCanvas(const GraphViewport &view, PersistPosition positio
 PersistPosition canvasToGraph(const GraphViewport &view, PersistPosition position) {
   return {(position.x - view.pan.x) / view.zoom, (position.y - view.pan.y) / view.zoom};
 }
+std::optional<GraphPortHit> hitGraphPort(const GraphLayout &layout, const GraphViewport &view,
+                                      PersistPosition point) {
+  std::optional<GraphPortHit> hit;
+  double nearest = 1;
+  const double radiusX = 10;
+  const double radiusY = std::min(10.0, graphPortSpacing * view.zoom * 0.45);
+  const auto consider = [&](GraphPortAddress address, PersistPosition position, ValueType type) {
+    const auto screen = graphToCanvas(view, position);
+    const double dx = (screen.x - point.x) / radiusX, dy = (screen.y - point.y) / radiusY;
+    const double distance = dx * dx + dy * dy;
+    if (distance <= nearest) {
+      nearest = distance;
+      hit = GraphPortHit{std::move(address), position, type};
+    }
+  };
+  for (const auto &entry : layout.nodes) {
+    const auto &node = entry.second;
+    for (const auto &port : node.ports)
+      consider({node.node->id, port.slot, port.declaration->id, port.declaration->direction},
+               {node.position.x + port.offset.x, node.position.y + port.offset.y}, port.declaration->type);
+  }
+  consider({{}, std::nullopt, ports::image, PortDirection::Input},
+           {layout.output.x, layout.output.y + 48}, ValueType::Image);
+  return hit;
+}
 void zoomGraphAt(GraphViewport &view, PersistPosition cursor, double factor) {
   if (!std::isfinite(factor) || factor <= 0) return;
   const auto anchor = canvasToGraph(view, cursor);
