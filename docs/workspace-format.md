@@ -13,11 +13,19 @@ Application settings live in one directory resolved at startup:
 | Linux | `$XDG_CONFIG_HOME/RawNode/`, or `~/.config/RawNode/` |
 | Windows, when supported | Roaming application-data `RawNode` directory |
 
-`preferences.json` stores theme, left/right panel and filmstrip visibility,
+`preferences.json` stores theme, left/right/Nodes panel and filmstrip visibility,
 fallback panel widths/filmstrip height, preview resolution, export format/JPEG
 quality, and default RAW working/Output colour pairs. Docking and window geometry
 remain in ImGui's native `layout.ini`. Both paths stay fixed for the session;
 changing photograph folders changes neither preferences nor docking.
+
+The optional `nodesView` string accepts `"list"` or `"graph"`. Missing or invalid
+values use List; invalid values warn without discarding other valid preferences.
+The optional `showNodes` boolean defaults to true. Canvas pan/zoom are transient;
+photo layout coordinates remain in `grade.positions`, not preferences. Existing
+docking layouts retain their windows and splits; a new Nodes panel is inserted
+below a docked Preview when no Nodes window setting exists. Saved Nodes docks
+and floating windows are respected.
 
 Preferences load before UI initialisation and the first photo opening, and save
 on normal shutdown even without an opened folder. A cancelled photo-save departure

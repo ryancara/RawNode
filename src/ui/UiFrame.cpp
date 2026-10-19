@@ -221,6 +221,7 @@ void DrawUiFrame(App &app) {
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("View")) {
+      ImGui::MenuItem("Nodes", nullptr, &app.showNodes);
 #ifdef __APPLE__
       ImGui::MenuItem("Left panel", "⌘+[", &app.showLeft);
       ImGui::MenuItem("Right panel", "⌘+]", &app.showRight);
@@ -292,6 +293,11 @@ void DrawUiFrame(App &app) {
     if (ImGui::Begin(DockLayout::kParams, &app.showRight)) drawRightPanel(app);
     ImGui::End();
   }
+  if (app.showNodes) {
+    ImGui::SetNextWindowSize(ImVec2(720, 260), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin(DockLayout::kNodes, &app.showNodes)) drawNodesPanel(app);
+    ImGui::End();
+  } else app.graphCanvas.dragging.reset();
   {
     ImGuiWindowFlags previewFlags =
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse;

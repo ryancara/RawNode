@@ -124,6 +124,31 @@ bool codecAndOptionalFields() {
   return true;
 }
 
+bool nodesViewPreference() {
+  Files files;
+  const auto path = files.path("preferences.json");
+  Preferences p; std::string warning;
+  // Old preference files remain List by default, without a warning.
+  write(path, "{" + header + R"(,"themeIndex":1})");
+  CHECK(loadPreferences(path, p, warning) && warning.empty());
+  CHECK(p.nodesView == NodesView::List && p.showNodes && p.themeIndex == 1);
+  for (const auto mode : {std::string("list"), std::string("graph")}) {
+    write(path, "{" + header + ",\"nodesView\":\"" + mode + R"(","showNodes":false})");
+    App app;
+    CHECK(initialisePreferences(app, {path, ""}) && app.preferencesWarning.empty());
+    CHECK(app.nodesView == (mode == "graph" ? NodesView::Graph : NodesView::List) && !app.showNodes);
+    CHECK(savePreferences(path, capturePreferences(app), warning));
+    CHECK(loadPreferences(path, p, warning) && warning.empty());
+    CHECK(p.nodesView == app.nodesView && !p.showNodes);
+  }
+  for (const auto *invalid : {"null", "true", "7", "[]", "{}", "\"GRAPH\"", "\"unknown\""}) {
+    write(path, "{" + header + ",\"nodesView\":" + invalid + R"(,"themeIndex":1})");
+    CHECK(loadPreferences(path, p, warning) && warning.find("nodesView") != std::string::npos);
+    CHECK(p.nodesView == NodesView::List && p.themeIndex == 1);
+  }
+  return true;
+}
+
 bool atomicFailuresAndPaths() {
   Files files;
   const auto home = files.path("home"), xdg = files.path("config");
@@ -427,6 +452,7 @@ bool globalLayout() {
 bool testPreferences() {
   for (const auto &test : {
        std::make_pair("codec, optional fields and pair fallbacks", codecAndOptionalFields),
+       std::make_pair("List/Graph preference compatibility and validation", nodesViewPreference),
        std::make_pair("config paths and checked atomic failures", atomicFailuresAndPaths),
        std::make_pair("unsupported/malformed preferences survive shutdown", protectedPreferencesShutdown),
        std::make_pair("startup colours, folder retirement and shutdown cancellation", startupPhotoFolderAndShutdown),

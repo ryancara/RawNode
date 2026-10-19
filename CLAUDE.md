@@ -6,9 +6,9 @@ RawNode is a lightweight, modular RAW photo editor written in C++17 and derived
 from ofxrawhost.
 
 It supports one explicit processing graph containing native processors, OpenFX
-plugins and CTL processors, with a topology-derived List View. Future plans
-include the switchable Graph/List editor, DCTL, LUTs, masks, compositing and local
-adjustments.
+plugins and CTL processors, with a dockable Nodes panel and switchable List/Graph
+presentation. Connection editing remains the second Graph/List PR; future plans
+include DCTL, LUTs, masks, compositing and local adjustments.
 
 macOS is currently the primary development platform, but the architecture should
 remain cross-platform for macOS, Windows and Linux.
@@ -320,10 +320,12 @@ fail-opens to full coverage only at optional effect/layer coverage use, with a
 persistent warning. A bypassed source-like Mask generator produces real white
 coverage only when its Reference frame resolves.
 
-Step 7 graph-native persistence is complete. A short ordered gate of targeted
-correctness fixes comes first (see "Quality and verification roadmap" in
-`docs/PROJECT_CONTEXT.md`); the next UI milestone is then the switchable
-Graph/List editor (D047), followed by Step 8's first concrete production Mask path.
+Step 7 graph-native persistence and all four targeted post-Step-7 corrections
+are complete (see "Quality and verification roadmap" in
+`docs/PROJECT_CONTEXT.md`). The Graph/List visual foundation (D047) adds a
+dockable Nodes panel; connection editing remains PR 2 before Step 8's first
+concrete production Mask path. See `docs/GRAPH_VIEW_VALIDATION.md` for focused
+tests and the pending macOS GUI checklist.
 Both editor views share the authoritative document graph and NodeId selection.
 Step 6 proves typed Mask/evaluation contracts with tests; user-facing masking
 remains Step 8 work.

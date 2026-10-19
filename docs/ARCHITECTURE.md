@@ -12,8 +12,9 @@ manual-validation evidence is not recorded; see `docs/STEP6_MANUAL_VALIDATION.md
 Step 7 PRs 1–5 are merged (#63, #65, #66, #68, #69), completing graph-native
 photo/preset/clipboard persistence and global preferences/workspace retirement.
 The targeted post-Step-7 graph safety and PNG colour correction gate is complete
-(see `docs/PROJECT_CONTEXT.md`). The switchable Graph/List editor (D047) is next,
-followed by Step 8 masking. These fixes do not add architecture steps.
+(see `docs/PROJECT_CONTEXT.md`). The switchable Graph/List editor (D047) has its
+visual foundation; connection editing follows in PR 2, then Step 8 masking.
+These fixes do not add architecture steps.
 
 Read this together with:
 
@@ -236,7 +237,7 @@ never become persistent edit state.
 Application preferences have a separate lightweight path/load/save implementation
 in `persist/Preferences`. It resolves one platform user configuration directory
 before UI initialisation. `preferences.json` owns theme, visibility/fallback
-sizes, preview/export choices and RAW/Output defaults. Optional fields default
+sizes, List/Graph view, preview/export choices and RAW/Output defaults. Optional fields default
 independently for additive extension. `layout.ini` remains ImGui-owned, configured
 before its first frame and never switched by folder opening. No folder workspace
 persistence remains; historical files are ignored and left untouched. Folder/photo
@@ -295,6 +296,16 @@ UI selection has one authoritative optional NodeId. List View derives its main
 unary Image spine from documentOutput; other nodes remain visible and accessible.
 Splice/move controls use stable identities and validated graph commands. The
 projection neither changes connections nor supplies another execution order.
+
+The dockable Nodes panel switches that List presentation with a Graph canvas.
+Graph drawing borrows the same nodes, declares ports through `nodeInterface()`
+and reads consumer-owned bindings and documentOutput directly. Its visual Output
+endpoint is neither a stored node nor executable. Simple dependency-column
+placement fills missing positions in `App::nodePositions`; protected photos
+derive placement without modifying it. Header drags change only this layout map,
+saved by the existing grade lifecycle. Canvas pan/zoom and drag state are transient,
+and visual interactions never acquire DocumentMutation or request rendering.
+Connection editing remains the second Graph/List PR.
 
 Live photo capture/restoration preserves every stored graph node, connection,
 endpoint, Slot allocator and optional position through the shared strict codec.
@@ -627,10 +638,10 @@ validation evidence is tracked separately in `docs/PROJECT_CONTEXT.md`.
 
 7. **Add versioned graph persistence — complete; PRs #63, #65, #66, #68, #69.**
 
-   The post-Step-7 correction gate is complete. Next, add the switchable
-   Graph/List editor before Step 8. This is a UI milestone (D047), not another
-   numbered architecture step. Both views edit the same authoritative
-   document graph and share NodeId selection; no additional renderer or
+   The post-Step-7 correction gate is complete. The Graph/List visual foundation
+   is implemented; PR 2 adds connection editing before Step 8. This is a UI
+   milestone (D047), not another numbered architecture step. Both views edit the
+   same authoritative document graph and share NodeId selection; no additional renderer or
    execution model is introduced.
 
 8. **Settle remaining concrete mask details and add the first mask path.**
