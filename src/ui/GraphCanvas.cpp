@@ -308,24 +308,55 @@ std::optional<InputAddress> portContextMenu(App &app, const Canvas &canvas, cons
     state.wire.reset(); state.dragging.reset(); state.panningFromEmptyCanvas = false;
     const auto &mouse = ImGui::GetIO().MousePos;
     const auto port = hitGraphPort(layout, canvas.view, {mouse.x - canvas.origin.x, mouse.y - canvas.origin.y});
-    state.contextPort = port ? std::optional<GraphPortAddress>{port->address} : std::nullopt;
-    if (port) ImGui::OpenPopup("##portContext");
+    state.contextPort.reset();
+    if (port && port->address.direction == PortDirection::Input && !port->address.isDocumentOutput()) {
+      const auto &address = port->address;
+      const auto *input = findInput(app, {address.nodeId, address.slot, address.port});
+      if (input && input->has_value()) {
+        state.contextPort = address;
+        ImGui::OpenPopup("##portContext");
+      }
+    }
   }
   std::optional<InputAddress> disconnect;
   if (ImGui::BeginPopup("##portContext")) {
     if (state.contextPort && resolvePort(layout, *state.contextPort)) {
       const auto &port = *state.contextPort;
-      ImGui::TextUnformatted(port.isDocumentOutput() ? "Output / Image input" : port.port.value.c_str());
-      if (port.direction == PortDirection::Input && !port.isDocumentOutput()) {
-        const InputAddress input{port.nodeId, port.slot, port.port};
-        const auto *binding = findInput(app, input);
-        if (ImGui::MenuItem("Disconnect", nullptr, false,
-                            binding && binding->has_value() && app.renderer.canEditParameters())) disconnect = input;
-      } else ImGui::TextDisabled(port.isDocumentOutput() ? "Output must stay connected" : "Drag to an input to connect");
+      const InputAddress input{port.nodeId, port.slot, port.port};
+      const auto *binding = findInput(app, input);
+      if (ImGui::MenuItem("Disconnect", nullptr, false,
+                          binding && binding->has_value() && app.renderer.canEditParameters())) disconnect = input;
     } else ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
   }
   return disconnect;
+}
+
+std::optional<NodeId> nodeContextMenu(App &app, const Canvas &canvas, const GraphLayout &layout, bool hovered) {
+  auto &state = app.graphCanvas;
+  if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+    const auto &mouse = ImGui::GetIO().MousePos;
+    const PersistPosition point{mouse.x - canvas.origin.x, mouse.y - canvas.origin.y};
+    // Ports own right-clicks too, including ports without a menu operation.
+    if (!hitGraphPort(layout, canvas.view, point)) {
+      const auto *node = hitNode(layout, canvasToGraph(canvas.view, point), app.selectedNodeId());
+      state.contextNode = node ? std::optional<NodeId>{node->node->id} : std::nullopt;
+      if (node) {
+        selectNode(app, node->node->id);
+        if (node->node->operation != NodeOperation::Source) ImGui::OpenPopup("##nodeContext");
+      }
+    }
+  }
+  std::optional<NodeId> remove;
+  if (ImGui::BeginPopup("##nodeContext")) {
+    const Node *node = state.contextNode ? findNode(app, *state.contextNode) : nullptr;
+    if (!node) ImGui::CloseCurrentPopup();
+    else if (ImGui::MenuItem("Delete Node", nullptr, false,
+                             node->operation != NodeOperation::Source && app.renderer.canEditParameters()))
+      remove = node->id;
+    ImGui::EndPopup();
+  }
+  return remove;
 }
 
 }  // namespace
@@ -354,6 +385,12 @@ void drawGraphCanvas(App &app) {
   const auto &io = ImGui::GetIO();
   if (ImGui::IsItemFocused() && !io.WantTextInput && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt &&
       ImGui::IsKeyPressed(ImGuiKey_F, false)) state.framePending = true;
+  std::optional<NodeId> remove;
+  if (ImGui::IsItemFocused() && ImGui::IsWindowFocused() && !ImGui::IsAnyItemActive() &&
+      !io.WantTextInput && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt && !io.KeyShift &&
+      app.renderer.canEditParameters() && selectedNode(app) &&
+      (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)))
+    remove = app.selectedNodeId();
   auto layout = layoutGraph({app.nodes, app.primarySource, app.documentOutput}, app.nodePositions);
   // Materialize only missing auto positions, in the existing grade layout map.
   // No disk writes: ordinary Save Grade/photo departure/shutdown captures these.
@@ -383,9 +420,11 @@ void drawGraphCanvas(App &app) {
   drawWireGesture(app, canvas, layout, hovered);
   canvas.draw.PopClipRect();
   const auto disconnect = portContextMenu(app, canvas, layout, hovered);
+  if (const auto menuRemove = nodeContextMenu(app, canvas, layout, hovered)) remove = menuRemove;
   ImGui::EndChild();
   // All frame-local geometry borrows live nodes. Dispatch after drawing/menus.
-  if (drop) commitWire(app, drop->first, drop->second);
+  if (remove && app.renderer.canEditParameters()) destroyNode(app, *remove);
+  else if (drop) commitWire(app, drop->first, drop->second);
   else if (disconnect && app.renderer.canEditParameters()) {
     const auto result = graph::disconnect(app, *disconnect);
     if (!result.ok()) app.setStatus("Cannot disconnect: " + result.error);

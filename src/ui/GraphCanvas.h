@@ -24,8 +24,9 @@ struct GraphCanvasState {
   PersistPosition dragOffset;
   std::optional<GraphPortAddress> wire;
   std::optional<GraphPortAddress> contextPort;
+  std::optional<NodeId> contextNode;
   void cancelInteraction() {
-    wire.reset(); dragging.reset(); contextPort.reset();
+    wire.reset(); dragging.reset(); contextPort.reset(); contextNode.reset();
     panningFromEmptyCanvas = false;
   }
 };
