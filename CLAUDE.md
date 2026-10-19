@@ -326,8 +326,8 @@ are complete (see "Quality and verification roadmap" in
 `docs/PROJECT_CONTEXT.md`). The Graph/List visual foundation (D047) adds a
 dockable Nodes panel; D051 stages workspace PR 2A, graph editing PR 2B and
 placement/usability PR 2C before Step 8's first
-concrete production Mask path. See `docs/GRAPH_VIEW_VALIDATION.md` for focused
-tests and the pending macOS GUI checklist.
+concrete production Mask path. See `docs/GRAPH_VIEW_VALIDATION.md` for focused tests, owner-reported
+macOS validation and separately pending edge-case/Windows checks.
 Both editor views share the authoritative document graph and NodeId selection.
 Step 6 proves typed Mask/evaluation contracts with tests; user-facing masking
 remains Step 8 work.
