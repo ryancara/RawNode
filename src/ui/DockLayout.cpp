@@ -43,6 +43,12 @@ static void addNodesToExistingLayout(ImGuiID dockspaceId) {
   const auto *preview = ImGui::FindWindowSettingsByID(ImHashStr(kPreview));
   auto *dock = preview ? ImGui::DockBuilderGetNode(preview->DockId) : nullptr;
   if (!dock || !dock->IsLeafNode() || ImGui::DockNodeGetRootNode(dock)->ID != dockspaceId) return;
+  // Loaded ini nodes have not been laid out yet. Split their saved dimensions,
+  // rather than letting the builder clamp a zero-sized child to title-bar height.
+  if (dock->Size.x <= 0 || dock->Size.y <= 0) {
+    if (dock->SizeRef.x <= 0 || dock->SizeRef.y <= 0) return;
+    ImGui::DockBuilderSetNodeSize(dock->ID, dock->SizeRef);
+  }
   ImGuiID nodes = 0;
   ImGui::DockBuilderSplitNode(dock->ID, ImGuiDir_Down, 0.32f, &nodes, nullptr);
   ImGui::DockBuilderDockWindow(kNodes, nodes);

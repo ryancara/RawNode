@@ -151,18 +151,29 @@ void interact(App &app, const Canvas &canvas, GraphLayout &layout, bool hovered,
   auto &state = app.graphCanvas;
   const auto &io = ImGui::GetIO();
   const PersistPosition mouse{io.MousePos.x - canvas.origin.x, io.MousePos.y - canvas.origin.y};
-  if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) state.dragging.reset();
+  if (!active || !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+    state.dragging.reset();
+    state.panningFromEmptyCanvas = false;
+  }
   if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
     const auto point = canvasToGraph(state.view, mouse);
     if (const auto *node = hitNode(layout, point, app.selectedNodeId)) {
-      selectNode(app, node->node->id);
+      if (node->node->operation == NodeOperation::Source) selectNode(app, std::nullopt);
+      else selectNode(app, node->node->id);
       if (!app.isPhotoProtected() && point.y < node->position.y + graphHeaderHeight) {
         state.dragging = node->node->id;
         state.dragOffset = {point.x - node->position.x, point.y - node->position.y};
       }
+    } else {
+      const bool overOutput = point.x >= layout.output.x && point.x <= layout.output.x + graphOutputWidth &&
+                              point.y >= layout.output.y && point.y <= layout.output.y + graphOutputHeight;
+      // Latch the press origin: dragging a node body into empty space must not
+      // start a pan. Output is also occupied canvas, though it is not a Node.
+      state.panningFromEmptyCanvas = !overOutput;
     }
   }
-  if (active && ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+  if (active && (ImGui::IsMouseDragging(ImGuiMouseButton_Middle) ||
+                 (state.panningFromEmptyCanvas && ImGui::IsMouseDragging(ImGuiMouseButton_Left)))) {
     state.view.pan.x += io.MouseDelta.x; state.view.pan.y += io.MouseDelta.y;
   }
   if (hovered && !ImGui::IsMouseDown(ImGuiMouseButton_Left) && io.MouseWheel != 0)
@@ -183,7 +194,7 @@ void drawGraphCanvas(App &app) {
   }
   if (ImGui::Button("Frame all (F)")) state.framePending = true;
   ImGui::SameLine();
-  ImGui::TextDisabled("Drag headers / Middle-drag pan / Wheel zoom");
+  ImGui::TextDisabled("Drag headers / Drag empty canvas or middle-drag to pan / Wheel zoom");
   const auto size = ImGui::GetContentRegionAvail();
   if (size.x < 1 || size.y < 1) { state.dragging.reset(); return; }
   if (!ImGui::BeginChild("##graphCanvasRegion", size, ImGuiChildFlags_None,

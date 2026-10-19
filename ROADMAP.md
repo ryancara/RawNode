@@ -224,6 +224,17 @@ using the existing validated graph commands. See
 [GRAPH_VIEW_VALIDATION.md](docs/GRAPH_VIEW_VALIDATION.md) for acceptance checks,
 limits and the pending macOS checklist.
 
+PR 2 initial-placement follow-ups (preserve saved coordinates on reopen):
+
+- Place newly inserted serial nodes between their upstream/downstream neighbours.
+- Make space predictably when inserting into a manually arranged graph, without
+  unnecessarily disrupting the user's layout.
+- Offset pasted/duplicated nodes and avoid overlap with the original.
+
+Optional user-requested Auto Arrange can follow later. These concern placement
+of new nodes, not separate automatic/manual coordinate categories; PR 1 persists
+both kinds through the same `grade.positions` map and existing save lifecycle.
+
 Add number-key node selection as a separate small interaction improvement.
 
 Branching, typed Mask endpoints and future mixers use the same graph. The first

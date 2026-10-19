@@ -11,6 +11,7 @@ struct GraphCanvasState {
   bool framePending = true;
   PersistPosition lastCanvasSize;
   std::optional<NodeId> dragging;
+  bool panningFromEmptyCanvas = false;
   PersistPosition dragOffset;
 };
 

@@ -439,6 +439,13 @@ node without a saved position remains valid. Positions must not affect
 connections, graph validation, rendering or graph evaluation; reopening the
 editable source photograph restores any saved arrangement.
 
+The owner-confirmed Graph View contract retains automatic initial placement:
+once an editable photograph's node is first laid out, store its X/Y in the
+existing position map and grade sidecar lifecycle. Automatically generated and
+manually dragged positions have the same ownership; no distinction or extra
+tracking is needed. Reopening preserves saved coordinates exactly. Selection,
+pan, zoom and framing do not change them; protected photographs remain read-only.
+
 Do not persist rendered images, intermediate buffers, caches or unnecessary
 transient UI state. Keep the format simple and readable. Separate project files
 and catalogue databases remain non-goals (D001, D010); compression or binary
