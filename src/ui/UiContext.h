@@ -4,6 +4,7 @@
 #include "persist/DocumentActions.h"
 
 void drawProcessorPicker(App &app);
+void requestProcessorPicker(App &app, ProcessorInsertion insertion);
 void drawInspector(App &app);
 void drawNodesPanel(App &app);
 void drawPreviewPanel(App &app);

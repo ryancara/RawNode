@@ -2,6 +2,7 @@
 
 #include "ui/GraphCanvas.h"
 #include "ui/NodeList.h"
+#include "NodeGraph.h"
 
 #include "imgui.h"
 
@@ -16,6 +17,15 @@ void drawNodesPanel(App &app) {
   if (ImGui::GetContentRegionAvail().x - used >= addWidth + ImGui::GetStyle().ItemSpacing.x)
     ImGui::SameLine();
   drawProcessorPicker(app);
+  if (selectedNode(app)) {
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!app.renderer.canEditParameters());
+    if (ImGui::Button("Delete Selected Node")) {
+      const auto id = app.selectedNodeId();
+      if (id) destroyNode(app, *id);
+    }
+    ImGui::EndDisabled();
+  }
   ImGui::Separator();
   if (app.nodesView == NodesView::Graph) ui::drawGraphCanvas(app);
   else {

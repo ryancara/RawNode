@@ -60,6 +60,16 @@ inline constexpr int kPreviewResCount = 4;
 enum class InspectorEndpoint { Output };
 using InspectorSelection = std::variant<std::monostate, NodeId, InspectorEndpoint>;
 
+enum class ProcessorPlacement { Before, After };
+struct ProcessorInsertion {
+  ProcessorPlacement placement = ProcessorPlacement::After;
+  std::optional<NodeId> target; // No target appends to documentOutput.
+};
+struct ProcessorPickerState {
+  std::optional<ProcessorInsertion> insertion;
+  bool openRequested = false;
+};
+
 struct App {
   App() {
     Node source(NodeOperation::Source);
@@ -115,6 +125,7 @@ struct App {
   bool showNodes = true;
   NodesView nodesView = NodesView::List;
   ui::GraphCanvasState graphCanvas;
+  ProcessorPickerState processorPicker;
   // Fallback DockBuilder sizes when the global ImGui layout has no dock node.
   float rightW = 420.0f;
   char paramFilter[128] = {};

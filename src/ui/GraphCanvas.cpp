@@ -3,6 +3,7 @@
 #include "AppState.h"
 #include "NodeGraph.h"
 #include "GraphCommands.h"
+#include "ui/UiContext.h"
 
 #include "imgui.h"
 
@@ -291,6 +292,36 @@ std::optional<InputAddress> portContextMenu(App &app, const Canvas &canvas, cons
   }
   return disconnect;
 }
+
+std::optional<NodeId> nodeContextMenu(App &app, const Canvas &canvas, const GraphLayout &layout, bool hovered) {
+  auto &state = app.graphCanvas;
+  if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && !state.contextPort) {
+    const auto &mouse = ImGui::GetIO().MousePos;
+    const auto point = canvasToGraph(canvas.view, {mouse.x - canvas.origin.x, mouse.y - canvas.origin.y});
+    const auto *node = hitNode(layout, point, app.selectedNodeId());
+    state.contextNode = node ? std::optional<NodeId>{node->node->id} : std::nullopt;
+    if (node) { selectNode(app, node->node->id); ImGui::OpenPopup("##nodeContext"); }
+  }
+  std::optional<NodeId> remove;
+  if (ImGui::BeginPopup("##nodeContext")) {
+    const Node *node = state.contextNode ? findNode(app, *state.contextNode) : nullptr;
+    if (!node) ImGui::CloseCurrentPopup();
+    else {
+      const NodeId id = node->id;
+      const bool source = node->operation == NodeOperation::Source;
+      ImGui::TextUnformatted(nodeDisplayName(*node).c_str());
+      ImGui::BeginDisabled(!app.renderer.canEditParameters());
+      if (ImGui::MenuItem("Insert Before...", nullptr, false, !source))
+        requestProcessorPicker(app, {ProcessorPlacement::Before, id});
+      if (ImGui::MenuItem("Insert After...")) requestProcessorPicker(app, {ProcessorPlacement::After, id});
+      ImGui::Separator();
+      if (ImGui::MenuItem("Delete Node", nullptr, false, !source)) remove = id;
+      ImGui::EndDisabled();
+    }
+    ImGui::EndPopup();
+  }
+  return remove;
+}
 }  // namespace
 
 void drawGraphCanvas(App &app) {
@@ -315,8 +346,13 @@ void drawGraphCanvas(App &app) {
   ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
   const bool hovered = ImGui::IsItemHovered(), active = ImGui::IsItemActive();
   const auto &io = ImGui::GetIO();
-  if (ImGui::IsItemFocused() && !io.WantTextInput && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt &&
-      ImGui::IsKeyPressed(ImGuiKey_F, false)) state.framePending = true;
+  const bool keyboard = ImGui::IsItemFocused() && ImGui::IsWindowFocused() &&
+      !ImGui::IsAnyItemActive() && !io.WantTextInput && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt && !io.KeyShift;
+  if (keyboard && ImGui::IsKeyPressed(ImGuiKey_F, false)) state.framePending = true;
+  std::optional<NodeId> remove;
+  if (keyboard && app.renderer.canEditParameters() && selectedNode(app) &&
+      (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)))
+    remove = app.selectedNodeId();
   auto layout = layoutGraph({app.nodes, app.primarySource, app.documentOutput}, app.nodePositions);
   // Materialize only missing auto positions, in the existing grade layout map.
   // No disk writes: ordinary Save Grade/photo departure/shutdown captures these.
@@ -346,9 +382,11 @@ void drawGraphCanvas(App &app) {
   drawWireGesture(app, canvas, layout, hovered);
   canvas.draw.PopClipRect();
   const auto disconnect = portContextMenu(app, canvas, layout, hovered);
+  if (const auto menuRemove = nodeContextMenu(app, canvas, layout, hovered)) remove = menuRemove;
   ImGui::EndChild();
   // Geometry borrows live nodes. Dispatch only after drawing and popup traversal.
-  if (drop) commitWire(app, drop->first, drop->second);
+  if (remove) destroyNode(app, *remove);
+  else if (drop) commitWire(app, drop->first, drop->second);
   else if (disconnect) {
     const auto result = graph::disconnect(app, *disconnect);
     if (!result.ok()) app.setStatus("Cannot disconnect: " + result.error);

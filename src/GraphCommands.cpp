@@ -70,6 +70,7 @@ class StagedEdit {
     auto invalid = graphStructureError(view());
     if (!invalid.empty()) return {invalid, std::nullopt};
     if (additions.empty() && unchanged()) return {{}, addedSlot};
+    if (owner && !owner->renderer.canEditParameters()) return {"Graph editing is disabled during export", std::nullopt};
     // Staging reads immutable topology on the control thread. Only a validated
     // change drains preview/export, before touching live storage or processors.
     std::optional<document_detail::DocumentMutation> mutation;
@@ -172,7 +173,6 @@ template <typename Change>
 static CommandResult editGraph(App &app, Change change, Node *addition = nullptr) {
   document_detail::DocumentMutation::assertControlThread(app);
   if (!requireEditableGraph(app)) return {"The saved grade was not loaded; graph editing is disabled", std::nullopt};
-  if (!app.renderer.canEditParameters()) return {"Graph editing is disabled during export", std::nullopt};
   return editGraph(graph::Document{app.nodes, app.primarySource, app.documentOutput}, change, addition, &app);
 }
 
