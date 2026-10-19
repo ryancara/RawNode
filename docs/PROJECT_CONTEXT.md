@@ -311,6 +311,16 @@ Unless an operation explicitly requires otherwise:
 
 Colour transforms should have explicit source and destination encodings.
 
+PNG export quantises the graph's already encoded values to 8-bit RGBA; Output
+remains a manual interpretation/tagging contract, not an automatic conversion
+(see `docs/ARCHITECTURE.md`, "Colour semantics"). Tagged PNGs carry one generated
+ICC profile immediately after IHDR, before any palette or image data. The PNG
+writer adds no sRGB, gAMA or cHRM chunks; its internal untagged path adds no colour
+metadata. ICC profiles retain the selected gamut and transfer function. The
+existing DaVinci Intermediate limitation remains: ICC cannot fully represent
+scene values above 1.0, and export warns that external applications may clip
+highlights.
+
 RAW decode and native CST should share colour definitions/math where practical
 instead of maintaining duplicate matrices or transfer functions.
 
@@ -769,8 +779,9 @@ implementing Graph View. No general renderer, graph or I/O refactor is intended.
 3. **Graph traversal depth:** bound or otherwise make deep graph walks safe so
    unexpectedly large/deep topology cannot exhaust the call stack; verify
    normal graph behaviour is unchanged.
-4. **PNG colour correctness:** inspect and correct ICC chunk ordering and PNG
-   colour metadata semantics with independent, focused read/write tests.
+4. **PNG colour correctness:** ICC placement is corrected with independent
+   chunk/CRC, profile and pixel regression tests. Implementation awaits
+   independent review before this gate is closed.
 
 **Then:** deliver the switchable Graph/List editor (D047) on the same
 authoritative graph; **then Step 8** adds the first concrete Mask path. These

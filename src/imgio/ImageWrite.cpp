@@ -81,7 +81,9 @@ static bool writePngWithIcc(const Image &img, const std::string &path, const std
   toTopDown8(img, px8);
   int len = 0;
   unsigned char *png = stbi_write_png_to_mem(px8.data(), img.w * 4, img.w, img.h, 4, &len);
-  if (!png || len < 8) {
+  // stb writes the PNG signature followed by a 13-byte IHDR chunk.
+  constexpr size_t headerEnd = 8 + 12 + 13;
+  if (!png || len < (int)headerEnd) {
     if (png) STBIW_FREE(png);
     return false;
   }
@@ -91,7 +93,9 @@ static bool writePngWithIcc(const Image &img, const std::string &path, const std
     return ok;
   }
 
-  // Insert iCCP before IEND. Profile is zlib-compressed; keyword "ICC Profile".
+  // iCCP must precede PLTE and IDAT. Insert it immediately after IHDR;
+  // keep the pixel data unchanged and add no competing sRGB/gAMA/cHRM tags.
+  // Profile is zlib-compressed; keyword "ICC Profile".
   uLongf bound = compressBound((uLong)icc.size());
   std::vector<uint8_t> comp(bound);
   if (compress(comp.data(), &bound, icc.data(), (uLong)icc.size()) != Z_OK) {
@@ -114,15 +118,13 @@ static bool writePngWithIcc(const Image &img, const std::string &path, const std
   typeAndData.insert(typeAndData.end(), chunkData.begin(), chunkData.end());
   const uint32_t crc = crc32_png(typeAndData.data(), typeAndData.size());
 
-  // Find IEND (last 12 bytes of a well-formed PNG from stb).
-  const size_t iend = (size_t)len - 12;
   std::vector<uint8_t> out;
   out.reserve((size_t)len + 12 + typeAndData.size());
-  out.insert(out.end(), png, png + iend);
+  out.insert(out.end(), png, png + headerEnd);
   writeBe32(out, (uint32_t)chunkData.size());
   out.insert(out.end(), typeAndData.begin(), typeAndData.end());
   writeBe32(out, crc);
-  out.insert(out.end(), png + iend, png + len);
+  out.insert(out.end(), png + headerEnd, png + len);
   STBIW_FREE(png);
 
   return writeBuffer(path, out.data(), out.size());
