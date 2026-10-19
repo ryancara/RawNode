@@ -568,6 +568,20 @@ scope/refresh behaviour; new dock layouts save/restore without migration.
 Focused real ImGui frames and existing document/runtime tests cover these paths,
 with platform GUI checks recorded separately rather than claimed from headless tests.
 
+### Superseding PR 2B scope — owner clarification, 2026-10-19
+
+The owner withdrew selection-aware insertion and Insert Before/After from the
+PR 2B scope described above. PR 2B now exposes existing connection/reconnection,
+input disconnection, virtual Output rewiring and Graph View deletion through
+minimal associated context menus and existing document/graph APIs.
+
+Add Processor keeps PR #80's append-to-document-Output behaviour regardless of
+selection. Processor construction/picker policy and clipboard/preset insertion
+remain unchanged. Insertion-policy changes require a separate product decision;
+they do not move automatically to PR 2C's placement/usability scope. This
+clarification preserves D051's historical rationale and changes neither Step 8
+nor the graph, rendering or persistence architecture.
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:

@@ -724,9 +724,13 @@ compositing or alpha-carrying I/O requires it.
 Next architecture/product work:
 
 - Follow D051's accepted UI sequence: PR 2A contextual Inspector/workspace,
-  PR 2B visual connection/deletion/insertion editing, PR 2C placement/usability,
+  PR 2B visual connection/deletion editing, PR 2C placement/usability,
   followed by Step 8's first concrete production Mask path. PR #79 supplies the
   dockable visual foundation; Step 7 graph-native persistence is complete.
+- The owner's superseding D051 clarification limits PR 2B to connections,
+  input disconnection, virtual Output rewiring, Graph deletion and minimal menus.
+  Add Processor continues to append regardless of selection. Insertion-policy
+  changes await a separate product decision and are not added to PR 2C.
 - Preview owns resolution; Nodes owns Add Processor and List/Graph; Inspector
   follows Source/processor/virtual Output/no selection. The top toolbar owns file
   actions and status/warnings, retiring Left Panel. Historical UI-layout migration

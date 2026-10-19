@@ -2,6 +2,7 @@
 
 #include "AppState.h"
 #include "NodeGraph.h"
+#include "GraphCommands.h"
 
 #include "imgui.h"
 
@@ -148,17 +149,76 @@ const GraphNodeLayout *hitNode(const GraphLayout &layout, PersistPosition point,
   return nullptr;
 }
 
-void interact(App &app, const Canvas &canvas, GraphLayout &layout, bool hovered, bool active) {
+struct GraphPortHit {
+  GraphPortAddress address;
+  PersistPosition position;
+  ValueType type;
+};
+
+std::optional<GraphPortHit> hitGraphPort(const GraphLayout &layout, const GraphViewport &view,
+                                      PersistPosition point) {
+  std::optional<GraphPortHit> hit;
+  double nearest = 1;
+  // A horizontal screen-space halo helps target tiny ports. Limit the vertical
+  // halo to half the visible row spacing, keeping neighbouring ports distinct.
+  const double radiusX = 10, radiusY = std::min(10.0, graphPortSpacing * view.zoom * 0.45);
+  const auto consider = [&](GraphPortAddress address, PersistPosition position, ValueType type) {
+    const auto screen = graphToCanvas(view, position);
+    const double dx = (screen.x - point.x) / radiusX, dy = (screen.y - point.y) / radiusY;
+    const double distance = dx * dx + dy * dy;
+    if (distance <= nearest) {
+      nearest = distance;
+      hit = GraphPortHit{std::move(address), position, type};
+    }
+  };
+  for (const auto &entry : layout.nodes)
+    for (const auto &port : entry.second.ports)
+      consider({entry.second.node->id, port.slot, port.declaration->id, port.declaration->direction},
+               portPosition(entry.second, port), port.declaration->type);
+  consider({{}, std::nullopt, ports::image, PortDirection::Input},
+           {layout.output.x, layout.output.y + 48}, ValueType::Image);
+  return hit;
+}
+
+std::optional<GraphPortHit> resolvePort(const GraphLayout &layout, const GraphPortAddress &address) {
+  if (address.isDocumentOutput())
+    return GraphPortHit{address, {layout.output.x, layout.output.y + 48}, ValueType::Image};
+  const auto found = layout.nodes.find(address.nodeId.value);
+  if (found == layout.nodes.end()) return std::nullopt;
+  for (const auto &port : found->second.ports)
+    if (port.slot == address.slot && port.declaration->id == address.port &&
+        port.declaration->direction == address.direction)
+      return GraphPortHit{address, portPosition(found->second, port), port.declaration->type};
+  return std::nullopt;
+}
+
+using WireDrop = std::pair<GraphPortAddress, GraphPortAddress>;
+std::optional<WireDrop> interact(App &app, const Canvas &canvas, GraphLayout &layout, bool hovered, bool active) {
   auto &state = app.graphCanvas;
   const auto &io = ImGui::GetIO();
   const PersistPosition mouse{io.MousePos.x - canvas.origin.x, io.MousePos.y - canvas.origin.y};
+  std::optional<WireDrop> drop;
+  const auto port = hovered ? hitGraphPort(layout, state.view, mouse) : std::nullopt;
+  if (state.wire && (!resolvePort(layout, *state.wire) ||
+                    ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
+                    !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) ||
+                    io.KeyCtrl || io.KeySuper || io.KeyAlt)) state.wire.reset();
+  if (state.wire && ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+    if (port) drop = WireDrop{*state.wire, port->address};
+    state.wire.reset();
+  }
+  if (state.wire && (!active || !ImGui::IsMouseDown(ImGuiMouseButton_Left))) state.wire.reset();
   if (!active || !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
     state.dragging.reset();
     state.panningFromEmptyCanvas = false;
   }
   if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
     const auto point = canvasToGraph(state.view, mouse);
-    if (const auto *node = hitNode(layout, point, app.selectedNodeId())) {
+    if (port) {
+      state.wire = port->address;
+      state.dragging.reset();
+      state.panningFromEmptyCanvas = false;
+    } else if (const auto *node = hitNode(layout, point, app.selectedNodeId())) {
       selectNode(app, node->node->id);
       if (!app.isPhotoProtected() && point.y < node->position.y + graphHeaderHeight) {
         state.dragging = node->node->id;
@@ -185,7 +245,120 @@ void interact(App &app, const Canvas &canvas, GraphLayout &layout, bool hovered,
     if (moveGraphNode(app, *state.dragging, {point.x - state.dragOffset.x, point.y - state.dragOffset.y}))
       layout = layoutGraph({app.nodes, app.primarySource, app.documentOutput}, app.nodePositions);
   }
+  return drop;
 }
+
+void drawWireGesture(const App &app, const Canvas &canvas, const GraphLayout &layout, bool hovered) {
+  if (!app.graphCanvas.wire) return;
+  const auto anchor = resolvePort(layout, *app.graphCanvas.wire);
+  if (!anchor) return;
+  const auto &mouse = ImGui::GetIO().MousePos;
+  const auto target = hovered ? hitGraphPort(layout, canvas.view,
+      {mouse.x - canvas.origin.x, mouse.y - canvas.origin.y}) : std::nullopt;
+  const bool compatible = target && target->address.direction != anchor->address.direction &&
+                          target->type == anchor->type && app.renderer.canEditParameters();
+  const ImU32 color = target ? ImGui::GetColorU32(compatible ? ImGuiCol_NavCursor : ImGuiCol_PlotHistogram)
+                            : portColor(anchor->type);
+  const auto fixed = canvas.screen(anchor->position);
+  const auto from = anchor->address.direction == PortDirection::Output ? fixed : mouse;
+  const auto to = anchor->address.direction == PortDirection::Output ? mouse : fixed;
+  const float bend = std::max(40.0f, std::abs(to.x - from.x) * 0.5f);
+  canvas.draw.AddBezierCubic(from, {from.x + bend, from.y}, {to.x - bend, to.y}, to, color, 2);
+  if (target) {
+    const auto center = canvas.screen(target->position);
+    canvas.draw.AddCircle(center, 8, color, 0, 2);
+    if (!compatible) {
+      canvas.draw.AddLine({center.x - 5, center.y - 5}, {center.x + 5, center.y + 5}, color, 2);
+      canvas.draw.AddLine({center.x - 5, center.y + 5}, {center.x + 5, center.y - 5}, color, 2);
+    }
+    ImGui::SetTooltip("%s", !app.renderer.canEditParameters() ? "Editing unavailable: protected photograph or active export" :
+        target->address.direction == anchor->address.direction ? "Connect an output to an input" :
+        target->type != anchor->type ? "Image/Mask type mismatch" : "Release to connect");
+  }
+}
+
+void commitWire(App &app, GraphPortAddress from, GraphPortAddress to) {
+  if (!app.renderer.canEditParameters()) {
+    app.setStatus("Graph editing unavailable during export or on a protected photograph");
+    return;
+  }
+  if (from.direction == to.direction) {
+    app.setStatus("Cannot connect: choose an output and an input");
+    return;
+  }
+  if (from.direction == PortDirection::Input) std::swap(from, to);
+  const OutputRef producer{from.nodeId, from.port};
+  graph::CommandResult result;
+  if (to.isDocumentOutput()) result = graph::setDocumentOutput(app, producer);
+  else {
+    const InputAddress destination{to.nodeId, to.slot, to.port};
+    const auto *binding = findInput(app, destination);
+    result = binding && *binding ? graph::reconnect(app, producer, destination)
+                                : graph::connect(app, producer, destination);
+  }
+  if (!result.ok()) app.setStatus("Cannot connect: " + result.error);
+}
+
+std::optional<InputAddress> portContextMenu(App &app, const Canvas &canvas, const GraphLayout &layout,
+                                            bool hovered) {
+  auto &state = app.graphCanvas;
+  if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+    state.wire.reset(); state.dragging.reset(); state.panningFromEmptyCanvas = false;
+    const auto &mouse = ImGui::GetIO().MousePos;
+    const auto port = hitGraphPort(layout, canvas.view, {mouse.x - canvas.origin.x, mouse.y - canvas.origin.y});
+    state.contextPort.reset();
+    if (port && port->address.direction == PortDirection::Input && !port->address.isDocumentOutput()) {
+      const auto &address = port->address;
+      const auto *input = findInput(app, {address.nodeId, address.slot, address.port});
+      if (input && input->has_value()) {
+        selectNode(app, address.nodeId);
+        state.contextPort = address;
+        ImGui::OpenPopup("##portContext");
+      }
+    }
+  }
+  std::optional<InputAddress> disconnect;
+  if (ImGui::BeginPopup("##portContext")) {
+    if (state.contextPort && app.selectedNodeId() == state.contextPort->nodeId &&
+        resolvePort(layout, *state.contextPort)) {
+      const auto &port = *state.contextPort;
+      const InputAddress input{port.nodeId, port.slot, port.port};
+      const auto *binding = findInput(app, input);
+      if (ImGui::MenuItem("Disconnect", nullptr, false,
+                          binding && binding->has_value() && app.renderer.canEditParameters())) disconnect = input;
+    } else ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+  }
+  return disconnect;
+}
+
+std::optional<NodeId> nodeContextMenu(App &app, const Canvas &canvas, const GraphLayout &layout, bool hovered) {
+  auto &state = app.graphCanvas;
+  if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+    const auto &mouse = ImGui::GetIO().MousePos;
+    const PersistPosition point{mouse.x - canvas.origin.x, mouse.y - canvas.origin.y};
+    // Ports own right-clicks too, including ports without a menu operation.
+    if (!hitGraphPort(layout, canvas.view, point)) {
+      const auto *node = hitNode(layout, canvasToGraph(canvas.view, point), app.selectedNodeId());
+      state.contextNode = node ? std::optional<NodeId>{node->node->id} : std::nullopt;
+      if (node) {
+        selectNode(app, node->node->id);
+        if (node->node->operation != NodeOperation::Source) ImGui::OpenPopup("##nodeContext");
+      }
+    }
+  }
+  std::optional<NodeId> remove;
+  if (ImGui::BeginPopup("##nodeContext")) {
+    const Node *node = state.contextNode ? findNode(app, *state.contextNode) : nullptr;
+    if (!node || app.selectedNodeId() != state.contextNode) ImGui::CloseCurrentPopup();
+    else if (ImGui::MenuItem("Delete Node", nullptr, false,
+                             node->operation != NodeOperation::Source && app.renderer.canEditParameters()))
+      remove = node->id;
+    ImGui::EndPopup();
+  }
+  return remove;
+}
+
 }  // namespace
 
 void drawGraphCanvas(App &app) {
@@ -198,13 +371,13 @@ void drawGraphCanvas(App &app) {
   ImGui::SameLine();
   ImGui::TextDisabled("Drag headers / Drag empty canvas or middle-drag to pan / Wheel zoom");
   const auto size = ImGui::GetContentRegionAvail();
-  if (size.x < 1 || size.y < 1) { state.dragging.reset(); return; }
+  if (size.x < 1 || size.y < 1) { state.cancelInteraction(); return; }
   if (!ImGui::BeginChild("##graphCanvasRegion", size, ImGuiChildFlags_None,
                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-    state.dragging.reset(); ImGui::EndChild(); return;
+    state.cancelInteraction(); ImGui::EndChild(); return;
   }
   const auto canvasOrigin = ImGui::GetCursorScreenPos(), canvasSize = ImGui::GetContentRegionAvail();
-  if (canvasSize.x < 1 || canvasSize.y < 1) { ImGui::EndChild(); return; }
+  if (canvasSize.x < 1 || canvasSize.y < 1) { state.cancelInteraction(); ImGui::EndChild(); return; }
   ImGui::InvisibleButton("##graphCanvas", canvasSize, ImGuiButtonFlags_MouseButtonLeft |
                           ImGuiButtonFlags_MouseButtonMiddle | ImGuiButtonFlags_EnableNav);
   ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
@@ -212,6 +385,12 @@ void drawGraphCanvas(App &app) {
   const auto &io = ImGui::GetIO();
   if (ImGui::IsItemFocused() && !io.WantTextInput && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt &&
       ImGui::IsKeyPressed(ImGuiKey_F, false)) state.framePending = true;
+  std::optional<NodeId> remove;
+  if (ImGui::IsItemFocused() && ImGui::IsWindowFocused() && !ImGui::IsAnyItemActive() &&
+      !io.WantTextInput && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt && !io.KeyShift &&
+      app.renderer.canEditParameters() && selectedNode(app) &&
+      (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)))
+    remove = app.selectedNodeId();
   auto layout = layoutGraph({app.nodes, app.primarySource, app.documentOutput}, app.nodePositions);
   // Materialize only missing auto positions, in the existing grade layout map.
   // No disk writes: ordinary Save Grade/photo departure/shutdown captures these.
@@ -226,7 +405,7 @@ void drawGraphCanvas(App &app) {
     state.framePending = false;
   }
   Canvas canvas{canvasOrigin, canvasSize, state.view, *ImGui::GetWindowDrawList()};
-  interact(app, canvas, layout, hovered, active);
+  const auto drop = interact(app, canvas, layout, hovered, active);
   const ImVec2 high(canvasOrigin.x + canvasSize.x, canvasOrigin.y + canvasSize.y);
   canvas.draw.PushClipRect(canvasOrigin, high, true);
   canvas.draw.AddRectFilled(canvasOrigin, high, ImGui::GetColorU32(ImGuiCol_FrameBg));
@@ -238,7 +417,17 @@ void drawGraphCanvas(App &app) {
   }
   if (selected) drawNode(canvas, *selected, true);
   drawOutput(canvas, layout.output, app.outputSelected());
+  drawWireGesture(app, canvas, layout, hovered);
   canvas.draw.PopClipRect();
+  const auto disconnect = portContextMenu(app, canvas, layout, hovered);
+  if (const auto menuRemove = nodeContextMenu(app, canvas, layout, hovered)) remove = menuRemove;
   ImGui::EndChild();
+  // All frame-local geometry borrows live nodes. Dispatch after drawing/menus.
+  if (remove && app.renderer.canEditParameters()) destroyNode(app, *remove);
+  else if (drop) commitWire(app, drop->first, drop->second);
+  else if (disconnect && app.renderer.canEditParameters()) {
+    const auto result = graph::disconnect(app, *disconnect);
+    if (!result.ok()) app.setStatus("Cannot disconnect: " + result.error);
+  }
 }
 }  // namespace ui

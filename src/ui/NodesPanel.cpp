@@ -19,7 +19,7 @@ void drawNodesPanel(App &app) {
   ImGui::Separator();
   if (app.nodesView == NodesView::Graph) ui::drawGraphCanvas(app);
   else {
-    app.graphCanvas.dragging.reset();
+    app.graphCanvas.cancelInteraction();
     ui::drawNodeList(app);
   }
 }

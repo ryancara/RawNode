@@ -2,6 +2,7 @@
 
 #include "AppState.h"
 #include "GraphCommands.h"
+#include "GraphValidation.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActionsPriv.h"
@@ -678,24 +679,31 @@ bool processorPickerInBothViews() {
   Ui ui; ui.captureLog = true; App app; app.path = "picker.png";
   CHECK(addNativeCstNode(app));
   for (auto view : {NodesView::List, NodesView::Graph}) {
-    app.nodesView = view; CHECK(selectNode(app, app.primarySource));
-    const auto previousOutput = app.documentOutput;
-    const auto count = app.nodes.size();
-    std::snprintf(app.pluginFilter, sizeof app.pluginFilter, "Exposure");
-    ui.tick(app); ui.tick(app); ui.click(app, ui.addButton);
-    CHECK(ui.pickerOpen);
-    CHECK(ui.nodesLog.find("Exposure") != std::string::npos && ui.nodesLog.substr(0, ui.nodesLog.find("Source")).find("CST") == std::string::npos);
-    ImVec2 choice{};
-    for (const auto *window : ImGui::GetCurrentContext()->Windows)
-      if (window->Active && (window->Flags & ImGuiWindowFlags_Popup))
-        choice = {window->DC.CursorStartPos.x + 30, window->DC.CursorPosPrevLine.y + 6};
-    CHECK(choice.x > 0);
-    ui.click(app, choice);
-    CHECK(!ui.pickerOpen && app.nodes.size() == count + 1);
-    const auto *node = selectedNode(app);
-    CHECK(node && node->processor && nodeDisplayName(*node) == "Exposure");
-    CHECK(node->fixedInputs.at(ports::image) == previousOutput);
-    CHECK(app.documentOutput == (OutputRef{node->id, ports::image}) && app.pluginFilter[0] == '\0');
+    app.nodesView = view;
+    // PR #80 appends regardless of selection; exercise the unchanged picker.
+    for (int selection = 0; selection != 4; ++selection) {
+      if (selection == 0) CHECK(selectNode(app, std::nullopt));
+      else if (selection == 1) CHECK(selectNode(app, app.primarySource));
+      else if (selection == 2) CHECK(selectNode(app, app.nodes[1].id));
+      else selectOutput(app);
+      const auto previousOutput = app.documentOutput;
+      const auto count = app.nodes.size();
+      std::snprintf(app.pluginFilter, sizeof app.pluginFilter, "Exposure");
+      ui.tick(app); ui.tick(app); ui.click(app, ui.addButton);
+      CHECK(ui.pickerOpen);
+      CHECK(ui.nodesLog.find("Exposure") != std::string::npos && ui.nodesLog.substr(0, ui.nodesLog.find("Source")).find("CST") == std::string::npos);
+      ImVec2 choice{};
+      for (const auto *window : ImGui::GetCurrentContext()->Windows)
+        if (window->Active && (window->Flags & ImGuiWindowFlags_Popup))
+          choice = {window->DC.CursorStartPos.x + 30, window->DC.CursorPosPrevLine.y + 6};
+      CHECK(choice.x > 0);
+      ui.click(app, choice);
+      CHECK(!ui.pickerOpen && app.nodes.size() == count + 1);
+      const auto *node = selectedNode(app);
+      CHECK(node && node->processor && nodeDisplayName(*node) == "Exposure");
+      CHECK(node->fixedInputs.at(ports::image) == previousOutput);
+      CHECK(app.documentOutput == (OutputRef{node->id, ports::image}) && app.pluginFilter[0] == '\0');
+    }
   }
   app.nodesView = NodesView::List; ui.tick(app);
   const float wideSourceY = ui.listSource.y;
@@ -782,11 +790,332 @@ bool firstDockedFrame() {
   return true;
 }
 
+// Independent expected bindings and +1 EV arithmetic exercise actual UI commands;
+// expected topology is never derived from the drawing or command implementation.
+OutputRef imageOf(const NodeId &id) { return {id, ports::image}; }
+InputAddress imageInput(const NodeId &id) { return {id, std::nullopt, ports::image}; }
+bool consumes(const App &app, const NodeId &consumer, const NodeId &producer) {
+  const auto *binding = findInput(app, imageInput(consumer));
+  return binding && *binding == imageOf(producer);
+}
+void key(Ui &ui, App &app, ImGuiKey value) {
+  ImGui::GetIO().AddKeyEvent(value, true); ui.tick(app);
+  ImGui::GetIO().AddKeyEvent(value, false); ui.tick(app);
+}
+void rightClick(Ui &ui, App &app, ImVec2 point) {
+  ui.hover(app, point); ImGui::GetIO().AddMouseButtonEvent(1, true); ui.tick(app);
+  ImGui::GetIO().AddMouseButtonEvent(1, false); ui.tick(app);
+}
+ImVec2 lastPopupItem() {
+  for (const auto *window : ImGui::GetCurrentContext()->Windows)
+    if (window->Active && (window->Flags & ImGuiWindowFlags_Popup))
+      return {window->DC.CursorStartPos.x + 30, window->DC.CursorPosPrevLine.y + 6};
+  return {};
+}
+
+bool wireEditingFrames() {
+  for (const double zoom : {0.2, 0.5, 1.0, 2.5}) {
+    Ui ui; App app; app.path = "wires"; app.nodesView = NodesView::Graph;
+    CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+    CHECK(addNativeExposureNode(app)); const auto b = *app.selectedNodeId();
+    CHECK(graph::disconnect(app, imageInput(a)).ok() && graph::disconnect(app, imageInput(b)).ok());
+    ui.tick(app); ui.tick(app);
+    app.nodePositions = {{app.primarySource.value, {-200, 0}}, {a.value, {100, 0}}, {b.value, {400, 0}}};
+    app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 50}, zoom}; ui.tick(app);
+    const auto positions = app.nodePositions; const auto pan = app.graphCanvas.view.pan;
+    std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+    const auto source = ui.screen(app, {40, 44}), aIn = ui.screen(app, {100, 44});
+    const auto aOut = ui.screen(app, {340, 44}), bIn = ui.screen(app, {400, 44});
+    auto before = graphJson(app);
+    // A horizontal halo outside the small rendered port still wins over body
+    // dragging, at both zoom extremes. Topology stays unchanged until release.
+    ui.hover(app, {source.x + 5, source.y});
+    ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+    CHECK(app.graphCanvas.wire && !app.graphCanvas.dragging);
+    ui.hover(app, aIn); CHECK(graphJson(app) == before);
+    ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+    CHECK(consumes(app, a, app.primarySource) && mutations == 1 && !app.graphCanvas.wire);
+    ui.drag(app, aOut, {bIn.x - aOut.x, bIn.y - aOut.y}, 0);
+    CHECK(consumes(app, b, a) && mutations == 2);
+    // Input-origin drag and occupied-input replacement are single commits.
+    ui.drag(app, bIn, {source.x - bIn.x, source.y - bIn.y}, 0);
+    CHECK(consumes(app, b, app.primarySource) && mutations == 3 && consumes(app, a, app.primarySource));
+    ui.drag(app, aOut, {bIn.x - aOut.x, bIn.y - aOut.y}, 0);
+    CHECK(consumes(app, b, a) && mutations == 4);
+    before = graphJson(app); const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+    ui.drag(app, aOut, {bIn.x - aOut.x, bIn.y - aOut.y}, 0); // Same edge.
+    ui.drag(app, aOut, {0, 150}, 0); // Empty drop.
+    ui.drag(app, source, {aOut.x - source.x, aOut.y - source.y}, 0); // Output/output.
+    ui.drag(app, aOut, {aIn.x - aOut.x, aIn.y - aOut.y}, 0); // Self cycle.
+    CHECK(app.getStatus().find("Cycle") != std::string::npos || app.getStatus().find("cycle") != std::string::npos);
+    CHECK(graphJson(app) == before && mutations == 4);
+    CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch);
+    // Escape, view change, missing endpoint and photograph change cancel.
+    ui.hover(app, source); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+    key(ui, app, ImGuiKey_Escape); CHECK(!app.graphCanvas.wire);
+    ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+    app.graphCanvas.wire = ui::GraphPortAddress{app.primarySource, {}, ports::image, PortDirection::Output};
+    app.nodesView = NodesView::List; ui.tick(app); CHECK(!app.graphCanvas.wire);
+    app.nodesView = NodesView::Graph;
+    app.graphCanvas.wire = ui::GraphPortAddress{NodeId{"absent"}, {}, ports::image, PortDirection::Output};
+    ui.tick(app); CHECK(!app.graphCanvas.wire);
+    app.graphCanvas.wire = ui::GraphPortAddress{app.primarySource, {}, ports::image, PortDirection::Output};
+    app.path = "different-photo"; ui.tick(app); CHECK(!app.graphCanvas.wire);
+    CHECK(graphJson(app) == before && mutations == 4 && samePositions(app.nodePositions, positions));
+    // Restore viewport following the deliberate photo-switch reset.
+    app.graphCanvas.framePending = false; app.graphCanvas.view = {pan, zoom}; ui.tick(app);
+    rightClick(ui, app, bIn); ui.click(app, lastPopupItem());
+    CHECK(!*findInput(app, imageInput(b)) && mutations == 5);
+    CHECK(!requestedGraphError(graph(app), app.documentOutput).empty());
+    ui.drag(app, aOut, {bIn.x - aOut.x, bIn.y - aOut.y}, 0);
+    CHECK(consumes(app, b, a) && mutations == 6 && requestedGraphError(graph(app), app.documentOutput).empty());
+    CHECK(samePositions(app.nodePositions, positions) && same(app.graphCanvas.view.pan, pan));
+    RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  }
+  return true;
+}
+
+bool outputAndTypedWireFrames() {
+  Ui ui; App app; app.path = "typed-wires"; app.nodesView = NodesView::Graph;
+  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+  app.full.w = app.full.h = 1; app.full.px = {0.25f, 0.25f, 0.25f, 1};
+  app.preview = std::make_shared<Image>(app.full);
+  CHECK(setNodeParameterValue(app, a, "exposure", 1.0));
+  Node mask(NodeOperation::TestImageToMask); mask.id = NodeId{"mask"};
+  CHECK(graph::addNode(app, std::move(mask)).ok());
+  Node consumer(NodeOperation::TestMaskProcessor); consumer.id = NodeId{"mask-consumer"};
+  CHECK(graph::addNode(app, std::move(consumer)).ok());
+  ui.tick(app); ui.tick(app); app.graphCanvas.framePending = false;
+  app.nodePositions = {{app.primarySource.value, {0, 0}}, {a.value, {320, 0}}, {"mask", {320, 180}}, {"mask-consumer", {640, 180}}};
+  app.graphCanvas.view = {{20, 40}, 0.8}; ui.tick(app);
+  const auto layout = ui::layoutGraph(graph(app), app.nodePositions);
+  const auto output = ui.screen(app, {layout.output.x, layout.output.y + 48});
+  const auto source = ui.screen(app, {240, 44}), aIn = ui.screen(app, {320, 44});
+  const auto aOut = ui.screen(app, {560, 44}), maskOut = ui.screen(app, {560, 224});
+  const auto encoding = app.outputEncoding;
+  std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+  ui.drag(app, source, {output.x - source.x, output.y - source.y}, 0);
+  CHECK(app.documentOutput == imageOf(app.primarySource) && mutations == 1);
+  for (auto purpose : {EvaluationPurpose::Preview, EvaluationPurpose::Export}) {
+    auto result = app.renderer.evaluateOwned(app.documentOutput, {purpose, 1, 1, 1, 1}, app.preview);
+    CHECK(result.state == EvaluationState::Available && std::get<ImageValue>(result.value)->px[0] == 0.25f);
+  }
+  ui.drag(app, output, {aOut.x - output.x, aOut.y - output.y}, 0);
+  CHECK(app.documentOutput == imageOf(a) && mutations == 2);
+  for (auto purpose : {EvaluationPurpose::Preview, EvaluationPurpose::Export}) {
+    auto result = app.renderer.evaluateOwned(app.documentOutput, {purpose, 1, 1, 1, 1}, app.preview);
+    CHECK(result.state == EvaluationState::Available && std::get<ImageValue>(result.value)->px[0] == 0.5f);
+  }
+  ui.drag(app, maskOut, {aIn.x - maskOut.x, aIn.y - maskOut.y}, 0);
+  CHECK(consumes(app, a, app.primarySource) && mutations == 2 && app.getStatus().find("type mismatch") != std::string::npos);
+  ui.drag(app, maskOut, {output.x - maskOut.x, output.y - maskOut.y}, 0);
+  CHECK(app.documentOutput == imageOf(a) && mutations == 2 && app.outputEncoding == encoding);
+  const auto maskIn = ui.screen(app, {640, 224});
+  const auto maskConsumerOut = ui.screen(app, {880, 224});
+  const InputAddress maskInput{NodeId{"mask-consumer"}, {}, ports::mask};
+  const OutputRef maskOutput{NodeId{"mask"}, ports::mask};
+  ui.drag(app, maskOut, {maskIn.x - maskOut.x, maskIn.y - maskOut.y}, 0);
+  CHECK(*findInput(app, maskInput) == maskOutput && mutations == 3);
+  ui.drag(app, maskIn, {maskOut.x - maskIn.x, maskOut.y - maskIn.y}, 0); // Same Mask edge.
+  CHECK(mutations == 3);
+  ui.drag(app, maskConsumerOut, {maskIn.x - maskConsumerOut.x, maskIn.y - maskConsumerOut.y}, 0);
+  CHECK(*findInput(app, maskInput) == maskOutput && mutations == 3); // Mask self-cycle.
+  rightClick(ui, app, maskIn); ui.click(app, lastPopupItem());
+  CHECK(!*findInput(app, maskInput) && mutations == 4);
+  const auto bindings = findNode(app, a)->fixedInputs;
+  app.sidecarWriteBlockedPath = app.path;
+  const auto positions = app.nodePositions;
+  ui.drag(app, source, {output.x - source.x, output.y - source.y}, 0);
+  ui.click(app, ui.screen(app, {360, 16})); key(ui, app, ImGuiKey_Delete);
+  CHECK(app.documentOutput == imageOf(a) && findNode(app, a) && mutations == 4);
+  CHECK(samePositions(app.nodePositions, positions));
+  app.sidecarWriteBlockedPath.clear();
+  {
+    auto owner = app.renderer.acquireExport(); CHECK(owner);
+    const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+    ui.drag(app, source, {output.x - source.x, output.y - source.y}, 0);
+    ui.click(app, ui.screen(app, {360, 16})); key(ui, app, ImGuiKey_Backspace);
+    rightClick(ui, app, ui.screen(app, {360, 16})); ui.click(app, lastPopupItem());
+    CHECK(app.documentOutput == imageOf(a) && findNode(app, a) && mutations == 4);
+    CHECK(findNode(app, a)->fixedInputs == bindings);
+    const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(after.exportBusy && before.epoch == after.epoch && before.mutationDepth == after.mutationDepth);
+    CHECK(before.previewPending == after.previewPending && before.displayPending == after.displayPending);
+    key(ui, app, ImGuiKey_Escape);
+  }
+  RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  return true;
+}
+
+bool deletionFrames() {
+  Ui ui; ui.showOtherPanel = true; ui.showInspector = true; ui.captureLog = true;
+  App app; app.path = "delete"; app.nodesView = NodesView::Graph;
+  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+  CHECK(addNativeCstNode(app)); const auto b = *app.selectedNodeId();
+  ui.tick(app); ui.tick(app); app.graphCanvas.framePending = false;
+  app.nodePositions = {{app.primarySource.value, {0, 0}}, {a.value, {280, 0}}, {b.value, {560, 0}}};
+  app.graphCanvas.view = {{20, 30}, 0.8}; ui.tick(app);
+  const auto aBody = ui.screen(app, {350, 16});
+  ui.click(app, aBody); CHECK(app.selectedNodeId() == a);
+  ui.click(app, ui.textInput); key(ui, app, ImGuiKey_Delete); key(ui, app, ImGuiKey_Backspace);
+  CHECK(findNode(app, a));
+  ui.click(app, ui.otherButton); key(ui, app, ImGuiKey_Delete); CHECK(findNode(app, a));
+  ui.click(app, aBody); ImGui::GetIO().AddKeyEvent(ImGuiKey_Delete, true); ui.tick(app);
+  CHECK(!findNode(app, a) && !app.selectedNodeId() && !app.nodePositions.count(a.value));
+  CHECK(ui.inspectorLog.find("Select Source, a processor or Output") != std::string::npos);
+  CHECK(consumes(app, b, app.primarySource));
+  // Even if a new node becomes selected, holding Delete cannot remove it.
+  CHECK(selectNode(app, b)); for (int i = 0; i < 60; ++i) ui.tick(app);
+  CHECK(findNode(app, b));
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_Delete, false); ui.tick(app);
+  key(ui, app, ImGuiKey_Backspace);
+  CHECK(!findNode(app, b) && app.documentOutput == imageOf(app.primarySource) && !selectedNode(app));
+  ui.click(app, ui.screen(app, {60, 16})); key(ui, app, ImGuiKey_Delete); CHECK(app.nodes.size() == 1);
+  const auto output = ui::layoutGraph(graph(app), app.nodePositions).output;
+  ui.click(app, ui.screen(app, {output.x + 30, output.y + 16}));
+  key(ui, app, ImGuiKey_Backspace); CHECK(app.nodes.size() == 1 && app.outputSelected());
+  CHECK(addNativeExposureNode(app)); const auto c = *app.selectedNodeId();
+  CHECK(graph::setDocumentOutput(app, imageOf(app.primarySource)).ok()); // Off-spine deletion.
+  ui.tick(app);
+  const auto pos = app.nodePositions.at(c.value);
+  rightClick(ui, app, ui.screen(app, {pos.x + 50, pos.y + 16}));
+  ui.click(app, lastPopupItem()); CHECK(!findNode(app, c) && app.nodes.size() == 1);
+  return true;
+}
+
+
+
+bool gestureEndpointLifecycle() {
+  Ui ui; App app; app.path = "gesture-photo-a"; app.nodesView = NodesView::Graph;
+  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+  CHECK(addNativeExposureNode(app)); const auto b = *app.selectedNodeId();
+  ui.tick(app); ui.tick(app); app.graphCanvas.framePending = false;
+  app.nodePositions = {{app.primarySource.value, {0, 0}}, {a.value, {320, 0}}, {b.value, {640, 0}}};
+  app.graphCanvas.view = {{20, 40}, 0.6}; ui.tick(app);
+  const auto begin = [&](PersistPosition point) {
+    ui.hover(app, ui.screen(app, point));
+    ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+  };
+  const auto release = [&] { ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app); };
+  begin({560, 44}); CHECK(app.graphCanvas.wire && app.graphCanvas.wire->nodeId == a);
+  CHECK(destroyNode(app, a));
+  CHECK(app.graphCanvas.wire); // Graph command has no canvas-state dependency.
+  ui.hover(app, ui.screen(app, {640, 44})); CHECK(!app.graphCanvas.wire);
+  release(); CHECK(consumes(app, b, app.primarySource));
+  const auto before = graphJson(app);
+  begin({240, 44}); CHECK(app.graphCanvas.wire);
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Ctrl, true); ui.tick(app); CHECK(!app.graphCanvas.wire);
+  ImGui::GetIO().AddKeyEvent(ImGuiMod_Ctrl, false); release();
+  begin({240, 44}); CHECK(app.graphCanvas.wire);
+  app.nodesView = NodesView::List; ui.tick(app); CHECK(!app.graphCanvas.wire);
+  app.nodesView = NodesView::Graph; release();
+  begin({240, 44}); CHECK(app.graphCanvas.wire);
+  app.path = "gesture-photo-b"; ui.tick(app); CHECK(!app.graphCanvas.wire); release();
+  CHECK(graphJson(app) == before);
+  // A menu retains only its original identity when another edit removes it.
+  const auto pos = app.nodePositions.at(b.value);
+  rightClick(ui, app, ui.screen(app, {pos.x + 60, pos.y + 16}));
+  CHECK(app.graphCanvas.contextNode == b);
+  CHECK(destroyNode(app, b)); ui.tick(app);
+  CHECK(app.nodes.size() == 1 && !selectedNode(app));
+  return true;
+}
+
+bool contextMenusAfterGradePaste() {
+  for (const bool inputMenu : {false, true}) for (const bool mac : {false, true}) {
+    Ui ui; App app; app.path = "same-photo"; app.nodesView = NodesView::Graph;
+    app.full.w = app.full.h = 1; app.full.px = {0.25f, 0.25f, 0.25f, 1};
+    app.preview = std::make_shared<Image>(app.full);
+    CHECK(addNativeExposureNode(app)); const auto reused = *app.selectedNodeId();
+    CHECK(selectedNode(app)->processor->identifier() == "rawnode.native.exposure");
+    App incoming; CHECK(addNativeCstNode(incoming));
+    incoming.nodes.back().id = reused; incoming.documentOutput = imageOf(reused);
+    incoming.nodePositions = {{incoming.primarySource.value, {0, 0}}, {reused.value, {320, 0}}};
+    CHECK(copyGrade(incoming)); // Real Full Grade clipboard payload, not fragment Paste.
+    app.renderer.start(); CHECK(idle(app));
+    ui.tick(app); ui.tick(app); app.nodePositions = incoming.nodePositions;
+    app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 40}, 1}; ui.tick(app);
+    CHECK(selectNode(app, app.primarySource)); // Either menu must select its owner.
+    auto &io = ImGui::GetIO(); io.ConfigMacOSXBehaviors = mac;
+    // ImGui maps submitted macOS Ctrl to Super and aliases Super+left to right.
+    // Keep the modifier held across frames: it must not dismiss either menu.
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    const auto target = ui.screen(app, inputMenu ? PersistPosition{320, 44} : PersistPosition{370, 16});
+    if (mac) ui.click(app, target); else rightClick(ui, app, target);
+    ui.tick(app);
+    CHECK(app.selectedNodeId() == reused && ui.context->OpenPopupStack.Size == 1);
+    CHECK(inputMenu ? app.graphCanvas.contextPort && app.graphCanvas.contextPort->nodeId == reused
+                    : app.graphCanvas.contextNode == reused);
+    const auto action = lastPopupItem(); CHECK(action.x > 0 && action.y > 0);
+    io.AddKeyEvent(ImGuiMod_Ctrl, false); ui.tick(app);
+    CHECK(ui.context->OpenPopupStack.Size == 1);
+    std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+    CHECK(pasteFromClipboard(app) && idle(app)); // Same photo, different logical node at the same ID.
+    CHECK(app.path == "same-photo" && !app.selectedNodeId() && mutations == 1);
+    CHECK(findNode(app, reused) && findNode(app, reused)->processor->identifier() == "rawnode.native.cst");
+    CHECK(app.nodes.size() == 2 && consumes(app, reused, app.primarySource) && app.documentOutput == imageOf(reused));
+    const auto expected = graphJson(incoming);
+    const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(graphJson(app) == expected && samePositions(app.nodePositions, incoming.nodePositions));
+    ui.click(app, action); CHECK(idle(app)); // Try the old Delete Node / Disconnect action.
+    CHECK(graphJson(app) == expected && samePositions(app.nodePositions, incoming.nodePositions));
+    CHECK(app.nodes.size() == 2 && consumes(app, reused, app.primarySource) && app.documentOutput == imageOf(reused));
+    CHECK(ui.context->OpenPopupStack.Size == 0 && mutations == 1);
+    const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(after.epoch == before.epoch && after.mutationDepth == 0);
+    CHECK(after.previewPending == before.previewPending && after.quietPending == before.quietPending &&
+          after.displayPending == before.displayPending && !after.previewBusy);
+    RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  }
+  return true;
+}
+
+bool editedWirePhotoPersistence() {
+  Files files; const auto first = (files.dir / "wired.png").string(), second = (files.dir / "other.png").string();
+  std::ofstream(first) << "synthetic"; std::ofstream(second) << "synthetic";
+  document_detail::ActionTestOptions options; options.decode = syntheticPhoto;
+  App app; CHECK(document_detail::openPhoto(app, first, {}, options));
+  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+  CHECK(addNativeExposureNode(app)); const auto b = *app.selectedNodeId();
+  Ui ui; app.nodesView = NodesView::Graph; ui.tick(app); ui.tick(app);
+  app.nodePositions = {{app.primarySource.value, {-10.25, 0}}, {a.value, {320.5, 0}}, {b.value, {640, -0.5}}};
+  app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 40}, 0.6}; ui.tick(app);
+  const auto positions = app.nodePositions;
+  const auto source = ui.screen(app, {229.75, 44}), input = ui.screen(app, {640, 43.5});
+  ui.drag(app, source, {input.x - source.x, input.y - source.y}, 0);
+  const auto output = ui::layoutGraph(graph(app), app.nodePositions).output;
+  const auto outputPort = ui.screen(app, {output.x, output.y + 48});
+  ui.drag(app, source, {outputPort.x - source.x, outputPort.y - source.y}, 0);
+  CHECK(consumes(app, a, app.primarySource) && consumes(app, b, app.primarySource));
+  CHECK(app.documentOutput == imageOf(app.primarySource) && samePositions(app.nodePositions, positions));
+  CHECK(saveCurrentInputSidecar(app));
+  PersistFile saved; std::string error;
+  CHECK(decodeGraphFile(bytes(inputSidecarPath(first)), saved, error));
+  CHECK(saved.grade && saved.grade->graph.nodes.size() == 3);
+  CHECK(saved.grade->graph.documentOutput == imageOf(app.primarySource) && samePositions(saved.grade->positions, positions));
+  const auto expected = graphJson(app);
+  // Actual photo operations save/reconstruct the authoritative topology. A wire
+  // held across photo switching is cancelled by UI lifecycle, not GraphCommands.
+  ui.hover(app, source); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app); CHECK(app.graphCanvas.wire);
+  CHECK(document_detail::openPhoto(app, second, {}, options)); ui.tick(app); CHECK(!app.graphCanvas.wire);
+  ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+  CHECK(document_detail::openPhoto(app, first, {}, options)); ui.tick(app);
+  CHECK(graphJson(app) == expected && samePositions(app.nodePositions, positions));
+  CHECK(consumes(app, b, app.primarySource) && app.documentOutput == imageOf(app.primarySource));
+  return true;
+}
+
 }  // namespace
 
 bool testGraphView() {
   for (const auto &test : {
        std::make_pair("dependency layout, branches, missing nodes and typed ports", dependencyLayoutAndPorts),
+       std::make_pair("wire editing, no-op/cancel, Disconnect and port priority at zoom limits", wireEditingFrames),
+       std::make_pair("typed Output wiring, pixel results and UI export/protection gates", outputAndTypedWireFrames),
+       std::make_pair("focused nonrepeat deletion, Inspector cleanup and off-spine menu deletion", deletionFrames),
+       std::make_pair("UI-only cancellation for removed endpoints, modifiers, views and photos", gestureEndpointLifecycle),
+       std::make_pair("node/input menus close after same-photo Full Grade Paste reuses IDs, including macOS Ctrl+click", contextMenusAfterGradePaste),
+       std::make_pair("edited wire topology and fractional positions save, switch and reopen", editedWirePhotoPersistence),
        std::make_pair("coordinate inverses, cursor zoom and frame bounds", coordinateTransforms),
        std::make_pair("real canvas events, selection and render-demand isolation", canvasInteraction),
        std::make_pair("node hit testing, graph-space dragging and cursor zoom at 0.5x/2x", zoomedNodeInteraction),

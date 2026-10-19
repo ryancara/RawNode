@@ -243,8 +243,12 @@ independent review and outstanding platform checks remain separate.
 
 - Connect, reconnect and disconnect typed ports; edit document Output connections.
 - Delete nodes via Delete/Backspace and context menus.
-- Add processors after selected nodes and support explicit serial-before and
-  serial-after operations through existing GraphCommands.
+- Keep context menus limited to Delete Node and input Disconnect. Reuse the
+  existing graph commands and deletion behaviour without changing their ownership.
+- Add Processor retains PR #80's append-to-document-Output behaviour regardless
+  of selection. Selection-aware insertion and Before/After were withdrawn from
+  PR 2B by the owner; they require a separate product decision, not an automatic
+  move into PR 2C. See D051's superseding scope clarification.
 
 **PR 2C — Graph placement and usability**
 
