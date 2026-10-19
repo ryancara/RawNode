@@ -60,14 +60,15 @@ merge; fresh PR 2A platform checks remain separately pending.
 
 ## Current limits
 
-Graph provides single selection and header movement. Reorder, enable/disable and
-removal remain List controls; Add Processor is available in Nodes in both modes.
+Graph provides single selection, header movement, typed wiring, deletion and node/
+port context menus. Reorder and enable/disable remain List controls; the shared
+selection-aware Add Processor picker is available in Nodes in both modes.
 Source is movable and opens input inspection. Output is selectable but derived,
 non-draggable and nonpersistent. Pan/zoom reset per photo; zoom spans 0.2–2.5.
 Very large layouts may require panning after Frame All reaches minimum zoom.
 Saved overlaps are preserved. Frame All scales text with zoom; assess Retina/
 non-Retina readability through the manual checklist. Multi-selection, grouping,
-empty nodes and production Mask processors remain outside PR 2A.
+empty nodes and production Mask processors remain outside PR 2B.
 
 ## PR 2B interaction and acceptance contract
 
@@ -93,7 +94,8 @@ Add Processor snapshots selection when opening the shared picker. None/Output
 appends; Source inserts before the first spine processor; a spine processor
 inserts before its next spine consumer, or appends if final. Before targets that
 processor's connected Image input. Revalidate identity and complete spine when
-choosing. Off-spine, missing and disconnected targets fail before construction.
+choosing. Off-spine, missing and disconnected selected serial targets fail before construction.
+No selection/Output retains endpoint append even on a non-unary upstream graph.
 Native/CTL/OFX retain one construction/identity/parameter path. No popup retains
 Node pointers. Preset Append and clipboard Paste keep their existing policy.
 
@@ -105,9 +107,12 @@ a no-op. Disconnecting B keeps A/Branch and a valid but unavailable Output graph
 Deleting A splices applicable Image consumers to Source; deleting B moves Output
 to A. Assert exact bindings/Output, not storage order or a UI-derived edge list.
 
-All rejected/no-op edits preserve graph JSON, positions, selection, mutation
+All rejected/no-op topology edits preserve graph JSON, positions, selection, mutation
 counts and render demand. Accepted edits use one existing DocumentMutation and
 preview request; persistence stores consumer bindings once in the existing codec.
+Backend construction retains the existing DocumentMutation exclusion: a backend
+creation failure preserves graph/selection/layout but may drain/requeue preview,
+as documented in the architecture's existing construction-failure limitation.
 Export ownership rejects editing without waiting for processor destruction.
 Protected photographs allow navigation/selection but no grade/layout edits.
 Cancel gestures on photo/graph replacement, deleted endpoints, Graph-to-List,
@@ -136,3 +141,40 @@ and automatic arrangement are deferred. No new graph/evaluator/scheduler/schema.
 12. Check Retina/non-Retina port feedback and readable errors at practical panel sizes.
 
 No macOS or Windows GUI result is implied by Linux/headless checks.
+
+## PR 2B Linux validation — 2026-10-19
+
+- Ubuntu 24.04 / GCC 13 Release configure and build passed in an isolated
+  container with the repository's pinned GLFW/ImGui/CTL sources. The host lacks
+  CMake/development headers; container validation used the same CMake project.
+- Complete `--selftest` passed, including graph model/commands/evaluator/depth,
+  runtime, List, preferences, photo persistence, preset/clipboard and export
+  safety suites. The former List off-spine append fixture now asserts rejection
+  and uses no selection to append. Held-export barrier tests now assert immediate
+  topology-edit rejection and unchanged export pixels, retaining preview-drain
+  coverage and the existing non-topology/document lifetime tests.
+- `--selftest-graph-view` passed all 17 groups. Real ImGui events cover creation,
+  reconnection from either direction, fan-out, repeated no-op, empty/Escape
+  cancellation, port priority at 0.2/0.5/1/2.5 zoom, types/directions/cycles,
+  Disconnect menus, Output pixel results for preview/export, protection/export,
+  focused Delete/Backspace/nonrepeat, node menus, shared picker anchors, CTL,
+  exact branch-preserving insertion, missing/reused-ID targets, depth preflight
+  and graph-native round trips. Existing navigation/layout/Inspector checks pass.
+- Debug ASan/UBSan `--selftest-graph-view` and `--selftest-graph` passed with
+  `ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1`. No finding occurred
+  in these suites. This does not claim a full sanitizer run; historical unrelated
+  JPEG UB and OFX descriptor-leak findings remain separately documented above
+  and in CLAUDE.md.
+- Independent mutation evidence: compiled an isolated copy of NodeGraph.cpp that
+  changed After(selected processor) to append at Output. The Graph View suite
+  failed the hand-authored A/New/B/Branch binding assertion. Production source
+  was unchanged by this experiment.
+- Real Xvfb/OpenGL GUI smoke on a synthetic PNG: rewired Source into an occupied
+  processor input, rewired Output to Source (preview changed), deleted a selected
+  processor with Delete, used File -> Save Grade, closed and reopened. The actual
+  sidecar retained B -> Source and Output -> Source, removed A and only A's
+  position, and preserved Source (0,0) / B (640,0). No synthetic Output/edge list
+  was written. This is Linux/synthetic-image evidence, not Nikon/macOS validation.
+
+GitHub Linux CI is reported on the pull request for its exact head. Independent
+Claude review and the macOS checklist remain pending; Windows GUI was not tested.

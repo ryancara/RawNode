@@ -221,8 +221,10 @@ No further broad architectural refactor was required before Step 6. The explicit
 graph and sequential evaluator are now implemented, independently reviewed and
 merged. Step 7 persistence is also complete. The Graph/List editor now has its
 PR #79 visual foundation and PR 2A contextual workspace implementation (D051).
-Visual editing (PR 2B), placement/usability (PR 2C) and concrete production Mask
-features remain upcoming work. PR 2A review/platform checks are tracked in
+PR 2B implements interactive typed wiring, virtual Output rewiring, focused
+deletion and selection-aware processor insertion through existing graph commands;
+acceptance and validation are in `docs/GRAPH_VIEW_VALIDATION.md`. Placement/usability
+(PR 2C) and concrete production Mask features remain upcoming work. PR 2A checks are tracked in
 `docs/WORKSPACE_INSPECTOR_VALIDATION.md`. The approved target is
 documented in `docs/ARCHITECTURE.md`; checkpoint
 evidence is in `docs/ARCHITECTURE_AUDIT.md`.

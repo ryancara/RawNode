@@ -307,7 +307,7 @@ endpoint is neither a stored node nor executable. Simple dependency-column
 placement fills missing positions in `App::nodePositions`; protected photos
 derive placement without modifying it. Header drags change only this layout map,
 saved by the existing grade lifecycle. Canvas pan/zoom and drag state are transient,
-and visual interactions never acquire DocumentMutation or request rendering.
+and navigation/layout interactions never acquire DocumentMutation or request rendering.
 Inspector displays Source input/current-photo RAW controls, the existing processor
 parameters, or Output grade colours/application export preferences. Fixed Source
 and Output List entries sit outside the processor reorder list. Selection does
@@ -321,7 +321,16 @@ The retired Left Panel has no window, visibility or width preference. Fresh defa
 docking is Preview above Nodes, Inspector right and Filmstrip across the bottom;
 ImGui retains ordinary resizing/floating/custom arrangement persistence. Historical
 UI layouts have no migration/alias path; user configuration is never deleted.
-Connection editing remains PR 2B under D051.
+PR 2B port gestures retain stable endpoint identities and change topology only
+on a valid drop through connect/reconnect/disconnect or setDocumentOutput.
+Accepted graph commands cancel transient canvas interactions; document replacement
+also invalidates pending processor-picker requests, even when NodeIds are reused.
+Deletion reuses the existing validated splice/generic commands. A shared
+selection-aware picker inserts after Source/main-spine nodes or explicitly before
+a connected main-spine input, changing only that spine's successor. None/Output
+selection retains endpoint append. Off-spine/incomplete selected serial anchors
+are refused; transfers keep their reviewed policy. Export ownership rejects
+actual live graph-command commits while rejected/no-op commands remain worker-free.
 
 Live photo capture/restoration preserves every stored graph node, connection,
 endpoint, Slot allocator and optional position through the shared strict codec.

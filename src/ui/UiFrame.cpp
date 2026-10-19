@@ -329,8 +329,9 @@ void DrawUiFrame(App &app) {
   if (app.showNodes) {
     ImGui::SetNextWindowSize(ImVec2(720, 260), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(DockLayout::kNodes, &app.showNodes)) drawNodesPanel(app);
+    else app.graphCanvas.cancelInteraction();
     ImGui::End();
-  } else app.graphCanvas.dragging.reset();
+  } else app.graphCanvas.cancelInteraction();
   {
     ImGuiWindowFlags previewFlags =
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse;

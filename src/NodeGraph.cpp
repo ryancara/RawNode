@@ -29,7 +29,8 @@ using document_detail::DocumentMutation;
 // Mutation helpers borrow the public operation's scope; capture and parameter
 // helpers only translate live state to/from persistence records.
 static void clearNodesWithinMutation(App &app);
-static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor);
+static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor,
+                              std::optional<NodeId> identity = std::nullopt);
 static NodeId makeNodeId(const std::vector<Node> &nodes);
 
 static PersistNode capturePersistedNode(const Node &node, bool graphNative = false);
@@ -140,10 +141,12 @@ void clearNodes(App &app) {
 
 static std::string insertionPoint(const App &app, const ProcessorInsertion &request,
                                   std::optional<InputAddress> &before) {
+  // Appending has an explicit endpoint even when upstream is not a serial spine.
+  // Keep this existing capability for no selection and virtual Output.
+  if (!request.target) return request.placement == ProcessorPlacement::Before ? "Insert Before needs a node" : "";
   std::vector<NodeId> spine;
   const auto error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
   if (!error.empty()) return error;
-  if (!request.target) return request.placement == ProcessorPlacement::Before ? "Insert Before needs a node" : "";
   const Node *target = findNode(app, *request.target);
   if (!target) return "Insertion target no longer exists";
   const auto found = std::find(spine.begin(), spine.end(), *request.target);
@@ -185,8 +188,7 @@ static bool insertProcessor(App &app, std::optional<ProcessorInsertion> request,
     DocumentMutation mutation(app);
     auto processor = construct();
     if (!processor) return false;
-    auto node = makeProcessorNode(app.nodes, std::move(processor));
-    node.id = id;
+    auto node = makeProcessorNode(app.nodes, std::move(processor), id);
     std::optional<NodeId> selection = id;
     result = graph::insertImageNode({app.nodes, app.primarySource, app.documentOutput}, std::move(node), before);
     if (!result.ok()) throw std::runtime_error(result.error);
@@ -448,6 +450,7 @@ static bool insertFragment(App &app, const PersistFragment &fragment, std::optio
     const auto result = graph::insertImageChain({app.nodes, app.primarySource, app.documentOutput}, additions, after);
     if (!result.ok()) throw std::runtime_error(result.error);
     app.nodePositions.swap(positions);
+    app.graphCanvas.cancelInteraction();
     selectNode(app, std::move(selection));
     mutation.changed();
     return true;
@@ -644,9 +647,10 @@ static void clearNodesWithinMutation(App &app) {
   app.renderer.resetInspection();
 }
 
-static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor) {
+static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor,
+                              std::optional<NodeId> identity) {
   Node node;
-  node.id = makeNodeId(nodes);
+  node.id = identity ? std::move(*identity) : makeNodeId(nodes);
   node.processor = std::move(processor);
   if (node.processor) {
     node.storedBackend = processorBackendName(node.processor->backend());

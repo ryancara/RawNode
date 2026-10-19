@@ -2,6 +2,8 @@
 
 #include "AppState.h"
 #include "GraphCommands.h"
+#include "GraphValidation.h"
+#include "GraphDepthFixtures.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActionsPriv.h"
@@ -694,8 +696,10 @@ bool processorPickerInBothViews() {
     CHECK(!ui.pickerOpen && app.nodes.size() == count + 1);
     const auto *node = selectedNode(app);
     CHECK(node && node->processor && nodeDisplayName(*node) == "Exposure");
-    CHECK(node->fixedInputs.at(ports::image) == previousOutput);
-    CHECK(app.documentOutput == (OutputRef{node->id, ports::image}) && app.pluginFilter[0] == '\0');
+    CHECK(node->fixedInputs.at(ports::image) == (OutputRef{app.primarySource, ports::image}));
+    CHECK(app.documentOutput == previousOutput && app.pluginFilter[0] == '\0');
+    std::vector<NodeId> spine; CHECK(graph::imageSpine(graph(app), spine).empty());
+    CHECK(spine.front() == node->id);
   }
   app.nodesView = NodesView::List; ui.tick(app);
   const float wideSourceY = ui.listSource.y;
@@ -782,11 +786,291 @@ bool firstDockedFrame() {
   return true;
 }
 
+
+// These bindings are hand-authored expectations; none is derived from the UI's
+// layout or insertion-point implementation.
+OutputRef imageOf(const NodeId &id) { return {id, ports::image}; }
+InputAddress imageInput(const NodeId &id) { return {id, std::nullopt, ports::image}; }
+bool consumes(const App &app, const NodeId &consumer, const NodeId &producer) {
+  const auto *binding = findInput(app, imageInput(consumer));
+  return binding && *binding == imageOf(producer);
+}
+void key(Ui &ui, App &app, ImGuiKey value) {
+  ImGui::GetIO().AddKeyEvent(value, true); ui.tick(app);
+  ImGui::GetIO().AddKeyEvent(value, false); ui.tick(app);
+}
+void rightClick(Ui &ui, App &app, ImVec2 point) {
+  ui.hover(app, point); ImGui::GetIO().AddMouseButtonEvent(1, true); ui.tick(app);
+  ImGui::GetIO().AddMouseButtonEvent(1, false); ui.tick(app);
+}
+ImVec2 lastPopupItem() {
+  for (const auto *window : ImGui::GetCurrentContext()->Windows)
+    if (window->Active && (window->Flags & ImGuiWindowFlags_Popup))
+      return {window->DC.CursorStartPos.x + 30, window->DC.CursorPosPrevLine.y + 6};
+  return {};
+}
+
+bool wireEditingFrames() {
+  for (const double zoom : {0.2, 0.5, 1.0, 2.5}) {
+    Ui ui; App app; app.path = "wires"; app.nodesView = NodesView::Graph;
+    CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+    CHECK(addNativeExposureNode(app)); const auto b = *app.selectedNodeId();
+    CHECK(graph::disconnect(app, imageInput(a)).ok() && graph::disconnect(app, imageInput(b)).ok());
+    ui.tick(app); ui.tick(app);
+    app.nodePositions = {{app.primarySource.value, {-200, 0}}, {a.value, {100, 0}}, {b.value, {400, 0}}};
+    app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 50}, zoom}; ui.tick(app);
+    const auto positions = app.nodePositions; const auto pan = app.graphCanvas.view.pan;
+    std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+    const auto source = ui.screen(app, {40, 44}), aIn = ui.screen(app, {100, 44});
+    const auto aOut = ui.screen(app, {340, 44}), bIn = ui.screen(app, {400, 44});
+    auto before = graphJson(app);
+    // A horizontal halo outside the small rendered port still wins over body
+    // dragging, at both zoom extremes. Topology stays unchanged until release.
+    ui.hover(app, {source.x + 5, source.y});
+    ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+    CHECK(app.graphCanvas.wire && !app.graphCanvas.dragging);
+    ui.hover(app, aIn); CHECK(graphJson(app) == before);
+    ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+    CHECK(consumes(app, a, app.primarySource) && mutations == 1 && !app.graphCanvas.wire);
+    ui.drag(app, aOut, {bIn.x - aOut.x, bIn.y - aOut.y}, 0);
+    CHECK(consumes(app, b, a) && mutations == 2);
+    // Input-origin drag and occupied-input replacement are single commits.
+    ui.drag(app, bIn, {source.x - bIn.x, source.y - bIn.y}, 0);
+    CHECK(consumes(app, b, app.primarySource) && mutations == 3 && consumes(app, a, app.primarySource));
+    ui.drag(app, aOut, {bIn.x - aOut.x, bIn.y - aOut.y}, 0);
+    CHECK(consumes(app, b, a) && mutations == 4);
+    before = graphJson(app); const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+    ui.drag(app, aOut, {bIn.x - aOut.x, bIn.y - aOut.y}, 0); // Same edge.
+    ui.drag(app, aOut, {0, 150}, 0); // Empty drop.
+    ui.drag(app, source, {aOut.x - source.x, aOut.y - source.y}, 0); // Output/output.
+    ui.drag(app, aOut, {aIn.x - aOut.x, aIn.y - aOut.y}, 0); // Self cycle.
+    CHECK(app.getStatus().find("Cycle") != std::string::npos || app.getStatus().find("cycle") != std::string::npos);
+    CHECK(graphJson(app) == before && mutations == 4);
+    CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch);
+    // Escape, view change, missing endpoint and photograph change cancel.
+    ui.hover(app, source); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+    key(ui, app, ImGuiKey_Escape); CHECK(!app.graphCanvas.wire);
+    ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+    app.graphCanvas.wire = ui::GraphPortAddress{app.primarySource, {}, ports::image, PortDirection::Output};
+    app.nodesView = NodesView::List; ui.tick(app); CHECK(!app.graphCanvas.wire);
+    app.nodesView = NodesView::Graph;
+    app.graphCanvas.wire = ui::GraphPortAddress{NodeId{"absent"}, {}, ports::image, PortDirection::Output};
+    ui.tick(app); CHECK(!app.graphCanvas.wire);
+    app.graphCanvas.wire = ui::GraphPortAddress{app.primarySource, {}, ports::image, PortDirection::Output};
+    app.path = "different-photo"; ui.tick(app); CHECK(!app.graphCanvas.wire);
+    CHECK(graphJson(app) == before && mutations == 4 && samePositions(app.nodePositions, positions));
+    // Restore viewport following the deliberate photo-switch reset.
+    app.graphCanvas.framePending = false; app.graphCanvas.view = {pan, zoom}; ui.tick(app);
+    rightClick(ui, app, bIn); ui.click(app, lastPopupItem());
+    CHECK(!*findInput(app, imageInput(b)) && mutations == 5);
+    CHECK(!requestedGraphError(graph(app), app.documentOutput).empty());
+    ui.drag(app, aOut, {bIn.x - aOut.x, bIn.y - aOut.y}, 0);
+    CHECK(consumes(app, b, a) && mutations == 6 && requestedGraphError(graph(app), app.documentOutput).empty());
+    CHECK(samePositions(app.nodePositions, positions) && same(app.graphCanvas.view.pan, pan));
+    RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  }
+  return true;
+}
+
+bool outputAndTypedWireFrames() {
+  Ui ui; App app; app.path = "typed-wires"; app.nodesView = NodesView::Graph;
+  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+  app.full.w = app.full.h = 1; app.full.px = {0.25f, 0.25f, 0.25f, 1};
+  app.preview = std::make_shared<Image>(app.full);
+  CHECK(setNodeParameterValue(app, a, "exposure", 1.0));
+  Node mask(NodeOperation::TestImageToMask); mask.id = NodeId{"mask"};
+  CHECK(graph::addNode(app, std::move(mask)).ok());
+  ui.tick(app); ui.tick(app); app.graphCanvas.framePending = false;
+  app.nodePositions = {{app.primarySource.value, {0, 0}}, {a.value, {320, 0}}, {"mask", {320, 180}}};
+  app.graphCanvas.view = {{20, 40}, 0.8}; ui.tick(app);
+  const auto layout = ui::layoutGraph(graph(app), app.nodePositions);
+  const auto output = ui.screen(app, {layout.output.x, layout.output.y + 48});
+  const auto source = ui.screen(app, {240, 44}), aIn = ui.screen(app, {320, 44});
+  const auto aOut = ui.screen(app, {560, 44}), maskOut = ui.screen(app, {560, 224});
+  const auto encoding = app.outputEncoding;
+  std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+  ui.drag(app, source, {output.x - source.x, output.y - source.y}, 0);
+  CHECK(app.documentOutput == imageOf(app.primarySource) && mutations == 1);
+  for (auto purpose : {EvaluationPurpose::Preview, EvaluationPurpose::Export}) {
+    auto result = app.renderer.evaluateOwned(app.documentOutput, {purpose, 1, 1, 1, 1}, app.preview);
+    CHECK(result.state == EvaluationState::Available && std::get<ImageValue>(result.value)->px[0] == 0.25f);
+  }
+  ui.drag(app, output, {aOut.x - output.x, aOut.y - output.y}, 0);
+  CHECK(app.documentOutput == imageOf(a) && mutations == 2);
+  for (auto purpose : {EvaluationPurpose::Preview, EvaluationPurpose::Export}) {
+    auto result = app.renderer.evaluateOwned(app.documentOutput, {purpose, 1, 1, 1, 1}, app.preview);
+    CHECK(result.state == EvaluationState::Available && std::get<ImageValue>(result.value)->px[0] == 0.5f);
+  }
+  ui.drag(app, maskOut, {aIn.x - maskOut.x, aIn.y - maskOut.y}, 0);
+  CHECK(consumes(app, a, app.primarySource) && mutations == 2 && app.getStatus().find("type mismatch") != std::string::npos);
+  ui.drag(app, maskOut, {output.x - maskOut.x, output.y - maskOut.y}, 0);
+  CHECK(app.documentOutput == imageOf(a) && mutations == 2 && app.outputEncoding == encoding);
+  const auto bindings = findNode(app, a)->fixedInputs;
+  app.sidecarWriteBlockedPath = app.path;
+  ui.drag(app, source, {output.x - source.x, output.y - source.y}, 0);
+  CHECK(app.documentOutput == imageOf(a) && mutations == 2);
+  app.sidecarWriteBlockedPath.clear();
+  {
+    auto owner = app.renderer.acquireExport(); CHECK(owner);
+    ui.drag(app, source, {output.x - source.x, output.y - source.y}, 0);
+    CHECK(app.documentOutput == imageOf(a) && mutations == 2);
+    CHECK(!graph::disconnect(app, imageInput(a)).ok());
+    CHECK(!destroyNode(app, a) && !addNativeExposureNode(app));
+    CHECK(findNode(app, a)->fixedInputs == bindings && mutations == 2);
+  }
+  RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  return true;
+}
+
+bool deletionFrames() {
+  Ui ui; ui.showOtherPanel = true; ui.showInspector = true;
+  App app; app.path = "delete"; app.nodesView = NodesView::Graph;
+  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+  CHECK(addNativeCstNode(app)); const auto b = *app.selectedNodeId();
+  ui.tick(app); ui.tick(app); app.graphCanvas.framePending = false;
+  app.nodePositions = {{app.primarySource.value, {0, 0}}, {a.value, {280, 0}}, {b.value, {560, 0}}};
+  app.graphCanvas.view = {{20, 30}, 0.8}; ui.tick(app);
+  const auto aBody = ui.screen(app, {350, 16});
+  ui.click(app, aBody); CHECK(app.selectedNodeId() == a);
+  ui.click(app, ui.textInput); key(ui, app, ImGuiKey_Delete); key(ui, app, ImGuiKey_Backspace);
+  CHECK(findNode(app, a));
+  ui.click(app, ui.otherButton); key(ui, app, ImGuiKey_Delete); CHECK(findNode(app, a));
+  ui.click(app, aBody); ImGui::GetIO().AddKeyEvent(ImGuiKey_Delete, true); ui.tick(app);
+  CHECK(!findNode(app, a) && !app.selectedNodeId() && !app.nodePositions.count(a.value));
+  CHECK(consumes(app, b, app.primarySource));
+  // Even if a new node becomes selected, holding Delete cannot remove it.
+  CHECK(selectNode(app, b)); for (int i = 0; i < 60; ++i) ui.tick(app);
+  CHECK(findNode(app, b));
+  ImGui::GetIO().AddKeyEvent(ImGuiKey_Delete, false); ui.tick(app);
+  key(ui, app, ImGuiKey_Backspace);
+  CHECK(!findNode(app, b) && app.documentOutput == imageOf(app.primarySource) && !selectedNode(app));
+  ui.click(app, ui.screen(app, {60, 16})); key(ui, app, ImGuiKey_Delete); CHECK(app.nodes.size() == 1);
+  const auto output = ui::layoutGraph(graph(app), app.nodePositions).output;
+  ui.click(app, ui.screen(app, {output.x + 30, output.y + 16}));
+  key(ui, app, ImGuiKey_Backspace); CHECK(app.nodes.size() == 1 && app.outputSelected());
+  CHECK(addNativeExposureNode(app)); const auto c = *app.selectedNodeId(); ui.tick(app);
+  const auto pos = app.nodePositions.at(c.value);
+  rightClick(ui, app, ui.screen(app, {pos.x + 50, pos.y + 16}));
+  ui.click(app, lastPopupItem()); CHECK(!findNode(app, c) && app.nodes.size() == 1);
+  return true;
+}
+
+bool insertionPolicyAndPersistence() {
+  Files files; App app;
+  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+  CHECK(addNativeCstNode(app)); const auto b = *app.selectedNodeId();
+  Node branch; branch.id = NodeId{"branch"};
+  branch.storedBackend = "dctl"; branch.storedIdentifier = "branch.dctl";
+  branch.fixedInputs.at(ports::image) = imageOf(a);
+  CHECK(graph::addNode(app, std::move(branch)).ok());
+  app.nodePositions = {{a.value, {1.25, -7.5}}, {b.value, {550, 90}}};
+  CHECK(selectNode(app, a)); CHECK(addNativeExposureNode(app)); const auto afterA = *app.selectedNodeId();
+  CHECK(consumes(app, afterA, a) && consumes(app, b, afterA) && consumes(app, NodeId{"branch"}, a));
+  CHECK(app.documentOutput == imageOf(b));
+  CHECK(addNativeCstNode(app, ProcessorInsertion{ProcessorPlacement::Before, a}));
+  const auto beforeA = *app.selectedNodeId();
+  CHECK(consumes(app, beforeA, app.primarySource) && consumes(app, a, beforeA));
+  CHECK(selectNode(app, app.primarySource)); CHECK(addNativeExposureNode(app));
+  const auto afterSource = *app.selectedNodeId();
+  CHECK(consumes(app, afterSource, app.primarySource) && consumes(app, beforeA, afterSource));
+  CHECK(selectNode(app, std::nullopt)); CHECK(addNativeExposureNode(app)); const auto appended = *app.selectedNodeId();
+  CHECK(consumes(app, appended, b) && app.documentOutput == imageOf(appended));
+  selectOutput(app); CHECK(addNativeCstNode(app)); const auto tail = *app.selectedNodeId();
+  CHECK(consumes(app, tail, appended) && app.documentOutput == imageOf(tail));
+  CHECK(addNativeExposureNode(app)); const auto final = *app.selectedNodeId();
+  CHECK(consumes(app, final, tail) && app.documentOutput == imageOf(final));
+  // CTL uses the same selected anchor and constructs real parameter defaults.
+  const auto ctl = (files.dir / "identity.ctl").string();
+  std::ofstream(ctl) << "void main(input varying float rIn, input varying float gIn, input varying float bIn, "
+      "output varying float rOut, output varying float gOut, output varying float bOut) "
+      "{ rOut=rIn; gOut=gIn; bOut=bIn; }";
+  CHECK(selectNode(app, a) && addCtlNode(app, ctl)); const auto ctlId = *app.selectedNodeId();
+  CHECK(consumes(app, ctlId, a) && consumes(app, afterA, ctlId));
+  std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+  CHECK(selectNode(app, NodeId{"branch"})); const auto savedSelection = app.selection;
+  const auto before = graphJson(app); const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+  CHECK(!addNativeExposureNode(app) && !addCtlNode(app, ctl));
+  CHECK(!addNativeExposureNode(app, ProcessorInsertion{ProcessorPlacement::Before, app.primarySource}));
+  CHECK(!addNativeExposureNode(app, ProcessorInsertion{ProcessorPlacement::After, NodeId{"removed"}}));
+  CHECK(graphJson(app) == before && mutations == 0 && app.selection == savedSelection);
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch);
+  RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  // Existing graph-native persistence must contain each binding once and
+  // restore the same grade, including fractional positions and unrelated branch.
+  PersistFile file; std::string error; CHECK(decodeGraphFile(before, file, error));
+  file.grade->positions = app.nodePositions;
+  App restored; CHECK(applyGrade(restored, *file.grade));
+  CHECK(samePositions(restored.nodePositions, app.nodePositions));
+  CHECK(graphJson(restored) == before && consumes(restored, NodeId{"branch"}, a));
+  CHECK(graph::disconnect(app, imageInput(a)).ok());
+  const auto disconnected = graphJson(app);
+  CHECK(!addNativeExposureNode(app, ProcessorInsertion{ProcessorPlacement::Before, a}));
+  CHECK(graphJson(app) == disconnected);
+  return true;
+}
+
+bool contextInsertionAndStalePicker() {
+  Ui ui; App app; app.nodesView = NodesView::Graph;
+  CHECK(addNativeCstNode(app)); const auto a = *app.selectedNodeId();
+  ui.tick(app); ui.tick(app);
+  const auto chooseExposure = [&] {
+    std::snprintf(app.pluginFilter, sizeof app.pluginFilter, "Exposure");
+    ui.tick(app); ui.tick(app); ui.click(app, lastPopupItem());
+  };
+  // Shared picker snapshot survives a subsequent selection change.
+  const auto pos = app.nodePositions.at(a.value);
+  rightClick(ui, app, ui.screen(app, {pos.x + 50, pos.y + 16}));
+  ImVec2 beforeItem{};
+  for (const auto *window : ImGui::GetCurrentContext()->Windows)
+    if (window->Active && (window->Flags & ImGuiWindowFlags_Popup))
+      beforeItem = {window->DC.CursorStartPos.x + 30,
+                    window->DC.CursorStartPos.y + ImGui::GetTextLineHeightWithSpacing() + 6};
+  ui.click(app, beforeItem); ui.tick(app);
+  CHECK(ui.pickerOpen); selectOutput(app); chooseExposure();
+  const auto inserted = *app.selectedNodeId();
+  CHECK(consumes(app, inserted, app.primarySource) && consumes(app, a, inserted));
+  requestProcessorPicker(app, {ProcessorPlacement::After, inserted}); ui.tick(app);
+  CHECK(destroyNode(app, inserted)); const auto before = graphJson(app);
+  chooseExposure(); CHECK(graphJson(app) == before && !app.selectedNodeId());
+  CHECK(app.getStatus().find("no longer exists") != std::string::npos);
+  // Same IDs in a replacement document do not resurrect pending gestures/menu.
+  app.graphCanvas.wire = ui::GraphPortAddress{a, {}, ports::image, PortDirection::Output};
+  requestProcessorPicker(app, {ProcessorPlacement::After, a}); ui.tick(app);
+  PersistFile file; std::string error; CHECK(decodeGraphFile(before, file, error));
+  CHECK(applyGrade(app, *file.grade)); CHECK(!app.graphCanvas.wire && !app.processorPicker.insertion);
+  chooseExposure(); CHECK(graphJson(app) == before);
+  return true;
+}
+
+bool insertionDepthBoundary() {
+  depth_test::Chain chain(kMaxGraphDependencyDepth, NodeOperation::ImageProcessor);
+  App app; app.nodes.swap(chain.nodes); app.primarySource = chain.source; app.documentOutput = chain.output;
+  for (auto &node : app.nodes) if (node.operation == NodeOperation::ImageProcessor) {
+    node.storedBackend = "native"; node.storedIdentifier = "rawnode.native.exposure";
+  }
+  CHECK(selectNode(app, app.primarySource));
+  const auto before = graphJson(app), selection = app.selectedNodeId()->value;
+  const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+  std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+  CHECK(!addNativeExposureNode(app) && app.getStatus().find("dependency depth") != std::string::npos);
+  CHECK(!addCtlNode(app, "must-not-be-constructed.ctl") && app.getStatus().find("dependency depth") != std::string::npos);
+  CHECK(graphJson(app) == before && app.selectedNodeId()->value == selection && mutations == 0);
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch);
+  RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  return true;
+}
+
 }  // namespace
 
 bool testGraphView() {
   for (const auto &test : {
        std::make_pair("dependency layout, branches, missing nodes and typed ports", dependencyLayoutAndPorts),
+       std::make_pair("wire creation/reconnection, cancellation and port priority at zoom limits", wireEditingFrames),
+       std::make_pair("typed Output wiring, protected photograph and export exclusion", outputAndTypedWireFrames),
+       std::make_pair("canvas deletion focus, nonrepeat keys, Source/Output and context menu", deletionFrames),
+       std::make_pair("selection insertion, branches, CTL, stale anchors and persistence", insertionPolicyAndPersistence),
+       std::make_pair("shared picker requests, stale target and reused-ID replacement", contextInsertionAndStalePicker),
+       std::make_pair("processor insertion rejects graph depth before backend construction", insertionDepthBoundary),
        std::make_pair("coordinate inverses, cursor zoom and frame bounds", coordinateTransforms),
        std::make_pair("real canvas events, selection and render-demand isolation", canvasInteraction),
        std::make_pair("node hit testing, graph-space dragging and cursor zoom at 0.5x/2x", zoomedNodeInteraction),
@@ -794,7 +1078,7 @@ bool testGraphView() {
        std::make_pair("photo layout save, failure, codec and reopen lifecycle", photoLayoutLifecycle),
        std::make_pair("contextual Inspector, List endpoints, protected controls and selection isolation", inspectorContexts),
        std::make_pair("Inspector RAW gamma edits re-decode/render the photo and preserve global defaults", inspectorRawGammaEdit),
-       std::make_pair("searchable processor picker appends in List and Graph", processorPickerInBothViews),
+       std::make_pair("searchable processor picker follows Source selection in List and Graph", processorPickerInBothViews),
        std::make_pair("new workspace default and custom/floating ini restart", workspaceDocking),
        std::make_pair("first-launch framing waits for settled docking geometry", firstDockedFrame)}) {
     if (!test.second()) { std::fprintf(stderr, "FAILED graph view: %s\n", test.first); return false; }

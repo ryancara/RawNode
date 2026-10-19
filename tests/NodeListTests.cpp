@@ -211,7 +211,12 @@ static bool testIncompleteAndNonUnaryProjection() {
   const auto slot = graph::addSlot(mixed, mixer).addedSlot; CHECK(slot);
   CHECK(graph::connect(mixed, image(upstream), {mixer, slot, ports::image}).ok());
   CHECK(graph::setDocumentOutput(mixed, image(mixer)).ok());
+  // The selected upstream is off the serial suffix. Add now refuses this
+  // ambiguous anchor; explicit no selection retains endpoint append semantics.
+  CHECK(!addNativeExposureNode(mixed));
+  CHECK(selectNode(mixed, std::nullopt));
   CHECK(addNativeExposureNode(mixed)); const NodeId tail = *mixed.selectedNodeId();
+  CHECK(selectNode(mixed, std::nullopt));
   CHECK(addNativeCstNode(mixed)); const NodeId end = *mixed.selectedNodeId();
   std::reverse(mixed.nodes.begin(), mixed.nodes.end());
   rows = ui::projectNodeList(view(mixed));

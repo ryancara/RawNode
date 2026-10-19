@@ -1923,6 +1923,35 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
     std::unique_lock<std::mutex> lock(probe->mutex);
     if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 1; })) return false;
   }
+  if (exporting && edit != ActiveGraphEdit::Disable) {
+    // Interactive topology edits now refuse export ownership, without waiting
+    // or queuing a later edit. Keep the held export barrier to prove this path
+    // returns without draining/destroying the live processors.
+    const auto before = renderState(app);
+    const auto output = app.documentOutput;
+    const auto inputs = app.nodes[2].fixedInputs;
+    bool rejected = false;
+    switch (edit) {
+      case ActiveGraphEdit::Add: rejected = !addNativeExposureNode(app); break;
+      case ActiveGraphEdit::Remove: rejected = !destroyNode(app, app.nodes[2].id); break;
+      case ActiveGraphEdit::Reorder: rejected = !moveNode(app, app.nodes[2].id, app.nodes[1].id); break;
+      case ActiveGraphEdit::FailCtl: rejected = !addCtlNode(app, (files.dir / "missing.ctl").string()); break;
+      case ActiveGraphEdit::AddOfx: rejected = !addNode(app, pluginIndex); break;
+      case ActiveGraphEdit::Disable: break;
+    }
+    const auto after = renderState(app);
+    if (!rejected || !after.exportBusy || after.mutationDepth != 0 || before.epoch != after.epoch ||
+        before.previewPending != after.previewPending || app.nodes.size() != 3 ||
+        app.nodes[2].fixedInputs != inputs || app.documentOutput != output) return false;
+    {
+      std::lock_guard<std::mutex> lock(probe->mutex); probe->release = true;
+    }
+    probe->cv.notify_all(); app.renderer.joinExport();
+    if (!previewIdle(app) || probe->calls != 2 || !exportHasRgb(files.output(), 0.25f) ||
+        !hasNoExportSidecar(files.output())) return false;
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    return testDisplay(app).px.size() == 4 && testDisplay(app).px[0] == 0.25f;
+  }
   bool waited = false;
   std::thread observer([&] {
     const bool observed = events.wait(RuntimeEvent::MutationWaiting);
@@ -2625,11 +2654,11 @@ int runSelfTests() {
                         ActiveGraphEdit::Disable, ActiveGraphEdit::FailCtl}) {
         if (!testGraphEditWaits(exporting, edit)) {
           fprintf(stderr, "active graph edit: %d exporting=%d\n", (int)edit, exporting);
-          return fail("production graph edits must drain active preview/export ownership");
+          return fail("graph edits must drain preview or refuse active export ownership");
         }
       }
     }
-    printf("ok  Production graph edits drain active preview/export (10 barrier cases)\n");
+    printf("ok  Production graph edits drain preview or refuse export (10 barrier cases)\n");
   }
 
   {
