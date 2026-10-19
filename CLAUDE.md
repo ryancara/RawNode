@@ -399,6 +399,33 @@ defects and recommend removing unnecessary changes before merge.
 Passing tests do not justify additional complexity. Optional improvements should
 be proposed separately rather than incorporated without approval.
 
+## Product decisions and architecture reuse in PR reviews
+
+For any UI PR, enumerate every actual user-visible behaviour or appearance
+change, not just the headline features. Check selection behaviour, menus,
+shortcuts, controls, labels, shapes, layout, visual feedback and existing
+workflows. Distinguish minimal feedback required to implement an approved
+interaction from discretionary product/design choices. Flag unapproved choices
+as scope findings even if the implementation is small, useful and correct.
+Do not assume that a roadmap idea authorises implementation without a focused
+owner-approved acceptance contract.
+
+For architecture, explicitly map new behaviour to the existing graph/model,
+document commands, processor interface, evaluator, render runtime, persistence
+and UI responsibilities. Look for duplicated state, hidden dependencies,
+new lifecycle protocols and feature-specific subsystems; prefer reuse where
+it keeps boundaries clear. A new file or class is not automatically a new
+system. Conversely, a *justified* new module or system is welcome when it
+demonstrably improves modularity, separation of responsibilities, maintainability
+or future extensibility and the owner approved any substantial architectural
+decision. Judge benefits and complexity proportionately, not by counting files.
+
+Review **scope**, **architecture fit** and **correctness** as separate
+acceptance criteria; tests alone cannot establish approval. Recommend narrowly
+scoped corrections and keep optional improvements outside the PR. If the
+implementer has identified useful unapproved improvements, they should appear
+as unimplemented suggestions, not silent additional functionality.
+
 ## Scope discipline
 
 Keep PRs focused.
