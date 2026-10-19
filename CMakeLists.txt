@@ -111,6 +111,7 @@ add_executable(OfxRawHost
   tests/GraphEvaluatorTests.cpp
   tests/GraphRuntimeTests.cpp
   tests/NodeListTests.cpp
+  tests/GraphViewTests.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
   src/imgio/ImageLoad.cpp
@@ -147,6 +148,10 @@ add_executable(OfxRawHost
   src/ui/ParamWidgets.cpp
   src/ui/LeftPanel.cpp
   src/ui/NodeList.cpp
+  src/ui/NodeListPanel.cpp
+  src/ui/NodesPanel.cpp
+  src/ui/GraphLayout.cpp
+  src/ui/GraphCanvas.cpp
   src/ui/RightPanel.cpp
   src/ui/PreviewPanel.cpp
   src/ui/FilmstripPanel.cpp

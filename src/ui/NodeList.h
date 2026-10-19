@@ -2,6 +2,8 @@
 
 #include "GraphModel.h"
 
+struct App;
+
 namespace ui {
 
 // Ephemeral rows, derived from the live graph. Neither section defines an
@@ -15,5 +17,6 @@ struct NodeListProjection {
 };
 
 NodeListProjection projectNodeList(GraphView graph);
+void drawNodeList(App &app);
 
 }  // namespace ui

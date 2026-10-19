@@ -4,6 +4,8 @@
 #include "GraphEvaluator.h"
 #include "RenderRuntime.h"
 #include "persist/ProjectPersist.h"
+#include "persist/Preferences.h"
+#include "ui/GraphCanvas.h"
 
 #include <GLFW/glfw3.h>
 
@@ -107,6 +109,9 @@ struct App {
   int previewRes = 1;  // 1080p
   bool showLeft = true;
   bool showRight = true;
+  bool showNodes = true;
+  NodesView nodesView = NodesView::List;
+  ui::GraphCanvasState graphCanvas;
   // Fallback DockBuilder sizes when the global ImGui layout has no dock node.
   float leftW = 280.0f;
   float rightW = 420.0f;

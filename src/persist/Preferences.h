@@ -5,6 +5,8 @@
 
 struct App;
 
+enum class NodesView { List, Graph };
+
 // Application defaults only. Photo colours and ImGui-owned geometry are separate.
 // New settings can be optional fields with defaults; no migration is needed.
 struct Preferences {
@@ -16,6 +18,8 @@ struct Preferences {
   int themeIndex = 2;
   bool showLeft = true;
   bool showRight = true;
+  bool showNodes = true;
+  NodesView nodesView = NodesView::List;
   bool showFilmstrip = true;
   float leftW = 280.0f;
   float rightW = 420.0f;

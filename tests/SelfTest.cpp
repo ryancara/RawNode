@@ -14,6 +14,7 @@
 #include "GraphEvaluatorTests.h"
 #include "GraphRuntimeTests.h"
 #include "NodeListTests.h"
+#include "GraphViewTests.h"
 
 #include "imgio/ImageIO.h"
 #include "imgio/ImageIOPriv.h"
@@ -2080,6 +2081,7 @@ int runSelfTests() {
   if (!testReusedNodeIdGradePaste()) return fail("6F T2 grade paste must replace reused NodeId processor, filter and inspection");
   printf("ok  6F T2 real full-grade paste replaces a selected processor with the same NodeId\n");
   if (!testNodeList()) return fail("Step 6E.1 List View and NodeId selection");
+  if (!testGraphView()) return fail("Graph View visual foundation");
   if (!testCaptureRefusalPreservesDestinations()) return fail("6E.2 unsupported capture must preserve sidecar, presets and clipboard");
   printf("ok  6E.2 unsupported capture preserves preset files and real UI clipboard\n");
   if (!testFailedTransferApplication()) return fail("6E.2 failed clipboard/preset application must preserve graph, colour and inspection");

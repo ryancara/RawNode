@@ -59,9 +59,10 @@ are non-blocking follow-ups.
 - **Post-Step-7 correction gate — complete:** Copy Node ownership/capture,
   parameter-edit preview scheduling, graph traversal depth and PNG colour
   metadata/ICC placement are corrected and independently reviewed.
-- **Next: Graph View UI milestone (between Steps 7 and 8; D047):** implement
-  a switchable Graph/List editor on the same authoritative document graph
-  with shared NodeId selection.
+- **Graph View UI milestone (between Steps 7 and 8; D047), in progress:**
+  PR 1 supplies the dockable List/Graph visual foundation on the authoritative
+  graph with shared NodeId selection. PR 2 adds connection editing through the
+  existing graph commands; the full milestone is not complete.
 - **Step 8:** first concrete mask path and remaining implementation details
   under the Step 5 product/architectural contract. TIFF and EXR format
   correctness and JPEG encoder UB remain independently tracked follow-ups,
@@ -190,8 +191,9 @@ required.
 
 ## Graph / List interface
 
-**Next UI delivery milestone (D047):**
-build the graphical Node/Graph View before Step 8 introduces user-facing masks.
+**UI delivery milestone in progress (D047):** the dockable Nodes panel now
+switches between the existing List controls and a visual Graph canvas. PR 2
+adds connection editing before Step 8 introduces user-facing masks.
 This is a UI/product milestone, not an additional numbered architecture refactor.
 The completed correction gate and deferred image-format issues are tracked in
 `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
@@ -207,14 +209,31 @@ from explicit topology; moving rows rewrites topology rather than rearranging
 node storage. Off-spine nodes must remain accessible, even if arbitrary-DAG List
 View presentation stays deliberately simple.
 
-Initial Graph View scope:
+PR 1 visual foundation:
 
 - draggable nodes with pan/zoom and typed Image/Mask ports and connections;
-- connection editing through the existing validated graph commands;
-- shared selection/inspection and editing actions with List View;
+- shared NodeId selection and the existing parameter inspector;
+- List controls retain reorder, enable/disable and deletion;
 - node layout positions saved with the editable source document, and restored
   when reopened; Step 7 already stores optional positions separately from
-  graph evaluation.
+  graph evaluation;
+- global List/Graph preference, with transient canvas pan/zoom.
+
+Connection creation, reconnection/deletion and graph context menus remain PR 2,
+using the existing validated graph commands. See
+[GRAPH_VIEW_VALIDATION.md](docs/GRAPH_VIEW_VALIDATION.md) for acceptance checks,
+limits and the pending macOS checklist.
+
+PR 2 initial-placement follow-ups (preserve saved coordinates on reopen):
+
+- Place newly inserted serial nodes between their upstream/downstream neighbours.
+- Make space predictably when inserting into a manually arranged graph, without
+  unnecessarily disrupting the user's layout.
+- Offset pasted/duplicated nodes and avoid overlap with the original.
+
+Optional user-requested Auto Arrange can follow later. These concern placement
+of new nodes, not separate automatic/manual coordinate categories; PR 1 persists
+both kinds through the same `grade.positions` map and existing save lifecycle.
 
 Add number-key node selection as a separate small interaction improvement.
 

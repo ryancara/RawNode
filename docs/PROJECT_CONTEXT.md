@@ -219,8 +219,9 @@ reference and found the direction **sound for the next stage**. Step 5 has now
 closed after independent final Codex/Claude implementation-readiness review.
 No further broad architectural refactor was required before Step 6. The explicit
 graph and sequential evaluator are now implemented, independently reviewed and
-merged. Step 7 persistence is also complete; the Graph/List editor and concrete
-production Mask features remain upcoming milestones. The approved target is
+merged. Step 7 persistence is also complete. The Graph/List editor now has its
+PR 1 visual foundation; connection editing (PR 2) and concrete production Mask
+features remain upcoming work. The approved target is
 documented in `docs/ARCHITECTURE.md`; checkpoint
 evidence is in `docs/ARCHITECTURE_AUDIT.md`.
 
@@ -656,7 +657,7 @@ The remaining sequence is:
     Targeted graph safety + PNG colour corrections   [complete; independently reviewed]
           |
           v
-    Switchable Graph/List editor                   [next; UI milestone, D047]
+    Switchable Graph/List editor                   [PR 1 visual foundation; PR 2 connections next, D047]
           |
           v
     Step 8: Concrete first mask path + remaining implementation details
@@ -720,8 +721,9 @@ compositing or alpha-carrying I/O requires it.
 
 Next architecture/product work:
 
-- Next, build the switchable Graph/List editor (D047), followed by Step 8's first
-  concrete production Mask path. Step 7 graph-native persistence is complete.
+- Complete the switchable Graph/List editor (D047) with PR 2 connection editing,
+  followed by Step 8's first concrete production Mask path. PR 1 supplies the
+  dockable visual foundation; Step 7 graph-native persistence is complete.
 - Both editor views share the authoritative document graph and NodeId selection;
   switching views introduces no additional execution model.
 
@@ -768,8 +770,9 @@ parameter-edit preview scheduling, graph traversal depth and PNG colour
 metadata/ICC placement are corrected and independently reviewed. PNG regression
 coverage independently checks chunks, CRCs, profiles and pixels.
 
-**Next:** deliver the switchable Graph/List editor (D047) on the same
-authoritative graph; **then Step 8** adds the first concrete Mask path. These
+**In progress:** the switchable Graph/List editor (D047) has its PR 1 visual
+foundation on the authoritative graph; PR 2 adds connection editing. **Then
+Step 8** adds the first concrete Mask path. These
 completed corrections are a preparatory gate, not additional architecture
 steps or a reason for a new whole-system audit.
 
@@ -828,9 +831,12 @@ from executable data. Repositioning must not affect connections, graph validatio
 rendering or graph evaluation; reopening the editable source photograph should
 restore any saved arrangement.
 
-Preferred default Graph/List View remains a global preference. Decide graph
-viewport zoom/pan persistence with Graph View; temporary viewport state should
-not expand Step 7.
+The Nodes panel remembers List/Graph globally, defaulting to List. Graph View
+derives typed ports and connections from the live graph, shares NodeId selection
+with the existing parameter inspector, and uses `app.nodePositions` for generated
+and dragged coordinates. Normal grade-save boundaries persist these positions;
+protected photos only derive drawing coordinates. Canvas pan/zoom remain transient
+and do not expand Step 7.
 
 Keep one authoritative graph shared by List View, Graph View, preview and export.
 Do not add a separate project file, catalogue/database, duplicate graph topology
