@@ -245,6 +245,17 @@ independent review and outstanding platform checks remain separate.
 - Delete nodes via Delete/Backspace and context menus.
 - Add processors after selected nodes and support explicit serial-before and
   serial-after operations through existing GraphCommands.
+- Wire gestures commit only on a valid opposite-direction typed port; empty
+  drops cancel. Connected-input drags replace the producer atomically. Output
+  remains a virtual Image-only endpoint and cannot be disconnected or deleted.
+- Add follows Source/main-spine selection; no selection/Output appends. Reject
+  off-spine or incomplete serial targets, retaining unrelated consumers. Both
+  views use the same picker and policy; preset Append/clipboard Paste are unchanged.
+- Protected photos and export ownership prevent topology edits. Focused canvas
+  deletion never repeats or consumes text-editing keys. Gesture/menu state is
+  transient and is cancelled on document replacement or view changes.
+- Acceptance and independent topology expectations are recorded in
+  [GRAPH_VIEW_VALIDATION.md](docs/GRAPH_VIEW_VALIDATION.md).
 
 **PR 2C — Graph placement and usability**
 

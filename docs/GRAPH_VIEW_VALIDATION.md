@@ -4,7 +4,7 @@ PR #79 delivered the visual foundation under D047. PR 2A reorganises the
 workspace and adds contextual inspection under D051; see
 [WORKSPACE_INSPECTOR_VALIDATION.md](WORKSPACE_INSPECTOR_VALIDATION.md) for current
 control mapping, selection behaviour, validation results and macOS checklist.
-Connection editing remains PR 2B and placement/usability PR 2C. No renderer,
+Interactive editing is PR 2B and placement/usability PR 2C. No renderer,
 evaluator, graph commands or sidecar schema is replaced by these UI deliveries.
 
 ## Graph foundation contracts
@@ -19,7 +19,7 @@ evaluator, graph commands or sidecar schema is replaced by these UI deliveries.
 - Generated and dragged coordinates use app.nodePositions/grade.positions and
   the same existing save lifecycle. Saved positions restore exactly. Protected
   photos derive drawing positions without changing the grade. No movement-time I/O.
-- Canvas gestures preserve executable graph JSON, render epoch, queued demand and
+- Navigation/layout gestures preserve executable graph JSON, render epoch, queued demand and
   DocumentMutation observations, including when export owns execution.
 - Coordinate transforms invert; zoom retains the cursor anchor at both limits;
   Frame All centers/fits with padding when minimum zoom permits.
@@ -68,3 +68,71 @@ Very large layouts may require panning after Frame All reaches minimum zoom.
 Saved overlaps are preserved. Frame All scales text with zoom; assess Retina/
 non-Retina readability through the manual checklist. Multi-selection, grouping,
 empty nodes and production Mask processors remain outside PR 2A.
+
+## PR 2B interaction and acceptance contract
+
+Port interaction wins over node/header movement. Nearest-port hit testing uses
+screen pixels with a radius capped below half the visible row spacing. Image and
+Mask retain their colours; input/output shape, filled/empty inputs, target rings
+and a temporary wire expose direction, connection and drop eligibility.
+
+Dragging either end retains only stable node/Slot/port identities. No topology
+changes before release. Output-to-input creates or atomically reconnects;
+input-to-output changes that input's producer. Empty drops and Escape cancel.
+Input context menus disconnect through GraphCommands, including required inputs.
+Virtual Output uses setDocumentOutput, accepts only Image, and cannot disconnect.
+Invalid drops report the command diagnostic and preserve the previous graph.
+
+Delete/Backspace require the canvas item to own keyboard focus, no text editing,
+no modifiers, and a fresh key press. Source/Output are excluded. Node menus expose
+Delete Node and shared-picker Insert Before/After; Source only supports After.
+Deletion uses destroyNode's validated unary splice or generic deletion, clears
+removed selection/Inspector/layout state, and refuses ambiguous Output replacement.
+
+Add Processor snapshots selection when opening the shared picker. None/Output
+appends; Source inserts before the first spine processor; a spine processor
+inserts before its next spine consumer, or appends if final. Before targets that
+processor's connected Image input. Revalidate identity and complete spine when
+choosing. Off-spine, missing and disconnected targets fail before construction.
+Native/CTL/OFX retain one construction/identity/parameter path. No popup retains
+Node pointers. Preset Append and clipboard Paste keep their existing policy.
+
+Independent expected topology: for Source -> A -> B -> Output plus A -> Branch,
+After(A) yields Source -> A -> New -> B -> Output while Branch still consumes A.
+Before(A) yields Source -> New -> A -> B; append yields B -> New -> Output.
+Replacing B's input changes only B's binding; repeated identical replacement is
+a no-op. Disconnecting B keeps A/Branch and a valid but unavailable Output graph.
+Deleting A splices applicable Image consumers to Source; deleting B moves Output
+to A. Assert exact bindings/Output, not storage order or a UI-derived edge list.
+
+All rejected/no-op edits preserve graph JSON, positions, selection, mutation
+counts and render demand. Accepted edits use one existing DocumentMutation and
+preview request; persistence stores consumer bindings once in the existing codec.
+Export ownership rejects editing without waiting for processor destruction.
+Protected photographs allow navigation/selection but no grade/layout edits.
+Cancel gestures on photo/graph replacement, deleted endpoints, Graph-to-List,
+Escape, lost interaction or invalidated endpoints. Persist none of this state.
+
+Coverage uses existing real ImGui frames and graph-command/evaluator/persistence
+suites, including minimum/maximum zoom, port priority, invalid types/directions,
+cycles/depth, no-op/cancel, focused deletion, branch preservation, stale picker
+identity, export/protection, exact round-trip topology and runtime observations.
+PR 2C neighbour placement, making room, paste overlap avoidance, multi-selection
+and automatic arrangement are deferred. No new graph/evaluator/scheduler/schema.
+
+## PR 2B macOS manual checklist (pending)
+
+1. Drag Source to a processor input; connect/reconnect processors in both directions.
+2. Disconnect/reconnect a required input and confirm preview failure/recovery.
+3. Rewire virtual Output to Source and a processor; verify preview and export colours.
+4. Delete middle/final processors with Delete, Backspace and the node menu.
+5. Add after Source/middle/final selection; use explicit Before/After menus.
+6. Exercise a branched graph and verify unrelated input bindings remain intact.
+7. Adjust real processors on a Nikon NEF and verify previews after wiring/insertion.
+8. Verify trackpad pan/zoom, header movement, Frame All and ports at zoom limits.
+9. Save, switch photographs, reopen and verify topology and saved coordinates.
+10. Verify Inspector selection, text entry, unrelated-panel focus and held Delete.
+11. Verify export ownership and protected photographs prevent all graph mutations.
+12. Check Retina/non-Retina port feedback and readable errors at practical panel sizes.
+
+No macOS or Windows GUI result is implied by Linux/headless checks.
