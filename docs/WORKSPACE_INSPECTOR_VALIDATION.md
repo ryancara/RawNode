@@ -144,9 +144,12 @@ Windows builds and GUI validation remain separate where unavailable.
 
 ## Deferred scope
 
-PR 2B: typed connection/reconnection/disconnection and document Output editing,
-Delete/Backspace/context menus, selected-node insertion and serial-before/after.
-PR 2C: predictable serial placement/space, paste/duplicate overlap and contextual
-usability; optional Auto Arrange later. Empty pass-through nodes and processor
-assignment/replacement remain a separate feature. Step 8's Mask implementation
-and subsequent compositing/local adjustments remain unchanged.
+Historical PR 2A handoff: PR 2B initially listed typed connection editing,
+Delete/Backspace/context menus and selection-aware insertion. The superseding
+D051 clarification withdrew selection-aware insertion and Insert Before/After
+before focused PR #82 merged the connection/deletion functionality. PR 2C's
+placement/usability scope still requires owner approval: paste/duplicate
+overlap and contextual improvements are discussion candidates, not automatic
+permission to change insertion or build Auto Arrange. Empty pass-through nodes
+and processor assignment/replacement remain separate deferred features.
+Step 8's Mask and subsequent compositing/local adjustments are unchanged.
