@@ -31,3 +31,35 @@ Every production-code change must be justified by the agreed acceptance criteria
 Before opening a PR, review the complete diff against the base branch and remove
 unnecessary changes. Correctness, passing tests and potential future usefulness
 do not independently justify scope expansion.
+
+## Product and UI decisions
+
+Preserve existing visible behaviour and appearance unless an approved task
+requires changing them. Codex may choose ordinary implementation details and
+the minimal interaction feedback necessary for an approved feature. Optional
+choices involving controls, labels, icons, port shapes, colours, layout,
+shortcuts, selection or interaction policy are product decisions: propose them
+for owner discussion rather than silently implementing them, however minor or
+reasonable they seem.
+
+Include a short inventory of **all user-visible behaviour and appearance
+changes** in every UI PR. Identify their approved requirement or explain why
+they are strictly necessary. Record other worthwhile ideas as
+"Unimplemented suggestions" in the implementation report, not in the code.
+
+## Reuse architecture without prohibiting improvements
+
+Before adding functionality, identify its home in the existing UI, graph
+commands, processors, evaluator, render runtime, export and persistence
+boundaries. Prefer extending and composing established mechanisms rather than
+adding parallel state, protocols or subsystems.
+
+A new cohesive module or system is appropriate when there is a concrete,
+explained gain in modularity, responsibility separation, maintainability or
+extensibility that outweighs its coupling and maintenance costs. A new
+file/class alone is not a new subsystem. Significant architectural departures
+require explicit owner discussion and agreement before implementation; do not
+introduce them incidentally within UI or bug-fix work. Do not build speculative
+infrastructure solely for potential future features.
+
+Review every change for **scope, architecture fit and correctness** separately.
