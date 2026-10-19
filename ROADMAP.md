@@ -56,11 +56,10 @@ are non-blocking follow-ups.
   unified presets, shared clipboard serialization, independent grade/photo
   metadata, optional node layout, checked atomic writes and global preferences
   are implemented; folder workspace persistence is retired.
-- **Next: targeted post-Step-7 corrections (not an architecture step):** in
-  order, fix Copy Node ownership/capture boundaries, parameter-edit preview
-  scheduling, graph traversal depth, then PNG colour metadata/ICC placement.
-  Keep these as small independently reviewed PRs, without another broad refactor.
-- **Then: Graph View UI milestone (between Steps 7 and 8; D047):** implement
+- **Post-Step-7 correction gate — complete:** Copy Node ownership/capture,
+  parameter-edit preview scheduling, graph traversal depth and PNG colour
+  metadata/ICC placement are corrected and independently reviewed.
+- **Next: Graph View UI milestone (between Steps 7 and 8; D047):** implement
   a switchable Graph/List editor on the same authoritative document graph
   with shared NodeId selection.
 - **Step 8:** first concrete mask path and remaining implementation details
@@ -191,10 +190,10 @@ required.
 
 ## Graph / List interface
 
-**Next UI delivery milestone, after the focused post-Step-7 corrections:**
+**Next UI delivery milestone (D047):**
 build the graphical Node/Graph View before Step 8 introduces user-facing masks.
 This is a UI/product milestone, not an additional numbered architecture refactor.
-The ordered correction gate and deferred image-format issues are tracked in
+The completed correction gate and deferred image-format issues are tracked in
 `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
 
 The editor must have an explicit switch between **Graph View and List View**.
