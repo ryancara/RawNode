@@ -11,9 +11,9 @@ one explicit document graph. Complete per-check macOS/native-dialog and NEF
 manual-validation evidence is not recorded; see `docs/STEP6_MANUAL_VALIDATION.md`.
 Step 7 PRs 1–5 are merged (#63, #65, #66, #68, #69), completing graph-native
 photo/preset/clipboard persistence and global preferences/workspace retirement.
-A short gate of targeted graph safety and PNG colour correctness fixes is next
-(see `docs/PROJECT_CONTEXT.md`), followed by the switchable Graph/List editor
-(D047) and then Step 8 masking. These fixes do not add architecture steps.
+The targeted post-Step-7 graph safety and PNG colour correction gate is complete
+(see `docs/PROJECT_CONTEXT.md`). The switchable Graph/List editor (D047) is next,
+followed by Step 8 masking. These fixes do not add architecture steps.
 
 Read this together with:
 
@@ -627,8 +627,7 @@ validation evidence is tracked separately in `docs/PROJECT_CONTEXT.md`.
 
 7. **Add versioned graph persistence — complete; PRs #63, #65, #66, #68, #69.**
 
-   After the focused ownership, preview-scheduling, graph-depth and PNG
-   corrections tracked in `docs/PROJECT_CONTEXT.md`, add the switchable
+   The post-Step-7 correction gate is complete. Next, add the switchable
    Graph/List editor before Step 8. This is a UI milestone (D047), not another
    numbered architecture step. Both views edit the same authoritative
    document graph and share NodeId selection; no additional renderer or

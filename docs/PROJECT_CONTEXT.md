@@ -603,8 +603,8 @@ background-save system is introduced.
 The owner confirms that independent post-Step-7 Codex and Claude architecture
 audits both concluded **HEALTHY — TARGETED FIXES RECOMMENDED**. Both found RawNode
 ready for the Graph/List editor without another major architecture refactor.
-Their unresolved findings are tracked under "Quality and verification roadmap"
-below; none is claimed fixed by this documentation update.
+The targeted post-Step-7 correction gate is complete; remaining findings are
+tracked under "Quality and verification roadmap" below.
 
 **Owner-reported macOS evidence, 2026-10-17:** all five basic PR #69 checks passed
 before merge (reviewed head `6dec6e4848f039cbb8528ebda71c4636893000bb`):
@@ -653,10 +653,10 @@ The remaining sequence is:
     Step 7: Versioned graph persistence              [complete; PRs 1–5 merged]
           |
           v
-    Targeted graph safety + PNG colour corrections   [next; focused PRs]
+    Targeted graph safety + PNG colour corrections   [complete; independently reviewed]
           |
           v
-    Switchable Graph/List editor                   [then; UI milestone, D047]
+    Switchable Graph/List editor                   [next; UI milestone, D047]
           |
           v
     Step 8: Concrete first mask path + remaining implementation details
@@ -720,10 +720,7 @@ compositing or alpha-carrying I/O requires it.
 
 Next architecture/product work:
 
-- Finish the short, ordered post-Step-7 correction gate listed under "Quality and
-  verification roadmap" below: Copy Node ownership, parameter-edit preview
-  scheduling, graph traversal depth, then PNG colour metadata/ICC placement.
-- Build the switchable Graph/List editor (D047), followed by Step 8's first
+- Next, build the switchable Graph/List editor (D047), followed by Step 8's first
   concrete production Mask path. Step 7 graph-native persistence is complete.
 - Both editor views share the authoritative document graph and NodeId selection;
   switching views introduces no additional execution model.
@@ -766,26 +763,14 @@ valid targets; exports remain sidecar-free. Linux Release self-tests cover these
 behaviours and failure recovery. Derivative writes are not atomic or crash-safe;
 a failed write can leave incomplete output.
 
-**Next: targeted post-Step-7 correction gate (owner-confirmed order):**
-complete these as small, independently reviewed correctness PRs before
-implementing Graph View. No general renderer, graph or I/O refactor is intended.
+**Completed post-Step-7 correction gate:** Copy Node ownership/capture,
+parameter-edit preview scheduling, graph traversal depth and PNG colour
+metadata/ICC placement are corrected and independently reviewed. PNG regression
+coverage independently checks chunks, CRCs, profiles and pixels.
 
-1. **Copy Node ownership/capture boundary:** align node copying with the
-   existing safe graph/processor access protocol; test relevant concurrent
-   rendering/export and document-lifecycle interactions.
-2. **Parameter-edit preview scheduling:** route changes through the accepted
-   render-demand/mutation contract so edits reliably refresh the right preview;
-   test edit, export and recovery ordering.
-3. **Graph traversal depth:** bound or otherwise make deep graph walks safe so
-   unexpectedly large/deep topology cannot exhaust the call stack; verify
-   normal graph behaviour is unchanged.
-4. **PNG colour correctness:** ICC placement is corrected with independent
-   chunk/CRC, profile and pixel regression tests. Implementation awaits
-   independent review before this gate is closed.
-
-**Then:** deliver the switchable Graph/List editor (D047) on the same
+**Next:** deliver the switchable Graph/List editor (D047) on the same
 authoritative graph; **then Step 8** adds the first concrete Mask path. These
-quality corrections are a short preparatory gate, not additional architecture
+completed corrections are a preparatory gate, not additional architecture
 steps or a reason for a new whole-system audit.
 
 **Tracked separately; not prerequisites for Graph View:** TIFF

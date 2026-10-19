@@ -83,7 +83,8 @@ static bool writePngWithIcc(const Image &img, const std::string &path, const std
   unsigned char *png = stbi_write_png_to_mem(px8.data(), img.w * 4, img.w, img.h, 4, &len);
   // stb writes the PNG signature followed by a 13-byte IHDR chunk.
   constexpr size_t headerEnd = 8 + 12 + 13;
-  if (!png || len < (int)headerEnd) {
+  constexpr uint8_t ihdrPrefix[] = {0, 0, 0, 13, 'I', 'H', 'D', 'R'};
+  if (!png || len < (int)headerEnd || std::memcmp(png + 8, ihdrPrefix, sizeof ihdrPrefix) != 0) {
     if (png) STBIW_FREE(png);
     return false;
   }

@@ -12,8 +12,11 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <memory>
+#include <string>
+#include <vector>
 
 #define CHECK(expression) do { if (!(expression)) { \
   std::fprintf(stderr, "PNG colour check failed at line %d: %s\n", __LINE__, #expression); return false; \
