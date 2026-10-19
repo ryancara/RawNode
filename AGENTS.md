@@ -37,13 +37,13 @@ do not independently justify scope expansion.
 Preserve existing visible behaviour and appearance unless an approved task
 requires changing them. Codex may choose ordinary implementation details and
 the minimal interaction feedback necessary for an approved feature. Optional
-choices involving controls, labels, icons, port shapes, colours, layout,
-shortcuts, selection or interaction policy are product decisions: propose them
-for owner discussion rather than silently implementing them, however minor or
-reasonable they seem.
+choices involving user-visible elements (e.g. controls, menus, labels, icons,
+port shapes, colours, layout, shortcuts, selection or workflows) are product
+decisions: propose them for owner discussion rather than silently implementing
+them, however minor or reasonable they seem.
 
 Include a short inventory of **all user-visible behaviour and appearance
-changes** in every UI PR. Identify their approved requirement or explain why
+changes** in every PR that changes the user experience. Identify their approved requirement or explain why
 they are strictly necessary. Record other worthwhile ideas as
 "Unimplemented suggestions" in the implementation report, not in the code.
 
@@ -54,12 +54,13 @@ commands, processors, evaluator, render runtime, export and persistence
 boundaries. Prefer extending and composing established mechanisms rather than
 adding parallel state, protocols or subsystems.
 
-A new cohesive module or system is appropriate when there is a concrete,
-explained gain in modularity, responsibility separation, maintainability or
-extensibility that outweighs its coupling and maintenance costs. A new
-file/class alone is not a new subsystem. Significant architectural departures
-require explicit owner discussion and agreement before implementation; do not
-introduce them incidentally within UI or bug-fix work. Do not build speculative
-infrastructure solely for potential future features.
+A new cohesive module or system is appropriate when a concrete requirement
+justifies greater modularity, responsibility separation, maintainability or
+extensibility relative to its integration and maintenance costs. A new
+file/class alone is not a new subsystem. A significant architectural departure
+(e.g. a new subsystem, changed ownership/execution protocol or persistence
+schema) requires explicit owner discussion and agreement before implementation;
+do not introduce one incidentally in unrelated work. Do not build speculative
+infrastructure solely for hypothetical future features.
 
 Review every change for **scope, architecture fit and correctness** separately.
