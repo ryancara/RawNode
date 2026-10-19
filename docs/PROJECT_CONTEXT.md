@@ -90,6 +90,13 @@ Small local fixes need no formal design document or extra approval process.
 Reviews should verify the intended behaviour rather than merely confirm the
 implementation's own output.
 
+Optional changes to user-visible controls, appearance or interactions require
+owner discussion before implementation. UI PRs list all visible differences
+and unimplemented suggestions. Reuse existing architecture where suitable;
+new modules or systems are welcome when concrete evidence and an agreed design
+show better modularity, maintainability or extensibility. Scope, architecture
+and correctness are independent review criteria (D052).
+
 ChatGPT is the long-running product/architecture discussion partner. Codex is the
 primary implementation agent. Claude Code is primarily the independent,
 adversarial reviewer.
@@ -219,11 +226,12 @@ reference and found the direction **sound for the next stage**. Step 5 has now
 closed after independent final Codex/Claude implementation-readiness review.
 No further broad architectural refactor was required before Step 6. The explicit
 graph and sequential evaluator are now implemented, independently reviewed and
-merged. Step 7 persistence is also complete. The Graph/List editor now has its
-PR #79 visual foundation and PR 2A contextual workspace implementation (D051).
-Visual editing (PR 2B), placement/usability (PR 2C) and concrete production Mask
-features remain upcoming work. PR 2A review/platform checks are tracked in
-`docs/WORKSPACE_INSPECTOR_VALIDATION.md`. The approved target is
+merged. Step 7 persistence is also complete. The Graph/List editor now has the #79
+foundation, contextual workspace PR 2A (#80), and focused wiring/deletion
+PR 2B (#82) merged. PR 2C placement/usability needs an approved scope;
+production Mask features remain future work. Validation evidence is in
+`docs/WORKSPACE_INSPECTOR_VALIDATION.md` and
+`docs/GRAPH_VIEW_VALIDATION.md`. The approved target is
 documented in `docs/ARCHITECTURE.md`; checkpoint
 evidence is in `docs/ARCHITECTURE_AUDIT.md`.
 
@@ -659,7 +667,7 @@ The remaining sequence is:
     Targeted graph safety + PNG colour corrections   [complete; independently reviewed]
           |
           v
-    Switchable Graph/List editor                   [PR #79 foundation; PR 2A/2B/2C follow, D047/D051]
+    Switchable Graph/List editor                   [#79, #80, #82 merged; PR 2C scope pending]
           |
           v
     Step 8: Concrete first mask path + remaining implementation details
@@ -723,14 +731,18 @@ compositing or alpha-carrying I/O requires it.
 
 Next architecture/product work:
 
-- Follow D051's accepted UI sequence: PR 2A contextual Inspector/workspace,
-  PR 2B visual connection/deletion editing, PR 2C placement/usability,
-  followed by Step 8's first concrete production Mask path. PR #79 supplies the
-  dockable visual foundation; Step 7 graph-native persistence is complete.
-- The owner's superseding D051 clarification limits PR 2B to connections,
-  input disconnection, virtual Output rewiring, Graph deletion and minimal menus.
-  Add Processor continues to append regardless of selection. Insertion-policy
-  changes await a separate product decision and are not added to PR 2C.
+- Graph/List foundation #79, workspace PR 2A (#80) and graph connections/
+  deletion PR 2B (#82) are merged. PR 2C placement/usability is next for
+  *product discussion*, then Step 8's first concrete production Mask path.
+- PR 2C has no approved implementation brief yet. Add Processor retains
+  append-to-Output behaviour irrespective of selection. Selection-aware
+  insertion, serial Before/After and intentionally empty nodes/processor
+  assignment remain separate product decisions, not implicit PR 2C work.
+- Preserve NodeId topology, typed ports and graph-native sidecars. Nodes
+  already own optional processors separate from graph identity; missing
+  processors are preserved and bypassed, not intentionally empty nodes.
+  Any future empty-node workflow needs a deliberate design, not incidental
+  processor-construction changes in a UI PR.
 - Preview owns resolution; Nodes owns Add Processor and List/Graph; Inspector
   follows Source/processor/virtual Output/no selection. The top toolbar owns file
   actions and status/warnings, retiring Left Panel. Historical UI-layout migration
@@ -781,10 +793,9 @@ parameter-edit preview scheduling, graph traversal depth and PNG colour
 metadata/ICC placement are corrected and independently reviewed. PNG regression
 coverage independently checks chunks, CRCs, profiles and pixels.
 
-**In progress:** the switchable Graph/List editor (D047) has its PR 1 visual
-foundation on the authoritative graph; D051 stages PR 2A workspace, PR 2B
-visual editing and PR 2C placement/usability. **Then
-Step 8** adds the first concrete Mask path. These
+**In progress:** Graph/List foundation (#79), workspace (#80), and focused
+connection/deletion UI (#82) are merged. PR 2C awaits an agreed placement/
+usability design. **Then Step 8** adds the first concrete Mask path. These
 completed corrections are a preparatory gate, not additional architecture
 steps or a reason for a new whole-system audit.
 
