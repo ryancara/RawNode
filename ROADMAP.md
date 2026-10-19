@@ -60,9 +60,9 @@ are non-blocking follow-ups.
   parameter-edit preview scheduling, graph traversal depth and PNG colour
   metadata/ICC placement are corrected and independently reviewed.
 - **Graph View UI milestone (between Steps 7 and 8; D047), in progress:**
-  PR 1 supplies the dockable List/Graph visual foundation on the authoritative
-  graph with shared NodeId selection. PR 2 adds connection editing through the
-  existing graph commands; the full milestone is not complete.
+  PR #79 supplies the dockable List/Graph visual foundation. PR 2A adds the
+  contextual Inspector and editing workspace; PR 2B adds visual graph editing;
+  PR 2C improves placement and usability. The full milestone is not complete.
 - **Step 8:** first concrete mask path and remaining implementation details
   under the Step 5 product/architectural contract. TIFF and EXR format
   correctness and JPEG encoder UB remain independently tracked follow-ups,
@@ -192,8 +192,9 @@ required.
 ## Graph / List interface
 
 **UI delivery milestone in progress (D047):** the dockable Nodes panel now
-switches between the existing List controls and a visual Graph canvas. PR 2
-adds connection editing before Step 8 introduces user-facing masks.
+switches between List controls and a visual Graph canvas. The accepted next
+deliveries are PR 2A, PR 2B and PR 2C below (D051), before Step 8 introduces
+user-facing masks.
 This is a UI/product milestone, not an additional numbered architecture refactor.
 The completed correction gate and deferred image-format issues are tracked in
 `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
@@ -219,21 +220,44 @@ PR 1 visual foundation:
   graph evaluation;
 - global List/Graph preference, with transient canvas pan/zoom.
 
-Connection creation, reconnection/deletion and graph context menus remain PR 2,
-using the existing validated graph commands. See
-[GRAPH_VIEW_VALIDATION.md](docs/GRAPH_VIEW_VALIDATION.md) for acceptance checks,
-limits and the pending macOS checklist.
+**PR 2A — Contextual Inspector and workspace**
 
-PR 2 initial-placement follow-ups (preserve saved coordinates on reopen):
+- Preview owns preview-specific controls, including resolution.
+- Nodes owns List/Graph switching and the existing searchable Add Processor picker.
+- Inspector shows Source input/RAW settings, processor parameters, Output colour
+  and export settings, or a neutral state according to one transient selection.
+- A compact top toolbar provides Open Image, Open Folder and Export; File menu
+  actions and shortcuts remain available.
+- Retire the Left Panel. Default docking is Preview above Nodes, Inspector on
+  the right and Filmstrip along the bottom. Persist new arrangements normally
+  with preferences.json and layout.ini; historical UI-layout migration is not
+  required and configuration files must not be automatically deleted.
+- Keep append insertion, grade/sidecar contracts, colour semantics and renderer
+  ownership unchanged.
 
-- Place newly inserted serial nodes between their upstream/downstream neighbours.
-- Make space predictably when inserting into a manually arranged graph, without
-  unnecessarily disrupting the user's layout.
-- Offset pasted/duplicated nodes and avoid overlap with the original.
+**PR 2B — Visual graph editing**
 
-Optional user-requested Auto Arrange can follow later. These concern placement
-of new nodes, not separate automatic/manual coordinate categories; PR 1 persists
-both kinds through the same `grade.positions` map and existing save lifecycle.
+- Connect, reconnect and disconnect typed ports; edit document Output connections.
+- Delete nodes via Delete/Backspace and context menus.
+- Add processors after selected nodes and support explicit serial-before and
+  serial-after operations through existing GraphCommands.
+
+**PR 2C — Graph placement and usability**
+
+- Place inserted serial nodes between connected neighbours and make room
+  predictably in existing arrangements.
+- Prevent pasted/duplicated nodes overlapping and improve contextual interactions.
+- Consider optional user-requested Auto Arrange later; preserve saved positions.
+
+**Separate future feature — Empty nodes**
+
+Intentionally empty pass-through nodes may later receive or replace processors
+without losing NodeId, position or connections. Preserve the distinction between
+an empty node and an unavailable processor.
+
+Step 8 remains the first concrete Mask implementation under the accepted Step 5
+contract, followed by compositing and local adjustments. This sequence adds no
+architecture migration steps and does not reopen completed graph decisions.
 
 Add number-key node selection as a separate small interaction improvement.
 
