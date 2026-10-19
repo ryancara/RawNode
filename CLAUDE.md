@@ -7,7 +7,8 @@ from ofxrawhost.
 
 It supports one explicit processing graph containing native processors, OpenFX
 plugins and CTL processors, with a dockable Nodes panel and switchable List/Graph
-presentation. Connection editing remains the second Graph/List PR; future plans
+presentation. D051 stages contextual workspace (PR 2A), graph editing (PR 2B) and placement
+(PR 2C); future plans
 include DCTL, LUTs, masks, compositing and local adjustments.
 
 macOS is currently the primary development platform, but the architecture should
@@ -323,7 +324,8 @@ coverage only when its Reference frame resolves.
 Step 7 graph-native persistence and all four targeted post-Step-7 corrections
 are complete (see "Quality and verification roadmap" in
 `docs/PROJECT_CONTEXT.md`). The Graph/List visual foundation (D047) adds a
-dockable Nodes panel; connection editing remains PR 2 before Step 8's first
+dockable Nodes panel; D051 stages workspace PR 2A, graph editing PR 2B and
+placement/usability PR 2C before Step 8's first
 concrete production Mask path. See `docs/GRAPH_VIEW_VALIDATION.md` for focused
 tests and the pending macOS GUI checklist.
 Both editor views share the authoritative document graph and NodeId selection.

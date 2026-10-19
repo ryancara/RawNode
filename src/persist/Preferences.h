@@ -16,12 +16,10 @@ struct Preferences {
   int jpegQuality = 92;
   int previewRes = 1;
   int themeIndex = 2;
-  bool showLeft = true;
   bool showRight = true;
   bool showNodes = true;
   NodesView nodesView = NodesView::List;
   bool showFilmstrip = true;
-  float leftW = 280.0f;
   float rightW = 420.0f;
   float filmstripH = 96.0f;
 };

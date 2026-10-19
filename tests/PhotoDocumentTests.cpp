@@ -253,7 +253,7 @@ bool restorationAndUnchangedSave() {
   CHECK(document_detail::openPhoto(app, a, {}, options));
   CHECK(saves == 0 && bytes(path) == original && app.primarySource == NodeId{"camera-root"});
   CHECK(app.documentOutput == (OutputRef{NodeId{"unavailable"}, ports::image}));
-  CHECK(app.nodes.size() == 3 && !app.selectedNodeId && app.nodePositions.size() == 2);
+  CHECK(app.nodes.size() == 3 && !app.selectedNodeId() && app.nodePositions.size() == 2);
   CHECK(findNode(app, NodeId{"unavailable"})->isMissingProcessor());
   CHECK(findNode(app, NodeId{"gain"})->processor && app.outputEncoding.gamut == RgbGamut::DisplayP3);
   app.renderer.start(); CHECK(idle(app));
@@ -377,7 +377,7 @@ bool failureDecisions() {
   const auto warning = app.persistenceWarning;
   app.renderer.start(); app.setStatus("Export completed"); CHECK(idle(app));
   CHECK(app.persistenceWarning == warning && addNativeExposureNode(app));
-  const auto id = *app.selectedNodeId;
+  const auto id = *app.selectedNodeId();
   CHECK(setNodeParameterValue(app, id, "exposure", 1.5));
   const auto pixels = app.full.px.data(); const auto preview = app.preview;
   const auto before = entries(files.dir);
@@ -439,7 +439,7 @@ bool folderDiscardOnlyOnce() {
 bool samePhotoAndAtomicFailures() {
   Files files; const auto a = photo(files, "a.png"), b = photo(files, "b.png");
   App app; CHECK(openPath(app, a) && addNativeExposureNode(app));
-  const auto id = *app.selectedNodeId;
+  const auto id = *app.selectedNodeId();
   CHECK(setNodeParameterValue(app, id, "exposure", 2.0));
   app.nodePositions[id.value] = {-2, 3};
   CHECK(openPath(app, a));

@@ -68,25 +68,31 @@ std::string documentStateError(const App &app) {
 }
 
 Node *selectedNode(App &app) {
-  Node *node = app.selectedNodeId ? findNode(app, *app.selectedNodeId) : nullptr;
+  Node *node = app.selectedNodeId() ? findNode(app, *app.selectedNodeId()) : nullptr;
   return node && node->operation != NodeOperation::Source ? node : nullptr;
 }
 
 const Node *selectedNode(const App &app) {
-  const Node *node = app.selectedNodeId ? findNode(app, *app.selectedNodeId) : nullptr;
+  const Node *node = app.selectedNodeId() ? findNode(app, *app.selectedNodeId()) : nullptr;
   return node && node->operation != NodeOperation::Source ? node : nullptr;
 }
 
 bool selectNode(App &app, std::optional<NodeId> id) {
-  if (id) {
-    const Node *node = findNode(app, *id);
-    if (!node || node->operation == NodeOperation::Source) return false;
-  }
-  if (app.selectedNodeId != id) {
-    app.selectedNodeId = std::move(id);
+  if (id && !findNode(app, *id)) return false;
+  InspectorSelection selection;
+  if (id) selection = *id;
+  if (app.selection != selection) {
+    app.selection = std::move(selection);
     app.paramFilter[0] = '\0';
   }
   return true;
+}
+
+void selectOutput(App &app) {
+  if (!app.outputSelected()) {
+    app.selection = InspectorEndpoint::Output;
+    app.paramFilter[0] = '\0';
+  }
 }
 
 std::string nodeDisplayName(const Node &node) {

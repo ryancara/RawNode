@@ -8,6 +8,7 @@
 #include "ui/DockLayout.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "portable-file-dialogs.h"
 
 #include <GLFW/glfw3.h>
@@ -53,7 +54,7 @@ bool copySelectedNode(App &app) {
   if (!requireEditableGraph(app) || !canCopySelectedNode(app)) return false;
   PersistFragment fragment;
   std::vector<std::string> warnings;
-  if (!captureNodeFragment(app, {*app.selectedNodeId}, fragment, warnings)) return false;
+  if (!captureNodeFragment(app, {*app.selectedNodeId()}, fragment, warnings)) return false;
   try {
     std::string json, error;
     if (!encodeTransferPayload(fragment, json, error)) throw std::runtime_error(error);
@@ -85,7 +86,7 @@ bool pasteFromClipboard(App &app) {
   }
   const auto *grade = std::get_if<PersistGrade>(&transfer);
   const bool applied = grade ? applyGrade(app, *grade)
-      : pasteFragment(app, std::get<PersistFragment>(transfer), app.selectedNodeId);
+      : pasteFragment(app, std::get<PersistFragment>(transfer), selectedNode(app) ? app.selectedNodeId() : std::nullopt);
   if (applied) app.setStatus(grade ? "Pasted full grade" : "Pasted node/fragment");
   return applied;
 }
@@ -107,15 +108,18 @@ bool savePresetDialog(App &app, std::string path) {
   });
 }
 
-static bool loadPreset(App &app, bool append) {
+bool loadPresetDialog(App &app, bool append, std::string path) {
   if (!requireEditableGraph(app)) return false;
-  const auto paths = pfd::open_file(append ? "Append Preset" : "Replace Grade from Preset", "",
-                                   {"RawNode grade", "*.json"}).result();
-  if (paths.empty()) return false;
+  if (path.empty()) {
+    const auto paths = pfd::open_file(append ? "Append Preset" : "Replace Grade from Preset", "",
+                                     {"RawNode grade", "*.json"}).result();
+    if (paths.empty()) return false;
+    path = paths.front();
+  }
   PersistGrade grade;
   std::string error;
-  if (!loadPresetFile(paths.front(), grade, error)) { app.setStatus(error); return false; }
-  const bool applied = append ? appendGrade(app, grade, app.selectedNodeId) : applyGrade(app, grade);
+  if (!loadPresetFile(path, grade, error)) { app.setStatus(error); return false; }
+  const bool applied = append ? appendGrade(app, grade, selectedNode(app) ? app.selectedNodeId() : std::nullopt) : applyGrade(app, grade);
   if (applied) app.setStatus(append ? "Appended preset" : "Replaced grade from preset");
   return applied;
 }
@@ -129,6 +133,46 @@ static void openUrl(const std::string &url) {
   std::string cmd = "xdg-open \"" + url + "\"";
 #endif
   std::system(cmd.c_str());
+}
+
+static void openImageDialog(App &app) {
+  const auto paths = pfd::open_file("Open image", "", openImageDialogFilters()).result();
+  if (!paths.empty()) openPath(app, paths.front(), promptSaveFailure);
+}
+
+static void openFolderDialog(App &app) {
+  const auto path = pfd::select_folder("Open folder").result();
+  if (!path.empty()) app.pendingFolderDir = path;
+}
+
+static bool canExport(const App &app) {
+  // Parameter eligibility also excludes an active export and protected photos.
+  return !app.full.px.empty() && app.hasProcessingOutput() && app.renderer.canEditParameters();
+}
+
+static void drawFileToolbar(App &app) {
+  auto *viewport = ImGui::GetMainViewport();
+  const float width = std::max(1.0f, viewport->Size.x - 2 * ImGui::GetStyle().WindowPadding.x);
+  float height = ImGui::GetFrameHeight() + 2 * ImGui::GetStyle().WindowPadding.y;
+  if (!app.persistenceWarning.empty())
+    height += ImGui::CalcTextSize(app.persistenceWarning.c_str(), nullptr, false, width).y +
+              ImGui::GetStyle().ItemSpacing.y;
+  const auto flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings;
+  if (ImGui::BeginViewportSideBar("##FileToolbar", viewport, ImGuiDir_Up, height, flags)) {
+    if (ImGui::Button("Open Image")) openImageDialog(app);
+    ImGui::SameLine();
+    if (ImGui::Button("Open Folder")) openFolderDialog(app);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(!canExport(app));
+    if (ImGui::Button("Export")) doExport(app);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    const auto status = app.getStatus();
+    ImGui::TextUnformatted(status.c_str());
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", status.c_str());
+    if (!app.persistenceWarning.empty()) ImGui::TextWrapped("%s", app.persistenceWarning.c_str());
+  }
+  ImGui::End();
 }
 
 void DrawUiFrame(App &app) {
@@ -160,25 +204,21 @@ void DrawUiFrame(App &app) {
 #else
       if (ImGui::MenuItem("Open image", "Ctrl+O")) {
 #endif
-        auto f = pfd::open_file("Open image", "", openImageDialogFilters());
-        auto r = f.result();
-        if (!r.empty()) openPath(app, r[0], promptSaveFailure);
+        openImageDialog(app);
       }
 #ifdef __APPLE__
       if (ImGui::MenuItem("Open Folder", "⌘+Shift+O")) {
 #else
       if (ImGui::MenuItem("Open Folder", "Ctrl+Shift+O")) {
 #endif
-        auto f = pfd::select_folder("Open folder");
-        auto r = f.result();
-        if (!r.empty()) app.pendingFolderDir = r;
+        openFolderDialog(app);
       }
       if (ImGui::MenuItem("Save Grade", nullptr, false, !app.path.empty() && !app.isPhotoProtected()))
         saveCurrentInputSidecar(app);
 #ifdef __APPLE__
-      if (ImGui::MenuItem("Export", "⌘+E")) doExport(app);
+      if (ImGui::MenuItem("Export", "⌘+E", false, canExport(app))) doExport(app);
 #else
-      if (ImGui::MenuItem("Export", "Ctrl+E")) doExport(app);
+      if (ImGui::MenuItem("Export", "Ctrl+E", false, canExport(app))) doExport(app);
 #endif
 #ifdef __APPLE__
       if (ImGui::MenuItem("Quit", "⌘+Q")) glfwSetWindowShouldClose(app.window, 1);
@@ -212,8 +252,8 @@ void DrawUiFrame(App &app) {
         if (ImGui::MenuItem("Save Preset…", nullptr, false, editable))
           savePresetDialog(app);
         if (ImGui::BeginMenu("Load Preset", editable)) {
-          if (ImGui::MenuItem("Replace…")) loadPreset(app, false);
-          if (ImGui::MenuItem("Append…")) loadPreset(app, true);
+          if (ImGui::MenuItem("Replace…")) loadPresetDialog(app, false);
+          if (ImGui::MenuItem("Append…")) loadPresetDialog(app, true);
           ImGui::EndMenu();
         }
         ImGui::EndMenu();
@@ -223,12 +263,10 @@ void DrawUiFrame(App &app) {
     if (ImGui::BeginMenu("View")) {
       ImGui::MenuItem("Nodes", nullptr, &app.showNodes);
 #ifdef __APPLE__
-      ImGui::MenuItem("Left panel", "⌘+[", &app.showLeft);
-      ImGui::MenuItem("Right panel", "⌘+]", &app.showRight);
+      ImGui::MenuItem("Inspector", "⌘+]", &app.showRight);
       ImGui::MenuItem("Filmstrip", "⌘+\\", &app.showFilmstrip);
 #else
-      ImGui::MenuItem("Left panel", "Ctrl+[", &app.showLeft);
-      ImGui::MenuItem("Right panel", "Ctrl+]", &app.showRight);
+      ImGui::MenuItem("Inspector", "Ctrl+]", &app.showRight);
       ImGui::MenuItem("Filmstrip", "Ctrl+\\", &app.showFilmstrip);
 #endif
       ImGui::EndMenu();
@@ -268,29 +306,24 @@ void DrawUiFrame(App &app) {
       pasteFromClipboard(app);
   }
 
-  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_LeftBracket) ||
-      ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_LeftBracket))
-    app.showLeft = !app.showLeft;
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_RightBracket) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_RightBracket))
     app.showRight = !app.showRight;
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash) ||
       ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_Backslash))
     app.showFilmstrip = !app.showFilmstrip;
-  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_O)) {
-    auto f = pfd::select_folder("Open folder");
-    auto r = f.result();
-    if (!r.empty()) app.pendingFolderDir = r;
+  if (!ImGui::GetIO().WantTextInput) {
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_O)) openFolderDialog(app);
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) openImageDialog(app);
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_E) && canExport(app)) doExport(app);
   }
 
+  drawFileToolbar(app);
   DockLayout::BeginMainDockSpace(app);
 
-  if (app.showLeft) {
-    if (ImGui::Begin(DockLayout::kLeft, &app.showLeft)) drawLeftPanel(app);
-    ImGui::End();
-  }
   if (app.showRight) {
-    if (ImGui::Begin(DockLayout::kParams, &app.showRight)) drawRightPanel(app);
+    ImGui::SetNextWindowSize(ImVec2(420, 600), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin(DockLayout::kInspector, &app.showRight)) drawInspector(app);
     ImGui::End();
   }
   if (app.showNodes) {

@@ -60,8 +60,8 @@ const std::string configured = "{" + header + R"(,
   "rawWorking":{"colorSpace":"aces-ap1","gamma":"rec709-camera"},
   "output":{"colorSpace":"display-p3","gamma":"linear"},
   "themeIndex":1,"exportFormat":0,"jpegQuality":73,"previewRes":0,
-  "showLeft":false,"showRight":false,"showFilmstrip":false,
-  "leftW":312.5,"rightW":388.25,"filmstripH":144.5})";
+  "showRight":false,"showFilmstrip":false,
+  "rightW":388.25,"filmstripH":144.5})";
 const ColorEncoding storedRaw{RgbGamut::ACES_AP1, TransferFunction::Rec709};
 const ColorEncoding storedOutput{RgbGamut::DisplayP3, TransferFunction::Linear};
 const ColorEncoding fallbackRaw{RgbGamut::Rec2020, TransferFunction::Linear};
@@ -82,18 +82,18 @@ bool codecAndOptionalFields() {
   CHECK(initialisePreferences(startup, {path, ""}) && startup.preferencesWarning.empty());
   CHECK(startup.rawWorkingEncoding == storedRaw && startup.defaultOutputEncoding == storedOutput);
   CHECK(startup.themeIndex == 1 && startup.previewRes == 0 && startup.exportFormat == 0 && startup.jpegQuality == 73);
-  CHECK(!startup.showLeft && !startup.showRight && !startup.showFilmstrip);
-  CHECK(startup.leftW == 312.5f && startup.rightW == 388.25f && startup.filmstripH == 144.5f);
+  CHECK(!startup.showRight && !startup.showFilmstrip);
+  CHECK(startup.rightW == 388.25f && startup.filmstripH == 144.5f);
   CHECK(savePreferences(path, capturePreferences(startup), warning) && warning.empty());
   CHECK(loadPreferences(path, p, warning) && warning.empty());
   CHECK(p.rawWorking == storedRaw && p.output == storedOutput && p.themeIndex == 1 && p.jpegQuality == 73);
-  CHECK(p.leftW == 312.5f && p.rightW == 388.25f && p.filmstripH == 144.5f);
-  CHECK(!p.showLeft && !p.showRight && !p.showFilmstrip && p.exportFormat == 0 && p.previewRes == 0);
+  CHECK(p.rightW == 388.25f && p.filmstripH == 144.5f);
+  CHECK(!p.showRight && !p.showFilmstrip && p.exportFormat == 0 && p.previewRes == 0);
 
   // A minimal file retains its valid theme and accepts future optional fields.
   write(path, "{" + header + R"(,"themeIndex":1,"future":{"key":[1,2]}})");
   CHECK(loadPreferences(path, p, warning) && warning.empty());
-  CHECK(p.themeIndex == 1 && p.jpegQuality == 92 && p.previewRes == 1 && p.showLeft && p.showRight && p.showFilmstrip);
+  CHECK(p.themeIndex == 1 && p.jpegQuality == 92 && p.previewRes == 1 && p.showRight && p.showFilmstrip);
   CHECK(p.rawWorking == fallbackRaw && p.output == fallbackOutput);
   for (const auto *field : {"rawWorking", "output"}) {
     const std::string other = std::string(field) == "rawWorking" ? "output" : "rawWorking";
@@ -114,9 +114,9 @@ bool codecAndOptionalFields() {
       CHECK((std::string(field) == "rawWorking" ? p.output : p.rawWorking) == storedOutput);
     }
   }
-  write(path, "{" + header + R"(,"jpegQuality":0,"showLeft":3,"filmstripH":1,"themeIndex":1})");
+  write(path, "{" + header + R"(,"jpegQuality":0,"filmstripH":1,"themeIndex":1})");
   CHECK(loadPreferences(path, p, warning) && !warning.empty());
-  CHECK(p.jpegQuality == 92 && p.showLeft && p.filmstripH == 96 && p.themeIndex == 1);
+  CHECK(p.jpegQuality == 92 && p.filmstripH == 96 && p.themeIndex == 1);
   write(path, R"({"format":"rawnode-preferences","version":9})");
   CHECK(!loadPreferences(path, p, warning) && !warning.empty());
   write(path, "{");
@@ -281,13 +281,13 @@ bool startupPhotoFolderAndShutdown() {
   CHECK(readGraphSidecar(inputSidecarPath(a), grade, error) == SidecarReadStatus::Loaded && grade.grade);
   CHECK(grade.grade->color.rawColorSpace == "aces-ap1" && grade.grade->color.rawGamma == "rec709-camera");
   CHECK(grade.grade->color.outputColorSpace == "display-p3" && grade.grade->color.outputGamma == "linear");
-  CHECK(app.themeIndex == 1 && !app.showLeft);
+  CHECK(app.themeIndex == 1 && !app.showRight);
   document_detail::setRawWorkingEncoding(app, RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate, options);
   CHECK(setOutputEncoding(app, {RgbGamut::ACES_AP0, TransferFunction::SRGB}));
   CHECK(app.rawWorkingEncoding == storedRaw && app.defaultOutputEncoding == storedOutput);
   CHECK(document_detail::openFolder(app, files.path("b"), {}, options));
   CHECK(fs::equivalent(app.path, b) && app.inputEncoding == storedRaw && app.outputEncoding == storedOutput);
-  CHECK(app.themeIndex == 1 && !app.showLeft && app.rawWorkingEncoding == storedRaw && app.defaultOutputEncoding == storedOutput);
+  CHECK(app.themeIndex == 1 && !app.showRight && app.rawWorkingEncoding == storedRaw && app.defaultOutputEncoding == storedOutput);
   CHECK(document_detail::openPhoto(app, a, {}, options));
   CHECK(app.inputEncoding == (ColorEncoding{RgbGamut::DaVinciWideGamut, TransferFunction::DaVinciIntermediate}));
   CHECK(app.outputEncoding == (ColorEncoding{RgbGamut::ACES_AP0, TransferFunction::SRGB}));

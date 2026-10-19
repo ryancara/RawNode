@@ -13,7 +13,8 @@ Step 7 PRs 1–5 are merged (#63, #65, #66, #68, #69), completing graph-native
 photo/preset/clipboard persistence and global preferences/workspace retirement.
 The targeted post-Step-7 graph safety and PNG colour correction gate is complete
 (see `docs/PROJECT_CONTEXT.md`). The switchable Graph/List editor (D047) has its
-visual foundation; connection editing follows in PR 2, then Step 8 masking.
+visual foundation; D051 stages the contextual workspace (PR 2A), visual graph
+editing (PR 2B) and placement/usability (PR 2C), then Step 8 masking.
 These fixes do not add architecture steps.
 
 Read this together with:
@@ -292,8 +293,10 @@ actual commit. Rejected/unchanged commands preserve active preview/export work.
 Source replacement drains the same ownership before replacing full/preview
 pixels. Backend parameter edits retain their synchronization and export exclusion.
 
-UI selection has one authoritative optional NodeId. List View derives its main
-unary Image spine from documentOutput; other nodes remain visible and accessible.
+UI selection has one authoritative transient variant: no selection, a real NodeId
+(Source or processor), or virtual Output. `selectedNodeId()` derives a real ID;
+`selectedNode()` deliberately excludes Source for processor-only callers. List
+View derives its main unary Image spine from documentOutput; other nodes remain visible and accessible.
 Splice/move controls use stable identities and validated graph commands. The
 projection neither changes connections nor supplies another execution order.
 
@@ -305,7 +308,20 @@ placement fills missing positions in `App::nodePositions`; protected photos
 derive placement without modifying it. Header drags change only this layout map,
 saved by the existing grade lifecycle. Canvas pan/zoom and drag state are transient,
 and visual interactions never acquire DocumentMutation or request rendering.
-Connection editing remains the second Graph/List PR.
+Inspector displays Source input/current-photo RAW controls, the existing processor
+parameters, or Output grade colours/application export preferences. Fixed Source
+and Output List entries sit outside the processor reorder list. Selection does
+not change the requested render endpoint or documentOutput. Photo/grade replacement
+clears it; graph commits clear a removed real ID without discarding Source or
+virtual Output. Nothing persists this selection.
+
+The compact top toolbar owns file actions and status/persistence warnings. Preview
+owns resolution, Nodes owns the shared processor picker and List/Graph switch.
+The retired Left Panel has no window, visibility or width preference. Fresh default
+docking is Preview above Nodes, Inspector right and Filmstrip across the bottom;
+ImGui retains ordinary resizing/floating/custom arrangement persistence. Historical
+UI layouts have no migration/alias path; user configuration is never deleted.
+Connection editing remains PR 2B under D051.
 
 Live photo capture/restoration preserves every stored graph node, connection,
 endpoint, Slot allocator and optional position through the shared strict codec.
@@ -639,7 +655,8 @@ validation evidence is tracked separately in `docs/PROJECT_CONTEXT.md`.
 7. **Add versioned graph persistence — complete; PRs #63, #65, #66, #68, #69.**
 
    The post-Step-7 correction gate is complete. The Graph/List visual foundation
-   is implemented; PR 2 adds connection editing before Step 8. This is a UI
+   is implemented; D051 stages PR 2A workspace, PR 2B visual editing and
+   PR 2C placement/usability before Step 8. This is a UI
    milestone (D047), not another numbered architecture step. Both views edit the
    same authoritative document graph and share NodeId selection; no additional renderer or
    execution model is introduced.

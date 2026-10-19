@@ -509,8 +509,8 @@ static bool testAppAndSourceMove() {
   CHECK(graph::moveImageNode(app, a).ok());
   selectNode(app, app.nodes[2].id);
   CHECK(graph::deleteNode(app, a, image(app.primarySource)).ok());
-  CHECK(app.selectedNodeId == app.nodes[1].id && app.nodes[1].id == b && !findNode(app, a));
-  CHECK(graph::deleteNode(app, b).ok() && !app.selectedNodeId);
+  CHECK(app.selectedNodeId() == app.nodes[1].id && app.nodes[1].id == b && !findNode(app, a));
+  CHECK(graph::deleteNode(app, b).ok() && !app.selectedNodeId());
   CHECK(documentStateError(app).empty());
   Node tail; tail.id = NodeId{"live-tail"};
   CHECK(graph::insertImageNode(app, std::move(tail)).ok());

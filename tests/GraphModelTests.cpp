@@ -28,7 +28,7 @@ static bool testDocumentIdentity() {
       !source->fixedInputs.empty() || !source->slots.empty()) return false;
 
   PersistNode record;
-  if (selectNode(app, app.primarySource)) return false;
+  if (!selectNode(app, app.primarySource) || app.selectedNodeId() != sourceId) return false;
   if (selectedNode(app) || captureNode(app, app.nodes[0].id, record) || !captureChain(app).nodes.empty()) return false;
   destroyNode(app, app.nodes[0].id);
   setNodeEnabled(app, app.nodes[0].id, false);

@@ -94,8 +94,8 @@ struct Files {
 
 static bool testSelectionIdentity() {
   App app; source(app);
-  CHECK(addNativeExposureNode(app)); const NodeId a = *app.selectedNodeId;
-  CHECK(addNativeExposureNode(app)); const NodeId b = *app.selectedNodeId;
+  CHECK(addNativeExposureNode(app)); const NodeId a = *app.selectedNodeId();
+  CHECK(addNativeExposureNode(app)); const NodeId b = *app.selectedNodeId();
   CHECK(findNode(app, a)->processor->setParameterValue("exposure", 1.5));
   CHECK(findNode(app, b)->processor->setParameterValue("exposure", -2.0));
   app.renderer.start(); CHECK(idle(app));
@@ -103,8 +103,8 @@ static bool testSelectionIdentity() {
   CHECK(selectNode(app, a) && exposure(selectedNode(app)) == 1.5);
   app.paramFilter[0] = 'e';
   CHECK(selectNode(app, a) && app.paramFilter[0] == 'e');
-  CHECK(!selectNode(app, app.primarySource) && !selectNode(app, NodeId{"missing"}));
-  CHECK(app.selectedNodeId == a && app.paramFilter[0] == 'e');
+  CHECK(!selectNode(app, NodeId{"missing"}));
+  CHECK(app.selectedNodeId() == a && app.paramFilter[0] == 'e');
   CHECK(selectNode(app, b) && app.paramFilter[0] == '\0' && exposure(selectedNode(app)) == -2.0);
   CHECK(selectNode(app, std::nullopt) && !selectedNode(app));
   CHECK(selectNode(app, a));
@@ -119,13 +119,13 @@ static bool testSelectionIdentity() {
     mutation.changed();
   }
   CHECK(idle(app));
-  CHECK(app.nodes.front().id == b && app.selectedNodeId == a && app.paramFilter[0] == 'e');
+  CHECK(app.nodes.front().id == b && app.selectedNodeId() == a && app.paramFilter[0] == 'e');
   CHECK(selectedNode(app)->processor.get() == owned && exposure(selectedNode(static_cast<const App &>(app))) == 1.5);
   CHECK(moveNode(app, a, b) && idle(app));
-  CHECK(app.selectedNodeId == a && selectedNode(app)->processor.get() == owned && app.paramFilter[0] == 'e');
+  CHECK(app.selectedNodeId() == a && selectedNode(app)->processor.get() == owned && app.paramFilter[0] == 'e');
   CHECK(ui::projectNodeList(view(app)).spine == std::vector<NodeId>({b, a}));
   CHECK(add(app, NodeId{"unrelated"}, NodeOperation::ImageProcessor) && idle(app));
-  CHECK(app.selectedNodeId == a && selectedNode(app)->processor.get() == owned);
+  CHECK(app.selectedNodeId() == a && selectedNode(app)->processor.get() == owned);
   CHECK(selectedNode(app)->processor->setParameterValue("exposure", 2.25));
   CHECK(exposure(findNode(app, a)) == 2.25 && exposure(findNode(app, b)) == -2.0);
   return true;
@@ -133,25 +133,25 @@ static bool testSelectionIdentity() {
 
 static bool testDeletionAndInspection() {
   App app; source(app);
-  CHECK(addNativeExposureNode(app)); const NodeId a = *app.selectedNodeId;
-  CHECK(addNativeExposureNode(app)); const NodeId b = *app.selectedNodeId;
-  CHECK(addNativeExposureNode(app)); const NodeId c = *app.selectedNodeId;
+  CHECK(addNativeExposureNode(app)); const NodeId a = *app.selectedNodeId();
+  CHECK(addNativeExposureNode(app)); const NodeId b = *app.selectedNodeId();
+  CHECK(addNativeExposureNode(app)); const NodeId c = *app.selectedNodeId();
   CHECK(selectNode(app, b)); app.paramFilter[0] = 'x';
   app.renderer.requestInspection(image(a)); app.renderer.start(); CHECK(idle(app));
   CHECK(publishedEndpoint(app) == image(a));
   CHECK(destroyNode(app, a) && idle(app));
-  CHECK(app.selectedNodeId == b && app.paramFilter[0] == 'x' && selectedNode(app)->id == b);
+  CHECK(app.selectedNodeId() == b && app.paramFilter[0] == 'x' && selectedNode(app)->id == b);
   CHECK(publishedEndpoint(app) == image(c) && findNode(app, b)->fixedInputs.at(ports::image) == image(app.primarySource));
   app.renderer.requestInspection(image(b)); CHECK(idle(app));
   CHECK(destroyNode(app, b) && idle(app));
-  CHECK(!app.selectedNodeId && !selectedNode(app) && app.paramFilter[0] == '\0');
+  CHECK(!app.selectedNodeId() && !selectedNode(app) && app.paramFilter[0] == '\0');
   CHECK(publishedEndpoint(app) == image(c));
   const NodeId other{"selected-off-spine"};
   CHECK(add(app, other, NodeOperation::TestReferenceMask) && selectNode(app, other));
   app.paramFilter[0] = 'x';
   app.renderer.requestInspection(image(app.primarySource)); CHECK(idle(app));
   CHECK(graph::deleteNode(app, other).ok() && idle(app));
-  CHECK(!app.selectedNodeId && app.paramFilter[0] == '\0');
+  CHECK(!app.selectedNodeId() && app.paramFilter[0] == '\0');
   CHECK(publishedEndpoint(app) == image(app.primarySource)); // A valid unrelated inspection survives.
   CHECK(destroyNode(app, c) && idle(app) && publishedEndpoint(app) == image(app.primarySource));
   return true;
@@ -159,9 +159,9 @@ static bool testDeletionAndInspection() {
 
 static bool testProjectionAndOtherNodes() {
   App app;
-  CHECK(addNativeExposureNode(app)); const NodeId a = *app.selectedNodeId;
-  CHECK(addNativeCstNode(app)); const NodeId b = *app.selectedNodeId;
-  CHECK(addNativeExposureNode(app)); const NodeId c = *app.selectedNodeId;
+  CHECK(addNativeExposureNode(app)); const NodeId a = *app.selectedNodeId();
+  CHECK(addNativeCstNode(app)); const NodeId b = *app.selectedNodeId();
+  CHECK(addNativeExposureNode(app)); const NodeId c = *app.selectedNodeId();
   const NodeId spare{"spare-image"}, mask{"auxiliary-mask"};
   Node extra; extra.id = spare; extra.processor = std::make_unique<NativeExposureProcessor>();
   CHECK(graph::addNode(app, std::move(extra)).ok() && add(app, mask, NodeOperation::TestReferenceMask));
@@ -176,21 +176,21 @@ static bool testProjectionAndOtherNodes() {
   const auto disabled = topology(app);
   CHECK(!moveNode(app, spare, a) && topology(app) == disabled);
   CHECK(app.getStatus().find("main Image spine") != std::string::npos);
-  CHECK(destroyNode(app, spare) && !app.selectedNodeId);
+  CHECK(destroyNode(app, spare) && !app.selectedNodeId());
   CHECK(selectNode(app, mask) && selectedNode(app)->id == mask && !selectedNode(app)->processor);
-  CHECK(destroyNode(app, mask) && !app.selectedNodeId);
+  CHECK(destroyNode(app, mask) && !app.selectedNodeId());
   CHECK(ui::projectNodeList(view(app)).other.empty() && ui::projectNodeList(view(app)).spine == rows.spine);
   CHECK(graph::setDocumentOutput(app, image(app.primarySource)).ok());
   const auto sourceOnly = ui::projectNodeList(view(app));
   CHECK(sourceOnly.spine.empty() && sourceOnly.other.size() == 3 && selectNode(app, b));
-  CHECK(!destroyNode(app, app.primarySource) && app.selectedNodeId == b);
+  CHECK(!destroyNode(app, app.primarySource) && app.selectedNodeId() == b);
   return true;
 }
 
 static bool testIncompleteAndNonUnaryProjection() {
   App app;
-  CHECK(addNativeExposureNode(app)); const NodeId a = *app.selectedNodeId;
-  CHECK(addNativeCstNode(app)); const NodeId b = *app.selectedNodeId;
+  CHECK(addNativeExposureNode(app)); const NodeId a = *app.selectedNodeId();
+  CHECK(addNativeCstNode(app)); const NodeId b = *app.selectedNodeId();
   CHECK(graph::disconnect(app, input(a)).ok());
   std::reverse(app.nodes.begin(), app.nodes.end());
   auto rows = ui::projectNodeList(view(app));
@@ -199,20 +199,20 @@ static bool testIncompleteAndNonUnaryProjection() {
   auto before = topology(app); const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
   CHECK(!moveNode(app, b, a) && topology(app) == before);
   CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch);
-  CHECK(destroyNode(app, a) && !app.selectedNodeId && !findNode(app, b)->fixedInputs.at(ports::image));
+  CHECK(destroyNode(app, a) && !app.selectedNodeId() && !findNode(app, b)->fixedInputs.at(ports::image));
   CHECK(selectNode(app, b)); before = topology(app);
-  CHECK(!destroyNode(app, b) && app.selectedNodeId == b && topology(app) == before);
+  CHECK(!destroyNode(app, b) && app.selectedNodeId() == b && topology(app) == before);
   CHECK(app.getStatus().find("explicit replacement") != std::string::npos);
 
   App mixed;
-  CHECK(addNativeExposureNode(mixed)); const NodeId upstream = *mixed.selectedNodeId;
+  CHECK(addNativeExposureNode(mixed)); const NodeId upstream = *mixed.selectedNodeId();
   const NodeId mixer{"mixer"};
   CHECK(add(mixed, mixer, NodeOperation::TestSlotted));
   const auto slot = graph::addSlot(mixed, mixer).addedSlot; CHECK(slot);
   CHECK(graph::connect(mixed, image(upstream), {mixer, slot, ports::image}).ok());
   CHECK(graph::setDocumentOutput(mixed, image(mixer)).ok());
-  CHECK(addNativeExposureNode(mixed)); const NodeId tail = *mixed.selectedNodeId;
-  CHECK(addNativeCstNode(mixed)); const NodeId end = *mixed.selectedNodeId;
+  CHECK(addNativeExposureNode(mixed)); const NodeId tail = *mixed.selectedNodeId();
+  CHECK(addNativeCstNode(mixed)); const NodeId end = *mixed.selectedNodeId();
   std::reverse(mixed.nodes.begin(), mixed.nodes.end());
   rows = ui::projectNodeList(view(mixed));
   CHECK(!rows.spineError.empty() && rows.spine == std::vector<NodeId>({tail, end}));
@@ -220,14 +220,14 @@ static bool testIncompleteAndNonUnaryProjection() {
   CHECK(selectNode(mixed, mixer) && selectedNode(mixed)->operation == NodeOperation::TestSlotted);
   before = topology(mixed);
   CHECK(!moveNode(mixed, end, tail) && topology(mixed) == before);
-  CHECK(destroyNode(mixed, mixer) && !mixed.selectedNodeId && !findNode(mixed, tail)->fixedInputs.at(ports::image));
+  CHECK(destroyNode(mixed, mixer) && !mixed.selectedNodeId() && !findNode(mixed, tail)->fixedInputs.at(ports::image));
   CHECK(ui::projectNodeList(view(mixed)).spine == rows.spine);
   return true;
 }
 
 static bool testRejectedTopologyEdits() {
   App app;
-  CHECK(addNativeExposureNode(app)); const NodeId a = *app.selectedNodeId;
+  CHECK(addNativeExposureNode(app)); const NodeId a = *app.selectedNodeId();
   const NodeId b{"masked-consumer"}, mask{"reference-to-a"};
   CHECK(add(app, b, NodeOperation::TestMaskedImage) && add(app, mask, NodeOperation::TestReferenceMask));
   CHECK(graph::connect(app, image(a), input(b)).ok());
@@ -236,7 +236,7 @@ static bool testRejectedTopologyEdits() {
   CHECK(graph::setDocumentOutput(app, image(b)).ok() && selectNode(app, a));
   const auto before = topology(app);
   CHECK(ui::projectNodeList(view(app)).spineError.empty());
-  CHECK(!moveNode(app, a, b) && topology(app) == before && app.selectedNodeId == a);
+  CHECK(!moveNode(app, a, b) && topology(app) == before && app.selectedNodeId() == a);
   CHECK(app.getStatus().find("cycle") != std::string::npos);
   CHECK(!graph::reconnect(app, image(b), input(a)).ok() && topology(app) == before);
   CHECK(!graph::setDocumentOutput(app, {mask, ports::mask}).ok() && topology(app) == before);
@@ -256,34 +256,34 @@ static bool testLegacySelectionAndTransfers() {
   }
   PersistSidecar loaded; CHECK(loadSidecarFile(legacy, loaded));
   App app; applyChain(app, loaded.chain);
-  CHECK(app.nodes.size() == 3 && app.selectedNodeId == app.nodes[2].id);
+  CHECK(app.nodes.size() == 3 && app.selectedNodeId() == app.nodes[2].id);
   CHECK(selectedNode(app)->storedIdentifier == "missing.second");
-  const NodeId migrated = *app.selectedNodeId;
+  const NodeId migrated = *app.selectedNodeId();
   std::reverse(app.nodes.begin(), app.nodes.end());
-  CHECK(app.selectedNodeId == migrated && selectedNode(app)->storedIdentifier == "missing.second");
+  CHECK(app.selectedNodeId() == migrated && selectedNode(app)->storedIdentifier == "missing.second");
 
   PersistChain chain; chain.nodes = {persisted("first", 1.25), persisted("second", -2.0)};
   chain.selectedNodeId = "second";
   CHECK(saveInputSidecar(files.path("v2.png"), {}, chain));
   CHECK(loadSidecarFile(inputSidecarPath(files.path("v2.png")), loaded));
   applyChain(app, loaded.chain);
-  CHECK(app.selectedNodeId == NodeId{"second"} && exposure(selectedNode(app)) == -2.0);
+  CHECK(app.selectedNodeId() == NodeId{"second"} && exposure(selectedNode(app)) == -2.0);
   CHECK(moveNode(app, NodeId{"second"}, NodeId{"first"}));
   std::reverse(app.nodes.begin(), app.nodes.end());
   const auto captured = captureChain(app);
   CHECK(captured.selectedNodeId == "second" && captured.nodes.front().id == "second");
   std::vector<std::string> warnings;
-  const auto fragment = captureFragment(app, {*app.selectedNodeId}, warnings);
+  const auto fragment = captureFragment(app, {*app.selectedNodeId()}, warnings);
   std::string json, error; PersistTransfer decoded;
   CHECK(encodeTransferPayload(fragment, json, error) && decodeTransferPayload(json, decoded, error));
-  CHECK(pasteFragment(app, std::get<PersistFragment>(decoded), app.selectedNodeId));
-  const NodeId pasted = *app.selectedNodeId;
+  CHECK(pasteFragment(app, std::get<PersistFragment>(decoded), app.selectedNodeId()));
+  const NodeId pasted = *app.selectedNodeId();
   CHECK(pasted != NodeId{"second"} && exposure(selectedNode(app)) == -2.0);
   CHECK(findNode(app, pasted)->fixedInputs.at(ports::image) == image(NodeId{"second"}));
   chain.selectedNodeId = "missing"; chain.selectedNode = 1;
-  applyChain(app, chain); CHECK(app.selectedNodeId == NodeId{"second"}); // Legacy ordinal fallback.
+  applyChain(app, chain); CHECK(app.selectedNodeId() == NodeId{"second"}); // Legacy ordinal fallback.
   chain.selectedNode = 99;
-  applyChain(app, chain); CHECK(app.selectedNodeId == NodeId{"first"}); // Historical default selection.
+  applyChain(app, chain); CHECK(app.selectedNodeId() == NodeId{"first"}); // Historical default selection.
   return true;
 }
 
@@ -298,9 +298,9 @@ static bool testPhotoAndDocumentReplacement() {
   app.paramFilter[0] = 'x';
   app.renderer.requestInspection(image(NodeId{"shared-id"})); app.renderer.start(); CHECK(idle(app));
   openPath(app, photoB); CHECK(idle(app));
-  CHECK(!app.selectedNodeId && app.paramFilter[0] == '\0' && publishedEndpoint(app) == image(app.primarySource));
+  CHECK(!app.selectedNodeId() && app.paramFilter[0] == '\0' && publishedEndpoint(app) == image(app.primarySource));
   openPath(app, photoA); CHECK(idle(app));
-  CHECK(!app.selectedNodeId && exposure(findNode(app, NodeId{"shared-id"})) == 1.0);
+  CHECK(!app.selectedNodeId() && exposure(findNode(app, NodeId{"shared-id"})) == 1.0);
 
   PersistChain replacement;
   replacement.nodes = {persisted("shared-id", 4.0), persisted("new-output")};
@@ -311,22 +311,22 @@ static bool testPhotoAndDocumentReplacement() {
   CHECK(updateSidecarGrade(inputSidecarPath(photoB), grade, error));
   app.renderer.requestInspection(image(NodeId{"shared-id"})); CHECK(idle(app));
   openPath(app, photoB); CHECK(idle(app));
-  CHECK(!app.selectedNodeId && exposure(findNode(app, NodeId{"shared-id"})) == 4.0 && app.paramFilter[0] == '\0');
+  CHECK(!app.selectedNodeId() && exposure(findNode(app, NodeId{"shared-id"})) == 4.0 && app.paramFilter[0] == '\0');
   CHECK(publishedEndpoint(app) == image(NodeId{"new-output"})); // Old ID exists, but old inspection is gone.
 
   app.renderer.requestInspection(image(NodeId{"shared-id"})); CHECK(idle(app));
   replacement.nodes[0].paramsJson["exposure"] = "-3.0";
   replacement.selectedNodeId = "new-output";
   applyChain(app, replacement); CHECK(idle(app));
-  CHECK(app.selectedNodeId == NodeId{"new-output"} && exposure(selectedNode(app)) == 0.0);
+  CHECK(app.selectedNodeId() == NodeId{"new-output"} && exposure(selectedNode(app)) == 0.0);
   CHECK(exposure(findNode(app, NodeId{"shared-id"})) == -3.0 && publishedEndpoint(app) == image(NodeId{"new-output"}));
 
   CHECK(selectNode(app, NodeId{"shared-id"}));
   app.renderer.requestInspection(image(NodeId{"shared-id"})); CHECK(idle(app));
   openPath(app, photoA); CHECK(idle(app));
-  CHECK(!app.selectedNodeId && publishedEndpoint(app) == image(NodeId{"shared-id"}));
+  CHECK(!app.selectedNodeId() && publishedEndpoint(app) == image(NodeId{"shared-id"}));
   applyChain(app, {}); CHECK(idle(app));
-  CHECK(!app.selectedNodeId && !selectedNode(app) && publishedEndpoint(app) == image(app.primarySource));
+  CHECK(!app.selectedNodeId() && !selectedNode(app) && publishedEndpoint(app) == image(app.primarySource));
   return true;
 }
 

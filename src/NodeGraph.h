@@ -22,10 +22,13 @@ bool resetNodeParameter(App &app, const NodeId &node, const std::string &paramet
 bool activateNodeParameter(App &app, const NodeId &node, const std::string &parameter);
 
 // Selection is view-only. Resolve identity at use time; never retain a node
-// pointer across a graph edit. Source is not a selectable processing node.
+// pointer across a graph edit. Source selection exposes input settings, never
+// a processing node through selectedNode().
 Node *selectedNode(App &app);
 const Node *selectedNode(const App &app);
+// Source is selectable; selectedNode() deliberately returns only non-Source nodes.
 bool selectNode(App &app, std::optional<NodeId> id);
+void selectOutput(App &app);
 std::string nodeDisplayName(const Node &node);
 // Structural operations run on the single control thread. Each owns execution
 // safety and its final preview decision; callers need no renderer protocol.

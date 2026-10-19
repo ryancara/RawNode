@@ -165,7 +165,7 @@ bool sourceRefusal(bool asynchronous, const char *ext, Alias alias) {
   }
   App app;
   CHECK(openPath(app, opened) && addNativeExposureNode(app));
-  const auto node = *app.selectedNodeId;
+  const auto node = *app.selectedNodeId();
   CHECK(setNodeParameterValue(app, node, "exposure", 1.0) && saveCurrentInputSidecar(app));
   const auto original = bytes(source), sidecar = bytes(inputSidecarPath(opened));
   const auto pixels = app.full.px;
@@ -177,7 +177,7 @@ bool sourceRefusal(bool asynchronous, const char *ext, Alias alias) {
   CHECK(app.getStatus() == kRefused);
   CHECK(bytes(source) == original && bytes(destination) == original);
   CHECK(bytes(inputSidecarPath(opened)) == sidecar && app.full.px == pixels && app.path == opened);
-  CHECK(app.selectedNodeId == node && fs::equivalent(opened, destination));
+  CHECK(app.selectedNodeId() == node && fs::equivalent(opened, destination));
   // A rejected request releases the lease, restores preview quietly, and leaves
   // both editing and another async/sync export usable.
   CHECK(setNodeParameterValue(app, node, "exposure", 0.5) && idle(app));
@@ -207,7 +207,7 @@ bool ordinaryOverwrites(bool asynchronous, bool rawSource) {
   const auto derivative = files.path(rawSource ? "DSC_001.jpg" : "portrait-final.jpg");
   app.renderer.start(); CHECK(idle(app));
   CHECK(exported(app, derivative, asynchronous)); // Nonexistent destination is available.
-  CHECK(setNodeParameterValue(app, *app.selectedNodeId, "exposure", 1.0) && idle(app));
+  CHECK(setNodeParameterValue(app, *app.selectedNodeId(), "exposure", 1.0) && idle(app));
   const auto earlierExport = bytes(derivative);
   CHECK(exported(app, derivative, asynchronous) && bytes(derivative) != earlierExport);
   // Another editable photograph in the filmstrip remains an ordinary target.

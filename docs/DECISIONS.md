@@ -526,6 +526,48 @@ sidecar edits are outside the supported workflow. Keep destination validation
 and atomic replacement. Future default-preset application failure policy remains
 deferred to that feature's milestone.
 
+## D051 — Contextual Inspector and editing workspace
+
+**Status:** Accepted
+
+After PR #79's Graph/List foundation, PR 2A reorganises the existing UI around
+Preview, Nodes, Inspector and Filmstrip. Preview owns resolution; Nodes owns
+List/Graph switching and the searchable processor picker; a compact top toolbar
+owns Open Image, Open Folder and Export, alongside the File menu and shortcuts.
+Retire the Left Panel after relocating its controls and status/warning reporting.
+
+Inspector follows one transient UI selection: a real NodeId (Source or processor),
+virtual Output, or nothing. Source shows input information and current-photo RAW
+settings only for RAW input; processors reuse existing parameter widgets/filtering;
+Output shows grade-owned colour settings and application-owned export preferences.
+No selection shows a neutral state. Output is not a real node, selection never
+changes documentOutput or schedules rendering, and processor-only actions exclude
+Source and Output. Both views preserve logical selection; photo/grade replacement
+clears it, including when NodeIds are reused. No selection is saved with photos.
+
+Use existing document/colour/render/persistence paths without another graph or
+selection model. Keep export edit exclusion and protected-photo restrictions.
+Default docking places Preview above Nodes, Inspector right, Filmstrip bottom.
+New custom layouts persist through existing preferences.json and ImGui layout.ini.
+Historical UI-layout compatibility, aliases, migration fixtures and regression
+tests are unnecessary; remove obsolete Left Panel preferences. Never delete user
+configuration automatically. Photo/grade and colour-preference contracts remain.
+
+PR 2A retains append insertion. PR 2B adds typed connection editing, document
+Output connection changes, deletion interactions and selection-aware serial
+insertion using GraphCommands. PR 2C improves insertion/paste placement and graph
+usability; optional Auto Arrange may follow later. Empty pass-through nodes and
+processor assignment/replacement are a separate future feature, distinct from
+unavailable processors. Step 8 and the accepted Step 5 mask contract are unchanged.
+
+Implementation acceptance is based on the owner-specified control mapping and
+independent invariants: selection preserves graph JSON, render demand and mutation
+counts; photo changes/deletion cannot retain stale Inspector controls; Source and
+Output cannot be copied/deleted as processors; colour edits preserve established
+scope/refresh behaviour; new dock layouts save/restore without migration.
+Focused real ImGui frames and existing document/runtime tests cover these paths,
+with platform GUI checks recorded separately rather than claimed from headless tests.
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:

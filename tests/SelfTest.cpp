@@ -1272,7 +1272,7 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
   float expected = (float)encodeTransfer(0.25, TransferFunction::SRGB);
   switch (edit) {
     case GraphEditCase::AddExposure:
-      if (!addNativeExposureNode(app) || app.nodes.size() != 4 || app.selectedNodeId != app.nodes[3].id) return false;
+      if (!addNativeExposureNode(app) || app.nodes.size() != 4 || app.selectedNodeId() != app.nodes[3].id) return false;
       break;
     case GraphEditCase::AddCst:
       if (!addNativeCstNode(app) || app.nodes.size() != 4) return false;
@@ -1284,7 +1284,7 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       break;
     case GraphEditCase::Reorder:
       moveNode(app, app.nodes[2].id, app.nodes[1].id);
-      if (app.nodes[1].id.value != "exposure" || app.nodes[2].id.value != "cst" || app.selectedNodeId != app.nodes[2].id ||
+      if (app.nodes[1].id.value != "exposure" || app.nodes[2].id.value != "cst" || app.selectedNodeId() != app.nodes[2].id ||
           captureChain(app).nodes[0].id != "cst") return false;
       expected = 2.0f * (float)encodeTransfer(0.125, TransferFunction::SRGB);
       break;
@@ -1309,7 +1309,7 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
         pasted.enabled = false;
       }
       if (!appendPersistedNode(app, pasted, app.nodes[1].id) || app.nodes.size() != 4 ||
-          app.selectedNodeId != app.nodes[3].id || app.nodes[3].id.value == exposure.id || app.nodes[2].id.value != "cst" ||
+          app.selectedNodeId() != app.nodes[3].id || app.nodes[3].id.value == exposure.id || app.nodes[2].id.value != "cst" ||
           captureChain(app).nodes[1].paramsJson.at("unknown") != pasted.paramsJson.at("unknown") ||
           !app.nodes[3].groupOpen.empty()) return false;
       if (edit == GraphEditCase::AppendMissing) {
@@ -1337,7 +1337,7 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       }
       replacement.selectedNodeId = "restored-5";
       applyChain(app, replacement);
-      if (app.nodes.size() != 11 || app.selectedNodeId != app.nodes[6].id) return false;
+      if (app.nodes.size() != 11 || app.selectedNodeId() != app.nodes[6].id) return false;
       for (int i = 0; i < 10; ++i)
         if (app.nodes[i + 1].id.value != replacement.nodes[i].id) return false;
       if (edit == GraphEditCase::ReplaceMissing &&
@@ -1363,7 +1363,7 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       std::vector<unsigned char> sourceRGBA;
       toDisplayRGBA8(*app.preview, app.inputEncoding, sourceRGBA);
       if (!previewIdle(app)) return false;
-      return !app.hasProcessingOutput() && !app.selectedNodeId && !renderState(app).previewPending &&
+      return !app.hasProcessingOutput() && !app.selectedNodeId() && !renderState(app).previewPending &&
              renderState(app).mutationDepth == 0 && renderState(app).epoch >= lastBefore + 2 &&
              app.displayDirty && testDisplay(app).px == app.preview->px && app.displayRGBA == sourceRGBA;
     }
@@ -1457,7 +1457,7 @@ static bool testReusedNodeIdGradePaste() {
   TestClipboard clipboard;
   App app; graphPreviewSource(app);
   if (!addNativeExposureNode(app) || !selectedNode(app)->processor->setParameterValue("exposure", 1.0)) return false;
-  const NodeId shared = *app.selectedNodeId;
+  const NodeId shared = *app.selectedNodeId();
   const auto *previousProcessor = selectedNode(app)->processor.get();
   app.paramFilter[0] = 'e';
   app.renderer.requestInspection({shared, ports::image});
@@ -1487,7 +1487,7 @@ static bool testReusedNodeIdGradePaste() {
   std::string error;
   if (!encodeTransferPayload(grade, clipboard.text, error) || !pasteFromClipboard(app) || !previewIdle(app)) return false;
   const Node *replacement = findNode(app, shared);
-  if (app.selectedNodeId || !replacement || !replacement->processor || replacement->processor.get() == previousProcessor ||
+  if (app.selectedNodeId() || !replacement || !replacement->processor || replacement->processor.get() == previousProcessor ||
       replacement->processor->identifier() != NativeCstProcessor::kIdentifier ||
       app.paramFilter[0] != '\0' || app.nodes.size() != 3 ||
       app.documentOutput != OutputRef{NodeId{"grade-output"}, ports::image}) return false;
@@ -1536,7 +1536,7 @@ static bool testFailedTransferApplication() {
   if (!captureGrade(app, original)) return false;
   std::string originalPayload, error;
   if (!encodeTransferPayload(original, originalPayload, error)) return false;
-  const auto id = *app.selectedNodeId;
+  const auto id = *app.selectedNodeId();
   const auto *processor = selectedNode(app)->processor.get();
   const auto preview = app.preview;
   const auto full = app.full;
@@ -1547,7 +1547,7 @@ static bool testFailedTransferApplication() {
   if (!previewIdle(app)) return false;
   const auto unchanged = [&] {
     PersistGrade current; std::string payload;
-    if (!previewIdle(app) || !selectedNode(app) || selectedNode(app)->processor.get() != processor || app.selectedNodeId != id ||
+    if (!previewIdle(app) || !selectedNode(app) || selectedNode(app)->processor.get() != processor || app.selectedNodeId() != id ||
         app.paramFilter[0] != 'e' || app.preview != preview || app.full.px != full.px ||
         app.full.w != full.w || app.full.h != full.h || app.inputEncoding != input || app.outputEncoding != output ||
         app.rawWorkingEncoding != rawDefault || app.nodes.size() != 2 || app.documentOutput != OutputRef{id, ports::image} ||
@@ -1637,7 +1637,7 @@ static bool testRestorationUnwind() {
     return false;
   } catch (const std::runtime_error &) {
     if (app.nodes.size() != 2 || app.nodes[1].id != originalId ||
-        app.nodes[1].processor.get() != originalProcessor || app.selectedNodeId != originalId) return false;
+        app.nodes[1].processor.get() != originalProcessor || app.selectedNodeId() != originalId) return false;
   }
   return finishGraphPreview(app, before, 0.125f, true);
 }
@@ -1890,7 +1890,7 @@ static bool testUnavailableProcessorRestore(bool append, bool ctl) {
     applyChain(app, replacement);
   }
   const int restored = append ? 3 : 2;
-  if (app.nodes.size() != 4 || app.selectedNodeId != app.nodes[restored].id || app.nodes[restored].processor ||
+  if (app.nodes.size() != 4 || app.selectedNodeId() != app.nodes[restored].id || app.nodes[restored].processor ||
       app.nodes[restored].enabled || (app.nodes[restored].id.value == missing.id) == append ||
       app.nodes[restored].storedBackend != missing.backend ||
       captureChain(app).nodes[1].paramsJson.at("opaque") != missing.paramsJson.at("opaque") ||

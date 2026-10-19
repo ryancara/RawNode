@@ -146,13 +146,13 @@ add_executable(OfxRawHost
   src/ui/UiFrame.cpp
   src/ui/Widgets.cpp
   src/ui/ParamWidgets.cpp
-  src/ui/LeftPanel.cpp
+  src/ui/ProcessorPicker.cpp
   src/ui/NodeList.cpp
   src/ui/NodeListPanel.cpp
   src/ui/NodesPanel.cpp
   src/ui/GraphLayout.cpp
   src/ui/GraphCanvas.cpp
-  src/ui/RightPanel.cpp
+  src/ui/InspectorPanel.cpp
   src/ui/PreviewPanel.cpp
   src/ui/FilmstripPanel.cpp
   third_party/tinyexr/tinyexr.cc

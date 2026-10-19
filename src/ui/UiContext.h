@@ -3,8 +3,8 @@
 #include "AppState.h"
 #include "persist/DocumentActions.h"
 
-void drawLeftPanel(App &app);
-void drawRightPanel(App &app);
+void drawProcessorPicker(App &app);
+void drawInspector(App &app);
 void drawNodesPanel(App &app);
 void drawPreviewPanel(App &app);
 void drawFilmstripPanel(App &app);
@@ -20,3 +20,5 @@ bool copySelectedNode(App &app);
 bool copyGrade(App &app);
 bool pasteFromClipboard(App &app);
 bool savePresetDialog(App &app, std::string path = {});
+// A supplied path skips only the native chooser, retaining the UI anchor policy.
+bool loadPresetDialog(App &app, bool append, std::string path = {});
