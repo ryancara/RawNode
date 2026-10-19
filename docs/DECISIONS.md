@@ -582,6 +582,46 @@ they do not move automatically to PR 2C's placement/usability scope. This
 clarification preserves D051's historical rationale and changes neither Step 8
 nor the graph, rendering or persistence architecture.
 
+PR #82 delivered the narrowed Graph View interactions and was squash-merged
+into main at `7d3fdbe9fb2ff93560f19be5ac4a415653eaee1c`. The older PR #81
+was closed without merging its insertion or construction changes.
+
+## D052 — Explicit product choices and proportionate architecture reuse
+
+**Status:** Accepted, 2026-10-20.
+
+The owner agrees product behaviour and visual conventions before implementation.
+For an approved feature, implementers may choose ordinary technical details and
+the minimum usability feedback it requires. Discretionary changes to controls,
+labels, menus, shortcuts, colours, port shapes, selection and layout are product
+decisions, regardless of how easy they are to code; propose them rather than
+quietly include them. Every UI PR reports all user-visible changes against
+approved behaviour. Unapproved improvements may be recorded as suggestions
+without implementation.
+
+Reuse the established authoritative graph, document commands, processors,
+evaluator, render runtime, export and sidecar systems by default. That is a
+preference, not a ban on new architecture. A cohesive new module or subsystem
+is acceptable when a concrete need shows better modularity, responsibility
+separation, maintainability or extensibility than extending the existing
+mechanism, with proportionate integration costs. Significant architectural
+choices must be explicitly discussed and approved in advance. Avoid duplicate
+state/protocols and speculative machinery without demonstrated benefit; a
+new file or class does not by itself constitute a new system.
+
+Code review independently checks product scope, architecture fit/reuse and
+correctness, and distinguishes mandatory fixes from optional improvements.
+Successful tests do not authorise unrelated work.
+
+Selection-dependent processor insertion, Insert Before/After and automatic
+serial placement remain undecided product interactions, not implied by the
+Graph View milestone. Intentionally empty pass-through nodes and assigning or
+replacing processors while retaining NodeId/connections are deferred. The
+current graph already stores topology by NodeId and processor state inside
+nodes; future empty-node semantics must distinguish intentionally empty from
+unavailable processors and consider interface compatibility. No graph,
+scheduler or sidecar redesign is approved for that possibility today.
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:
