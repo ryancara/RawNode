@@ -586,6 +586,26 @@ PR #82 delivered the narrowed Graph View interactions and was squash-merged
 into main at `7d3fdbe9fb2ff93560f19be5ac4a415653eaee1c`. The older PR #81
 was closed without merging its insertion or construction changes.
 
+### Superseding Add Processor approval — selection-aware connections
+
+Selection-aware Add Processor is now approved as a separate focused change,
+superseding the append-only policy above. No selection or virtual Output appends
+at document Output. Source inserts before the first main-chain Image processor
+(or appends in a Source-only graph). A selected main-chain processor inserts
+before its next main-chain consumer, or appends when it is the final processor.
+A selected off-chain Image processor starts another downstream branch; existing
+consumers and document Output remain unchanged. Only a compatible Image output
+may supply the new processor; invalid selection refuses with a status message.
+Successful insertion selects the new processor, so repeated additions follow it.
+List and Graph View share this policy for native, CTL and OFX processors.
+
+Reuse the existing staged graph commands and DocumentMutation ownership. Reroute
+only the chosen main-chain connection, preserving identities, parameters and all
+unrelated consumers/Slots. Clipboard Paste, preset Append and grade replacement
+retain their existing policies. This approval changes processing connections only
+and preserves existing visual placement. PR 2C, Auto Arrange and Insert Before/After
+remain unapproved; empty nodes and processor assignment/replacement remain deferred.
+
 ## D052 — Explicit product choices and proportionate architecture reuse
 
 **Status:** Accepted, 2026-10-20.
@@ -616,12 +636,12 @@ Code review independently checks product scope, architecture fit/reuse and
 correctness, and distinguishes mandatory fixes from optional improvements.
 Successful tests do not authorise unrelated work.
 
-Selection-dependent processor insertion, Insert Before/After, automatic
-serial placement and Auto Arrange remain undecided product interactions,
-not implied by the Graph View milestone. Intentionally empty pass-through nodes and assigning or
-replacing processors while retaining NodeId/connections are deferred. The
-current graph already stores topology by NodeId and processor state inside
-nodes; future empty-node semantics must distinguish intentionally empty from
+Selection-aware Add Processor connections are approved under D051's superseding
+approval above. Insert Before/After, automatic visual placement and Auto Arrange
+remain undecided product interactions, not implied by the Graph View milestone.
+Intentionally empty pass-through nodes and assigning or replacing processors
+while retaining NodeId/connections are deferred. The current graph already stores
+topology by NodeId and processor state inside nodes; future empty-node semantics must distinguish intentionally empty from
 unavailable processors and consider interface compatibility. No graph,
 scheduler or sidecar redesign is approved for that possibility today.
 

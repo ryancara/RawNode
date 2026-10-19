@@ -8,6 +8,13 @@ for the PR #80 control mapping and historical validation. PR 2C placement/usabil
 requires a separate approved scope. None of these UI PRs replaces the renderer,
 evaluator, graph commands or sidecar schema.
 
+Selection-aware Add Processor is now separately approved under D051. The
+append-only checks in the historical PR 2B record below apply to that merged
+scope. Current checks use D051's selection table in both views, including
+repeated additions, off-chain branching, fan-out preservation and refusal without
+mutation/render demand. Native macOS/Windows validation of this addition remains
+pending; existing dated results below do not establish it.
+
 ## Graph foundation contracts
 
 - App::nodes owns the graph. Canvas ports come from nodeInterface(); wires read
@@ -33,6 +40,7 @@ evaluator, graph commands or sidecar schema.
 ```sh
 ./build.sh
 build/OfxRawHost --selftest-graph-view
+build/OfxRawHost --selftest-graph-runtime
 build/OfxRawHost --selftest-preferences
 build/OfxRawHost --selftest-photo
 build/OfxRawHost --selftest

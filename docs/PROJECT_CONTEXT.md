@@ -740,11 +740,16 @@ Next architecture/product work:
 - Discuss a focused, owner-approved PR 2C placement/usability contract before
   implementation, then continue toward Step 8's first concrete Mask path.
   A roadmap candidate is not approval to change insertion semantics.
-- Add Processor still appends at document Output regardless of selection.
-  Selection-aware insertion, Insert Before/After and Auto Arrange require
-  separate decisions and are not implicit PR 2C features. Empty nodes and
-  processor assignment/replacement remain deferred, without blocking PR 2C
-  or Step 8. Keep graph NodeId/connections distinct from processor instances.
+- Add Processor now follows the shared selection in List and Graph View:
+  Source/main-chain processors insert before their next main-chain consumer;
+  off-chain Image processors start another downstream branch without changing
+  document Output or existing consumers. No selection, virtual Output and the
+  final main-chain processor append at Output. Invalid Image selections refuse;
+  successful insertion selects the new processor. This separate approval (D051)
+  changes connections only. Visual placement, Insert Before/After and Auto Arrange
+  still require separate decisions. Empty nodes and processor assignment/replacement
+  remain deferred, without blocking PR 2C or Step 8. Clipboard/preset policies remain.
+  Keep graph NodeId/connections distinct from processor instances.
 - Preview owns resolution; Nodes owns Add Processor and List/Graph; Inspector
   follows Source/processor/virtual Output/no selection. The top toolbar owns file
   actions and status/warnings, retiring Left Panel. Historical UI-layout migration

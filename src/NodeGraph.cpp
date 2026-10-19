@@ -29,9 +29,16 @@ using document_detail::DocumentMutation;
 // Mutation helpers borrow the public operation's scope; capture and parameter
 // helpers only translate live state to/from persistence records.
 static void clearNodesWithinMutation(App &app);
-static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor);
-static bool addOfxWithinMutation(App &app, int pluginIndex);
-static bool addCtlWithinMutation(App &app, const std::string &path);
+// Resolved from the shared selection before processor construction/mutation.
+// An empty target appends at Output; a branch leaves all consumers untouched.
+struct ProcessorInsertion {
+  std::optional<InputAddress> before;
+  std::optional<OutputRef> branch;
+};
+static std::optional<ProcessorInsertion> processorInsertion(App &app);
+static bool insertProcessorNode(App &app, std::unique_ptr<Processor> processor, const ProcessorInsertion &insertion);
+static bool addOfxWithinMutation(App &app, int pluginIndex, const ProcessorInsertion &insertion);
+static bool addCtlWithinMutation(App &app, const std::string &path, const ProcessorInsertion &insertion);
 static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor);
 static NodeId makeNodeId(const std::vector<Node> &nodes);
 
@@ -144,32 +151,40 @@ void clearNodes(App &app) {
 bool addNode(App &app, int pluginIndex) {
   if (!requireEditableGraph(app)) return false;
   if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return false;
+  const auto insertion = processorInsertion(app);
+  if (!insertion) return false;
   DocumentMutation mutation(app);
-  const bool added = addOfxWithinMutation(app, pluginIndex);
+  const bool added = addOfxWithinMutation(app, pluginIndex, *insertion);
   if (added) mutation.changed();
   return added;
 }
 
 bool addNativeExposureNode(App &app) {
   if (!requireEditableGraph(app)) return false;
+  const auto insertion = processorInsertion(app);
+  if (!insertion) return false;
   DocumentMutation mutation(app);
-  const bool added = appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
+  const bool added = insertProcessorNode(app, std::make_unique<NativeExposureProcessor>(), *insertion);
   if (added) mutation.changed();
   return added;
 }
 
 bool addNativeCstNode(App &app) {
   if (!requireEditableGraph(app)) return false;
+  const auto insertion = processorInsertion(app);
+  if (!insertion) return false;
   DocumentMutation mutation(app);
-  const bool added = appendProcessorNode(app, std::make_unique<NativeCstProcessor>());
+  const bool added = insertProcessorNode(app, std::make_unique<NativeCstProcessor>(), *insertion);
   if (added) mutation.changed();
   return added;
 }
 
 bool addCtlNode(App &app, const std::string &path) {
   if (!requireEditableGraph(app)) return false;
+  const auto insertion = processorInsertion(app);
+  if (!insertion) return false;
   DocumentMutation mutation(app);
-  const bool added = addCtlWithinMutation(app, path);
+  const bool added = addCtlWithinMutation(app, path, *insertion);
   if (added) mutation.changed();
   return added;
 }
@@ -603,33 +618,74 @@ static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Pr
   }
   return node;
 }
-static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor) {
+static std::optional<ProcessorInsertion> processorInsertion(App &app) {
+  DocumentMutation::assertControlThread(app);
+  const auto reject = [&](const std::string &error) -> std::optional<ProcessorInsertion> {
+    app.setStatus("Cannot add processor: " + error);
+    return std::nullopt;
+  };
+  const auto validate = [&](ProcessorInsertion insertion) -> std::optional<ProcessorInsertion> {
+    const auto result = graph::validateImageNodeInsertion(
+        {app.nodes, app.primarySource, app.documentOutput}, insertion.before, insertion.branch);
+    if (!result.ok()) return reject(result.error);
+    return insertion;
+  };
+  const auto error = documentStateError(app);
+  if (!error.empty()) return reject(error);
+  const auto selected = app.selectedNodeId();
+  if (!selected) return validate({}); // No selection or virtual Output.
+  const OutputRef producer{*selected, ports::image};
+  const auto *output = findOutput(app, producer);
+  if (!output || output->type != ValueType::Image)
+    return reject("Selected node has no compatible Image output");
+
+  std::vector<NodeId> spine;
+  const auto spineError = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
+  auto successor = spine.end();
+  if (*selected == app.primarySource) {
+    if (!spineError.empty()) return reject(spineError);
+    successor = spine.begin();
+  } else {
+    successor = std::find(spine.begin(), spine.end(), *selected);
+    if (successor == spine.end()) return validate({std::nullopt, producer});
+    ++successor;
+  }
+  if (successor == spine.end()) return validate({});
+  return validate({InputAddress{*successor, std::nullopt, ports::image}, std::nullopt});
+}
+
+static bool insertProcessorNode(App &app, std::unique_ptr<Processor> processor, const ProcessorInsertion &insertion) {
   if (!processor) return false;
   auto node = makeProcessorNode(app.nodes, std::move(processor));
   std::optional<NodeId> selection = node.id; // Allocate identity before committing the graph.
-  const auto result = graph::insertImageNode(graph::Document{app.nodes, app.primarySource, app.documentOutput}, std::move(node));
+  const graph::Document document{app.nodes, app.primarySource, app.documentOutput};
+  // Bind the detached branch before addNode stages/validates/commits it. Never
+  // publish a disconnected node followed by a separately fallible connection.
+  if (insertion.branch) node.fixedInputs.at(ports::image) = insertion.branch;
+  const auto result = insertion.branch ? graph::addNode(document, std::move(node))
+      : graph::insertImageNode(document, std::move(node), insertion.before);
   if (!result.ok()) { app.setStatus(result.error); return false; }
   selectNode(app, std::move(selection));
   return true;
 }
 
-static bool addOfxWithinMutation(App &app, int pluginIndex) {
+static bool addOfxWithinMutation(App &app, int pluginIndex, const ProcessorInsertion &insertion) {
   auto processor = OfxProcessor::create(pluginIndex);
   if (!processor) {
     app.setStatus("Plugin failed to create an instance");
     return false;
   }
-  return appendProcessorNode(app, std::move(processor));
+  return insertProcessorNode(app, std::move(processor), insertion);
 }
 
-static bool addCtlWithinMutation(App &app, const std::string &path) {
+static bool addCtlWithinMutation(App &app, const std::string &path, const ProcessorInsertion &insertion) {
   std::string error;
   auto processor = CtlProcessor::create(path, &error);
   if (!processor) {
     app.setStatus("Could not load CTL" + (error.empty() ? std::string() : ": " + error));
     return false;
   }
-  return appendProcessorNode(app, std::move(processor));
+  return insertProcessorNode(app, std::move(processor), insertion);
 }
 
 static PersistNode capturePersistedNode(const Node &node, bool graphNative) {
