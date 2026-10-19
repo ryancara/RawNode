@@ -33,10 +33,12 @@ std::string nodeDisplayName(const Node &node);
 // Structural operations run on the single control thread. Each owns execution
 // safety and its final preview decision; callers need no renderer protocol.
 void clearNodes(App &app);
-bool addNode(App &app, int pluginIndex);  // OFX plugin
-bool addNativeExposureNode(App &app);
-bool addNativeCstNode(App &app);
-bool addCtlNode(App &app, const std::string &path);
+// Omitted request follows current selection. Picker callers snapshot a stable
+// request on opening and revalidate it on choice; transfers keep their own API.
+bool addNode(App &app, int pluginIndex, std::optional<ProcessorInsertion> insertion = std::nullopt);
+bool addNativeExposureNode(App &app, std::optional<ProcessorInsertion> insertion = std::nullopt);
+bool addNativeCstNode(App &app, std::optional<ProcessorInsertion> insertion = std::nullopt);
+bool addCtlNode(App &app, const std::string &path, std::optional<ProcessorInsertion> insertion = std::nullopt);
 bool destroyNode(App &app, const NodeId &id);
 bool moveNode(App &app, const NodeId &from, const NodeId &to);
 void setNodeEnabled(App &app, const NodeId &id, bool enabled);

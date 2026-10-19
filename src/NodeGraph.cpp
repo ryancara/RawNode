@@ -29,9 +29,6 @@ using document_detail::DocumentMutation;
 // Mutation helpers borrow the public operation's scope; capture and parameter
 // helpers only translate live state to/from persistence records.
 static void clearNodesWithinMutation(App &app);
-static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor);
-static bool addOfxWithinMutation(App &app, int pluginIndex);
-static bool addCtlWithinMutation(App &app, const std::string &path);
 static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor);
 static NodeId makeNodeId(const std::vector<Node> &nodes);
 
@@ -141,37 +138,90 @@ void clearNodes(App &app) {
   mutation.changed();
 }
 
-bool addNode(App &app, int pluginIndex) {
+static std::string insertionPoint(const App &app, const ProcessorInsertion &request,
+                                  std::optional<InputAddress> &before) {
+  std::vector<NodeId> spine;
+  const auto error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
+  if (!error.empty()) return error;
+  if (!request.target) return request.placement == ProcessorPlacement::Before ? "Insert Before needs a node" : "";
+  const Node *target = findNode(app, *request.target);
+  if (!target) return "Insertion target no longer exists";
+  const auto found = std::find(spine.begin(), spine.end(), *request.target);
+  if (request.placement == ProcessorPlacement::Before) {
+    if (found == spine.end()) return "Insert Before requires a main Image spine processor";
+    before = InputAddress{*found, std::nullopt, ports::image};
+  } else {
+    if (*request.target != app.primarySource && found == spine.end())
+      return "Insert After requires Source or a main Image spine processor; off-spine insertion is ambiguous";
+    const auto next = *request.target == app.primarySource ? spine.begin() : found + 1;
+    if (next != spine.end()) before = InputAddress{*next, std::nullopt, ports::image};
+  }
+  return {};
+}
+
+template<class Factory>
+static bool insertProcessor(App &app, std::optional<ProcessorInsertion> request, Factory construct) {
+  DocumentMutation::assertControlThread(app);
   if (!requireEditableGraph(app)) return false;
+  if (!app.renderer.canEditParameters()) { app.setStatus("Cannot insert processors during export"); return false; }
+  if (!request) request = ProcessorInsertion{ProcessorPlacement::After, app.selectedNodeId()};
+  try {
+    std::optional<InputAddress> before;
+    auto error = insertionPoint(app, *request, before);
+    if (!error.empty()) throw std::runtime_error(error);
+    // Validate depth and splice before constructing a backend or draining preview.
+    // This temporary topology has no processors and is never executable state.
+    std::vector<Node> topology;
+    for (const auto &live : app.nodes) {
+      Node copy(live.operation); copy.id = live.id; copy.enabled = live.enabled;
+      copy.fixedInputs = live.fixedInputs; copy.slots = live.slots;
+      topology.push_back(std::move(copy));
+    }
+    Node pending; pending.id = makeNodeId(app.nodes);
+    const NodeId id = pending.id;
+    auto output = app.documentOutput;
+    auto result = graph::insertImageNode({topology, app.primarySource, output}, std::move(pending), before);
+    if (!result.ok()) throw std::runtime_error(result.error);
+    DocumentMutation mutation(app);
+    auto processor = construct();
+    if (!processor) return false;
+    auto node = makeProcessorNode(app.nodes, std::move(processor));
+    node.id = id;
+    std::optional<NodeId> selection = id;
+    result = graph::insertImageNode({app.nodes, app.primarySource, app.documentOutput}, std::move(node), before);
+    if (!result.ok()) throw std::runtime_error(result.error);
+    app.graphCanvas.cancelInteraction();
+    selectNode(app, std::move(selection));
+    mutation.changed();
+    return true;
+  } catch (const std::exception &failure) {
+    app.setStatus("Could not insert processor: " + std::string(failure.what()));
+    return false;
+  }
+}
+
+bool addNode(App &app, int pluginIndex, std::optional<ProcessorInsertion> insertion) {
   if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return false;
-  DocumentMutation mutation(app);
-  const bool added = addOfxWithinMutation(app, pluginIndex);
-  if (added) mutation.changed();
-  return added;
+  return insertProcessor(app, insertion, [&] {
+    auto processor = OfxProcessor::create(pluginIndex);
+    if (!processor) app.setStatus("Plugin failed to create an instance");
+    return processor;
+  });
 }
 
-bool addNativeExposureNode(App &app) {
-  if (!requireEditableGraph(app)) return false;
-  DocumentMutation mutation(app);
-  const bool added = appendProcessorNode(app, std::make_unique<NativeExposureProcessor>());
-  if (added) mutation.changed();
-  return added;
+bool addNativeExposureNode(App &app, std::optional<ProcessorInsertion> insertion) {
+  return insertProcessor(app, insertion, [] { return std::make_unique<NativeExposureProcessor>(); });
 }
-
-bool addNativeCstNode(App &app) {
-  if (!requireEditableGraph(app)) return false;
-  DocumentMutation mutation(app);
-  const bool added = appendProcessorNode(app, std::make_unique<NativeCstProcessor>());
-  if (added) mutation.changed();
-  return added;
+bool addNativeCstNode(App &app, std::optional<ProcessorInsertion> insertion) {
+  return insertProcessor(app, insertion, [] { return std::make_unique<NativeCstProcessor>(); });
 }
-
-bool addCtlNode(App &app, const std::string &path) {
-  if (!requireEditableGraph(app)) return false;
-  DocumentMutation mutation(app);
-  const bool added = addCtlWithinMutation(app, path);
-  if (added) mutation.changed();
-  return added;
+bool addCtlNode(App &app, const std::string &path, std::optional<ProcessorInsertion> insertion) {
+  return insertProcessor(app, insertion, [&] {
+    std::string error;
+    auto processor = CtlProcessor::create(path, &error);
+    if (!processor) app.setStatus("Could not load CTL" + (error.empty() ? std::string() : ": " + error));
+    return processor;
+  });
 }
 
 bool destroyNode(App &app, const NodeId &id) {
@@ -523,6 +573,7 @@ RestoredChain restoreChain(App &app, const PersistChain &chain, bool strictParam
 
 void replaceChain(App &app, RestoredChain &&chain) {
   app.graphCanvas.cancelInteraction();
+  app.processorPicker = {};
   app.nodes.swap(chain.nodes);
   app.nodePositions.clear();
   std::swap(app.documentOutput, chain.output);
@@ -577,6 +628,7 @@ static int findPluginIndex(const std::string &identifier, const std::string &lab
 
 static void clearNodesWithinMutation(App &app) {
   app.graphCanvas.cancelInteraction();
+  app.processorPicker = {};
   app.nodePositions.clear();
   // Preserve the same Source operation/identity across grade and image changes.
   auto source = std::find_if(app.nodes.begin(), app.nodes.end(), [&](const Node &node) {
@@ -605,35 +657,6 @@ static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Pr
   }
   return node;
 }
-static bool appendProcessorNode(App &app, std::unique_ptr<Processor> processor) {
-  if (!processor) return false;
-  auto node = makeProcessorNode(app.nodes, std::move(processor));
-  std::optional<NodeId> selection = node.id; // Allocate identity before committing the graph.
-  const auto result = graph::insertImageNode(graph::Document{app.nodes, app.primarySource, app.documentOutput}, std::move(node));
-  if (!result.ok()) { app.setStatus(result.error); return false; }
-  selectNode(app, std::move(selection));
-  return true;
-}
-
-static bool addOfxWithinMutation(App &app, int pluginIndex) {
-  auto processor = OfxProcessor::create(pluginIndex);
-  if (!processor) {
-    app.setStatus("Plugin failed to create an instance");
-    return false;
-  }
-  return appendProcessorNode(app, std::move(processor));
-}
-
-static bool addCtlWithinMutation(App &app, const std::string &path) {
-  std::string error;
-  auto processor = CtlProcessor::create(path, &error);
-  if (!processor) {
-    app.setStatus("Could not load CTL" + (error.empty() ? std::string() : ": " + error));
-    return false;
-  }
-  return appendProcessorNode(app, std::move(processor));
-}
-
 static PersistNode capturePersistedNode(const Node &node, bool graphNative) {
   PersistNode persisted;
   persisted.id = node.id.value;

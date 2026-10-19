@@ -17,10 +17,29 @@ static bool icontains(const std::string &hay, const std::string &needle) {
   return it != hay.end();
 }
 
+void requestProcessorPicker(App &app, ProcessorInsertion insertion) {
+  app.processorPicker.insertion = std::move(insertion);
+  app.processorPicker.openRequested = true;
+}
+
 void drawProcessorPicker(App &app) {
-  ImGui::BeginDisabled(app.isPhotoProtected());
-  if (ImGui::Button("+ Add Processor")) ImGui::OpenPopup("##addPluginPopup");
+  auto &state = app.processorPicker;
+  ImGui::BeginDisabled(!app.renderer.canEditParameters());
+  if (ImGui::Button("+ Add Processor"))
+    requestProcessorPicker(app, {ProcessorPlacement::After, app.selectedNodeId()});
+  if (state.openRequested) {
+    ImGui::OpenPopup("##addPluginPopup");
+    state.openRequested = false;
+  }
   if (ImGui::BeginPopup("##addPluginPopup")) {
+    const auto choose = [&](auto add) {
+      if (state.insertion) add(*state.insertion);
+      else app.setStatus("Insertion cancelled: the document was replaced");
+      app.pluginFilter[0] = '\0';
+      ImGui::CloseCurrentPopup();
+    };
+    if (state.insertion && state.insertion->target)
+      ImGui::TextDisabled("Insert %s selected node", state.insertion->placement == ProcessorPlacement::Before ? "before" : "after");
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextWithHint("##pluginFilter", "Search…", app.pluginFilter, sizeof app.pluginFilter);
@@ -40,9 +59,7 @@ void drawProcessorPicker(App &app) {
     if (q.empty() || icontains("Exposure", q) || icontains("Native", q)) {
       nativeHeader();
       if (ImGui::Selectable("Exposure")) {
-        addNativeExposureNode(app);
-        app.pluginFilter[0] = '\0';
-        ImGui::CloseCurrentPopup();
+        choose([&](auto insertion) { addNativeExposureNode(app, insertion); });
       }
       ++shown;
     }
@@ -51,9 +68,7 @@ void drawProcessorPicker(App &app) {
         icontains("Color Space Transform", q) || icontains("Native", q)) {
       nativeHeader();
       if (ImGui::Selectable("CST")) {
-        addNativeCstNode(app);
-        app.pluginFilter[0] = '\0';
-        ImGui::CloseCurrentPopup();
+        choose([&](auto insertion) { addNativeCstNode(app, insertion); });
       }
       ++shown;
     }
@@ -63,9 +78,7 @@ void drawProcessorPicker(App &app) {
       if (ImGui::Selectable("Load CTL script…")) {
         auto file = pfd::open_file("Load CTL script", "", {"CTL script", "*.ctl"});
         const auto paths = file.result();
-        if (!paths.empty()) addCtlNode(app, paths[0]);
-        app.pluginFilter[0] = '\0';
-        ImGui::CloseCurrentPopup();
+        choose([&](auto insertion) { if (!paths.empty()) addCtlNode(app, paths[0], insertion); });
       }
       ++shown;
     }
@@ -87,9 +100,7 @@ void drawProcessorPicker(App &app) {
         ImGui::TextDisabled("%s", curAuthor.c_str());
       }
       if (ImGui::Selectable(pe.label.c_str())) {
-        addNode(app, i);
-        app.pluginFilter[0] = '\0';
-        ImGui::CloseCurrentPopup();
+        choose([&](auto insertion) { addNode(app, i, insertion); });
       }
       ++shown;
     }
@@ -97,6 +108,7 @@ void drawProcessorPicker(App &app) {
     if (shown == 0) ImGui::TextDisabled("No matches");
     ImGui::EndPopup();
   }
+  if (!ImGui::IsPopupOpen("##addPluginPopup")) state.insertion.reset();
 
   ImGui::EndDisabled();
 }
