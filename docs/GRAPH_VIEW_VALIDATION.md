@@ -101,8 +101,10 @@ expectations for Source -> A -> B -> Output: deleting A makes B consume Source;
 deleting B makes Output reference A. An off-spine deletion retains the main
 output. Replacing B's input changes only B's binding; fan-out retains other
 consumers. Disconnecting B leaves a structurally valid but unavailable requested
-result. Source Output yields unchanged source pixels; +1 EV processor Output
-must yield twice the source values for preview/export.
+result. When Output is connected to Source, preview evaluation displays the
+unchanged Source image; export is disabled under existing application behaviour.
+When Output is connected to a valid processing node, preview and export use that
+node's result; a +1 EV processor must yield twice the source values.
 
 Use existing real-ImGui frames and graph-command tests. Check exact input/Output
 bindings, selection/layout, mutation counts and render demand for accepted,
@@ -118,8 +120,9 @@ behaviours before opening the replacement PR; include that table in its descript
 1. Open Nikon NEF; adjust real processors and check preview updates after wiring.
 2. Connect/reconnect in both directions; exercise fan-out, invalid types/cycles,
    empty-drop/Escape cancellation and Disconnect/reconnect of required inputs.
-3. Rewire Output to Source and processors; confirm Image-only typing and existing
-   Output colour/export settings, preview and export evaluation.
+3. Rewire Output to Source: confirm the Source preview and disabled export. Rewire
+   to a valid processing node: confirm preview and export use that node's result.
+   Confirm Image-only typing and existing Output colour/export settings.
 4. Delete middle/final/off-spine processors with Delete/Backspace and the menu;
    protect Source/Output and verify Inspector cleanup, text focus and held keys.
 5. Verify trackpad pan/zoom, Retina port targeting, header movement and Frame All.
