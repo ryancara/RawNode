@@ -384,6 +384,21 @@ than silently disappearing.
 
 Do not make persistence behaviour depend on transient renderer state.
 
+## Scope is an acceptance criterion
+
+A change can be correct, well-tested and architecturally reasonable while still
+being unnecessary.
+
+Every independent PR review must assess compliance with the approved scope, in
+addition to correctness, readability, architecture and test coverage.
+
+Identify features, abstractions, dependencies and refactoring that are not required
+by the agreed acceptance criteria. Flag scope expansion independently of functional
+defects and recommend removing unnecessary changes before merge.
+
+Passing tests do not justify additional complexity. Optional improvements should
+be proposed separately rather than incorporated without approval.
+
 ## Scope discipline
 
 Keep PRs focused.
