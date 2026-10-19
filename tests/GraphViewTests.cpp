@@ -1021,6 +1021,55 @@ bool gestureEndpointLifecycle() {
   return true;
 }
 
+bool contextMenusAfterGradePaste() {
+  for (const bool inputMenu : {false, true}) for (const bool mac : {false, true}) {
+    Ui ui; App app; app.path = "same-photo"; app.nodesView = NodesView::Graph;
+    app.full.w = app.full.h = 1; app.full.px = {0.25f, 0.25f, 0.25f, 1};
+    app.preview = std::make_shared<Image>(app.full);
+    CHECK(addNativeExposureNode(app)); const auto reused = *app.selectedNodeId();
+    CHECK(selectedNode(app)->processor->identifier() == "rawnode.native.exposure");
+    App incoming; CHECK(addNativeCstNode(incoming));
+    incoming.nodes.back().id = reused; incoming.documentOutput = imageOf(reused);
+    incoming.nodePositions = {{incoming.primarySource.value, {0, 0}}, {reused.value, {320, 0}}};
+    CHECK(copyGrade(incoming)); // Real Full Grade clipboard payload, not fragment Paste.
+    app.renderer.start(); CHECK(idle(app));
+    ui.tick(app); ui.tick(app); app.nodePositions = incoming.nodePositions;
+    app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 40}, 1}; ui.tick(app);
+    CHECK(selectNode(app, app.primarySource)); // Either menu must select its owner.
+    auto &io = ImGui::GetIO(); io.ConfigMacOSXBehaviors = mac;
+    // ImGui maps submitted macOS Ctrl to Super and aliases Super+left to right.
+    // Keep the modifier held across frames: it must not dismiss either menu.
+    io.AddKeyEvent(ImGuiMod_Ctrl, true);
+    const auto target = ui.screen(app, inputMenu ? PersistPosition{320, 44} : PersistPosition{370, 16});
+    if (mac) ui.click(app, target); else rightClick(ui, app, target);
+    ui.tick(app);
+    CHECK(app.selectedNodeId() == reused && ui.context->OpenPopupStack.Size == 1);
+    CHECK(inputMenu ? app.graphCanvas.contextPort && app.graphCanvas.contextPort->nodeId == reused
+                    : app.graphCanvas.contextNode == reused);
+    const auto action = lastPopupItem(); CHECK(action.x > 0 && action.y > 0);
+    io.AddKeyEvent(ImGuiMod_Ctrl, false); ui.tick(app);
+    CHECK(ui.context->OpenPopupStack.Size == 1);
+    std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+    CHECK(pasteFromClipboard(app) && idle(app)); // Same photo, different logical node at the same ID.
+    CHECK(app.path == "same-photo" && !app.selectedNodeId() && mutations == 1);
+    CHECK(findNode(app, reused) && findNode(app, reused)->processor->identifier() == "rawnode.native.cst");
+    CHECK(app.nodes.size() == 2 && consumes(app, reused, app.primarySource) && app.documentOutput == imageOf(reused));
+    const auto expected = graphJson(incoming);
+    const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(graphJson(app) == expected && samePositions(app.nodePositions, incoming.nodePositions));
+    ui.click(app, action); CHECK(idle(app)); // Try the old Delete Node / Disconnect action.
+    CHECK(graphJson(app) == expected && samePositions(app.nodePositions, incoming.nodePositions));
+    CHECK(app.nodes.size() == 2 && consumes(app, reused, app.primarySource) && app.documentOutput == imageOf(reused));
+    CHECK(ui.context->OpenPopupStack.Size == 0 && mutations == 1);
+    const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(after.epoch == before.epoch && after.mutationDepth == 0);
+    CHECK(after.previewPending == before.previewPending && after.quietPending == before.quietPending &&
+          after.displayPending == before.displayPending && !after.previewBusy);
+    RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  }
+  return true;
+}
+
 bool editedWirePhotoPersistence() {
   Files files; const auto first = (files.dir / "wired.png").string(), second = (files.dir / "other.png").string();
   std::ofstream(first) << "synthetic"; std::ofstream(second) << "synthetic";
@@ -1065,6 +1114,7 @@ bool testGraphView() {
        std::make_pair("typed Output wiring, pixel results and UI export/protection gates", outputAndTypedWireFrames),
        std::make_pair("focused nonrepeat deletion, Inspector cleanup and off-spine menu deletion", deletionFrames),
        std::make_pair("UI-only cancellation for removed endpoints, modifiers, views and photos", gestureEndpointLifecycle),
+       std::make_pair("node/input menus close after same-photo Full Grade Paste reuses IDs, including macOS Ctrl+click", contextMenusAfterGradePaste),
        std::make_pair("edited wire topology and fractional positions save, switch and reopen", editedWirePhotoPersistence),
        std::make_pair("coordinate inverses, cursor zoom and frame bounds", coordinateTransforms),
        std::make_pair("real canvas events, selection and render-demand isolation", canvasInteraction),

@@ -313,6 +313,7 @@ std::optional<InputAddress> portContextMenu(App &app, const Canvas &canvas, cons
       const auto &address = port->address;
       const auto *input = findInput(app, {address.nodeId, address.slot, address.port});
       if (input && input->has_value()) {
+        selectNode(app, address.nodeId);
         state.contextPort = address;
         ImGui::OpenPopup("##portContext");
       }
@@ -320,7 +321,8 @@ std::optional<InputAddress> portContextMenu(App &app, const Canvas &canvas, cons
   }
   std::optional<InputAddress> disconnect;
   if (ImGui::BeginPopup("##portContext")) {
-    if (state.contextPort && resolvePort(layout, *state.contextPort)) {
+    if (state.contextPort && app.selectedNodeId() == state.contextPort->nodeId &&
+        resolvePort(layout, *state.contextPort)) {
       const auto &port = *state.contextPort;
       const InputAddress input{port.nodeId, port.slot, port.port};
       const auto *binding = findInput(app, input);
@@ -350,7 +352,7 @@ std::optional<NodeId> nodeContextMenu(App &app, const Canvas &canvas, const Grap
   std::optional<NodeId> remove;
   if (ImGui::BeginPopup("##nodeContext")) {
     const Node *node = state.contextNode ? findNode(app, *state.contextNode) : nullptr;
-    if (!node) ImGui::CloseCurrentPopup();
+    if (!node || app.selectedNodeId() != state.contextNode) ImGui::CloseCurrentPopup();
     else if (ImGui::MenuItem("Delete Node", nullptr, false,
                              node->operation != NodeOperation::Source && app.renderer.canEditParameters()))
       remove = node->id;
