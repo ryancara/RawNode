@@ -117,9 +117,7 @@ void drawNode(const Canvas &canvas, const GraphNodeLayout &node, bool selected) 
     const auto point = canvas.screen(portPosition(node, port));
     const auto color = portColor(declaration.type);
     const float radius = float(4 * canvas.view.zoom);
-    if (declaration.direction == PortDirection::Output)
-      draw.AddRectFilled({point.x - radius, point.y - radius}, {point.x + radius, point.y + radius}, color);
-    else if (connected) draw.AddCircleFilled(point, radius, color);
+    if (connected) draw.AddCircleFilled(point, radius, color);
     else draw.AddCircle(point, radius, color, 0, declaration.required ? 2.0f : 1.0f);
   }
 }
