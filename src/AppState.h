@@ -20,6 +20,7 @@
 #include <thread>
 #include <unordered_set>
 #include <vector>
+#include <variant>
 
 struct ThumbReady {
   std::string path;
@@ -56,6 +57,9 @@ inline constexpr int kPreviewResCount = 4;
 // edits and preview-source rebuilds use DocumentMutation; parameter edits
 // are excluded only during export. The dedicated mutexes below guard
 // shared snapshots.
+enum class InspectorEndpoint { Output };
+using InspectorSelection = std::variant<std::monostate, NodeId, InspectorEndpoint>;
+
 struct App {
   App() {
     Node source(NodeOperation::Source);
@@ -107,13 +111,11 @@ struct App {
   int exportFormat = 1;  // JPEG
   int jpegQuality = 92;
   int previewRes = 1;  // 1080p
-  bool showLeft = true;
   bool showRight = true;
   bool showNodes = true;
   NodesView nodesView = NodesView::List;
   ui::GraphCanvasState graphCanvas;
   // Fallback DockBuilder sizes when the global ImGui layout has no dock node.
-  float leftW = 280.0f;
   float rightW = 420.0f;
   char paramFilter[128] = {};
   char pluginFilter[128] = {};
@@ -129,7 +131,13 @@ struct App {
   bool hasProcessingOutput() const {
     return documentOutput.nodeId != primarySource || documentOutput.outputPortId != ports::image;
   }
-  std::optional<NodeId> selectedNodeId;  // UI identity; storage position has no selection meaning.
+  // UI identity only; Output has no NodeId and selection is never persisted.
+  InspectorSelection selection;
+  std::optional<NodeId> selectedNodeId() const {
+    if (const auto *id = std::get_if<NodeId>(&selection)) return *id;
+    return std::nullopt;
+  }
+  bool outputSelected() const { return std::holds_alternative<InspectorEndpoint>(selection); }
 
   std::string folderDir;
   std::string preferencesWarning;

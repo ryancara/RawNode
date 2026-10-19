@@ -101,7 +101,7 @@ class StagedEdit {
           position = owner->nodePositions.erase(position);
         else ++position;
       }
-      if (owner->selectedNodeId && !selectedNode(*owner)) selectNode(*owner, std::nullopt);
+      if (owner->selectedNodeId() && !findNode(*owner, *owner->selectedNodeId())) selectNode(*owner, std::nullopt);
       mutation->changed();
     }
     return {{}, addedSlot};

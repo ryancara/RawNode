@@ -3,8 +3,8 @@
 #include "AppState.h"
 #include "persist/DocumentActions.h"
 
-void drawLeftPanel(App &app);
-void drawRightPanel(App &app);
+void drawProcessorPicker(App &app);
+void drawInspector(App &app);
 void drawNodesPanel(App &app);
 void drawPreviewPanel(App &app);
 void drawFilmstripPanel(App &app);

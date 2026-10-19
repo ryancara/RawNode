@@ -196,7 +196,7 @@ static bool testTopologyAndV2() {
   auto saved = captureChain(app);
   moveNode(app, app.nodes[2].id, app.nodes[1].id);
   CHECK(app.nodes[1].id == first && app.nodes[2].id == second && app.documentOutput == image(first));
-  CHECK(app.nodes[1].fixedInputs.at(ports::image) == image(second) && app.selectedNodeId == app.nodes[2].id);
+  CHECK(app.nodes[1].fixedInputs.at(ports::image) == image(second) && app.selectedNodeId() == app.nodes[2].id);
   CHECK(captureChain(app).nodes[0].id == second.value);
   App restored; source(restored); applyChain(restored, captureChain(app));
   CHECK(restored.nodes[1].id == second && restored.nodes[2].id == first && restored.documentOutput == image(first));
@@ -208,7 +208,7 @@ static bool testTopologyAndV2() {
   missing.identifier = "asset.dctl"; missing.paramsJson["opaque"] = "[1,2]";
   saved.nodes.push_back(missing); saved.selectedNodeId = missing.id;
   applyChain(restored, saved);
-  CHECK(restored.selectedNodeId == restored.nodes[3].id && restored.documentOutput == image(NodeId{missing.id}));
+  CHECK(restored.selectedNodeId() == restored.nodes[3].id && restored.documentOutput == image(NodeId{missing.id}));
   CHECK(restored.nodes[3].fixedInputs.at(ports::image) == image(second));
   CHECK(captureChain(restored).nodes.back().paramsJson == missing.paramsJson);
 
@@ -220,11 +220,11 @@ static bool testTopologyAndV2() {
   const EvaluationContext context{EvaluationPurpose::Inspection, 2, 1, 1, 1};
   auto result = ordered.renderer.evaluateOwned(ordered.documentOutput, context, ordered.preview);
   CHECK(std::get<ImageValue>(result.value)->px[0] == 1.5f);
-  const auto selected = ordered.selectedNodeId;
+  const auto selected = ordered.selectedNodeId();
   moveNode(ordered, ordered.nodes[2].id, ordered.nodes[1].id);
   result = ordered.renderer.evaluateOwned(ordered.documentOutput, context, ordered.preview);
   CHECK(std::get<ImageValue>(result.value)->px[0] == 2.5f && ordered.nodes[1].id == a && ordered.nodes[2].id == b);
-  CHECK(ordered.selectedNodeId == selected);
+  CHECK(ordered.selectedNodeId() == selected);
   destroyNode(ordered, ordered.nodes[2].id);
   result = ordered.renderer.evaluateOwned(ordered.documentOutput, context, ordered.preview);
   CHECK(std::get<ImageValue>(result.value)->px[0] == 0.5f);
@@ -575,7 +575,7 @@ static bool testFragmentCaptureOwnership(bool exporting, bool failing) {
   CHECK(captured.nodes.size() == 1 && captured.nodes[0].id == id.value && captured.nodes[0].paramsJson.at("gain") == "2");
   CHECK(captured.positions.at(id.value).x == 7.5 && captured.positions.at(id.value).y == -3);
   CHECK(failing ? warnings == std::vector<std::string>{"untouched"} : warnings.empty());
-  CHECK(app.selectedNodeId == id && app.paramFilter[0] == 'g' && app.documentOutput == output);
+  CHECK(app.selectedNodeId() == id && app.paramFilter[0] == 'g' && app.documentOutput == output);
   CHECK(app.full.px.data() == pixels && app.preview == preview && findNode(app, id)->processor.get() == processor);
   CHECK(findNode(app, id)->fixedInputs.at(ports::image) == image(app.primarySource));
   CHECK(publication(app).result.state == EvaluationState::Available && std::get<ImageValue>(publication(app).result.value)->px[0] == 0.5f);
@@ -669,8 +669,8 @@ static bool testNoImageGuidance() {
   }, &evaluations);
   WorkerGuard guard{app, executor}; app.renderer.start();
   CHECK(addNativeExposureNode(app) && idle(app));
-  CHECK(setNodeParameterValue(app, *app.selectedNodeId, "exposure", 1.0) && idle(app));
-  CHECK(resetNodeParameter(app, *app.selectedNodeId, "exposure") && idle(app));
+  CHECK(setNodeParameterValue(app, *app.selectedNodeId(), "exposure", 1.0) && idle(app));
+  CHECK(resetNodeParameter(app, *app.selectedNodeId(), "exposure") && idle(app));
   CHECK(app.getStatus() == guidance && evaluations == 0 && publication(app).generation == 0);
   clearNodes(app); CHECK(idle(app));
   CHECK(app.getStatus() == guidance && evaluations == 0 && publication(app).generation == 0);
@@ -808,10 +808,10 @@ static bool testUnchangedCommandsRetainDemand() {
     CHECK(fragment.nodes.empty() && warnings == std::vector<std::string>{"unchanged"});
     for (auto selection : {std::optional<NodeId>{}, std::optional<NodeId>{app.primarySource},
                            std::optional<NodeId>{absent}, std::optional<NodeId>{slots}}) {
-      app.selectedNodeId = selection;
+      app.selection = selection ? InspectorSelection{*selection} : InspectorSelection{};
       CHECK(!canCopySelectedNode(app) && !copySelectedNode(app));
     }
-    app.selectedNodeId = effect;
+    app.selection = NodeId{effect};
     app.path = files.path("protected.nef"); app.sidecarWriteBlockedPath = app.path;
     CHECK(!canCopySelectedNode(app) && !copySelectedNode(app));
     CHECK(!captureNodeFragment(app, {effect}, fragment, warnings));
@@ -822,7 +822,7 @@ static bool testUnchangedCommandsRetainDemand() {
           after.previewBusy == before.previewBusy && after.exportBusy == before.exportBusy &&
           after.displayPending == before.displayPending &&
           processor->calls == calls);
-    CHECK(publication(app).generation == frame.generation && app.selectedNodeId == effect && app.paramFilter[0] == 'e');
+    CHECK(publication(app).generation == frame.generation && app.selectedNodeId() == effect && app.paramFilter[0] == 'e');
     CHECK(app.documentOutput == image(effect) && findNode(app, effect)->processor.get() == processor &&
           findNode(app, effect)->fixedInputs.at(ports::image) == image(app.primarySource));
     gate.unblock();
@@ -919,7 +919,7 @@ static bool testParameterPreview() {
   App app; source(app);
   app.preview = std::make_shared<Image>(Image{{-0.25f, 0.5f, 1.25f, 0.75f}, 1, 1});
   CHECK(addNativeExposureNode(app));
-  const auto effect = *app.selectedNodeId;
+  const auto effect = *app.selectedNodeId();
   // No worker can advance the epoch here: exactly one request per acceptance,
   // even when the backend accepts the same value it already holds.
   for (int i = 0; i < 2; ++i) {
@@ -961,7 +961,7 @@ static std::string parameterCtl(Files &files) {
 static bool testParameterDuringPreview(bool ctl) {
   Files files; Gate gate; App app; source(app);
   CHECK(ctl ? addCtlNode(app, parameterCtl(files)) : addNativeExposureNode(app));
-  const auto effect = *app.selectedNodeId;
+  const auto effect = *app.selectedNodeId();
   const auto parameter = ctl ? "gain" : "exposure";
   const NodeId downstream{"parameter-barrier"};
   auto *processor = numeric(app, downstream); CHECK(processor);
@@ -1003,9 +1003,9 @@ static bool testRejectedParameterEdits() {
   Files files;
   for (int demand = 0; demand < 4; ++demand) {
     Gate gate; App app; source(app);
-    CHECK(addNativeExposureNode(app)); const auto effect = *app.selectedNodeId;
+    CHECK(addNativeExposureNode(app)); const auto effect = *app.selectedNodeId();
     CHECK(setNodeParameterValue(app, effect, "exposure", 1.0));
-    CHECK(addNativeExposureNode(app)); const auto stale = *app.selectedNodeId;
+    CHECK(addNativeExposureNode(app)); const auto stale = *app.selectedNodeId();
     CHECK(destroyNode(app, stale));
     const NodeId missing{"missing"}; CHECK(add(app, missing, NodeOperation::ImageProcessor));
     const NodeId barrier{"rejected-parameter-barrier"};
@@ -1102,7 +1102,7 @@ struct ParameterOfxFixture {
 
 static bool testOfxParameterScheduling() {
   ParameterOfxFixture fixture; App app; source(app);
-  CHECK(addNode(app, fixture.index)); const auto effect = *app.selectedNodeId;
+  CHECK(addNode(app, fixture.index)); const auto effect = *app.selectedNodeId();
   int before = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
   CHECK(setNodeParameterValue(app, effect, "gain", 2.0));
   CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == ++before);

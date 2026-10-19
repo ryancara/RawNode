@@ -132,7 +132,17 @@ bool coordinateTransforms() {
 struct Ui {
   ImGuiContext *context = ImGui::CreateContext();
   ImVec2 listButton{}, graphButton{}, frameButton{}, canvasOrigin{}, canvasSize{};
-  bool showOtherPanel = false;
+  bool showOtherPanel = false, showInspector = false;
+  ImGuiID inspectorLastItem = 0;
+  ImGuiItemFlags inspectorItemFlags = 0;
+  ImRect inspectorLastRect;
+  ImVec2 listSource{}, listOutput{}, addButton{};
+  float nodesWidth = 1150;
+  bool pickerOpen = false, captureLog = false;
+  std::string nodesLog, inspectorLog;
+  ImGuiID inspectorId(const char *label) const {
+    return ImGui::FindWindowByName("Inspector test")->GetID(label);
+  }
   char text[32] = {};
   ImVec2 textInput{}, otherButton{};
   Ui() {
@@ -146,7 +156,7 @@ struct Ui {
     auto &io = ImGui::GetIO(); io.DisplaySize = {1280, 800}; io.DeltaTime = 1.0f / 60;
     ImGui::NewFrame();
     ImGui::SetNextWindowPos({20, 20});
-    ImGui::SetNextWindowSize({showOtherPanel ? 900.0f : 1150.0f, 680});
+    ImGui::SetNextWindowSize({(showOtherPanel || showInspector) ? 900.0f : nodesWidth, 680});
     ImGui::Begin("Nodes test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     const auto start = ImGui::GetCursorScreenPos(); const auto &style = ImGui::GetStyle();
@@ -155,8 +165,30 @@ struct Ui {
                      2 * style.ItemSpacing.x + ImGui::CalcTextSize("|").x + 8, start.y + 8};
     frameButton = {start.x + 20, start.y + ImGui::GetFrameHeight() + style.ItemSpacing.y +
                    style.ItemSpacing.y + 1 + 8};
+    if (captureLog) ImGui::LogToBuffer(0);
     drawNodesPanel(app);
+    if (captureLog) { nodesLog = ImGui::GetCurrentContext()->LogBuffer.c_str(); ImGui::LogFinish(); }
+    addButton = {graphButton.x + 95, start.y + 8};
+    pickerOpen = ImGui::IsPopupOpen("##addPluginPopup");
     ImGui::End();
+    for (auto *window : ImGui::GetCurrentContext()->Windows) {
+      if (std::string(window->Name).find("Nodes test/nodeList") == std::string::npos) continue;
+      listSource = {window->DC.CursorStartPos.x + 30, window->DC.CursorStartPos.y + 6};
+      // Output is the final fixed row, immediately before EndChild.
+      listOutput = {window->DC.CursorPosPrevLine.x + 30, window->DC.CursorPosPrevLine.y + 6};
+    }
+    if (showInspector) {
+      ImGui::SetNextWindowPos({940, 20}); ImGui::SetNextWindowSize({320, 680});
+      ImGui::Begin("Inspector test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
+                      ImGuiWindowFlags_NoResize);
+      if (captureLog) ImGui::LogToBuffer(0);
+      drawInspector(app);
+      if (captureLog) { inspectorLog = ImGui::GetCurrentContext()->LogBuffer.c_str(); ImGui::LogFinish(); }
+      inspectorLastItem = ImGui::GetItemID();
+      inspectorItemFlags = ImGui::GetCurrentContext()->LastItemData.ItemFlags;
+      inspectorLastRect = ImGui::GetCurrentContext()->LastItemData.Rect;
+      ImGui::End();
+    }
     if (showOtherPanel) {
       ImGui::SetNextWindowPos({940, 20}); ImGui::SetNextWindowSize({300, 180});
       ImGui::Begin("Other panel", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
@@ -213,8 +245,8 @@ bool canvasInteraction() {
   App app;
   app.full.w = app.full.h = 1; app.full.px = {0.25f, 0.25f, 0.25f, 1};
   app.preview = std::make_shared<Image>(app.full); app.path = "canvas-a";
-  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId;
-  CHECK(addNativeExposureNode(app)); const auto b = *app.selectedNodeId;
+  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+  CHECK(addNativeExposureNode(app)); const auto b = *app.selectedNodeId();
   app.renderer.start(); CHECK(idle(app));
   const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
   const auto topology = graphJson(app);
@@ -222,13 +254,13 @@ bool canvasInteraction() {
   RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
   ui.tick(app); ui.tick(app);
   ui.click(app, ui.graphButton);
-  CHECK(app.nodesView == NodesView::Graph && app.selectedNodeId == b);
+  CHECK(app.nodesView == NodesView::Graph && app.selectedNodeId() == b);
   CHECK(app.nodePositions.size() == 3); // Source and both processors, no virtual Output.
   app.graphCanvas.view = {{30, 30}, 1}; app.graphCanvas.framePending = false; ui.tick(app);
   const auto original = app.nodePositions.at(a.value);
   app.paramFilter[0] = 'x';
   ui.click(app, ui.screen(app, {original.x + 70, original.y + 16}));
-  CHECK(app.selectedNodeId == a && app.paramFilter[0] == '\0');
+  CHECK(app.selectedNodeId() == a && app.paramFilter[0] == '\0');
   ui.drag(app, ui.screen(app, {original.x + 70, original.y + 16}), {45, 55}, 0);
   CHECK(same(app.nodePositions.at(a.value), {original.x + 45, original.y + 55}));
   const auto moved = app.nodePositions.at(a.value);
@@ -238,23 +270,23 @@ bool canvasInteraction() {
   CHECK(same(app.nodePositions.at(a.value), moved) && same(app.graphCanvas.view.pan, bodyPan));
   const auto source = app.nodePositions.at(app.primarySource.value);
   ui.click(app, ui.screen(app, {source.x + 50, source.y + 45}));
-  CHECK(!app.selectedNodeId && same(app.nodePositions.at(app.primarySource.value), source));
+  CHECK(app.selectedNodeId() == app.primarySource && !selectedNode(app) && same(app.nodePositions.at(app.primarySource.value), source));
   CHECK(same(app.graphCanvas.view.pan, bodyPan));
-  ui.click(app, ui.screen(app, {moved.x + 70, moved.y + 45})); CHECK(app.selectedNodeId == a);
+  ui.click(app, ui.screen(app, {moved.x + 70, moved.y + 45})); CHECK(app.selectedNodeId() == a);
   ui.drag(app, ui.screen(app, {source.x + 50, source.y + 16}), {12, 18}, 0);
   CHECK(same(app.nodePositions.at(app.primarySource.value), {source.x + 12, source.y + 18}));
-  CHECK(!app.selectedNodeId && app.paramFilter[0] == '\0');
-  ui.click(app, ui.listButton); CHECK(!app.selectedNodeId);
-  ui.click(app, ui.graphButton); CHECK(!app.selectedNodeId);
+  CHECK(app.selectedNodeId() == app.primarySource && app.paramFilter[0] == '\0');
+  ui.click(app, ui.listButton); CHECK(app.selectedNodeId() == app.primarySource);
+  ui.click(app, ui.graphButton); CHECK(app.selectedNodeId() == app.primarySource);
   ui.click(app, ui.screen(app, {moved.x + 70, moved.y + 45}));
-  CHECK(app.selectedNodeId == a);
+  CHECK(app.selectedNodeId() == a);
   const auto positions = app.nodePositions;
   const auto leftPan = app.graphCanvas.view.pan;
   const ImVec2 blank{ui.canvasOrigin.x + 600, ui.canvasOrigin.y + 300};
   // Start empty, then cross over a header. Pan depends on the press origin.
   ui.drag(app, blank, {-200, -200}, 0);
   CHECK(same(app.graphCanvas.view.pan, {leftPan.x - 200, leftPan.y - 200}));
-  CHECK(samePositions(app.nodePositions, positions) && app.selectedNodeId == a);
+  CHECK(samePositions(app.nodePositions, positions) && !app.selectedNodeId());
   const auto pan = app.graphCanvas.view.pan;
   ui.drag(app, blank, {40, -20}, 2);
   CHECK(same(app.graphCanvas.view.pan, {pan.x + 40, pan.y - 20}));
@@ -275,13 +307,13 @@ bool canvasInteraction() {
   CHECK(same(app.graphCanvas.view.pan, framedPan) && samePositions(app.nodePositions, positions));
   app.paramFilter[0] = 'e';
   ui.click(app, ui.listButton);
-  CHECK(app.nodesView == NodesView::List && app.selectedNodeId == a && app.paramFilter[0] == 'e');
+  CHECK(app.nodesView == NodesView::List && app.outputSelected() && app.paramFilter[0] == 'e');
   const auto listPan = app.graphCanvas.view.pan;
   ImGui::GetIO().AddKeyEvent(ImGuiKey_F, true); ui.tick(app);
   ImGui::GetIO().AddKeyEvent(ImGuiKey_F, false); ui.tick(app);
   CHECK(same(app.graphCanvas.view.pan, listPan));
   ui.click(app, ui.graphButton);
-  CHECK(app.selectedNodeId == a && app.paramFilter[0] == 'e' && same(app.nodePositions.at(a.value), moved));
+  CHECK(app.outputSelected() && app.paramFilter[0] == 'e' && same(app.nodePositions.at(a.value), moved));
   // Toolbar framing works after a viewport change, without moving document data.
   app.graphCanvas.view.pan = {900, 900}; ui.tick(app);
   ui.click(app, ui.frameButton);
@@ -325,8 +357,8 @@ bool canvasInteraction() {
 bool zoomedNodeInteraction() {
   for (const double zoom : {0.5, 2.0}) {
     Ui ui; App app; app.nodesView = NodesView::Graph;
-    CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId;
-    CHECK(addNativeExposureNode(app)); const auto b = *app.selectedNodeId;
+    CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+    CHECK(addNativeExposureNode(app)); const auto b = *app.selectedNodeId();
     ui.tick(app); ui.tick(app);
     app.nodePositions = {{app.primarySource.value, {-300, 150}}, {a.value, {60, 40}}, {b.value, {500, 200}}};
     app.graphCanvas.view = {{25, 25}, zoom}; app.graphCanvas.framePending = false;
@@ -338,7 +370,7 @@ bool zoomedNodeInteraction() {
     // Screen coordinates are calculated independently of graphToCanvas().
     const ImVec2 header{ui.canvasOrigin.x + float(25 + (60 + 70) * zoom),
                         ui.canvasOrigin.y + float(25 + (40 + 16) * zoom)};
-    ui.click(app, header); CHECK(app.selectedNodeId == a);
+    ui.click(app, header); CHECK(app.selectedNodeId() == a);
     ui.drag(app, header, {60, 30}, 0);
     const PersistPosition moved{60 + 60 / zoom, 40 + 30 / zoom};
     CHECK(same(app.nodePositions.at(a.value), moved) && same(app.graphCanvas.view.pan, pan));
@@ -367,7 +399,7 @@ bool zoomedNodeInteraction() {
 
 bool frameShortcutFocus() {
   Ui ui; App app; app.nodesView = NodesView::Graph; ui.showOtherPanel = true;
-  CHECK(addNativeExposureNode(app)); const auto id = *app.selectedNodeId;
+  CHECK(addNativeExposureNode(app)); const auto id = *app.selectedNodeId();
   ui.tick(app); ui.tick(app);
   app.nodePositions = {{app.primarySource.value, {0, 0}}, {id.value, {300, 90}}};
   app.graphCanvas.view = {{5, 15}, 0.5}; app.graphCanvas.framePending = false;
@@ -426,7 +458,7 @@ bool photoLayoutLifecycle() {
   document_detail::ActionTestOptions options; options.decode = syntheticPhoto;
   App app;
   CHECK(document_detail::openPhoto(app, a, {}, options));
-  CHECK(addNativeExposureNode(app)); const auto id = *app.selectedNodeId;
+  CHECK(addNativeExposureNode(app)); const auto id = *app.selectedNodeId();
   Ui ui; app.nodesView = NodesView::Graph;
   const auto executable = graphJson(app);
   const auto beforeLayout = RenderRuntimeTestAccess::snapshot(app.renderer);
@@ -437,8 +469,12 @@ bool photoLayoutLifecycle() {
   CHECK(generated.size() == 2 && same(generated.at(app.primarySource.value), {0, 0}));
   CHECK(same(generated.at(id.value), {320, 0}) && graphJson(app) == executable);
   CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == beforeLayout.epoch);
+  selectOutput(app);
   CHECK(document_detail::openPhoto(app, b, {}, options));
-  CHECK(document_detail::openPhoto(app, a, {}, options)); ui.tick(app); ui.tick(app);
+  CHECK(!app.outputSelected() && !app.selectedNodeId());
+  CHECK(selectNode(app, app.primarySource));
+  CHECK(document_detail::openPhoto(app, a, {}, options));
+  CHECK(!app.outputSelected() && !app.selectedNodeId()); ui.tick(app); ui.tick(app);
   CHECK(samePositions(app.nodePositions, generated));
   CHECK(ui::moveGraphNode(app, id, {-42.5, 19.25}));
   // Leave Source at its generated position while manually moving the processor.
@@ -468,7 +504,7 @@ bool photoLayoutLifecycle() {
   app.graphCanvas.view.pan = {999, 999};
   CHECK(document_detail::openPhoto(app, b, {}, options)); ui.tick(app);
   CHECK(app.graphCanvas.photoPath == b && !same(app.graphCanvas.view.pan, {999, 999}));
-  CHECK(!app.selectedNodeId && app.nodesView == NodesView::Graph && app.nodePositions.size() == 1);
+  CHECK(!app.selectedNodeId() && app.nodesView == NodesView::Graph && app.nodePositions.size() == 1);
   CHECK(ui::moveGraphNode(app, app.primarySource, {120.25, -90.5}));
   const auto otherPhoto = app.nodePositions;
   app.sidecarWriteBlockedPath = app.path; ui.tick(app);
@@ -486,64 +522,157 @@ bool photoLayoutLifecycle() {
   return true;
 }
 
-bool dockingCompatibility() {
-  for (const bool savedFloatingNodes : {false, true}) {
-    Ui ui;
-    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-    if (savedFloatingNodes)
-      ImGui::LoadIniSettingsFromMemory("[Window][Nodes]\nPos=100,100\nSize=600,250\nCollapsed=0\n\n");
-    ImGui::GetIO().DisplaySize = {1280, 800}; ImGui::GetIO().DeltaTime = 1.0f / 60;
-    ImGui::NewFrame();
-    const ImGuiID root = ImHashStr("OfxRawHostDock", 0, ImHashStr("##DockHost"));
-    ImGui::DockBuilderAddNode(root, ImGuiDockNodeFlags_DockSpace);
-    ImGui::DockBuilderSetNodeSize(root, {1280, 800});
-    ImGuiID center = root, left = 0, right = 0, strip = 0;
-    ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.19f, &left, &center);
-    ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.29f, &right, &center);
-    ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.17f, &strip, &center);
-    ImGui::DockBuilderDockWindow(DockLayout::kLeft, left);
-    ImGui::DockBuilderDockWindow(DockLayout::kParams, right);
-    ImGui::DockBuilderDockWindow(DockLayout::kFilmstrip, strip);
-    ImGui::DockBuilderDockWindow(DockLayout::kPreview, center);
-    ImGui::DockBuilderFinish(root);
-    const auto leftSize = ImGui::DockBuilderGetNode(left)->Size;
-    const auto rightSize = ImGui::DockBuilderGetNode(right)->Size;
-    const auto stripSize = ImGui::DockBuilderGetNode(strip)->Size;
-    App app;
-    DockLayout::BeginMainDockSpace(app);
-    const auto settings = [](const char *name) { return ImGui::FindWindowSettingsByID(ImHashStr(name)); };
-    CHECK(settings(DockLayout::kLeft)->DockId == left && settings(DockLayout::kParams)->DockId == right);
-    CHECK(settings(DockLayout::kFilmstrip)->DockId == strip);
-    CHECK(ImGui::DockBuilderGetNode(left)->Size.x == leftSize.x);
-    CHECK(ImGui::DockBuilderGetNode(right)->Size.x == rightSize.x);
-    CHECK(ImGui::DockBuilderGetNode(strip)->Size.y == stripSize.y);
-    const auto *nodes = settings(DockLayout::kNodes);
-    CHECK(nodes);
-    if (savedFloatingNodes) {
-      CHECK(nodes->DockId == 0 && settings(DockLayout::kPreview)->DockId == center);
-    } else {
-      const auto *nodeDock = ImGui::DockBuilderGetNode(nodes->DockId);
-      const auto *previewDock = ImGui::DockBuilderGetNode(settings(DockLayout::kPreview)->DockId);
-      CHECK(nodeDock && previewDock && nodeDock->ParentNode == previewDock->ParentNode);
-      CHECK(nodeDock->Pos.y > previewDock->Pos.y);
-      const auto nodesId = nodes->DockId, previewId = settings(DockLayout::kPreview)->DockId;
-      ImGui::EndFrame(); ImGui::NewFrame();
-      DockLayout::BeginMainDockSpace(app);
-      CHECK(settings(DockLayout::kNodes)->DockId == nodesId && settings(DockLayout::kPreview)->DockId == previewId);
-    }
-    ImGui::EndFrame();
+bool inspectorContexts() {
+  Ui ui; ui.showInspector = true; ui.captureLog = true;
+  App app; app.path = "test.nef";
+  app.full.w = app.full.h = 1; app.full.px = {0.25f, 0.25f, 0.25f, 1};
+  app.preview = std::make_shared<Image>(app.full);
+  CHECK(addNativeExposureNode(app)); const auto processor = *app.selectedNodeId();
+  app.renderer.start(); CHECK(idle(app));
+  std::atomic<int> mutations{0};
+  RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+  const auto topology = graphJson(app);
+  const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+  ui.tick(app); ui.tick(app);
+  CHECK(app.selectedNodeId() == processor && selectedNode(app)->processor);
+  // Fixed List endpoints are outside the processor reorder projection.
+  ui.click(app, ui.listSource);
+  CHECK(app.selectedNodeId() == app.primarySource && !selectedNode(app));
+  CHECK(ui.inspectorLastItem == 0); // Non-RAW input ends with information, no RAW widgets.
+  CHECK(ui.inspectorLog.find("Input pixels:") != std::string::npos &&
+        ui.inspectorLog.find("RAW gamma") == std::string::npos &&
+        ui.inspectorLog.find("Search parameters") == std::string::npos);
+  const float informationBottom = ui.inspectorLastRect.Max.y;
+  app.inputIsRaw = true; ui.tick(app);
+  CHECK(ui.inspectorLastItem == ui.inspectorId("RAW gamma"));
+  CHECK(ui.inspectorLog.find("RAW colour space") != std::string::npos);
+  CHECK(ui.inspectorLastRect.Max.y > informationBottom + ImGui::GetFrameHeight());
+  CHECK(!(ui.inspectorItemFlags & ImGuiItemFlags_Disabled));
+  app.sidecarWriteBlockedPath = app.path; ui.tick(app);
+  CHECK(ui.inspectorItemFlags & ImGuiItemFlags_Disabled);
+  app.sidecarWriteBlockedPath.clear();
+  CHECK(!canCopySelectedNode(app) && !copySelectedNode(app) && !destroyNode(app, app.primarySource));
+  ui.click(app, ui.listOutput);
+  CHECK(app.outputSelected() && !app.selectedNodeId() && !selectedNode(app));
+  CHECK(ui.inspectorLastItem == ui.inspectorId("JPEG quality"));
+  CHECK(ui.inspectorLog.find("Output colour space") != std::string::npos &&
+        ui.inspectorLog.find("Output gamma") != std::string::npos &&
+        ui.inspectorLog.find("RAW gamma") == std::string::npos);
+  CHECK(!canCopySelectedNode(app) && !copySelectedNode(app));
+  ui.click(app, ui.graphButton); CHECK(app.outputSelected());
+  ui.click(app, ui.listButton); CHECK(app.outputSelected());
+  selectNode(app, std::nullopt); ui.tick(app);
+  CHECK(!app.outputSelected() && !app.selectedNodeId() && ui.inspectorLastItem == 0);
+  CHECK(ui.inspectorLog.find("Select Source, a processor or Output") != std::string::npos);
+  CHECK(selectNode(app, processor)); app.paramFilter[0] = 'e';
+  ui.click(app, ui.graphButton); ui.click(app, ui.listButton);
+  CHECK(app.selectedNodeId() == processor && app.paramFilter[0] == 'e');
+  CHECK(ui.inspectorLog.find("Exposure") != std::string::npos &&
+        ui.inspectorLog.find("RAW gamma") == std::string::npos &&
+        ui.inspectorLog.find("Output gamma") == std::string::npos);
+  const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+  CHECK(after.epoch == before.epoch && after.previewPending == before.previewPending &&
+        after.displayPending == before.displayPending && mutations == 0 && graphJson(app) == topology);
+  // Application export preferences stay editable even on a protected photo.
+  selectOutput(app); app.sidecarWriteBlockedPath = app.path; ui.tick(app);
+  CHECK(!(ui.inspectorItemFlags & ImGuiItemFlags_Disabled));
+  const auto quality = ui.inspectorLastRect;
+  ui.click(app, {quality.Min.x + (quality.Max.x - quality.Min.x) * 0.3f, quality.GetCenter().y});
+  CHECK(app.jpegQuality != 92 && capturePreferences(app).jpegQuality == app.jpegQuality);
+  CHECK(captureGradeColor(app).outputColorSpace == "rec709");
+  app.exportFormat = 0; ui.tick(app);
+  CHECK(ui.inspectorLastItem == ui.inspectorId("Export format"));
+  app.sidecarWriteBlockedPath.clear();
+  CHECK(selectNode(app, app.primarySource));
+  Node spare; spare.id = NodeId{"inspector-spare"};
+  CHECK(graph::addNode(app, std::move(spare)).ok() && app.selectedNodeId() == app.primarySource);
+  selectOutput(app);
+  CHECK(destroyNode(app, NodeId{"inspector-spare"}) && app.outputSelected());
+  selectNode(app, processor);
+  CHECK(destroyNode(app, processor)); ui.tick(app);
+  CHECK(!app.selectedNodeId() && !app.outputSelected() && ui.inspectorLastItem == 0);
+  return true;
+}
+
+bool processorPickerInBothViews() {
+  Ui ui; ui.captureLog = true; App app; app.path = "picker.png";
+  CHECK(addNativeCstNode(app));
+  for (auto view : {NodesView::List, NodesView::Graph}) {
+    app.nodesView = view; CHECK(selectNode(app, app.primarySource));
+    const auto previousOutput = app.documentOutput;
+    const auto count = app.nodes.size();
+    std::snprintf(app.pluginFilter, sizeof app.pluginFilter, "Exposure");
+    ui.tick(app); ui.tick(app); ui.click(app, ui.addButton);
+    CHECK(ui.pickerOpen);
+    CHECK(ui.nodesLog.find("Exposure") != std::string::npos && ui.nodesLog.substr(0, ui.nodesLog.find("Source")).find("CST") == std::string::npos);
+    ImVec2 choice{};
+    for (const auto *window : ImGui::GetCurrentContext()->Windows)
+      if (window->Active && (window->Flags & ImGuiWindowFlags_Popup))
+        choice = {window->DC.CursorStartPos.x + 30, window->DC.CursorPosPrevLine.y + 6};
+    CHECK(choice.x > 0);
+    ui.click(app, choice);
+    CHECK(!ui.pickerOpen && app.nodes.size() == count + 1);
+    const auto *node = selectedNode(app);
+    CHECK(node && node->processor && nodeDisplayName(*node) == "Exposure");
+    CHECK(node->fixedInputs.at(ports::image) == previousOutput);
+    CHECK(app.documentOutput == (OutputRef{node->id, ports::image}) && app.pluginFilter[0] == '\0');
   }
-  // With no saved tree, the default Nodes dock is below Preview.
-  Ui ui; ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-  ImGui::GetIO().DisplaySize = {1280, 800}; ImGui::GetIO().DeltaTime = 1.0f / 60;
-  ImGui::NewFrame(); App app; DockLayout::BeginMainDockSpace(app);
-  const auto dock = [](const char *name) {
-    return ImGui::DockBuilderGetNode(ImGui::FindWindowSettingsByID(ImHashStr(name))->DockId);
-  };
-  CHECK(dock(DockLayout::kNodes)->Pos.y > dock(DockLayout::kPreview)->Pos.y);
-  CHECK(dock(DockLayout::kFilmstrip)->Pos.y > dock(DockLayout::kNodes)->Pos.y);
-  CHECK(dock(DockLayout::kParams)->Pos.x > dock(DockLayout::kNodes)->Pos.x);
-  ImGui::EndFrame();
+  app.nodesView = NodesView::List; ui.tick(app);
+  const float wideSourceY = ui.listSource.y;
+  ui.nodesWidth = 220; ui.tick(app); ui.tick(app);
+  CHECK(ui.listSource.y >= wideSourceY + ImGui::GetFrameHeightWithSpacing());
+  ui.nodesWidth = 1150; app.nodesView = NodesView::Graph; ui.tick(app); ui.tick(app);
+  std::snprintf(app.pluginFilter, sizeof app.pluginFilter, "CTL");
+  ui.click(app, ui.addButton); CHECK(ui.pickerOpen);
+  CHECK(ui.nodesLog.find("Load CTL script") != std::string::npos &&
+        ui.nodesLog.find("Exposure") == std::string::npos);
+  std::snprintf(app.pluginFilter, sizeof app.pluginFilter, "no-such-processor-xyz"); ui.tick(app);
+  CHECK(ui.nodesLog.find("No matches") != std::string::npos);
+  return true;
+}
+
+bool workspaceDocking() {
+  std::string saved;
+  ImGuiID previewId = 0, inspectorId = 0;
+  {
+    Ui ui; ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    App app;
+    for (int i = 0; i < 5; ++i) {
+      auto &io = ImGui::GetIO(); io.DisplaySize = {1280, 800}; io.DeltaTime = 1.0f / 60;
+      ImGui::NewFrame(); DrawUiFrame(app); ImGui::EndFrame();
+    }
+    const auto *preview = ImGui::FindWindowByName(DockLayout::kPreview);
+    const auto *nodes = ImGui::FindWindowByName(DockLayout::kNodes);
+    const auto *inspector = ImGui::FindWindowByName(DockLayout::kInspector);
+    const auto *strip = ImGui::FindWindowByName(DockLayout::kFilmstrip);
+    CHECK(preview && nodes && inspector && strip);
+    CHECK(!ImGui::FindWindowByName("OFX Plugins") && !ImGui::FindWindowByName("OFX Parameters"));
+    CHECK(nodes->Pos.y >= preview->Pos.y + preview->Size.y);
+    CHECK(inspector->Pos.x >= preview->Pos.x + preview->Size.x);
+    CHECK(strip->Pos.y >= nodes->Pos.y + nodes->Size.y && strip->Pos.x == preview->Pos.x);
+    CHECK(strip->Size.x > preview->Size.x + inspector->Size.x);
+    // Create a new custom arrangement, including a floating Nodes window.
+    ImGui::NewFrame();
+    ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
+    ImGui::SetNextWindowPos({100, 140}, ImGuiCond_Always);
+    ImGui::SetNextWindowSize({550, 280}, ImGuiCond_Always);
+    ImGui::Begin(DockLayout::kNodes); ImGui::End(); ImGui::EndFrame();
+    previewId = preview->DockId; inspectorId = inspector->DockId;
+    size_t length = 0; const char *ini = ImGui::SaveIniSettingsToMemory(&length);
+    saved.assign(ini, length);
+  }
+  {
+    Ui ui; ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    ImGui::LoadIniSettingsFromMemory(saved.c_str()); App app;
+    for (int i = 0; i < 5; ++i) {
+      auto &io = ImGui::GetIO(); io.DisplaySize = {1280, 800}; io.DeltaTime = 1.0f / 60;
+      ImGui::NewFrame(); DrawUiFrame(app); ImGui::EndFrame();
+    }
+    const auto *nodes = ImGui::FindWindowByName(DockLayout::kNodes);
+    CHECK(nodes && !nodes->DockId && nodes->Size.x == 550 && nodes->Size.y == 280);
+    CHECK(ImGui::FindWindowByName(DockLayout::kPreview)->DockId == previewId);
+    CHECK(ImGui::FindWindowByName(DockLayout::kInspector)->DockId == inspectorId);
+  }
   return true;
 }
 
@@ -573,55 +702,6 @@ bool firstDockedFrame() {
   return true;
 }
 
-bool previousVersionDockingUpgrade() {
-  // Captured by the actual 2491f91 Release binary on normal Xvfb shutdown.
-  // Loading ini settings in a NEW context is essential: programmatically built
-  // nodes already have Size, and cannot reproduce the upgrade failure.
-  const auto path = std::filesystem::path(__FILE__).parent_path() / "fixtures/pre-graph-layout.ini";
-  const auto ini = bytes(path.string());
-  CHECK(!ini.empty() && ini.find("[Window][Nodes]") == std::string::npos);
-  Ui ui; ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-  ImGui::LoadIniSettingsFromMemory(ini.c_str());
-  App app;
-  ImGuiID nodesId = 0, previewId = 0;
-  int dockCount = 0;
-  for (int frame = 0; frame < 6; ++frame) {
-    auto &io = ImGui::GetIO(); io.DisplaySize = {1400, 900}; io.DeltaTime = 1.0f / 60;
-    ImGui::NewFrame();
-    if (frame == 0) {
-      const auto *preview = ImGui::DockBuilderGetNode(0x00000005);
-      CHECK(preview && preview->Size.x == 0 && preview->Size.y == 0);
-      CHECK(preview->SizeRef.x == 698 && preview->SizeRef.y == 802);
-    }
-    DrawUiFrame(app); ImGui::EndFrame();
-    const auto *nodes = ImGui::FindWindowByName(DockLayout::kNodes);
-    const auto *preview = ImGui::FindWindowByName(DockLayout::kPreview);
-    CHECK(nodes && preview && nodes->DockNode && preview->DockNode);
-    if (frame == 0) {
-      nodesId = nodes->DockId; previewId = preview->DockId;
-      dockCount = ImGui::GetCurrentContext()->DockContext.Nodes.Data.Size;
-    } else {
-      CHECK(nodes->DockId == nodesId && preview->DockId == previewId);
-      CHECK(ImGui::GetCurrentContext()->DockContext.Nodes.Data.Size == dockCount);
-    }
-    if (frame < 2) continue; // ImGui settles normal window/dock geometry over frames.
-    // Independent geometry oracle: the old Preview was 698x783. Both new
-    // sections must be usable; a collapsed ~22px Nodes panel fails this check.
-    CHECK(nodes->Size.y > 150 && preview->Size.y > 300);
-    CHECK(nodes->Size.x == 698 && preview->Size.x == 698);
-    CHECK(nodes->DockNode->ParentNode == preview->DockNode->ParentNode);
-    CHECK(nodes->Pos.y >= preview->Pos.y + preview->Size.y);
-    const auto *left = ImGui::FindWindowByName(DockLayout::kLeft);
-    const auto *right = ImGui::FindWindowByName(DockLayout::kParams);
-    const auto *strip = ImGui::FindWindowByName(DockLayout::kFilmstrip);
-    CHECK(left && right && strip);
-    CHECK(left->DockId == 0x00000001 && left->Pos.x == 0 && left->Size.x == 279);
-    CHECK(right->DockId == 0x00000004 && right->Pos.x == 981 && right->Size.x == 419);
-    CHECK(strip->DockId == 0x00000006 && strip->Pos.y == 804 && strip->Size.y == 96);
-    CHECK(preview->Pos.x == 281 && preview->Pos.y == 19);
-  }
-  return true;
-}
 }  // namespace
 
 bool testGraphView() {
@@ -632,9 +712,10 @@ bool testGraphView() {
        std::make_pair("node hit testing, graph-space dragging and cursor zoom at 0.5x/2x", zoomedNodeInteraction),
        std::make_pair("Frame All focus, active text input, other panel and view switching", frameShortcutFocus),
        std::make_pair("photo layout save, failure, codec and reopen lifecycle", photoLayoutLifecycle),
-       std::make_pair("default docking and saved/custom/floating layout compatibility", dockingCompatibility),
-       std::make_pair("first-launch framing waits for settled docking geometry", firstDockedFrame),
-       std::make_pair("actual previous-version ini upgrade preserves usable dock geometry", previousVersionDockingUpgrade)}) {
+       std::make_pair("contextual Inspector, List endpoints, protected controls and selection isolation", inspectorContexts),
+       std::make_pair("searchable processor picker appends in List and Graph", processorPickerInBothViews),
+       std::make_pair("new workspace default and custom/floating ini restart", workspaceDocking),
+       std::make_pair("first-launch framing waits for settled docking geometry", firstDockedFrame)}) {
     if (!test.second()) { std::fprintf(stderr, "FAILED graph view: %s\n", test.first); return false; }
     std::printf("ok  Graph View: %s\n", test.first);
   }

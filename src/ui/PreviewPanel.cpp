@@ -1,4 +1,5 @@
 #include "ui/UiContext.h"
+#include "DocumentMutation.h"
 
 #include "imgui.h"
 
@@ -11,6 +12,11 @@
 #include <cstdio>
 
 void drawPreviewPanel(App &app) {
+  const char *items[kPreviewResCount];
+  for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
+  ImGui::SetNextItemWidth(std::min(140.0f, ImGui::GetContentRegionAvail().x));
+  if (ImGui::Combo("##previewResolution", &app.previewRes, items, kPreviewResCount)) rebuildPreview(app);
+  if (ImGui::IsItemHovered()) ImGui::SetTooltip("Preview resolution");
   const ImVec2 canvasPos = ImGui::GetCursorScreenPos();
   const ImVec2 canvasSize = ImGui::GetContentRegionAvail();
   if (canvasSize.x < 1.0f || canvasSize.y < 1.0f) return;

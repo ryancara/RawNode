@@ -120,12 +120,13 @@ void drawNode(const Canvas &canvas, const GraphNodeLayout &node, bool selected) 
     else draw.AddCircle(point, radius, color, 0, declaration.required ? 2.0f : 1.0f);
   }
 }
-void drawOutput(const Canvas &canvas, PersistPosition position) {
+void drawOutput(const Canvas &canvas, PersistPosition position, bool selected) {
   if (!canvas.visible(position, graphOutputWidth, graphOutputHeight)) return;
   const auto low = canvas.screen(position);
   const auto high = canvas.screen({position.x + graphOutputWidth, position.y + graphOutputHeight});
   canvas.draw.AddRectFilled(low, high, ImGui::GetColorU32(ImGuiCol_WindowBg), 4);
-  canvas.draw.AddRect(low, high, ImGui::GetColorU32(ImGuiCol_Border), 4);
+  canvas.draw.AddRect(low, high, ImGui::GetColorU32(selected ? ImGuiCol_NavCursor : ImGuiCol_Border), 4, 0,
+                        selected ? 2.0f : 1.0f);
   canvas.text({position.x + 12, position.y + 8}, ImGui::GetColorU32(ImGuiCol_Text), "Output");
   canvas.text({position.x + 12, position.y + 40}, ImGui::GetColorU32(ImGuiCol_TextDisabled), "Image");
   canvas.draw.AddCircleFilled(canvas.screen({position.x, position.y + 48}), float(4 * canvas.view.zoom),
@@ -157,9 +158,8 @@ void interact(App &app, const Canvas &canvas, GraphLayout &layout, bool hovered,
   }
   if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
     const auto point = canvasToGraph(state.view, mouse);
-    if (const auto *node = hitNode(layout, point, app.selectedNodeId)) {
-      if (node->node->operation == NodeOperation::Source) selectNode(app, std::nullopt);
-      else selectNode(app, node->node->id);
+    if (const auto *node = hitNode(layout, point, app.selectedNodeId())) {
+      selectNode(app, node->node->id);
       if (!app.isPhotoProtected() && point.y < node->position.y + graphHeaderHeight) {
         state.dragging = node->node->id;
         state.dragOffset = {point.x - node->position.x, point.y - node->position.y};
@@ -169,6 +169,8 @@ void interact(App &app, const Canvas &canvas, GraphLayout &layout, bool hovered,
                               point.y >= layout.output.y && point.y <= layout.output.y + graphOutputHeight;
       // Latch the press origin: dragging a node body into empty space must not
       // start a pan. Output is also occupied canvas, though it is not a Node.
+      if (overOutput) selectOutput(app);
+      else selectNode(app, std::nullopt);
       state.panningFromEmptyCanvas = !overOutput;
     }
   }
@@ -231,11 +233,11 @@ void drawGraphCanvas(App &app) {
   drawConnections(canvas, layout, app.documentOutput);
   const GraphNodeLayout *selected = nullptr;
   for (const auto &entry : layout.nodes) {
-    if (app.selectedNodeId == entry.second.node->id) selected = &entry.second;
+    if (app.selectedNodeId() == entry.second.node->id) selected = &entry.second;
     else drawNode(canvas, entry.second, false);
   }
   if (selected) drawNode(canvas, *selected, true);
-  drawOutput(canvas, layout.output);
+  drawOutput(canvas, layout.output, app.outputSelected());
   canvas.draw.PopClipRect();
   ImGui::EndChild();
 }

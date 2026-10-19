@@ -220,8 +220,10 @@ closed after independent final Codex/Claude implementation-readiness review.
 No further broad architectural refactor was required before Step 6. The explicit
 graph and sequential evaluator are now implemented, independently reviewed and
 merged. Step 7 persistence is also complete. The Graph/List editor now has its
-PR 1 visual foundation; connection editing (PR 2) and concrete production Mask
-features remain upcoming work. The approved target is
+PR #79 visual foundation and PR 2A contextual workspace implementation (D051).
+Visual editing (PR 2B), placement/usability (PR 2C) and concrete production Mask
+features remain upcoming work. PR 2A review/platform checks are tracked in
+`docs/WORKSPACE_INSPECTOR_VALIDATION.md`. The approved target is
 documented in `docs/ARCHITECTURE.md`; checkpoint
 evidence is in `docs/ARCHITECTURE_AUDIT.md`.
 
@@ -657,7 +659,7 @@ The remaining sequence is:
     Targeted graph safety + PNG colour corrections   [complete; independently reviewed]
           |
           v
-    Switchable Graph/List editor                   [PR 1 visual foundation; PR 2 connections next, D047]
+    Switchable Graph/List editor                   [PR #79 foundation; PR 2A/2B/2C follow, D047/D051]
           |
           v
     Step 8: Concrete first mask path + remaining implementation details
@@ -721,9 +723,14 @@ compositing or alpha-carrying I/O requires it.
 
 Next architecture/product work:
 
-- Complete the switchable Graph/List editor (D047) with PR 2 connection editing,
-  followed by Step 8's first concrete production Mask path. PR 1 supplies the
+- Follow D051's accepted UI sequence: PR 2A contextual Inspector/workspace,
+  PR 2B visual connection/deletion/insertion editing, PR 2C placement/usability,
+  followed by Step 8's first concrete production Mask path. PR #79 supplies the
   dockable visual foundation; Step 7 graph-native persistence is complete.
+- Preview owns resolution; Nodes owns Add Processor and List/Graph; Inspector
+  follows Source/processor/virtual Output/no selection. The top toolbar owns file
+  actions and status/warnings, retiring Left Panel. Historical UI-layout migration
+  is waived, while new layouts persist normally and photo/grade contracts remain.
 - Both editor views share the authoritative document graph and NodeId selection;
   switching views introduces no additional execution model.
 
@@ -771,7 +778,8 @@ metadata/ICC placement are corrected and independently reviewed. PNG regression
 coverage independently checks chunks, CRCs, profiles and pixels.
 
 **In progress:** the switchable Graph/List editor (D047) has its PR 1 visual
-foundation on the authoritative graph; PR 2 adds connection editing. **Then
+foundation on the authoritative graph; D051 stages PR 2A workspace, PR 2B
+visual editing and PR 2C placement/usability. **Then
 Step 8** adds the first concrete Mask path. These
 completed corrections are a preparatory gate, not additional architecture
 steps or a reason for a new whole-system audit.
@@ -832,8 +840,8 @@ rendering or graph evaluation; reopening the editable source photograph should
 restore any saved arrangement.
 
 The Nodes panel remembers List/Graph globally, defaulting to List. Graph View
-derives typed ports and connections from the live graph, shares NodeId selection
-with the existing parameter inspector, and uses `app.nodePositions` for generated
+derives typed ports and connections from the live graph, shares transient
+Source/processor/virtual Output selection with the contextual Inspector, and uses `app.nodePositions` for generated
 and dragged coordinates. Normal grade-save boundaries persist these positions;
 protected photos only derive drawing coordinates. Canvas pan/zoom remain transient
 and do not expand Step 7.

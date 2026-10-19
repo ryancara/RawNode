@@ -11,6 +11,8 @@
 
 void ui::drawNodeList(App &app) {
   ImGui::BeginChild("nodeList", ImVec2(0, 0), ImGuiChildFlags_Borders);
+  if (ImGui::Selectable("Source", app.selectedNodeId() == app.primarySource))
+    selectNode(app, app.primarySource);
   const auto rows = ui::projectNodeList({app.nodes, app.primarySource, app.documentOutput});
   if (const Node *output = findNode(app, app.documentOutput.nodeId))
     ImGui::TextWrapped("Document output: %s", nodeDisplayName(*output).c_str());
@@ -31,7 +33,7 @@ void ui::drawNodeList(App &app) {
       ImGui::PushID(node->id.value.data(), node->id.value.data() + node->id.value.size());
       const std::string label = nodeDisplayName(*node);
       if (!node->enabled) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.4f);
-      if (ImGui::Selectable(label.c_str(), app.selectedNodeId == node->id, 0,
+      if (ImGui::Selectable(label.c_str(), app.selectedNodeId() == node->id, 0,
                             ImVec2(std::max(btnH, ImGui::GetContentRegionAvail().x - btnsW - btnGap), btnH)))
         selectNode(app, node->id);
       if (!node->enabled) ImGui::PopStyleVar();
@@ -96,6 +98,8 @@ void ui::drawNodeList(App &app) {
     ImGui::TextDisabled("Outside the displayed Image spine;\nselect and edit without list reordering.");
     drawRows(rows.other, false);
   }
+  ImGui::Separator();
+  if (ImGui::Selectable("Output", app.outputSelected())) selectOutput(app);
   ImGui::EndChild();
   // Apply one row-control intent after all references into the node list have
   // expired. Intents and drag/drop retain identity, never storage positions.

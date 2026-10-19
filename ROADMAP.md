@@ -235,6 +235,10 @@ PR 1 visual foundation:
 - Keep append insertion, grade/sidecar contracts, colour semantics and renderer
   ownership unchanged.
 
+PR 2A implementation and validation are recorded in
+[WORKSPACE_INSPECTOR_VALIDATION.md](docs/WORKSPACE_INSPECTOR_VALIDATION.md);
+independent review and outstanding platform checks remain separate.
+
 **PR 2B — Visual graph editing**
 
 - Connect, reconnect and disconnect typed ports; edit document Output connections.

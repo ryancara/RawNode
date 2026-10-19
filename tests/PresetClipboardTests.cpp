@@ -97,7 +97,7 @@ bool hasPosition(const App &app, const std::string &id, double x, double y) {
 bool excessiveDepthTransfers() {
   Files files; Clipboard clipboard; App app;
   CHECK(addNativeExposureNode(app));
-  const auto selected = app.selectedNodeId;
+  const auto selected = app.selectedNodeId();
   app.nodePositions[selected->value] = {17, -5};
   CHECK(setNodeParameterValue(app, *selected, "exposure", 1.25));
   app.paramFilter[0] = 'e';
@@ -128,7 +128,7 @@ bool excessiveDepthTransfers() {
   // captureGrade() itself owns a read-only mutation, so observe refusal demand
   // before using payload() to compare the complete saved document.
   CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch && bytes(path) == unsafeJson);
-  CHECK(payload(app) == before && app.selectedNodeId == selected && app.paramFilter[0] == 'e');
+  CHECK(payload(app) == before && app.selectedNodeId() == selected && app.paramFilter[0] == 'e');
   CHECK(findNode(app, *selected)->processor.get() == processor);
   // Individually valid input must also be rejected before ownership changes
   // when attachment would make the destination exceed the limit.
@@ -321,8 +321,8 @@ bool insertAfterSelectedFinalNode() {
       fragment.nodes.front().inputs.at(ports::image).reset();
       std::string error;
       CHECK(encodeTransferPayload(fragment, clipboard.text, error) && pasteFromClipboard(app));
-    } else CHECK(appendGrade(app, incoming, app.selectedNodeId));
-    CHECK(app.nodes.size() == 6 && app.selectedNodeId && app.documentOutput == (OutputRef{*app.selectedNodeId, ports::image}));
+    } else CHECK(appendGrade(app, incoming, app.selectedNodeId()));
+    CHECK(app.nodes.size() == 6 && app.selectedNodeId() && app.documentOutput == (OutputRef{*app.selectedNodeId(), ports::image}));
     const auto tail = app.documentOutput.nodeId;
     CHECK(tail != NodeId{"end"});
     const auto *tailNode = findNode(app, tail);
@@ -356,7 +356,7 @@ bool rejectIncomingOffSpineConsumer() {
   CHECK(applyGrade(app, destination) && selectNode(app, NodeId{"end"}));
   app.paramFilter[0] = 'e';
   const auto before = payload(app);
-  const auto selection = app.selectedNodeId;
+  const auto selection = app.selectedNodeId();
   const auto inputEncoding = app.inputEncoding;
   const auto rawDefault = app.rawWorkingEncoding, outputDefault = app.defaultOutputEncoding;
   const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
@@ -371,10 +371,10 @@ bool rejectIncomingOffSpineConsumer() {
       {"id":"a","kind":"image-processor","backend":"native","identifier":"rawnode.native.exposure","enabled":true,"params":{"exposure":2},"inputs":{"image":{"node":"source","port":"image"}}},
       {"id":"b","kind":"image-processor","backend":"native","identifier":"rawnode.native.exposure","enabled":true,"params":{"exposure":-1},"inputs":{"image":{"node":"a","port":"image"}}}
     ]},"positions":{"a":{"x":-5,"y":-6},"b":{"x":7,"y":8}}}})");
-  CHECK(!appendGrade(app, incoming, app.selectedNodeId));
+  CHECK(!appendGrade(app, incoming, app.selectedNodeId()));
   CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch);
   CHECK(app.nodes.size() == 4 && app.documentOutput == image("end") && payload(app) == before);
-  CHECK(app.selectedNodeId == selection && app.paramFilter[0] == 'e' && app.inputEncoding == inputEncoding);
+  CHECK(app.selectedNodeId() == selection && app.paramFilter[0] == 'e' && app.inputEncoding == inputEncoding);
   CHECK(app.rawWorkingEncoding == rawDefault && app.defaultOutputEncoding == outputDefault);
   CHECK(!findNode(app, NodeId{"a"}) && !findNode(app, NodeId{"b"}));
   for (const auto &node : app.nodes) CHECK(node.processor.get() == processors.at(node.id.value));
@@ -392,7 +392,7 @@ bool copyNodeEligibilityAndCapture() {
   write(inputSidecarPath(app.path), "untouched sidecar");
   CHECK(selectNode(app, NodeId{"a"}));
   app.paramFilter[0] = 'e';
-  const auto before = payload(app), selection = app.selectedNodeId->value;
+  const auto before = payload(app), selection = app.selectedNodeId()->value;
   const auto *processorBefore = selectedNode(app)->processor.get();
   CHECK(canCopySelectedNode(app) && copySelectedNode(app));
   CHECK(app.getStatus() == "Copied node" && !clipboard.wroteUnderOwnership);
@@ -401,7 +401,7 @@ bool copyNodeEligibilityAndCapture() {
   const auto &node = std::get<PersistFragment>(transfer);
   CHECK(node.nodes.size() == 1 && node.nodes[0].id == "a" && node.nodes[0].paramsJson.at("exposure") == "1.5");
   CHECK(!node.nodes[0].inputs.at(ports::image) && node.positions.at("a").x == 1.25 && node.positions.at("a").y == -8);
-  CHECK(payload(app) == before && app.selectedNodeId->value == selection && app.paramFilter[0] == 'e');
+  CHECK(payload(app) == before && app.selectedNodeId()->value == selection && app.paramFilter[0] == 'e');
   CHECK(selectedNode(app)->processor.get() == processorBefore && bytes(inputSidecarPath(app.path)) == "untouched sidecar");
 
   const auto copied = clipboard.text;
@@ -409,10 +409,10 @@ bool copyNodeEligibilityAndCapture() {
   CHECK(graph::addNode(app, std::move(unsupported)).ok());
   for (auto id : {std::optional<NodeId>{}, std::optional<NodeId>{app.primarySource},
                   std::optional<NodeId>{NodeId{"stale"}}, std::optional<NodeId>{NodeId{"unsupported"}}}) {
-    app.selectedNodeId = id; // Include stale/Source identities that normal selection refuses.
+    app.selection = id ? InspectorSelection{*id} : InspectorSelection{}; // Include stale identities defensively.
     const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
     CHECK(!canCopySelectedNode(app) && !copySelectedNode(app) && clipboard.text == copied);
-    CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch && app.selectedNodeId == id);
+    CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch && app.selectedNodeId() == id);
   }
   CHECK(selectNode(app, NodeId{"a"}));
   app.sidecarWriteBlockedPath = app.path;
@@ -466,7 +466,7 @@ bool fragmentsAndClipboard() {
   std::string error;
   CHECK(encodeTransferPayload(fragment, clipboard.text, error));
   CHECK(selectNode(app, NodeId{"a"}) && pasteFromClipboard(app));
-  const auto tail = *app.selectedNodeId;
+  const auto tail = *app.selectedNodeId();
   const auto entry = findNode(app, tail)->fixedInputs.at(ports::image)->nodeId;
   CHECK(tail != NodeId{"b"} && entry != NodeId{"a"} && findNode(app, entry)->fixedInputs.at(ports::image) == image("a"));
   CHECK(findNode(app, NodeId{"b"})->fixedInputs.at(ports::image) == (OutputRef{tail, ports::image}));
@@ -485,7 +485,7 @@ bool fragmentsAndClipboard() {
   }
   // Foreign IDs matching destination IDs cannot reconnect an omitted Image input.
   const std::string handFragment = R"({"format":"rawnode-transfer","version":2,"kind":"fragment","nodes":[{"id":"a","kind":"image-processor","backend":"future","identifier":"opaque","enabled":false,"params":{"big":9007199254740993},"inputs":{"image":null}}]})";
-  clipboard.text = handFragment; app.selectedNodeId.reset();
+  clipboard.text = handFragment; selectNode(app, std::nullopt);
   const auto predecessor = app.documentOutput;
   CHECK(pasteFromClipboard(app));
   const auto *pasted = selectedNode(app);

@@ -144,7 +144,6 @@ bool loadPreferences(const std::string &path, Preferences &out, std::string &war
   integer(root, "jpegQuality", out.jpegQuality, 1, 100, warning);
   integer(root, "previewRes", out.previewRes, 0, kPreviewResCount - 1, warning);
   integer(root, "themeIndex", out.themeIndex, 0, themeCount() - 1, warning);
-  boolean(root, "showLeft", out.showLeft, warning);
   boolean(root, "showRight", out.showRight, warning);
   boolean(root, "showNodes", out.showNodes, warning);
   if (const auto *value = optional(root, "nodesView")) {
@@ -153,7 +152,6 @@ bool loadPreferences(const std::string &path, Preferences &out, std::string &war
       warn(warning, "nodesView: expected list or graph; using List View");
   }
   boolean(root, "showFilmstrip", out.showFilmstrip, warning);
-  size(root, "leftW", out.leftW, 1, 10000, warning);
   size(root, "rightW", out.rightW, 1, 10000, warning);
   size(root, "filmstripH", out.filmstripH, 48, 240, warning);
   if (!warning.empty()) warning = path + ":\n" + warning;
@@ -170,12 +168,11 @@ bool preferences_detail::save(const std::string &path, const Preferences &p, std
       << "  \"rawWorking\":" << pairJson(p.rawWorking) << ",\n  \"output\":" << pairJson(p.output)
       << ",\n  \"exportFormat\":" << p.exportFormat << ",\n  \"jpegQuality\":" << p.jpegQuality
       << ",\n  \"previewRes\":" << p.previewRes << ",\n  \"themeIndex\":" << p.themeIndex
-      << ",\n  \"showLeft\":" << (p.showLeft ? "true" : "false")
       << ",\n  \"showRight\":" << (p.showRight ? "true" : "false")
       << ",\n  \"showNodes\":" << (p.showNodes ? "true" : "false")
       << ",\n  \"nodesView\":\"" << (p.nodesView == NodesView::Graph ? "graph" : "list") << "\""
       << ",\n  \"showFilmstrip\":" << (p.showFilmstrip ? "true" : "false")
-      << ",\n  \"leftW\":" << p.leftW << ",\n  \"rightW\":" << p.rightW
+      << ",\n  \"rightW\":" << p.rightW
       << ",\n  \"filmstripH\":" << p.filmstripH << "\n}\n";
   return persist_detail::replaceFileAtomically(path, out.str(), error, fault);
 }
@@ -194,8 +191,8 @@ Preferences capturePreferences(const App &app) {
   p.exportFormat = app.exportFormat; p.jpegQuality = app.jpegQuality;
   p.previewRes = app.previewRes; p.themeIndex = app.themeIndex;
   p.showNodes = app.showNodes; p.nodesView = app.nodesView;
-  p.showLeft = app.showLeft; p.showRight = app.showRight; p.showFilmstrip = app.showFilmstrip;
-  p.leftW = app.leftW; p.rightW = app.rightW; p.filmstripH = app.filmstripH;
+  p.showRight = app.showRight; p.showFilmstrip = app.showFilmstrip;
+  p.rightW = app.rightW; p.filmstripH = app.filmstripH;
   return p;
 }
 
@@ -212,8 +209,8 @@ void applyPreferences(App &app, const Preferences &p) {
   app.exportFormat = p.exportFormat; app.jpegQuality = p.jpegQuality;
   app.previewRes = p.previewRes; app.themeIndex = p.themeIndex;
   app.showNodes = p.showNodes; app.nodesView = p.nodesView;
-  app.showLeft = p.showLeft; app.showRight = p.showRight; app.showFilmstrip = p.showFilmstrip;
-  app.leftW = p.leftW; app.rightW = p.rightW; app.filmstripH = p.filmstripH;
+  app.showRight = p.showRight; app.showFilmstrip = p.showFilmstrip;
+  app.rightW = p.rightW; app.filmstripH = p.filmstripH;
 }
 
 bool initialisePreferences(App &app, const ConfigPaths &paths) {
