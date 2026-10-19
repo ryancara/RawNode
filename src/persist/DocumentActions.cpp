@@ -170,6 +170,7 @@ bool document_detail::applyGrade(App &app, const PersistGrade &incoming, const A
     }
     // All fallible work precedes publication. Retired nodes/pixels are destroyed
     // while this DocumentMutation still excludes preview and full export.
+    app.graphCanvas.cancelInteraction();
     app.nodes.swap(restored.nodes);
     std::swap(app.primarySource, restored.primarySource);
     std::swap(app.documentOutput, restored.output);
@@ -336,6 +337,7 @@ static bool openPreparedPhoto(App &app, const std::string &path, const ActionTes
     }
     // Every fallible decode, reconstruction and preview allocation precedes
     // publication. Old processors/pixels remain owned inside this mutation.
+    app.graphCanvas.cancelInteraction();
     app.nodes.swap(restored.nodes);
     std::swap(app.primarySource, restored.primarySource);
     std::swap(app.documentOutput, restored.output);

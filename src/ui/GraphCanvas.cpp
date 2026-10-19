@@ -246,6 +246,51 @@ void drawWireGesture(const App &app, const Canvas &canvas, const GraphLayout &la
         target->type != anchor->type ? "Image/Mask type mismatch" : "Release to connect");
   }
 }
+
+void commitWire(App &app, GraphPortAddress from, GraphPortAddress to) {
+  if (from.direction == to.direction) {
+    app.setStatus("Cannot connect: choose an output and an input");
+    return;
+  }
+  if (from.direction == PortDirection::Input) std::swap(from, to);
+  const OutputRef producer{from.nodeId, from.port};
+  graph::CommandResult result;
+  if (to.isDocumentOutput()) result = graph::setDocumentOutput(app, producer);
+  else {
+    const InputAddress destination{to.nodeId, to.slot, to.port};
+    const auto *binding = findInput(app, destination);
+    result = binding && *binding ? graph::reconnect(app, producer, destination)
+                                : graph::connect(app, producer, destination);
+  }
+  if (!result.ok()) app.setStatus("Cannot connect: " + result.error);
+}
+
+std::optional<InputAddress> portContextMenu(App &app, const Canvas &canvas, const GraphLayout &layout,
+                                            bool hovered) {
+  auto &state = app.graphCanvas;
+  if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+    state.wire.reset(); state.dragging.reset(); state.panningFromEmptyCanvas = false;
+    const auto &mouse = ImGui::GetIO().MousePos;
+    const auto port = hitGraphPort(layout, canvas.view, {mouse.x - canvas.origin.x, mouse.y - canvas.origin.y});
+    state.contextPort = port ? std::optional<GraphPortAddress>{port->address} : std::nullopt;
+    if (port) ImGui::OpenPopup("##portContext");
+  }
+  std::optional<InputAddress> disconnect;
+  if (ImGui::BeginPopup("##portContext")) {
+    if (state.contextPort && resolvePort(layout, *state.contextPort)) {
+      const auto &port = *state.contextPort;
+      ImGui::TextUnformatted(port.isDocumentOutput() ? "Output / Image input" : port.port.value.c_str());
+      if (port.direction == PortDirection::Input && !port.isDocumentOutput()) {
+        const InputAddress input{port.nodeId, port.slot, port.port};
+        const auto *binding = findInput(app, input);
+        if (ImGui::MenuItem("Disconnect", nullptr, false,
+                            binding && binding->has_value() && app.renderer.canEditParameters())) disconnect = input;
+      } else ImGui::TextDisabled(port.isDocumentOutput() ? "Output must stay connected" : "Drag to an input to connect");
+    } else ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
+  }
+  return disconnect;
+}
 }  // namespace
 
 void drawGraphCanvas(App &app) {
@@ -287,7 +332,6 @@ void drawGraphCanvas(App &app) {
   }
   Canvas canvas{canvasOrigin, canvasSize, state.view, *ImGui::GetWindowDrawList()};
   const auto drop = interact(app, canvas, layout, hovered, active);
-  (void)drop; // The following connection-editing commit supplies command dispatch.
   const ImVec2 high(canvasOrigin.x + canvasSize.x, canvasOrigin.y + canvasSize.y);
   canvas.draw.PushClipRect(canvasOrigin, high, true);
   canvas.draw.AddRectFilled(canvasOrigin, high, ImGui::GetColorU32(ImGuiCol_FrameBg));
@@ -301,6 +345,13 @@ void drawGraphCanvas(App &app) {
   drawOutput(canvas, layout.output, app.outputSelected());
   drawWireGesture(app, canvas, layout, hovered);
   canvas.draw.PopClipRect();
+  const auto disconnect = portContextMenu(app, canvas, layout, hovered);
   ImGui::EndChild();
+  // Geometry borrows live nodes. Dispatch only after drawing and popup traversal.
+  if (drop) commitWire(app, drop->first, drop->second);
+  else if (disconnect) {
+    const auto result = graph::disconnect(app, *disconnect);
+    if (!result.ok()) app.setStatus("Cannot disconnect: " + result.error);
+  }
 }
 }  // namespace ui

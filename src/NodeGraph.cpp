@@ -522,6 +522,7 @@ RestoredChain restoreChain(App &app, const PersistChain &chain, bool strictParam
 }
 
 void replaceChain(App &app, RestoredChain &&chain) {
+  app.graphCanvas.cancelInteraction();
   app.nodes.swap(chain.nodes);
   app.nodePositions.clear();
   std::swap(app.documentOutput, chain.output);
@@ -575,6 +576,7 @@ static int findPluginIndex(const std::string &identifier, const std::string &lab
 }
 
 static void clearNodesWithinMutation(App &app) {
+  app.graphCanvas.cancelInteraction();
   app.nodePositions.clear();
   // Preserve the same Source operation/identity across grade and image changes.
   auto source = std::find_if(app.nodes.begin(), app.nodes.end(), [&](const Node &node) {

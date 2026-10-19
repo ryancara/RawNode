@@ -102,6 +102,7 @@ class StagedEdit {
         else ++position;
       }
       if (owner->selectedNodeId() && !findNode(*owner, *owner->selectedNodeId())) selectNode(*owner, std::nullopt);
+      owner->graphCanvas.cancelInteraction();
       mutation->changed();
     }
     return {{}, addedSlot};
@@ -171,6 +172,7 @@ template <typename Change>
 static CommandResult editGraph(App &app, Change change, Node *addition = nullptr) {
   document_detail::DocumentMutation::assertControlThread(app);
   if (!requireEditableGraph(app)) return {"The saved grade was not loaded; graph editing is disabled", std::nullopt};
+  if (!app.renderer.canEditParameters()) return {"Graph editing is disabled during export", std::nullopt};
   return editGraph(graph::Document{app.nodes, app.primarySource, app.documentOutput}, change, addition, &app);
 }
 
