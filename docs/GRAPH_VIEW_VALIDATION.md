@@ -130,3 +130,38 @@ behaviours before opening the replacement PR; include that table in its descript
 
 Windows GUI validation remains pending. Linux/headless results cannot establish
 macOS/Nikon/Retina behaviour.
+
+## Focused replacement validation — 2026-10-19
+
+- Ubuntu 24.04 / GCC 13 CMake Release build passed in the isolated validation
+  container with the pinned dependency sources. All 16 Graph View groups passed:
+  11 existing groups retained and five focused wiring/deletion/lifecycle groups.
+  The picker regression now checks append for None/Source/processor/Output
+  selection in both views, without changing picker or construction code.
+- Separate `--selftest-graph`, `--selftest-photo`, `--selftest-export-safety` and
+  `--selftest-transfers` passed; complete `--selftest` passed. Existing non-UI
+  tests and their lifetime/export expectations are unchanged from main.
+- Debug ASan/UBSan `--selftest-graph-view`, `--selftest-graph` and
+  `--selftest-graph-runtime` passed with leak detection and halt-on-error enabled.
+  No finding occurred in these focused runs; no complete sanitizer run is claimed.
+  Historical unrelated sanitizer findings remain recorded separately above.
+- Real Xvfb/OpenGL smoke on a synthetic PNG rewired Source into an occupied input
+  and virtual Output, changed the preview, disconnected/reconnected the required
+  input, and deleted an off-spine processor through the one-item node menu.
+  Actual saves independently confirmed B.image -> Source, Output -> Source and
+  removal of only A/A's position, preserving Source (0,0) and B (640,0).
+  A single fresh process restored that grade, then Backspace deleted B; explicit
+  Save Grade and File -> Quit saved Source-only topology/layout. Process exit was
+  checked before reopening. GUI smoke used menu Quit; the baseline's displayed
+  Ctrl+Q label does not implement that shortcut and was not changed in this PR.
+- Full-diff scope audit: production changes are confined to GraphCanvas.cpp/.h,
+  NodesPanel.cpp and UiFrame.cpp. The PR description maps each to approved UI
+  behaviour. No non-UI production supporting change is required. NodeGraph,
+  ProcessorPicker, GraphCommands, AppState, renderer/evaluator, persistence and
+  processor backends are identical to current main. No withdrawn insertion tests,
+  picker state, insertion preflight, graph-to-canvas callbacks or new systems remain.
+
+GitHub Linux CI results are reported on the replacement PR for its exact head.
+Claude independent review and the macOS checklist remain pending; Windows GUI
+was not tested. PR #81 remains open and unchanged at
+`13054eaf05c249d050a6cd48bb175fff2b9ff5a1`; neither PR is merged and PR 2C is untouched.
