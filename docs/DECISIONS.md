@@ -592,10 +592,11 @@ was closed without merging its insertion or construction changes.
 
 The owner agrees product behaviour and visual conventions before implementation.
 For an approved feature, implementers may choose ordinary technical details and
-the minimum usability feedback it requires. Discretionary changes to controls,
-labels, menus, shortcuts, colours, port shapes, selection and layout are product
+the minimum usability feedback it requires. Discretionary changes to user-visible
+behaviour and appearance (e.g. controls, menus, labels, icons, port shapes,
+colours, layout, shortcuts, selection, defaults or workflows) are product
 decisions, regardless of how easy they are to code; propose them rather than
-quietly include them. Every UI PR reports all user-visible changes against
+quietly include them. Every PR with user-visible changes reports them against
 approved behaviour. Unapproved improvements may be recorded as suggestions
 without implementation.
 
@@ -605,17 +606,19 @@ preference, not a ban on new architecture. A cohesive new module or subsystem
 is acceptable when a concrete need shows better modularity, responsibility
 separation, maintainability or extensibility than extending the existing
 mechanism, with proportionate integration costs. Significant architectural
-choices must be explicitly discussed and approved in advance. Avoid duplicate
-state/protocols and speculative machinery without demonstrated benefit; a
-new file or class does not by itself constitute a new system.
+changes, such as introducing an independent subsystem, changing execution/
+ownership protocols or revising a persistence schema, require advance owner
+discussion and approval. Avoid duplicate state/protocols and speculative
+machinery without a demonstrated requirement; a new file or class does not
+by itself constitute a new system.
 
 Code review independently checks product scope, architecture fit/reuse and
 correctness, and distinguishes mandatory fixes from optional improvements.
 Successful tests do not authorise unrelated work.
 
-Selection-dependent processor insertion, Insert Before/After and automatic
-serial placement remain undecided product interactions, not implied by the
-Graph View milestone. Intentionally empty pass-through nodes and assigning or
+Selection-dependent processor insertion, Insert Before/After, automatic
+serial placement and Auto Arrange remain undecided product interactions,
+not implied by the Graph View milestone. Intentionally empty pass-through nodes and assigning or
 replacing processors while retaining NodeId/connections are deferred. The
 current graph already stores topology by NodeId and processor state inside
 nodes; future empty-node semantics must distinguish intentionally empty from
