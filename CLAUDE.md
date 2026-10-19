@@ -7,8 +7,8 @@ from ofxrawhost.
 
 It supports one explicit processing graph containing native processors, OpenFX
 plugins and CTL processors, with a dockable Nodes panel and switchable List/Graph
-presentation. D051 stages contextual workspace (PR 2A), graph editing (PR 2B) and placement
-(PR 2C); future plans
+presentation. D051's workspace and graph editing stages are merged as PR #80
+and PR #82. PR 2C placement/usability awaits an approved scope; future plans
 include DCTL, LUTs, masks, compositing and local adjustments.
 
 macOS is currently the primary development platform, but the architecture should
@@ -323,11 +323,12 @@ coverage only when its Reference frame resolves.
 
 Step 7 graph-native persistence and all four targeted post-Step-7 corrections
 are complete (see "Quality and verification roadmap" in
-`docs/PROJECT_CONTEXT.md`). The Graph/List visual foundation (D047) adds a
-dockable Nodes panel; D051 stages workspace PR 2A, graph editing PR 2B and
-placement/usability PR 2C before Step 8's first
-concrete production Mask path. See `docs/GRAPH_VIEW_VALIDATION.md` for focused tests, owner-reported
-macOS validation and separately pending edge-case/Windows checks.
+`docs/PROJECT_CONTEXT.md`). The Graph/List visual foundation (PR #79),
+workspace/Inspector (PR #80) and graph editing (PR #82) are merged.
+PR 2C placement/usability awaits approval of its exact scope before Step 8's
+first concrete production Mask path. See `docs/GRAPH_VIEW_VALIDATION.md`
+for focused tests, owner-reported macOS results and pending native edge-case
+and Windows GUI checks.
 Both editor views share the authoritative document graph and NodeId selection.
 Step 6 proves typed Mask/evaluation contracts with tests; user-facing masking
 remains Step 8 work.
@@ -401,11 +402,12 @@ be proposed separately rather than incorporated without approval.
 
 ## Product decisions and architecture reuse in PR reviews
 
-For any UI PR, enumerate every actual user-visible behaviour or appearance
-change, not just the headline features. Check selection behaviour, menus,
-shortcuts, controls, labels, shapes, layout, visual feedback and existing
-workflows. Distinguish minimal feedback required to implement an approved
-interaction from discretionary product/design choices. Flag unapproved choices
+For any PR with user-visible changes, enumerate every actual behaviour or
+appearance change, not just the headline features. Consider, for example,
+controls, menus, labels, icons, port shapes, colours, layout, shortcuts,
+selection, warnings, defaults and workflows. Distinguish minimal feedback
+required for approved interactions from discretionary choices. Flag unapproved
+choices
 as scope findings even if the implementation is small, useful and correct.
 Do not assume that a roadmap idea authorises implementation without a focused
 owner-approved acceptance contract.
@@ -417,8 +419,10 @@ new lifecycle protocols and feature-specific subsystems; prefer reuse where
 it keeps boundaries clear. A new file or class is not automatically a new
 system. Conversely, a *justified* new module or system is welcome when it
 demonstrably improves modularity, separation of responsibilities, maintainability
-or future extensibility and the owner approved any substantial architectural
-decision. Judge benefits and complexity proportionately, not by counting files.
+or extensibility for a concrete requirement. Speculative infrastructure is
+not justified by possible future uses. Significant architectural changes
+(e.g. a new subsystem, changed ownership/execution protocol or persistence
+schema) require owner approval. Judge proportionately, not by counting files.
 
 Review **scope**, **architecture fit** and **correctness** as separate
 acceptance criteria; tests alone cannot establish approval. Recommend narrowly
