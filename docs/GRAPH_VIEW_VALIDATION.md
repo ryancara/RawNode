@@ -8,6 +8,13 @@ for the PR #80 control mapping and historical validation. PR 2C placement/usabil
 requires a separate approved scope. None of these UI PRs replaces the renderer,
 evaluator, graph commands or sidecar schema.
 
+Selection-aware Add Processor is now separately approved under D051. The
+append-only checks in the historical PR 2B record below apply to that merged
+scope. Current checks use D051's selection table in both views, including
+repeated additions, off-chain branching, fan-out preservation and refusal without
+mutation/render demand. Native macOS/Windows validation of this addition remains
+pending; existing dated results below do not establish it.
+
 ## Graph foundation contracts
 
 - App::nodes owns the graph. Canvas ports come from nodeInterface(); wires read
@@ -33,6 +40,7 @@ evaluator, graph commands or sidecar schema.
 ```sh
 ./build.sh
 build/OfxRawHost --selftest-graph-view
+build/OfxRawHost --selftest-graph-runtime
 build/OfxRawHost --selftest-preferences
 build/OfxRawHost --selftest-photo
 build/OfxRawHost --selftest
@@ -64,7 +72,11 @@ merge; fresh PR 2A platform checks remain separately pending.
 Graph provides single selection and header movement, with typed wiring,
 input Disconnect, virtual Output rewiring and focused deletion merged in
 PR #82. Reorder and enable/disable remain List controls. Add Processor is
-available in both modes and retains PR #80's append-to-Output behaviour.
+available in both modes and follows D051's selection-aware insertion policy:
+Source/main-chain selection inserts before the next main-chain consumer;
+off-chain Image selection creates a downstream branch without changing Output
+or existing consumers. No selection, virtual Output and final main-chain
+selection append at document Output.
 Source is movable and opens input inspection. Output is selectable but derived,
 non-draggable and nonpersistent. Pan/zoom reset per photo; zoom spans 0.2–2.5.
 Very large layouts may require panning after Frame All reaches minimum zoom.

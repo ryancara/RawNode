@@ -6,9 +6,10 @@ struct App;
 
 namespace graph {
 
-// Detached documents can use these pure commands directly. Live App callers
-// must use the App overloads, which own DocumentMutation execution exclusion.
-// Both overloads use the same stage/validate/commit implementation.
+// Detached documents can use these pure commands directly. Mutating live App
+// callers must use the App overloads, which own DocumentMutation exclusion.
+// Both overloads use the same stage/validate/commit implementation. Topology-only
+// validation queries may borrow live storage on the control thread.
 struct Document {
   std::vector<Node> &nodes;
   const NodeId &primarySource;
@@ -49,6 +50,13 @@ CommandResult reorderSlot(Document document, const NodeId &node, SlotId slot,
 // before is absent. The new node must have a required image input/image output.
 CommandResult insertImageNode(Document document, Node &&node,
                               std::optional<InputAddress> before = std::nullopt);
+// Topology-only preflight for a new ordinary ImageProcessor, before backend
+// construction enters execution exclusion. A branch binds only the new input
+// and preserves Output/consumers; otherwise use the insertImageNode splice.
+// Uses the same staging/validation and never commits or acquires mutation.
+CommandResult validateImageNodeInsertion(Document document,
+                                        std::optional<InputAddress> before = std::nullopt,
+                                        std::optional<OutputRef> branch = std::nullopt);
 // Atomic linear batch splice. Nodes are ordered by their internal Image edges,
 // with a detached entry. Validate the whole destination and selected spine point
 // before moving any processor. Caller owns execution exclusion for live storage.

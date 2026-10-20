@@ -1898,7 +1898,7 @@ static bool testUnavailableProcessorRestore(bool append, bool ctl) {
   return finishGraphPreview(app, before, 0.25f);
 }
 
-enum class ActiveGraphEdit { Add, Remove, Reorder, Disable, FailCtl, AddOfx };
+enum class ActiveGraphEdit { Add, AddAfterSource, AddBranch, Remove, Reorder, Disable, FailCtl, AddOfx };
 
 static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginIndex = -1) {
   ExportTestFiles files;
@@ -1915,6 +1915,16 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
   appendTestNode(app, std::move(barrier));
   if (!addNativeExposureNode(app) ||
       !app.nodes[2].processor->setParameterValue("exposure", 1.0)) return false;
+  const auto previousOutput = app.documentOutput;
+  const NodeId branchId{"insertion-branch"};
+  if (edit == ActiveGraphEdit::AddAfterSource) selectNode(app, app.primarySource);
+  if (edit == ActiveGraphEdit::AddBranch) {
+    Node branch; branch.id = branchId;
+    branch.processor = std::make_unique<NativeExposureProcessor>();
+    branch.fixedInputs.at(ports::image) = previousOutput;
+    if (!graph::addNode(app, std::move(branch)).ok() || !selectNode(app, branchId)) return false;
+  }
+  const auto originalCount = app.nodes.size();
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
   if (exporting && !startExport(app, files.output())) return false;
@@ -1929,7 +1939,7 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
     const auto state = renderState(app);
     waited = observed && state.mutationDepth == 1 &&
              (exporting ? state.exportBusy && !state.previewBusy : state.previewBusy && !state.exportBusy) &&
-             app.nodes.size() == 3 && app.nodes[2].enabled;
+             app.nodes.size() == originalCount && app.nodes[2].enabled;
     {
       std::lock_guard<std::mutex> lock(probe->mutex);
       probe->release = true;
@@ -1938,7 +1948,9 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
   });
   bool operationOk = true;
   switch (edit) {
-    case ActiveGraphEdit::Add: operationOk = addNativeExposureNode(app); break;
+    case ActiveGraphEdit::Add:
+    case ActiveGraphEdit::AddAfterSource:
+    case ActiveGraphEdit::AddBranch: operationOk = addNativeExposureNode(app); break;
     case ActiveGraphEdit::Remove: destroyNode(app, app.nodes[2].id); break;
     case ActiveGraphEdit::Reorder: moveNode(app, app.nodes[2].id, app.nodes[1].id); break;
     case ActiveGraphEdit::Disable: setNodeEnabled(app, app.nodes[2].id, false); break;
@@ -1950,6 +1962,15 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
   observer.join();
   app.renderer.joinExport();
   if (!waited || !operationOk || !previewIdle(app) || renderState(app).mutationDepth != 0) return false;
+  if (events.counts[static_cast<size_t>(RuntimeEvent::MutationCompleted)] != 1) return false;
+  if (edit == ActiveGraphEdit::AddAfterSource || edit == ActiveGraphEdit::AddBranch) {
+    const auto inserted = *app.selectedNodeId();
+    const auto predecessor = edit == ActiveGraphEdit::AddAfterSource ? app.primarySource : branchId;
+    if (selectedNode(app)->fixedInputs.at(ports::image) != OutputRef{predecessor, ports::image} ||
+        app.documentOutput != previousOutput) return false;
+    if (edit == ActiveGraphEdit::AddAfterSource &&
+        findNode(app, NodeId{"barrier"})->fixedInputs.at(ports::image) != OutputRef{inserted, ports::image}) return false;
+  }
   {
     std::lock_guard<std::mutex> lock(probe->mutex);
     if (probe->calls != 2) return false;  // Original owner, then one final preview.
@@ -2621,7 +2642,8 @@ int runSelfTests() {
           return fail("failed OFX/CTL restoration must retain placeholders in one transaction");
     printf("ok  Failed OFX/CTL creation preserves restored placeholders (4 transactions)\n");
     for (bool exporting : {false, true}) {
-      for (auto edit : {ActiveGraphEdit::Add, ActiveGraphEdit::Remove, ActiveGraphEdit::Reorder,
+      for (auto edit : {ActiveGraphEdit::Add, ActiveGraphEdit::AddAfterSource, ActiveGraphEdit::AddBranch,
+                        ActiveGraphEdit::Remove, ActiveGraphEdit::Reorder,
                         ActiveGraphEdit::Disable, ActiveGraphEdit::FailCtl}) {
         if (!testGraphEditWaits(exporting, edit)) {
           fprintf(stderr, "active graph edit: %d exporting=%d\n", (int)edit, exporting);
@@ -2629,7 +2651,7 @@ int runSelfTests() {
         }
       }
     }
-    printf("ok  Production graph edits drain active preview/export (10 barrier cases)\n");
+    printf("ok  Production graph edits drain active preview/export (14 barrier cases)\n");
   }
 
   {

@@ -2,6 +2,7 @@
 
 #include "DocumentMutation.h"
 #include "GraphCommands.h"
+#include "GraphDepthFixtures.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActions.h"
@@ -91,6 +92,178 @@ struct Files {
   ~Files() { std::error_code error; std::filesystem::remove_all(dir, error); }
   std::string path(const char *name) const { return (dir / name).string(); }
 };
+
+// Expected bindings are specified directly from the approved serial-insertion
+// table. Deliberately reverse storage so list/vector order cannot be the oracle.
+static bool testSelectionAwareInsertion() {
+  for (const auto viewMode : {NodesView::List, NodesView::Graph}) {
+    for (int selection = 0; selection < 6; ++selection) {
+      App app; app.nodesView = viewMode;
+      CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+      CHECK(addNativeCstNode(app)); const auto b = *app.selectedNodeId();
+      CHECK(addNativeExposureNode(app)); const auto c = *app.selectedNodeId();
+      CHECK(findNode(app, a)->processor->setParameterValue("exposure", 1.5));
+      Processor *original = findNode(app, a)->processor.get();
+      const NodeId branch{"fanout"}, slots{"slots"};
+      CHECK(add(app, branch, NodeOperation::TestImage) && add(app, slots, NodeOperation::TestSlotted));
+      CHECK(graph::connect(app, image(a), input(branch)).ok());
+      const auto slot = graph::addSlot(app, slots, {false}).addedSlot; CHECK(slot);
+      CHECK(graph::connect(app, image(a), {slots, slot, ports::image}).ok());
+      CHECK(graph::addSlot(app, slots).ok());
+      const auto nextSlot = findNode(app, slots)->nextSlotIdForPersistence();
+      app.nodePositions = {{a.value, {12, -7}}, {b.value, {98, 15}}};
+      std::reverse(app.nodes.begin(), app.nodes.end());
+      if (selection == 0) CHECK(selectNode(app, std::nullopt));
+      if (selection == 1) selectOutput(app);
+      if (selection == 2) CHECK(selectNode(app, app.primarySource));
+      if (selection == 3) CHECK(selectNode(app, a));
+      if (selection == 4) CHECK(selectNode(app, b));
+      if (selection == 5) CHECK(selectNode(app, c));
+      const auto count = app.nodes.size();
+      CHECK(addNativeExposureNode(app)); const auto inserted = *app.selectedNodeId();
+      const auto predecessor = selection == 2 ? app.primarySource : selection == 3 ? a : selection == 4 ? b : c;
+      CHECK(app.nodes.size() == count + 1 && findNode(app, inserted)->fixedInputs.at(ports::image) == image(predecessor));
+      CHECK(app.documentOutput == image(selection >= 2 && selection <= 4 ? c : inserted));
+      CHECK(findNode(app, a)->fixedInputs.at(ports::image) == image(selection == 2 ? inserted : app.primarySource));
+      CHECK(findNode(app, b)->fixedInputs.at(ports::image) == image(selection == 3 ? inserted : a));
+      CHECK(findNode(app, c)->fixedInputs.at(ports::image) == image(selection == 4 ? inserted : b));
+      CHECK(findNode(app, branch)->fixedInputs.at(ports::image) == image(a));
+      const auto *slotted = findNode(app, slots);
+      CHECK(slotted->slots.size() == 2 && slotted->slots[0].id == *slot && !slotted->slots[0].settings.enabled);
+      CHECK(slotted->slots[0].inputs.at(ports::image) == image(a) && !slotted->slots[1].inputs.at(ports::image));
+      CHECK(slotted->nextSlotIdForPersistence() == nextSlot);
+      CHECK(findNode(app, a)->processor.get() == original && exposure(findNode(app, a)) == 1.5);
+      CHECK(app.nodePositions.size() == 2 && app.nodePositions.at(a.value).x == 12 && app.nodePositions.at(a.value).y == -7);
+      CHECK(app.nodePositions.at(b.value).x == 98 && app.nodePositions.at(b.value).y == 15);
+      CHECK(documentStateError(app).empty());
+      // The successful selection itself is the insertion point for the next Add.
+      CHECK(addNativeCstNode(app)); const auto repeated = *app.selectedNodeId();
+      CHECK(findNode(app, repeated)->fixedInputs.at(ports::image) == image(inserted));
+      if (selection == 2) CHECK(findNode(app, a)->fixedInputs.at(ports::image) == image(repeated));
+      else if (selection == 3) CHECK(findNode(app, b)->fixedInputs.at(ports::image) == image(repeated));
+      else if (selection == 4) CHECK(findNode(app, c)->fixedInputs.at(ports::image) == image(repeated));
+      else CHECK(app.documentOutput == image(repeated));
+    }
+    for (int selection = 0; selection < 3; ++selection) {
+      App app; app.nodesView = viewMode;
+      if (selection == 1) CHECK(selectNode(app, app.primarySource));
+      if (selection == 2) selectOutput(app);
+      CHECK(addNativeCstNode(app));
+      CHECK(app.documentOutput == image(*app.selectedNodeId()));
+      CHECK(selectedNode(app)->fixedInputs.at(ports::image) == image(app.primarySource));
+    }
+  }
+  return true;
+}
+
+static bool testOffChainInsertion() {
+  App app;
+  CHECK(addNativeCstNode(app)); const auto output = app.documentOutput;
+  const NodeId branch{"insertion"}, consumer{"existing-consumer"};
+  Node exposureNode; exposureNode.id = branch;
+  exposureNode.processor = std::make_unique<NativeExposureProcessor>();
+  exposureNode.fixedInputs.at(ports::image) = image(app.primarySource);
+  CHECK(graph::addNode(app, std::move(exposureNode)).ok());
+  CHECK(add(app, consumer, NodeOperation::TestImage));
+  CHECK(graph::connect(app, image(branch), input(consumer)).ok());
+  CHECK(selectNode(app, branch));
+  CHECK(addNativeExposureNode(app)); const auto inserted = *app.selectedNodeId();
+  CHECK(app.documentOutput == output && selectedNode(app)->fixedInputs.at(ports::image) == image(branch));
+  CHECK(findNode(app, consumer)->fixedInputs.at(ports::image) == image(branch));
+  CHECK(findNode(app, output.nodeId)->fixedInputs.at(ports::image) == image(app.primarySource));
+  CHECK(addNativeCstNode(app)); const auto repeated = *app.selectedNodeId();
+  CHECK(app.documentOutput == output && selectedNode(app)->fixedInputs.at(ports::image) == image(inserted));
+  CHECK(findNode(app, consumer)->fixedInputs.at(ports::image) == image(branch));
+  // Off-chain includes a disconnected Image processor; do not attach it to Source.
+  CHECK(graph::disconnect(app, input(branch)).ok() && selectNode(app, branch));
+  CHECK(addNativeExposureNode(app));
+  CHECK(selectedNode(app)->fixedInputs.at(ports::image) == image(branch) && app.documentOutput == output);
+  CHECK(!findNode(app, branch)->fixedInputs.at(ports::image));
+  CHECK(findNode(app, repeated)->fixedInputs.at(ports::image) == image(inserted));
+  CHECK(documentStateError(app).empty());
+  return true;
+}
+
+static bool testInvalidInsertionSelection() {
+  for (bool queued : {false, true}) {
+    App app; source(app);
+    CHECK(addNativeExposureNode(app));
+    const NodeId maskOnly{"mask-only"};
+    CHECK(add(app, maskOnly, NodeOperation::TestReferenceMask));
+    if (!queued) { app.renderer.start(); CHECK(idle(app)); }
+    const auto demand = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(demand.previewPending == queued);
+    for (const auto &id : {maskOnly, NodeId{"stale-selection"}}) {
+      app.selection = id; app.paramFilter[0] = 'x';
+      const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+      const auto connections = topology(app);
+      int mutations = 0;
+      RenderRuntimeTestAccess::observe(app.renderer, &mutations, [](void *context, auto event) noexcept {
+        if (event == RenderRuntimeTestAccess::Event::MutationCompleted) ++*static_cast<int *>(context);
+      });
+      CHECK(!addNativeExposureNode(app) && !addNativeCstNode(app) && !addCtlNode(app, "never-constructed.ctl"));
+      const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+      RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+      CHECK(app.getStatus().find("Selected node has no compatible Image output") != std::string::npos);
+      CHECK(topology(app) == connections && app.selectedNodeId() == id && app.paramFilter[0] == 'x');
+      CHECK(mutations == 0 && before.epoch == after.epoch && after.mutationDepth == 0);
+      CHECK(before.previewPending == after.previewPending && before.displayPending == after.displayPending &&
+            before.quietPending == after.quietPending);
+    }
+  }
+  return true;
+}
+
+static bool testInsertionDepthRefusal() {
+  depth_test::Chain chain(kMaxGraphDependencyDepth);
+  App app;
+  app.nodes = std::move(chain.nodes); app.primarySource = chain.source; app.documentOutput = chain.output;
+  const auto before = topology(app);
+  int mutations = 0;
+  RenderRuntimeTestAccess::observe(app.renderer, &mutations, [](void *context, auto event) noexcept {
+    if (event == RenderRuntimeTestAccess::Event::MutationCompleted) ++*static_cast<int *>(context);
+  });
+  // Appending and splicing anywhere on this full-depth chain must fail before
+  // constructing a backend, changing selection, or entering mutation ownership.
+  for (int selection = 0; selection < 4; ++selection) {
+    if (selection == 0) selectNode(app, std::nullopt);
+    if (selection == 1) selectOutput(app);
+    if (selection == 2) selectNode(app, app.primarySource);
+    if (selection == 3) selectNode(app, depth_test::id(64));
+    const auto selected = app.selection;
+    CHECK(!addNativeExposureNode(app) && !addCtlNode(app, "not-constructed.ctl"));
+    CHECK(depth_test::depthError(app.getStatus()) && app.selection == selected && topology(app) == before);
+  }
+  RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  const auto state = RenderRuntimeTestAccess::snapshot(app.renderer);
+  CHECK(mutations == 0 && state.epoch == 0 && !state.previewPending && state.mutationDepth == 0);
+  return true;
+}
+
+static bool testInsertionSaveReopen() {
+  Files files; App app;
+  const auto photo = files.path("insertion.png");
+  CHECK(writeImage(raster(), photo, {RgbGamut::Rec709, TransferFunction::Linear}, 92));
+  CHECK(openPath(app, photo));
+  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+  CHECK(addNativeCstNode(app)); const auto b = *app.selectedNodeId();
+  CHECK(findNode(app, a)->processor->setParameterValue("exposure", 1.75));
+  CHECK(selectNode(app, a) && addNativeExposureNode(app)); const auto inserted = *app.selectedNodeId();
+  CHECK(findNode(app, inserted)->processor->setParameterValue("exposure", -0.75));
+  const auto serial = topology(app);
+  CHECK(saveCurrentInputSidecar(app) && openPath(app, photo) && topology(app) == serial);
+  CHECK(findNode(app, b)->fixedInputs.at(ports::image) == image(inserted));
+  // Source -> CST -> Output, with the former chain now off-chain.
+  CHECK(graph::reconnect(app, image(app.primarySource), input(b)).ok());
+  CHECK(selectNode(app, a) && addNativeCstNode(app)); const auto branch = *app.selectedNodeId();
+  const auto before = topology(app);
+  CHECK(saveCurrentInputSidecar(app) && openPath(app, photo));
+  CHECK(topology(app) == before && app.documentOutput == image(b) && !app.selectedNodeId());
+  CHECK(findNode(app, inserted)->fixedInputs.at(ports::image) == image(a));
+  CHECK(findNode(app, branch)->fixedInputs.at(ports::image) == image(a));
+  CHECK(exposure(findNode(app, a)) == 1.75 && exposure(findNode(app, inserted)) == -0.75);
+  return true;
+}
 
 static bool testSelectionIdentity() {
   App app; source(app);
@@ -195,6 +368,15 @@ static bool testIncompleteAndNonUnaryProjection() {
   std::reverse(app.nodes.begin(), app.nodes.end());
   auto rows = ui::projectNodeList(view(app));
   CHECK(!rows.spineError.empty() && rows.spine == std::vector<NodeId>({a, b}));
+  CHECK(selectNode(app, app.primarySource));
+  const auto sourceTopology = topology(app);
+  const auto sourceDemand = RenderRuntimeTestAccess::snapshot(app.renderer);
+  const bool sourceAdded = addNativeExposureNode(app);
+  const auto refusedDemand = RenderRuntimeTestAccess::snapshot(app.renderer);
+  CHECK(!sourceAdded && topology(app) == sourceTopology && app.selectedNodeId() == app.primarySource &&
+        refusedDemand.epoch == sourceDemand.epoch && refusedDemand.mutationDepth == sourceDemand.mutationDepth &&
+        refusedDemand.previewPending == sourceDemand.previewPending && refusedDemand.quietPending == sourceDemand.quietPending &&
+        refusedDemand.displayPending == sourceDemand.displayPending);
   CHECK(selectNode(app, a) && selectedNode(app)->processor);
   auto before = topology(app); const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
   CHECK(!moveNode(app, b, a) && topology(app) == before);
@@ -211,6 +393,7 @@ static bool testIncompleteAndNonUnaryProjection() {
   const auto slot = graph::addSlot(mixed, mixer).addedSlot; CHECK(slot);
   CHECK(graph::connect(mixed, image(upstream), {mixer, slot, ports::image}).ok());
   CHECK(graph::setDocumentOutput(mixed, image(mixer)).ok());
+  selectOutput(mixed);
   CHECK(addNativeExposureNode(mixed)); const NodeId tail = *mixed.selectedNodeId();
   CHECK(addNativeCstNode(mixed)); const NodeId end = *mixed.selectedNodeId();
   std::reverse(mixed.nodes.begin(), mixed.nodes.end());
@@ -334,6 +517,11 @@ static bool testPhotoAndDocumentReplacement() {
 
 bool testNodeList() {
   const struct { const char *name; bool (*test)(); } cases[] = {
+      {"Selection-aware Add Processor: serial bindings, Source-only, fan-out, Slots and repeated selection", testSelectionAwareInsertion},
+      {"Off-chain Add Processor branches without changing Output or existing consumers", testOffChainInsertion},
+      {"Invalid Add Processor selection preserves topology, selection and runtime demand", testInvalidInsertionSelection},
+      {"Over-depth Add Processor rejects before backend construction or mutation", testInsertionDepthRefusal},
+      {"Selection-aware insertion saves/reopens topology, identities and parameters", testInsertionSaveReopen},
       {"6E.1 NodeId selection, storage/topology reorder and logical parameter association", testSelectionIdentity},
       {"6E.1 selected/unselected deletion clears only stale selection and inspection", testDeletionAndInspection},
       {"6E.1 topology List View keeps off-spine nodes visible, selectable and removable", testProjectionAndOtherNodes},

@@ -677,16 +677,38 @@ bool inspectorContexts() {
 
 bool processorPickerInBothViews() {
   Ui ui; ui.captureLog = true; App app; app.path = "picker.png";
-  CHECK(addNativeCstNode(app));
+  CHECK(addNativeCstNode(app)); const auto initialOutput = app.documentOutput;
+  CHECK(addNativeExposureNode(app)); const auto branch = *app.selectedNodeId();
+  CHECK(graph::setDocumentOutput(app, initialOutput).ok());
   for (auto view : {NodesView::List, NodesView::Graph}) {
     app.nodesView = view;
-    // PR #80 appends regardless of selection; exercise the unchanged picker.
-    for (int selection = 0; selection != 4; ++selection) {
+    // Both presentations use the same selection-aware Add Processor action.
+    for (int selection = 0; selection != 5; ++selection) {
       if (selection == 0) CHECK(selectNode(app, std::nullopt));
-      else if (selection == 1) CHECK(selectNode(app, app.primarySource));
-      else if (selection == 2) CHECK(selectNode(app, app.nodes[1].id));
-      else selectOutput(app);
+      else if (selection == 1) {
+        CHECK(selectNode(app, std::nullopt));
+        app.graphCanvas.framePending = true;
+        ui.tick(app); ui.tick(app);
+        if (view == NodesView::List) ui.click(app, ui.listSource);
+        else {
+          const auto position = app.nodePositions.at(app.primarySource.value);
+          ui.click(app, ui.screen(app, {position.x + 60, position.y + 16}));
+        }
+        CHECK(app.selectedNodeId() == app.primarySource);
+      } else if (selection == 2) CHECK(selectNode(app, app.nodes[1].id));
+      else if (selection == 3) selectOutput(app);
+      else CHECK(selectNode(app, branch));
       const auto previousOutput = app.documentOutput;
+      const auto predecessor = selection == 1 ? app.primarySource : selection == 2 ? app.nodes[1].id :
+                               selection == 4 ? branch : previousOutput.nodeId;
+      std::optional<NodeId> successor;
+      if (selection == 1 || selection == 2) {
+        // The fixture has one off-chain consumer; it must never be spliced.
+        for (const auto &node : app.nodes)
+          if (node.operation != NodeOperation::Source && node.id != branch &&
+              node.fixedInputs.at(ports::image) == (OutputRef{predecessor, ports::image}))
+            successor = node.id;
+      }
       const auto count = app.nodes.size();
       std::snprintf(app.pluginFilter, sizeof app.pluginFilter, "Exposure");
       ui.tick(app); ui.tick(app); ui.click(app, ui.addButton);
@@ -701,8 +723,14 @@ bool processorPickerInBothViews() {
       CHECK(!ui.pickerOpen && app.nodes.size() == count + 1);
       const auto *node = selectedNode(app);
       CHECK(node && node->processor && nodeDisplayName(*node) == "Exposure");
-      CHECK(node->fixedInputs.at(ports::image) == previousOutput);
-      CHECK(app.documentOutput == (OutputRef{node->id, ports::image}) && app.pluginFilter[0] == '\0');
+      CHECK(node->fixedInputs.at(ports::image) == (OutputRef{predecessor, ports::image}));
+      if (successor) {
+        CHECK(findNode(app, *successor)->fixedInputs.at(ports::image) == (OutputRef{node->id, ports::image}));
+        CHECK(app.documentOutput == previousOutput);
+      } else if (selection == 4) CHECK(app.documentOutput == previousOutput);
+      else CHECK(app.documentOutput == (OutputRef{node->id, ports::image}));
+      CHECK(app.pluginFilter[0] == '\0');
+      CHECK(findNode(app, branch)->fixedInputs.at(ports::image) == initialOutput);
     }
   }
   app.nodesView = NodesView::List; ui.tick(app);
@@ -1123,7 +1151,7 @@ bool testGraphView() {
        std::make_pair("photo layout save, failure, codec and reopen lifecycle", photoLayoutLifecycle),
        std::make_pair("contextual Inspector, List endpoints, protected controls and selection isolation", inspectorContexts),
        std::make_pair("Inspector RAW gamma edits re-decode/render the photo and preserve global defaults", inspectorRawGammaEdit),
-       std::make_pair("searchable processor picker appends in List and Graph", processorPickerInBothViews),
+       std::make_pair("searchable processor picker inserts by shared selection in List and Graph", processorPickerInBothViews),
        std::make_pair("new workspace default and custom/floating ini restart", workspaceDocking),
        std::make_pair("first-launch framing waits for settled docking geometry", firstDockedFrame)}) {
     if (!test.second()) { std::fprintf(stderr, "FAILED graph view: %s\n", test.first); return false; }

@@ -252,6 +252,10 @@ independent review and outstanding platform checks remain separate.
   PR 2B by the owner; they require a separate product decision, not an automatic
   move into PR 2C. See D051's superseding scope clarification.
 
+Selection-aware Add Processor is now separately approved under D051, superseding
+PR 2B's append-only deferral above. It changes processing connections only and
+does not approve PR 2C placement work or the other deferred interactions below.
+
 **PR 2C — Graph placement and usability (scope not yet approved)**
 
 - Discuss and agree the user-visible behaviour and focused acceptance criteria

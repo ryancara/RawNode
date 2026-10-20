@@ -295,30 +295,50 @@ static CommandResult reorderSlotGraph(Target &document, const NodeId &id, SlotId
   });
 }
 
+static CommandResult stageImageNodeInsertion(StagedEdit &edit, const Node &node, std::optional<InputAddress> before) {
+  auto error = edit.add(node);
+  if (!error.empty()) return {error, std::nullopt};
+  Node *inserted = edit.node(node.id);
+  if (!isUnaryImageNode(*inserted)) return {"Insertion requires a unary Image node", std::nullopt};
+  if (inserted->fixedInputs.at(ports::image)) return {"New node's Image input is already connected", std::nullopt};
+  OutputRef producer = edit.output();
+  if (before) {
+    if (before->slotId || before->inputPortId != ports::image)
+      return {"Splice destination must be a fixed Image input", std::nullopt};
+    auto *binding = edit.input(*before);
+    if (!binding || !*binding) return {"Splice destination needs an existing connection", std::nullopt};
+    producer = **binding;
+    error = connectionError(edit.view(), {node.id, ports::image}, *before);
+    if (!error.empty()) return {error, std::nullopt};
+    *binding = OutputRef{node.id, ports::image};
+  } else {
+    edit.output() = {node.id, ports::image};
+  }
+  inserted->fixedInputs.at(ports::image) = producer;
+  return {};
+}
+
 template <typename Target>
 static CommandResult insertImageNodeGraph(Target &document, Node &&node, std::optional<InputAddress> before) {
-  return editGraph(document, [&](StagedEdit &edit) -> CommandResult {
-    auto error = edit.add(node);
-    if (!error.empty()) return {error, std::nullopt};
-    Node *inserted = edit.node(node.id);
-    if (!isUnaryImageNode(*inserted)) return {"Insertion requires a unary Image node", std::nullopt};
-    if (inserted->fixedInputs.at(ports::image)) return {"New node's Image input is already connected", std::nullopt};
-    OutputRef producer = edit.output();
-    if (before) {
-      if (before->slotId || before->inputPortId != ports::image)
-        return {"Splice destination must be a fixed Image input", std::nullopt};
-      auto *binding = edit.input(*before);
-      if (!binding || !*binding) return {"Splice destination needs an existing connection", std::nullopt};
-      producer = **binding;
-      error = connectionError(edit.view(), {node.id, ports::image}, *before);
-      if (!error.empty()) return {error, std::nullopt};
-      *binding = OutputRef{node.id, ports::image};
-    } else {
-      edit.output() = {node.id, ports::image};
-    }
-    inserted->fixedInputs.at(ports::image) = producer;
-    return {};
-  }, &node);
+  return editGraph(document, [&](StagedEdit &edit) { return stageImageNodeInsertion(edit, node, before); }, &node);
+}
+
+CommandResult validateImageNodeInsertion(Document document, std::optional<InputAddress> before,
+                                        std::optional<OutputRef> branch) {
+  StagedEdit edit(document);
+  if (!edit.error.empty()) return {edit.error, std::nullopt};
+  // Backend-independent prospective ImageProcessor topology. The placeholder
+  // exists only in staging; construction/identity allocation remain with callers.
+  Node node;
+  node.id = NodeId{"insertion"};
+  while (edit.node(node.id)) node.id.value += '-';
+  if (branch) {
+    if (before) return {"Insertion cannot both splice and branch", std::nullopt};
+    node.fixedInputs.at(ports::image) = *branch;
+    return {edit.add(node), std::nullopt};
+  }
+  const auto result = stageImageNodeInsertion(edit, node, before);
+  return result.ok() ? CommandResult{graphStructureError(edit.view()), std::nullopt} : result;
 }
 
 CommandResult insertImageChain(Document document, std::vector<Node> &nodes, std::optional<NodeId> after) {

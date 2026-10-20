@@ -749,6 +749,8 @@ static bool testUnchangedCommandsRetainDemand() {
     auto *processor = numeric(app, effect); CHECK(processor);
     processor->renderGate = &gate;
     CHECK(add(app, spare, NodeOperation::ImageProcessor) && add(app, slots, NodeOperation::TestSlotted));
+    const NodeId invalidSelection{"mask-only-selection"};
+    CHECK(add(app, invalidSelection, NodeOperation::TestReferenceMask));
     const auto first = graph::addSlot(app, slots).addedSlot;
     const auto second = graph::addSlot(app, slots).addedSlot;
     CHECK(first && second && selectNode(app, effect));
@@ -810,6 +812,12 @@ static bool testUnchangedCommandsRetainDemand() {
                            std::optional<NodeId>{absent}, std::optional<NodeId>{slots}}) {
       app.selection = selection ? InspectorSelection{*selection} : InspectorSelection{};
       CHECK(!canCopySelectedNode(app) && !copySelectedNode(app));
+    }
+    // Invalid Add selections must not drain pending/active preview or export.
+    for (const auto &id : {absent, invalidSelection, deepTail.nodeId}) {
+      app.selection = id;
+      CHECK(!addNativeExposureNode(app) && !addNativeCstNode(app) && !addCtlNode(app, "not-constructed.ctl"));
+      CHECK(app.selectedNodeId() == id && app.paramFilter[0] == 'e');
     }
     app.selection = NodeId{effect};
     app.path = files.path("protected.nef"); app.sidecarWriteBlockedPath = app.path;
@@ -1100,6 +1108,39 @@ struct ParameterOfxFixture {
   ~ParameterOfxFixture() { gPlugins.pop_back(); }
 };
 
+static bool testBackendInsertion() {
+  Files files; ParameterOfxFixture ofx;
+  for (bool ctl : {false, true}) {
+    App app;
+    CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+    CHECK(addNativeCstNode(app)); const auto b = *app.selectedNodeId();
+    CHECK(selectNode(app, a));
+    const auto create = [&] { return ctl ? addCtlNode(app, parameterCtl(files)) : addNode(app, ofx.index); };
+    CHECK(create()); const auto inserted = *app.selectedNodeId();
+    CHECK(selectedNode(app)->processor->backend() == (ctl ? ProcessorBackend::CTL : ProcessorBackend::OFX));
+    CHECK(app.documentOutput == image(b) && findNode(app, b)->fixedInputs.at(ports::image) == image(inserted));
+    CHECK(selectedNode(app)->fixedInputs.at(ports::image) == image(a));
+    CHECK(selectedNode(app)->processor->setParameterValue("gain", 2.5));
+    Processor *retained = selectedNode(app)->processor.get();
+    // Disconnect the new processor from the main chain, preserving its own input.
+    CHECK(graph::reconnect(app, image(a), input(b)).ok());
+    CHECK(create()); const auto branch = *app.selectedNodeId();
+    CHECK(app.documentOutput == image(b) && selectedNode(app)->fixedInputs.at(ports::image) == image(inserted));
+    CHECK(findNode(app, inserted)->processor.get() == retained);
+    CHECK(std::get<double>(retained->parameters()[0].value) == 2.5);
+    CHECK(findNode(app, b)->fixedInputs.at(ports::image) == image(a));
+    CHECK(selectNode(app, app.primarySource) && create()); const auto first = *app.selectedNodeId();
+    CHECK(findNode(app, a)->fixedInputs.at(ports::image) == image(first));
+    CHECK(selectedNode(app)->fixedInputs.at(ports::image) == image(app.primarySource));
+    CHECK(findNode(app, branch)->fixedInputs.at(ports::image) == image(inserted));
+    const auto count = app.nodes.size();
+    const auto selection = app.selection;
+    CHECK(!addCtlNode(app, files.path("absent.ctl")) && !addNode(app, -1));
+    CHECK(app.nodes.size() == count && app.selection == selection && app.documentOutput == image(b));
+  }
+  return true;
+}
+
 static bool testOfxParameterScheduling() {
   ParameterOfxFixture fixture; App app; source(app);
   CHECK(addNode(app, fixture.index)); const auto effect = *app.selectedNodeId();
@@ -1125,6 +1166,7 @@ static bool testOfxParameterScheduling() {
 
 bool testGraphRuntime() {
   const struct { const char *name; bool (*test)(); } cases[] = {
+      {"Native/CTL/OFX Add Processor shares serial, Source and off-chain insertion policy", testBackendInsertion},
       {"Over-depth worker returns Error, then evaluates a repaired boundary graph", testOverDepthWorker},
       {"Shared parameter set/reset schedule numerical previews and preserve inspection", testParameterPreview},
       {"Native/CTL parameter edits stay responsive during preview and supersede old output", testParameterPreviewSupersession},
