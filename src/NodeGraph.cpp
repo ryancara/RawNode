@@ -643,6 +643,8 @@ static std::optional<ProcessorInsertion> processorInsertion(App &app) {
   const auto spineError = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
   auto successor = spine.end();
   if (*selected == app.primarySource) {
+    // A partial output-side spine cannot identify Source's main-chain successor.
+    // Selected processors in that spine can still splice at a known successor.
     if (!spineError.empty()) return reject(spineError);
     successor = spine.begin();
   } else {

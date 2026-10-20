@@ -368,6 +368,15 @@ static bool testIncompleteAndNonUnaryProjection() {
   std::reverse(app.nodes.begin(), app.nodes.end());
   auto rows = ui::projectNodeList(view(app));
   CHECK(!rows.spineError.empty() && rows.spine == std::vector<NodeId>({a, b}));
+  CHECK(selectNode(app, app.primarySource));
+  const auto sourceTopology = topology(app);
+  const auto sourceDemand = RenderRuntimeTestAccess::snapshot(app.renderer);
+  const bool sourceAdded = addNativeExposureNode(app);
+  const auto refusedDemand = RenderRuntimeTestAccess::snapshot(app.renderer);
+  CHECK(!sourceAdded && topology(app) == sourceTopology && app.selectedNodeId() == app.primarySource &&
+        refusedDemand.epoch == sourceDemand.epoch && refusedDemand.mutationDepth == sourceDemand.mutationDepth &&
+        refusedDemand.previewPending == sourceDemand.previewPending && refusedDemand.quietPending == sourceDemand.quietPending &&
+        refusedDemand.displayPending == sourceDemand.displayPending);
   CHECK(selectNode(app, a) && selectedNode(app)->processor);
   auto before = topology(app); const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
   CHECK(!moveNode(app, b, a) && topology(app) == before);
