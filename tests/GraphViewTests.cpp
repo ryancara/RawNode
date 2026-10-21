@@ -139,6 +139,7 @@ struct Ui {
   ImGuiItemFlags inspectorItemFlags = 0;
   ImRect inspectorLastRect;
   ImVec2 listSource{}, listOutput{}, addButton{};
+  float listRight = 0;
   float nodesWidth = 1150;
   bool pickerOpen = false, captureLog = false;
   std::string nodesLog, inspectorLog;
@@ -178,6 +179,7 @@ struct Ui {
       listSource = {window->DC.CursorStartPos.x + 30, window->DC.CursorStartPos.y + 6};
       // Output is the final fixed row, immediately before EndChild.
       listOutput = {window->DC.CursorPosPrevLine.x + 30, window->DC.CursorPosPrevLine.y + 6};
+      listRight = window->WorkRect.Max.x;
     }
     if (showInspector) {
       ImGui::SetNextWindowPos({940, 20}); ImGui::SetNextWindowSize({320, 680});
@@ -223,6 +225,15 @@ struct Ui {
     if (enterText) ImGui::GetIO().AddInputCharacter('f');
     tick(app);
     ImGui::GetIO().AddKeyEvent(ImGuiKey_F, false); tick(app);
+  }
+  ImVec2 listProcessorFromEnd(int offset = 0, bool removeButton = false) const {
+    // Processor rows end immediately above the separator and fixed Output row.
+    return {removeButton ? listRight - ImGui::GetFrameHeight() / 2 : listOutput.x,
+            listOutput.y - (offset + 1) * ImGui::GetFrameHeightWithSpacing() -
+              1 - 2 * ImGui::GetStyle().ItemSpacing.y};
+  }
+  bool listFocused() const {
+    return context->NavWindow && std::string(context->NavWindow->Name).find("Nodes test/nodeList") == 0;
   }
   ImVec2 screen(const App &app, PersistPosition point) const {
     const auto canvas = ui::graphToCanvas(app.graphCanvas.view, point);
@@ -1013,6 +1024,168 @@ bool deletionFrames() {
 
 
 
+bool listDeletionFrames() {
+  for (auto pressed : {ImGuiKey_Delete, ImGuiKey_Backspace}) {
+    Ui ui; ui.showInspector = true; ui.captureLog = true;
+    App app; app.path = "list-delete"; app.nodesView = NodesView::List;
+    app.full.w = app.full.h = 1; app.full.px = {0.25f, 0.25f, 0.25f, 1};
+    app.preview = std::make_shared<Image>(app.full);
+    CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+    CHECK(addNativeExposureNode(app)); const auto b = *app.selectedNodeId();
+    CHECK(setNodeParameterValue(app, a, "exposure", 1.0));
+    CHECK(setNodeParameterValue(app, b, "exposure", 1.0));
+    Node branch(NodeOperation::TestImage); branch.id = NodeId{"fan-out"};
+    branch.fixedInputs.at(ports::image) = imageOf(a);
+    CHECK(graph::addNode(app, std::move(branch)).ok());
+    app.nodePositions = {{a.value, {-12, 7}}, {b.value, {321, 19}}};
+    app.renderer.start(); CHECK(idle(app));
+    ui.tick(app); ui.tick(app);
+    // Source and the unwrapped document-output label occupy two text lines;
+    // the main-spine heading occupies one frame-height line before a's row.
+    // This small fixture fits without scrolling or wrapping; off-chain rows follow b.
+    const auto aRow = ImVec2{ui.listSource.x, ui.listSource.y +
+      2 * ImGui::GetTextLineHeightWithSpacing() + ImGui::GetFrameHeightWithSpacing()};
+    ui.click(app, aRow); CHECK(app.selectedNodeId() == a && ui.listFocused());
+    app.paramFilter[0] = 'x';
+    std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+    const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+    key(ui, app, pressed); CHECK(idle(app));
+    CHECK(!findNode(app, a) && !app.selectedNodeId() && app.paramFilter[0] == '\0');
+    CHECK(consumes(app, b, app.primarySource) && consumes(app, NodeId{"fan-out"}, app.primarySource));
+    CHECK(app.documentOutput == imageOf(b) && documentStateError(app).empty());
+    CHECK(app.nodePositions.size() == 1 && same(app.nodePositions.at(b.value), {321, 19}));
+    CHECK(ui.inspectorLog.find("Select Source, a processor or Output") != std::string::npos);
+    const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(mutations == 1 && after.epoch > before.epoch && after.mutationDepth == 0);
+    // Source 0.25 with only b's +1 stop remaining must evaluate to 0.5.
+    {
+      std::lock_guard<std::mutex> lock(app.displayMutex);
+      CHECK(app.processed.result.requested == imageOf(b));
+      CHECK(app.processed.result.state == EvaluationState::Available);
+      CHECK(std::get<ImageValue>(app.processed.result.value)->px[0] == 0.5f);
+    }
+    // Off-chain nodes use the same splice rules; deleting the tail updates Output.
+    ui.click(app, ui.listProcessorFromEnd()); CHECK(app.selectedNodeId() == NodeId{"fan-out"});
+    key(ui, app, pressed); CHECK(!findNode(app, NodeId{"fan-out"}) && app.documentOutput == imageOf(b));
+    ui.click(app, ui.listProcessorFromEnd()); key(ui, app, pressed);
+    CHECK(app.nodes.size() == 1 && app.documentOutput == imageOf(app.primarySource) && mutations == 3);
+    RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  }
+  return true;
+}
+
+bool listDeletionSafetyFrames() {
+  for (auto pressed : {ImGuiKey_Delete, ImGuiKey_Backspace}) {
+    Ui ui; ui.showOtherPanel = true;
+    App app; app.path = "list-delete-safety"; app.nodesView = NodesView::List;
+    CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+    CHECK(addNativeCstNode(app)); const auto b = *app.selectedNodeId();
+    ui.tick(app); ui.tick(app);
+    ui.click(app, ui.listProcessorFromEnd(1)); CHECK(app.selectedNodeId() == a && ui.listFocused());
+    const auto topology = graphJson(app);
+    const auto positions = app.nodePositions;
+    std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+    const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+    ui.click(app, ui.textInput); CHECK(ImGui::GetIO().WantTextInput);
+    CHECK(app.selectedNodeId() == a && !ui.listFocused());
+    CHECK(ui.context->NavWindow == ImGui::FindWindowByName("Other panel"));
+    key(ui, app, pressed);
+    CHECK(graphJson(app) == topology && mutations == 0);
+    ui.click(app, ui.otherButton); CHECK(!ImGui::GetIO().WantTextInput);
+    CHECK(app.selectedNodeId() == a && !ui.listFocused());
+    CHECK(ui.context->NavWindow == ImGui::FindWindowByName("Other panel"));
+    key(ui, app, pressed);
+    CHECK(graphJson(app) == topology && mutations == 0);
+    ui.click(app, ui.listProcessorFromEnd(1));
+    for (auto modifier : {ImGuiMod_Ctrl, ImGuiMod_Super, ImGuiMod_Alt, ImGuiMod_Shift}) {
+      ImGui::GetIO().AddKeyEvent(modifier, true); ui.tick(app);
+      CHECK(app.selectedNodeId() == a && ui.listFocused() && app.renderer.canEditParameters());
+      CHECK(!ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive());
+      CHECK(ImGui::GetIO().KeyMods != 0);
+      key(ui, app, pressed);
+      CHECK(graphJson(app) == topology && mutations == 0);
+      ImGui::GetIO().AddKeyEvent(modifier, false); ui.tick(app);
+    }
+    app.sidecarWriteBlockedPath = app.path;
+    CHECK(app.selectedNodeId() == a && ui.listFocused() && app.isPhotoProtected());
+    CHECK(!ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive());
+    key(ui, app, pressed);
+    CHECK(graphJson(app) == topology && mutations == 0);
+    app.sidecarWriteBlockedPath.clear();
+    const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(after.epoch == before.epoch && after.mutationDepth == before.mutationDepth);
+    CHECK(after.previewPending == before.previewPending && after.displayPending == before.displayPending);
+    {
+      auto owner = app.renderer.acquireExport(); CHECK(owner);
+      const auto exporting = RenderRuntimeTestAccess::snapshot(app.renderer);
+      CHECK(app.selectedNodeId() == a && ui.listFocused() && exporting.exportBusy);
+      CHECK(!ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive());
+      key(ui, app, pressed);
+      CHECK(graphJson(app) == topology && mutations == 0);
+      const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+      CHECK(after.exportBusy && after.epoch == exporting.epoch && after.mutationDepth == exporting.mutationDepth);
+      CHECK(after.previewPending == exporting.previewPending && after.displayPending == exporting.displayPending);
+    }
+    CHECK(graphJson(app) == topology && samePositions(app.nodePositions, positions) && mutations == 0);
+    // Fixed endpoints and empty/stale selections cannot become deletion targets.
+    ui.click(app, ui.listSource); CHECK(app.selectedNodeId() == app.primarySource && ui.listFocused());
+    key(ui, app, pressed);
+    ui.click(app, ui.listOutput); CHECK(app.outputSelected() && ui.listFocused());
+    key(ui, app, pressed); CHECK(app.outputSelected());
+    CHECK(selectNode(app, std::nullopt) && ui.listFocused()); key(ui, app, pressed);
+    app.selection = NodeId{"stale"}; CHECK(ui.listFocused()); key(ui, app, pressed);
+    CHECK(graphJson(app) == topology && mutations == 0);
+    // A held key must not delete a newly selected processor, even past repeat delay.
+    ui.click(app, ui.listProcessorFromEnd(1));
+    CHECK(app.selectedNodeId() == a && ui.listFocused());
+    ImGui::GetIO().AddKeyEvent(pressed, true); ui.tick(app);
+    CHECK(!findNode(app, a) && findNode(app, b) && mutations == 1);
+    ui.tick(app); // Refresh row geometry after the deferred removal, with the key still held.
+    ui.click(app, ui.listProcessorFromEnd()); CHECK(app.selectedNodeId() == b && ui.listFocused());
+    for (int i = 0; i < 60; ++i) ui.tick(app);
+    CHECK(findNode(app, b) && mutations == 1);
+    ImGui::GetIO().AddKeyEvent(pressed, false); ui.tick(app);
+    RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  }
+  return true;
+}
+
+bool listDeletionRulesAndViewSwitching() {
+  Ui ui;
+  App app; app.path = "list-delete-rules"; app.nodesView = NodesView::List;
+  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+  ui.tick(app); ui.tick(app); ui.click(app, ui.listProcessorFromEnd());
+  for (auto pressed : {ImGuiKey_Delete, ImGuiKey_Backspace}) {
+    ui.click(app, ui.graphButton); key(ui, app, pressed);
+    CHECK(app.nodesView == NodesView::Graph && findNode(app, a) && app.selectedNodeId() == a);
+    ui.click(app, ui.listButton); key(ui, app, pressed);
+    CHECK(app.nodesView == NodesView::List && findNode(app, a) && app.selectedNodeId() == a);
+  }
+  // Disconnected document Output cannot be deleted without a replacement.
+  CHECK(graph::disconnect(app, {a, {}, ports::image}).ok());
+  ui.tick(app); ui.click(app, ui.listProcessorFromEnd());
+  const auto before = graphJson(app);
+  const auto state = RenderRuntimeTestAccess::snapshot(app.renderer);
+  key(ui, app, ImGuiKey_Delete);
+  CHECK(graphJson(app) == before && app.selectedNodeId() == a);
+  CHECK(app.getStatus().find("explicit replacement") != std::string::npos);
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == state.epoch);
+  // Once off-chain, generic deletion is permitted and disconnects consumers.
+  CHECK(graph::setDocumentOutput(app, imageOf(app.primarySource)).ok());
+  Node consumer(NodeOperation::TestImage); consumer.id = NodeId{"consumer"};
+  consumer.fixedInputs.at(ports::image) = imageOf(a);
+  CHECK(graph::addNode(app, std::move(consumer)).ok());
+  // Off-chain rows sort by NodeId: consumer precedes the generated processor ID.
+  ui.tick(app); ui.click(app, ui.listProcessorFromEnd()); CHECK(app.selectedNodeId() == a);
+  key(ui, app, ImGuiKey_Backspace);
+  CHECK(!findNode(app, a) && !*findInput(app, {NodeId{"consumer"}, {}, ports::image}));
+  CHECK(app.documentOutput == imageOf(app.primarySource));
+  // Exercise the existing X control through its actual click path as well.
+  ui.click(app, ui.listProcessorFromEnd(0, true));
+  CHECK(app.nodes.size() == 1 && documentStateError(app).empty());
+  return true;
+}
+
 bool gestureEndpointLifecycle() {
   Ui ui; App app; app.path = "gesture-photo-a"; app.nodesView = NodesView::Graph;
   CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
@@ -1141,6 +1314,9 @@ bool testGraphView() {
        std::make_pair("wire editing, no-op/cancel, Disconnect and port priority at zoom limits", wireEditingFrames),
        std::make_pair("typed Output wiring, pixel results and UI export/protection gates", outputAndTypedWireFrames),
        std::make_pair("focused nonrepeat deletion, Inspector cleanup and off-spine menu deletion", deletionFrames),
+       std::make_pair("List Delete/Backspace reuse splice, selection cleanup and render behaviour", listDeletionFrames),
+       std::make_pair("List deletion focus, endpoints, protection, export, modifiers and held keys", listDeletionSafetyFrames),
+       std::make_pair("List deletion refusal, disconnected consumers, view switches and X button", listDeletionRulesAndViewSwitching),
        std::make_pair("UI-only cancellation for removed endpoints, modifiers, views and photos", gestureEndpointLifecycle),
        std::make_pair("node/input menus close after same-photo Full Grade Paste reuses IDs, including macOS Ctrl+click", contextMenusAfterGradePaste),
        std::make_pair("edited wire topology and fractional positions save, switch and reopen", editedWirePhotoPersistence),

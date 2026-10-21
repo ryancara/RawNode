@@ -55,6 +55,14 @@ negative and automatically generated positions, two distinct photos, failed
 atomic saves and viewport reset. Tests at 0.5x/2x verify inverse-scaled movement;
 F is checked during text editing, other-panel focus and view changes.
 
+List View Delete/Backspace parity is owner-approved in PR #86. Its automated
+keyboard tests use real ImGui events without native window/input backends.
+Native macOS/Windows validation remains pending: physical Delete/Backspace
+(including macOS forward-delete), held keys/modifiers, row focus in docked and
+floating Nodes panels, text/other-panel focus, view switches, and protected-photo
+or active-export restrictions. Earlier native Graph View results do not establish
+these List View checks.
+
 ## Historical PR #79 evidence
 
 Linux Release, focused Graph View/preferences/photo and full self-tests passed.

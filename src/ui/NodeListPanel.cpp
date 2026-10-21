@@ -100,6 +100,12 @@ void ui::drawNodeList(App &app) {
   }
   ImGui::Separator();
   if (ImGui::Selectable("Output", app.outputSelected())) selectOutput(app);
+  const auto &io = ImGui::GetIO();
+  if (ImGui::IsWindowFocused() && !ImGui::IsAnyItemActive() &&
+      !io.WantTextInput && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt && !io.KeyShift &&
+      app.renderer.canEditParameters() && selectedNode(app) &&
+      (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)))
+    remove = app.selectedNodeId();
   ImGui::EndChild();
   // Apply one row-control intent after all references into the node list have
   // expired. Intents and drag/drop retain identity, never storage positions.
