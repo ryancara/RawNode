@@ -99,12 +99,21 @@ fail. The mutation was reverted; the final Release rebuild and Graph View suite 
 Historical V2 tests explicitly omit layout because V2 cannot represent positions;
 production grade persistence remains graph-native.
 
+Review follow-up: port hit-testing follows the existing drawing order, with the
+selected node after unselected nodes and virtual Output last. Nearest-port
+distance still wins; equal-distance hits prefer the topmost port. Real ImGui
+tests with exactly overlapping `node-9`/`node-10` processors check resulting
+connections for output/input dragging, drop targets and right-click Disconnect,
+plus a closer unselected port. The regression fails against the original helper.
+The Release rebuild, full `--selftest` and focused `--selftest-graph-view` pass.
+
 Native macOS/Windows validation remains pending: add from Source, middle/tail,
 Output/no selection and an off-chain processor in both views; add several nodes
 in List before opening Graph; confirm overlap, unchanged positions after delete/
 reconnect, Source dragging, non-draggable automatic Output, and save/reopen.
 These headless ImGui checks do not establish physical input, native window or
-platform rendering behaviour. Claude's independent review remains outstanding.
+platform rendering behaviour. Claude reviewed `0701ee5` as SAFE AFTER SMALL FIXES;
+targeted re-review of this port correction remains outstanding.
 
 ## Historical PR #79 evidence
 

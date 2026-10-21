@@ -6,6 +6,7 @@
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActionsPriv.h"
+#include "processors/NativeExposureProcessor.h"
 #include "ui/DockLayout.h"
 #include "ui/GraphLayout.h"
 #include "ui/UiContext.h"
@@ -977,6 +978,53 @@ ImVec2 lastPopupItem() {
   return {};
 }
 
+bool overlappingPortFrames() {
+  Ui ui; App app; app.path = "overlapping-ports"; app.nodesView = NodesView::Graph;
+  // Explicit IDs straddle a digit boundary: numeric and map ordering disagree.
+  const NodeId a{"node-9"}, b{"node-10"}, sink{"sink"};
+  for (const auto &id : {a, b, sink}) {
+    Node node; node.id = id; node.processor = std::make_unique<NativeExposureProcessor>();
+    node.fixedInputs.at(ports::image) = imageOf(app.primarySource);
+    CHECK(graph::addNode(app, std::move(node)).ok());
+  }
+  app.nodePositions = {{app.primarySource.value, {-200, 0}}, {a.value, {100, 0}},
+                       {b.value, {100, 0}}, {sink.value, {400, 0}}};
+  ui.tick(app); ui.tick(app);
+  app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 50}, 1}; ui.tick(app);
+  const auto positions = app.nodePositions;
+  CHECK(same(positions.at(a.value), positions.at(b.value)));
+  const auto source = ui.screen(app, {40, 44}), sharedIn = ui.screen(app, {100, 44});
+  const auto sharedOut = ui.screen(app, {340, 44}), sinkIn = ui.screen(app, {400, 44});
+  for (const auto &selected : {b, a}) {
+    const auto hidden = selected == a ? b : a;
+    CHECK(selectNode(app, selected)); ui.tick(app);
+    // Output-origin dragging must use the visible selected processor's output.
+    ui.drag(app, sharedOut, {sinkIn.x - sharedOut.x, sinkIn.y - sharedOut.y}, 0);
+    CHECK(consumes(app, sink, selected) && consumes(app, a, app.primarySource) && consumes(app, b, app.primarySource));
+    // A shared input's menu must disconnect only the visible processor.
+    rightClick(ui, app, sharedIn); ui.click(app, lastPopupItem());
+    CHECK(!*findInput(app, imageInput(selected)) && consumes(app, hidden, app.primarySource));
+    CHECK(app.selectedNodeId() == selected && consumes(app, sink, selected));
+    // Exercise the shared input as both a wire origin and a drop target.
+    ui.drag(app, sharedIn, {source.x - sharedIn.x, source.y - sharedIn.y}, 0);
+    CHECK(consumes(app, selected, app.primarySource) && consumes(app, hidden, app.primarySource));
+    CHECK(graph::disconnect(app, imageInput(selected)).ok());
+    ui.drag(app, source, {sharedIn.x - source.x, sharedIn.y - source.y}, 0);
+    CHECK(consumes(app, selected, app.primarySource) && consumes(app, hidden, app.primarySource));
+    CHECK(consumes(app, sink, selected) && app.selectedNodeId() == selected);
+    CHECK(samePositions(app.nodePositions, positions));
+  }
+  // Selection only breaks ties: a closer unselected port still wins when both
+  // are inside the hit halo. At X=100 it is four pixels closer than node-10.
+  CHECK(selectNode(app, b) && ui::moveGraphNode(app, b, {104, 0})); ui.tick(app);
+  CHECK(graph::disconnect(app, imageInput(a)).ok() && graph::disconnect(app, imageInput(b)).ok());
+  ui.drag(app, source, {sharedIn.x - source.x, sharedIn.y - source.y}, 0);
+  CHECK(consumes(app, a, app.primarySource) && !*findInput(app, imageInput(b)));
+  CHECK(app.selectedNodeId() == b && app.documentOutput == imageOf(app.primarySource));
+  CHECK(documentStateError(app).empty());
+  return true;
+}
+
 bool wireEditingFrames() {
   for (const double zoom : {0.2, 0.5, 1.0, 2.5}) {
     Ui ui; App app; app.path = "wires"; app.nodesView = NodesView::Graph;
@@ -1439,6 +1487,7 @@ bool testGraphView() {
        std::make_pair("contextual placement, List/Graph parity, overlap and preservation through edits", contextualPlacement),
        std::make_pair("failed additions preserve generated, missing and moved layout", failedPlacement),
        std::make_pair("List placement saves/reopens before Graph View, without layout render or I/O", placementSaveReopen),
+       std::make_pair("overlapping node-9/node-10 ports follow selected stacking for wires and Disconnect", overlappingPortFrames),
        std::make_pair("wire editing, no-op/cancel, Disconnect and port priority at zoom limits", wireEditingFrames),
        std::make_pair("typed Output wiring, pixel results and UI export/protection gates", outputAndTypedWireFrames),
        std::make_pair("focused nonrepeat deletion, Inspector cleanup and off-spine menu deletion", deletionFrames),
