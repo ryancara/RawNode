@@ -63,14 +63,6 @@ floating Nodes panels, text/other-panel focus, view switches, and protected-phot
 or active-export restrictions. Earlier native Graph View results do not establish
 these List View checks.
 
-For the post-deletion highlight fix, recheck native macOS/Windows in docked and
-floating List View: click the first of two processors, leave the pointer still,
-and press Delete/Backspace. Confirm no remaining row looks selected, Inspector is
-neutral, and another deletion key does nothing. Click the remaining row without
-moving the pointer, then delete it. Also check normal mouse hover/keyboard
-navigation and unchanged Graph View behaviour. Headless tests inspect ImGui's
-hover-fill draw data and navigation state; native visual/input validation remains separate.
-
 ## Historical PR #79 evidence
 
 Linux Release, focused Graph View/preferences/photo and full self-tests passed.

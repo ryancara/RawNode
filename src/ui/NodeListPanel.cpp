@@ -6,24 +6,11 @@
 
 #include "IconsFontAwesome6.h"
 #include "imgui.h"
-#include "imgui_internal.h"
 
 #include <algorithm>
 
 void ui::drawNodeList(App &app) {
   ImGui::BeginChild("nodeList", ImVec2(0, 0), ImGuiChildFlags_Borders);
-  const auto &io = ImGui::GetIO();
-  // ImGui resets keyboard-mode hover suppression when navigation is disabled.
-  auto *listState = ImGui::GetStateStorage();
-  const auto hoverSuppressionId = ImGui::GetID("##postDeleteHover");
-  bool suppressHover = listState->GetBool(hoverSuppressionId);
-  if (suppressHover && (io.MouseDelta.x != 0 || io.MouseDelta.y != 0 ||
-      ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
-      (ImGui::IsWindowFocused() && ImGui::GetCurrentContext()->NavId != 0))) {
-    suppressHover = false;
-    listState->SetBool(hoverSuppressionId, false);
-  }
-  if (suppressHover) ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0, 0, 0, 0));
   if (ImGui::Selectable("Source", app.selectedNodeId() == app.primarySource))
     selectNode(app, app.primarySource);
   const auto rows = ui::projectNodeList({app.nodes, app.primarySource, app.documentOutput});
@@ -113,23 +100,16 @@ void ui::drawNodeList(App &app) {
   }
   ImGui::Separator();
   if (ImGui::Selectable("Output", app.outputSelected())) selectOutput(app);
-  if (suppressHover) ImGui::PopStyleColor();
-  const bool keyboardRemove = ImGui::IsWindowFocused() && !ImGui::IsAnyItemActive() &&
+  const auto &io = ImGui::GetIO();
+  if (ImGui::IsWindowFocused() && !ImGui::IsAnyItemActive() &&
       !io.WantTextInput && !io.KeyCtrl && !io.KeySuper && !io.KeyAlt && !io.KeyShift &&
       app.renderer.canEditParameters() && selectedNode(app) &&
-      (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false));
-  if (keyboardRemove) remove = app.selectedNodeId();
+      (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)))
+    remove = app.selectedNodeId();
   ImGui::EndChild();
   // Apply one row-control intent after all references into the node list have
   // expired. Intents and drag/drop retain identity, never storage positions.
-  if (remove) {
-    if (destroyNode(app, *remove) && keyboardRemove) {
-      // The next row moves under a stationary pointer. Hide that hover fill until
-      // deliberate mouse/focus input, keeping selection and Inspector neutral.
-      listState->SetBool(hoverSuppressionId, true);
-      auto &gui = *ImGui::GetCurrentContext();
-      ImGui::SetNavID(0, gui.NavLayer, gui.NavFocusScopeId, ImRect());
-    }
-  } else if (moveFrom && moveTo) moveNode(app, *moveFrom, *moveTo);
+  if (remove) destroyNode(app, *remove);
+  else if (moveFrom && moveTo) moveNode(app, *moveFrom, *moveTo);
   else if (enable) setNodeEnabled(app, *enable, enabled);
 }
