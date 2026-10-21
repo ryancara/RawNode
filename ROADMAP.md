@@ -62,8 +62,8 @@ are non-blocking follow-ups.
 - **Graph View UI milestone (between Steps 7 and 8; D047), in progress:**
   PR #79 added the dockable List/Graph foundation, PR #80 the contextual
   Inspector/workspace, and PR #82 the focused wiring/deletion interactions.
-  All three are merged. PR 2C placement/usability is the remaining candidate
-  milestone; its detailed product scope must be agreed before implementation.
+  All three are merged. PR 2C's contextual Add Processor placement is approved
+  and implemented for independent review; native validation remains pending.
 - **Step 8:** first concrete mask path and remaining implementation details
   under the Step 5 product/architectural contract. TIFF and EXR format
   correctness and JPEG encoder UB remain independently tracked follow-ups,
@@ -195,8 +195,8 @@ required.
 **UI delivery milestone in progress (D047):** the dockable Nodes panel switches
 between List and Graph over the same authoritative graph. The visual foundation
 (PR #79), contextual workspace (PR #80) and connection/deletion UI (PR #82)
-are merged. The next candidate is PR 2C, whose exact placement/usability
-scope still requires an owner decision, before Step 8 introduces masks.
+are merged. PR 2C adds the approved contextual processor placement described
+below, before Step 8 introduces masks. Independent review/native validation remain.
 This is a UI/product milestone, not an additional numbered architecture refactor.
 The completed correction gate and deferred image-format issues are tracked in
 `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
@@ -253,20 +253,25 @@ independent review and outstanding platform checks remain separate.
   move into PR 2C. See D051's superseding scope clarification.
 
 Selection-aware Add Processor is now separately approved under D051, superseding
-PR 2B's append-only deferral above. It changes processing connections only and
-does not approve PR 2C placement work or the other deferred interactions below.
+PR 2B's append-only deferral above. PR #85 implements that connection policy;
+PR 2C separately implements the approved visual placement below.
 
-**PR 2C — Graph placement and usability (scope not yet approved)**
+**PR 2C — Graph node placement (approved; implemented for independent review)**
 
-- Discuss and agree the user-visible behaviour and focused acceptance criteria
-  before implementation. Placement should use existing NodeId-keyed positions,
-  authoritative topology and UI mechanisms.
-- Candidate issues for discussion include pasted/duplicated node overlap,
-  initial placement/readability and contextual navigation. Do not silently
-  alter existing saved layouts or processing semantics while improving placement.
-- PR 2C does **not** itself authorise selection-aware Add Processor,
-  Insert Before/After, automatic serial splicing, a new processor-construction
-  pathway or Auto Arrange. Each requires its own explicit product decision.
+- Add Processor uses PR #85's selection-aware insertion workflow in both views.
+  After successful insertion, place the new processor immediately right of its
+  upstream Image predecessor at the same Y (240-unit width plus an 80-unit gap).
+- Preserve all existing generated or manually moved coordinates when adding,
+  deleting or reconnecting. Overlap is allowed; no collision avoidance or Auto
+  Arrange. List additions produce the same layout before Graph View is opened.
+- Source remains draggable. Output remains an automatically positioned virtual,
+  non-draggable endpoint; it may move as the graph grows and has no saved position.
+- Reuse NodeId-keyed positions and sidecar saves. Layout alone neither renders
+  nor writes sidecars. Tests cover placement, both views, preservation, overlap,
+  refusal and save/reopen; native macOS/Windows checks remain pending in
+  [GRAPH_VIEW_VALIDATION.md](docs/GRAPH_VIEW_VALIDATION.md).
+- Paste/duplicate placement, contextual navigation, Insert Before/After, Auto
+  Arrange and processor-construction changes remain outside this approval.
 
 **Separate future design — Empty nodes and processor assignment**
 

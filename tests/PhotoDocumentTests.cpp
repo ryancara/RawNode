@@ -449,7 +449,9 @@ bool samePhotoAndAtomicFailures() {
   for (const auto fault : {Fault::TempCreate, Fault::Write, Fault::Flush, Fault::Close, Fault::Replace}) {
     Options options; options.beforeSave = [=] { return fault; };
     CHECK(!document_detail::openPhoto(app, b, {}, options));
-    CHECK(bytes(path) == original && entries(files.dir) == before && app.path == a && app.nodePositions.size() == 1);
+    CHECK(bytes(path) == original && entries(files.dir) == before && app.path == a && app.nodePositions.size() == 2);
+    CHECK(app.nodePositions.at(app.primarySource.value).x == 0 && app.nodePositions.at(app.primarySource.value).y == 0);
+    CHECK(app.nodePositions.at(id.value).x == -2 && app.nodePositions.at(id.value).y == 3);
     CHECK(!app.persistenceWarning.empty());
   }
   CHECK(saveCurrentInputSidecar(app) && app.persistenceWarning.empty());

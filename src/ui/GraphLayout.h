@@ -35,6 +35,10 @@ struct GraphLayout {
 };
 
 GraphLayout layoutGraph(GraphView graph, const PersistPositions &saved);
+// Stage layout before insertion changes dependency depths. Publish the result
+// only after successful insertion; existing coordinates never move.
+PersistPositions positionsWithNewProcessor(GraphView graph, const PersistPositions &saved,
+                                          const NodeId &added, const NodeId &upstream);
 bool moveGraphNode(App &app, const NodeId &id, PersistPosition position);
 
 // Pan is in canvas-local pixels; positions are in graph coordinates.

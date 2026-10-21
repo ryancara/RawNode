@@ -133,7 +133,7 @@ static bool testSelectionAwareInsertion() {
       CHECK(slotted->slots[0].inputs.at(ports::image) == image(a) && !slotted->slots[1].inputs.at(ports::image));
       CHECK(slotted->nextSlotIdForPersistence() == nextSlot);
       CHECK(findNode(app, a)->processor.get() == original && exposure(findNode(app, a)) == 1.5);
-      CHECK(app.nodePositions.size() == 2 && app.nodePositions.at(a.value).x == 12 && app.nodePositions.at(a.value).y == -7);
+      CHECK(app.nodePositions.size() == app.nodes.size() && app.nodePositions.at(a.value).x == 12 && app.nodePositions.at(a.value).y == -7);
       CHECK(app.nodePositions.at(b.value).x == 98 && app.nodePositions.at(b.value).y == 15);
       CHECK(documentStateError(app).empty());
       // The successful selection itself is the insertion point for the next Add.
@@ -197,6 +197,7 @@ static bool testInvalidInsertionSelection() {
       app.selection = id; app.paramFilter[0] = 'x';
       const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
       const auto connections = topology(app);
+      const auto positions = app.nodePositions;
       int mutations = 0;
       RenderRuntimeTestAccess::observe(app.renderer, &mutations, [](void *context, auto event) noexcept {
         if (event == RenderRuntimeTestAccess::Event::MutationCompleted) ++*static_cast<int *>(context);
@@ -206,6 +207,11 @@ static bool testInvalidInsertionSelection() {
       RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
       CHECK(app.getStatus().find("Selected node has no compatible Image output") != std::string::npos);
       CHECK(topology(app) == connections && app.selectedNodeId() == id && app.paramFilter[0] == 'x');
+      CHECK(app.nodePositions.size() == positions.size());
+      for (const auto &position : positions) {
+        CHECK(app.nodePositions.at(position.first).x == position.second.x);
+        CHECK(app.nodePositions.at(position.first).y == position.second.y);
+      }
       CHECK(mutations == 0 && before.epoch == after.epoch && after.mutationDepth == 0);
       CHECK(before.previewPending == after.previewPending && before.displayPending == after.displayPending &&
             before.quietPending == after.quietPending);
@@ -233,6 +239,7 @@ static bool testInsertionDepthRefusal() {
     const auto selected = app.selection;
     CHECK(!addNativeExposureNode(app) && !addCtlNode(app, "not-constructed.ctl"));
     CHECK(depth_test::depthError(app.getStatus()) && app.selection == selected && topology(app) == before);
+    CHECK(app.nodePositions.empty());
   }
   RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
   const auto state = RenderRuntimeTestAccess::snapshot(app.renderer);

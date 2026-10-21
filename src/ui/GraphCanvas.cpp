@@ -156,7 +156,7 @@ struct GraphPortHit {
 };
 
 std::optional<GraphPortHit> hitGraphPort(const GraphLayout &layout, const GraphViewport &view,
-                                      PersistPosition point) {
+                                      PersistPosition point, std::optional<NodeId> selected) {
   std::optional<GraphPortHit> hit;
   double nearest = 1;
   // A horizontal screen-space halo helps target tiny ports. Limit the vertical
@@ -171,10 +171,18 @@ std::optional<GraphPortHit> hitGraphPort(const GraphLayout &layout, const GraphV
       hit = GraphPortHit{std::move(address), position, type};
     }
   };
-  for (const auto &entry : layout.nodes)
-    for (const auto &port : entry.second.ports)
-      consider({entry.second.node->id, port.slot, port.declaration->id, port.declaration->direction},
-               portPosition(entry.second, port), port.declaration->type);
+  const auto considerNode = [&](const GraphNodeLayout &node) {
+    for (const auto &port : node.ports)
+      consider({node.node->id, port.slot, port.declaration->id, port.declaration->direction},
+               portPosition(node, port), port.declaration->type);
+  };
+  // Match drawing order so equal-distance hits prefer the visually topmost port.
+  const GraphNodeLayout *selectedLayout = nullptr;
+  for (const auto &entry : layout.nodes) {
+    if (selected == entry.second.node->id) selectedLayout = &entry.second;
+    else considerNode(entry.second);
+  }
+  if (selectedLayout) considerNode(*selectedLayout);
   consider({{}, std::nullopt, ports::image, PortDirection::Input},
            {layout.output.x, layout.output.y + 48}, ValueType::Image);
   return hit;
@@ -198,7 +206,7 @@ std::optional<WireDrop> interact(App &app, const Canvas &canvas, GraphLayout &la
   const auto &io = ImGui::GetIO();
   const PersistPosition mouse{io.MousePos.x - canvas.origin.x, io.MousePos.y - canvas.origin.y};
   std::optional<WireDrop> drop;
-  const auto port = hovered ? hitGraphPort(layout, state.view, mouse) : std::nullopt;
+  const auto port = hovered ? hitGraphPort(layout, state.view, mouse, app.selectedNodeId()) : std::nullopt;
   if (state.wire && (!resolvePort(layout, *state.wire) ||
                     ImGui::IsKeyPressed(ImGuiKey_Escape, false) ||
                     !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) ||
@@ -254,7 +262,7 @@ void drawWireGesture(const App &app, const Canvas &canvas, const GraphLayout &la
   if (!anchor) return;
   const auto &mouse = ImGui::GetIO().MousePos;
   const auto target = hovered ? hitGraphPort(layout, canvas.view,
-      {mouse.x - canvas.origin.x, mouse.y - canvas.origin.y}) : std::nullopt;
+      {mouse.x - canvas.origin.x, mouse.y - canvas.origin.y}, app.selectedNodeId()) : std::nullopt;
   const bool compatible = target && target->address.direction != anchor->address.direction &&
                           target->type == anchor->type && app.renderer.canEditParameters();
   const ImU32 color = target ? ImGui::GetColorU32(compatible ? ImGuiCol_NavCursor : ImGuiCol_PlotHistogram)
@@ -305,7 +313,8 @@ std::optional<InputAddress> portContextMenu(App &app, const Canvas &canvas, cons
   if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
     state.wire.reset(); state.dragging.reset(); state.panningFromEmptyCanvas = false;
     const auto &mouse = ImGui::GetIO().MousePos;
-    const auto port = hitGraphPort(layout, canvas.view, {mouse.x - canvas.origin.x, mouse.y - canvas.origin.y});
+    const auto port = hitGraphPort(layout, canvas.view,
+        {mouse.x - canvas.origin.x, mouse.y - canvas.origin.y}, app.selectedNodeId());
     state.contextPort.reset();
     if (port && port->address.direction == PortDirection::Input && !port->address.isDocumentOutput()) {
       const auto &address = port->address;
@@ -338,7 +347,7 @@ std::optional<NodeId> nodeContextMenu(App &app, const Canvas &canvas, const Grap
     const auto &mouse = ImGui::GetIO().MousePos;
     const PersistPosition point{mouse.x - canvas.origin.x, mouse.y - canvas.origin.y};
     // Ports own right-clicks too, including ports without a menu operation.
-    if (!hitGraphPort(layout, canvas.view, point)) {
+    if (!hitGraphPort(layout, canvas.view, point, app.selectedNodeId())) {
       const auto *node = hitNode(layout, canvasToGraph(canvas.view, point), app.selectedNodeId());
       state.contextNode = node ? std::optional<NodeId>{node->node->id} : std::nullopt;
       if (node) {

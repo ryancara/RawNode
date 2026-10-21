@@ -229,8 +229,9 @@ PR #79 foundation, PR #80 contextual Inspector/workspace and PR #82 connection/
 deletion editing (D051), all merged and independently reviewed. Owner-reported
 native macOS validation of PR #82 is in `docs/GRAPH_VIEW_VALIDATION.md`;
 corrupted-sidecar protection and export/edit overlap scenarios, as well
-as Windows GUI checks, remain separately tracked. PR 2C placement/usability is the next **discussion**, not an already
-approved implementation; the concrete production Mask path follows. PR 2A
+as Windows GUI checks, remain separately tracked. PR 2C's approved contextual
+node placement is implemented for independent review/native validation (D051);
+the concrete production Mask path follows. PR 2A
 historical validation remains in `docs/WORKSPACE_INSPECTOR_VALIDATION.md`.
 The approved target is
 documented in `docs/ARCHITECTURE.md`; checkpoint
@@ -668,7 +669,7 @@ The remaining sequence is:
     Targeted graph safety + PNG colour corrections   [complete; independently reviewed]
           |
           v
-    Switchable Graph/List editor                   [#79/#80/#82 merged; PR 2C scope pending, D047/D051]
+    Switchable Graph/List editor                   [#79/#80/#82 merged; PR 2C in review, D047/D051]
           |
           v
     Step 8: Concrete first mask path + remaining implementation details
@@ -737,17 +738,21 @@ Next architecture/product work:
   review. Native macOS Graph View testing was reported successful; the
   corrupted-sidecar protection, export/edit overlap and Windows GUI checks
   remain separately tracked.
-- Discuss a focused, owner-approved PR 2C placement/usability contract before
-  implementation, then continue toward Step 8's first concrete Mask path.
-  A roadmap candidate is not approval to change insertion semantics.
+- PR 2C implements approved contextual placement for independent review/native
+  validation, then continue toward Step 8's first concrete Mask path. New
+  processors appear right of their upstream Image predecessor with an 80-unit
+  gap in both views, even before Graph View has opened. Preserve existing
+  positions through graph edits; permit overlap without collision avoidance.
+  Source stays draggable; virtual Output stays automatic and non-draggable.
 - Add Processor now follows the shared selection in List and Graph View:
   Source/main-chain processors insert before their next main-chain consumer;
   off-chain Image processors start another downstream branch without changing
   document Output or existing consumers. No selection, virtual Output and the
   final main-chain processor append at Output. Invalid Image selections refuse;
   successful insertion selects the new processor. This separate approval (D051)
-  changes connections only. Visual placement, Insert Before/After and Auto Arrange
-  still require separate decisions. Empty nodes and processor assignment/replacement
+  changes connections only. PR 2C's visual placement is separately approved;
+  Insert Before/After and Auto Arrange still require separate decisions.
+  Empty nodes and processor assignment/replacement
   remain deferred, without blocking PR 2C or Step 8. Clipboard/preset policies remain.
   Keep graph NodeId/connections distinct from processor instances.
 - Preview owns resolution; Nodes owns Add Processor and List/Graph; Inspector
@@ -802,8 +807,9 @@ coverage independently checks chunks, CRCs, profiles and pixels.
 
 **In progress:** the switchable Graph/List editor (D047) has its visual
 foundation (#79), workspace/Inspector (#80) and Graph wiring/deletion (#82)
-merged and independently reviewed. PR 2C placement/usability remains to be
-designed and approved. **Then Step 8** adds the first concrete Mask path.
+merged and independently reviewed. PR 2C's approved contextual node placement is
+implemented for independent review/native validation. **Then Step 8** adds the
+first concrete Mask path.
 These completed corrections are a preparatory gate, not additional
 architecture steps or a reason for a new whole-system audit.
 
@@ -865,7 +871,11 @@ restore any saved arrangement.
 The Nodes panel remembers List/Graph globally, defaulting to List. Graph View
 derives typed ports and connections from the live graph, shares transient
 Source/processor/virtual Output selection with the contextual Inspector, and uses `app.nodePositions` for generated
-and dragged coordinates. Normal grade-save boundaries persist these positions;
+and dragged coordinates. Add Processor stages missing coordinates from the
+pre-insertion layout and publishes them only after successful insertion, so
+List and Graph additions agree. Surviving positions never automatically move
+on Add, deletion or reconnection; overlap is permitted (D051).
+Normal grade-save boundaries persist these positions;
 protected photos only derive drawing coordinates. Canvas pan/zoom remain transient
 and do not expand Step 7.
 
