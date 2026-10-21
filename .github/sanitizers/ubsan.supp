@@ -1,0 +1,5 @@
+# Known stb JPEG bit-packing UB: signed accumulator shifts at
+# third_party/stb/stb_image_write.h:1256/1263. Only shift-base reports in this
+# function are excepted; ASan, other UB kinds and shifts elsewhere remain fatal.
+# Remove after a focused JPEG-writer correction; do not expand to the file.
+shift-base:stbiw__jpg_writeBits

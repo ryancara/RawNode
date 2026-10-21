@@ -45,3 +45,78 @@ jobs:
 
       - name: Self-test
         run: ./build/OfxRawHost --selftest
+
+  clang-sanitizers-selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CC: clang
+      CXX: clang++
+      # C/C++ flags also apply at link time, including to the bundled OFX module.
+      SANITIZER_FLAGS: -fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls
+      ASAN_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:symbolize=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:suppressions=${{ github.workspace }}/.github/sanitizers/ubsan.supp
+      SANITIZER_LOG_DIR: ${{ github.workspace }}/sanitizer-logs
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake \
+            clang \
+            llvm \
+            libomp-dev \
+            pkg-config \
+            libraw-dev \
+            libtiff-dev \
+            liblcms2-dev \
+            libopenexr-dev \
+            libgl1-mesa-dev \
+            xorg-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            wayland-protocols \
+            extra-cmake-modules
+
+      - name: Configure sanitizers
+        run: |
+          cmake -S . -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="$SANITIZER_FLAGS" \
+            -DCMAKE_CXX_FLAGS="$SANITIZER_FLAGS"
+
+      - name: Build
+        run: cmake --build build-sanitizers --parallel 2
+
+      - name: Verify instrumentation and independent sanitizer failures
+        run: bash .github/sanitizers/check.sh
+
+      - name: Self-test with ASan and UBSan
+        # Explicit Bash enables pipefail so tee cannot hide a sanitizer/test failure.
+        shell: bash
+        run: ./build-sanitizers/OfxRawHost --selftest 2>&1 | tee "$SANITIZER_LOG_DIR/selftest.log"
+
+      - name: Self-test duplicate and aliased OFX discovery
+        shell: bash
+        run: |
+          plugins="$PWD/build-sanitizers/Plugins"
+          alias="$RUNNER_TEMP/rawnode-ofx-plugins"
+          ln -s "$plugins" "$alias"
+          OFX_PLUGIN_PATH="$plugins:$alias" ./build-sanitizers/OfxRawHost --selftest 2>&1 \
+            | tee "$SANITIZER_LOG_DIR/duplicate-discovery.log"
+
+      - name: Preserve sanitizer diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-sanitizer-logs
+          path: ${{ env.SANITIZER_LOG_DIR }}
+          if-no-files-found: warn

@@ -563,15 +563,17 @@ Prefer deterministic barriers/observers to timing-dependent sleeps.
 
 Use ASan and TSan where practical for renderer/lifetime/concurrency changes.
 
-A known baseline issue exists: leak-enabled ASan reports an OpenFX plugin
-descriptor leak during plugin loading (3,186 bytes in 36 allocations when last
-measured). Do not use that known leak to dismiss unrelated sanitizer findings.
+A known application-shutdown issue remains: OpenFX support-library descriptors
+allocated during Describe/DescribeInContext require ActionUnload (independently
+reproduced as 3,186 bytes in 36 allocations). Full self-tests now send Unload after
+test-owned instances are destroyed; CI keeps leak detection enabled without leak
+suppressions. The normal application shutdown still needs a focused correction.
 
 ## Known deferred issues
 
 These are known but are not reasons to expand unrelated focused PRs:
 
-- the OpenFX plugin descriptor leak described above;
+- the production OpenFX plugin descriptor shutdown leak described above;
 - JPEG XL DNG decoding is not yet supported in the current image-loading path;
 - TIFF SubIFD handling is incomplete for some RAW-like TIFF structures;
 - export UX can block/wait on a non-cancellable full-resolution export;
@@ -912,9 +914,14 @@ unrelated features; tooling can proceed alongside the next milestone where pract
 - [x] Final independent Claude verification of the design, D050 lifecycle and
       remaining corrections at `75e7affd4014f090a90293d69b6a157050576864`:
       **SAFE TO MERGE** (result supplied by the user).
-- [ ] Extend CI where practical (Linux build + self-test already implemented):
-      add a macOS PR build + self-test and a separate ASan/UBSan job. Keep
-      TSan/stress manual initially where automation is impractical.
+- [x] Extend automatic push/PR CI: Apple Silicon macOS Release build, arm64
+      verification and full self-test; separate Linux Debug ASan/UBSan full
+      self-test alongside the existing GCC Release job. Independent fault probes
+      check fatal diagnostics and leak detection. The sole temporary UBSan
+      exception is `shift-base` in `stbiw__jpg_writeBits` (see
+      `.github/sanitizers/ubsan.supp`); the JPEG correction remains deferred.
+      Keep TSan/stress manual initially; Windows and extra macOS architectures
+      remain later milestones. Execution evidence belongs in the CI PR/runs.
 - [ ] Enable meaningful compiler warnings for RawNode-owned sources first
       (not vendored `third_party`), then trial a narrow clang-tidy profile.
       Establish a baseline and prioritise real defects over cosmetic churn.

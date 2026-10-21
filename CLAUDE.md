@@ -488,8 +488,11 @@ environment supports them.
 
 ## Known baseline issues
 
-Leak-enabled ASan currently reports a known OpenFX plugin descriptor leak during
-plugin loading: 3,186 bytes in 36 allocations at the time this file was added.
+Full self-tests now send OpenFX ActionUnload after test-owned instances are
+destroyed and pass leak-enabled ASan without a descriptor-leak suppression.
+Normal application shutdown still omits Unload; its descriptor leak remains
+unresolved (historically 3,186 bytes in 36 allocations). See the quality roadmap
+in `docs/PROJECT_CONTEXT.md` for the narrow JPEG UBSan exception.
 
 The two OpenFX host multithread lifetime bugs found during Step-4 review were
 fixed in PR #48 and are no longer baseline issues. If reviewing related code,

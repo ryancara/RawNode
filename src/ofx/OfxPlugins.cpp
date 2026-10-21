@@ -110,6 +110,10 @@ static void loadBundle(const fs::path &bundle) {
   for (int i = 0, n = count(); i < n; ++i) {
     OfxPlugin *p = get(i);
     if (!p || !p->setHost || !p->mainEntry || strcmp(p->pluginApi, kOfxImageEffectPluginApi) != 0) continue;
+    // Overlapping search paths (including directory aliases) can return the
+    // same plugin. Repeating Load/Describe would overwrite its descriptors.
+    if (std::any_of(gPlugins.begin(), gPlugins.end(),
+                    [p](const PluginEntry &entry) { return entry.plugin == p; })) continue;
     p->setHost(&gOfxHost);
     if (!ofxActionOk(callAction(p, kOfxActionLoad, nullptr))) continue;
      auto base = std::make_unique<Effect>();
