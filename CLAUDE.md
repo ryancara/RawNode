@@ -8,8 +8,9 @@ from ofxrawhost.
 It supports one explicit processing graph containing native processors, OpenFX
 plugins and CTL processors, with a dockable Nodes panel and switchable List/Graph
 presentation. D051's workspace and graph editing stages are merged as PR #80
-and PR #82. PR 2C placement/usability awaits an approved scope; future plans
-include DCTL, LUTs, masks, compositing and local adjustments.
+and PR #82. PR 2C's approved contextual placement awaits independent review and
+native validation; future plans include DCTL, LUTs, masks, compositing and local
+adjustments.
 
 macOS is currently the primary development platform, but the architecture should
 remain cross-platform for macOS, Windows and Linux.
@@ -325,7 +326,7 @@ Step 7 graph-native persistence and all four targeted post-Step-7 corrections
 are complete (see "Quality and verification roadmap" in
 `docs/PROJECT_CONTEXT.md`). The Graph/List visual foundation (PR #79),
 workspace/Inspector (PR #80) and graph editing (PR #82) are merged.
-PR 2C placement/usability awaits approval of its exact scope before Step 8's
+PR 2C's approved contextual node placement is implemented for review before Step 8's
 first concrete production Mask path. See `docs/GRAPH_VIEW_VALIDATION.md`
 for focused tests, owner-reported macOS results and pending native edge-case
 and Windows GUI checks.

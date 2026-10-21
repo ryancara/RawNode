@@ -68,7 +68,7 @@ bool dependencyLayoutAndPorts() {
   const auto &root = layout.nodes.at("source"), &a = layout.nodes.at("left"), &b = layout.nodes.at("right");
   const auto &end = layout.nodes.at("merge"), &disconnected = layout.nodes.at("spare");
   CHECK(layout.nodes.size() == 5 && root.position.x < a.position.x && root.position.x < b.position.x);
-  CHECK(a.position.x == b.position.x && a.position.y + a.height < b.position.y);
+  CHECK(same(a.position, b.position)); // Overlap is allowed; no collision avoidance.
   CHECK(end.position.x > a.position.x && end.position.x > b.position.x && layout.output.x > end.position.x);
   CHECK(disconnected.node->isMissingProcessor() && !b.node->enabled);
   CHECK(!disconnected.node->fixedInputs.at(ports::image));
@@ -90,13 +90,13 @@ bool dependencyLayoutAndPorts() {
       CHECK(same(entry.second.ports[i].offset, other.ports[i].offset));
     }
   }
-  // Preserve fractional/negative coordinates; avoid a saved node occupying the
-  // default first-column slot. Stale IDs cannot create visual/executable nodes.
+  // Preserve fractional/negative coordinates even when a saved node occupies
+  // the default first-column slot. Stale IDs cannot create visual/executable nodes.
   const PersistPositions saved{{"source", {-15.5, 8.25}}, {"spare", {320, 0}}, {"stale", {0, 0}}};
   const auto restored = ui::layoutGraph(graph(app), saved);
   CHECK(same(restored.nodes.at("source").position, saved.at("source")));
   CHECK(same(restored.nodes.at("spare").position, saved.at("spare")));
-  CHECK(restored.nodes.at("left").position.y >= disconnected.height + 40);
+  CHECK(same(restored.nodes.at("left").position, saved.at("spare")));
   CHECK(restored.nodes.size() == 5 && app.nodePositions.empty());
   return true;
 }
@@ -464,6 +464,127 @@ struct Files {
   ~Files() { std::error_code ignored; std::filesystem::remove_all(dir, ignored); }
 };
 
+bool contextualPlacement() {
+  Ui ui;
+  for (auto mode : {NodesView::List, NodesView::Graph}) {
+    // Exercise absent coordinates (e.g. a grade without layout), generated
+    // coordinates and manually moved nodes. Expected positions are independent
+    // of layoutGraph: a 240-wide node plus the existing 80-unit gap, same Y.
+    for (int coordinates = 0; coordinates < 3; ++coordinates) {
+      for (int selection = 0; selection < 6; ++selection) {
+        App app; app.nodesView = mode;
+        CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+        CHECK(addNativeCstNode(app)); const auto b = *app.selectedNodeId();
+        CHECK(addNativeExposureNode(app)); const auto branch = *app.selectedNodeId();
+        CHECK(graph::setDocumentOutput(app, {b, ports::image}).ok());
+        PersistPositions expected{{app.primarySource.value, {0, 0}}, {a.value, {320, 0}},
+                                  {b.value, {640, 0}}, {branch.value, {960, 0}}};
+        if (coordinates == 0) app.nodePositions.clear();
+        if (coordinates == 2) {
+          expected = {{app.primarySource.value, {-400, 90.5}}, {a.value, {17.25, -9.5}},
+                      {b.value, {-180, 30}}, {branch.value, {200, 200}}};
+          for (const auto &entry : expected) CHECK(ui::moveGraphNode(app, NodeId{entry.first}, entry.second));
+        }
+        std::reverse(app.nodes.begin(), app.nodes.end());
+        if (mode == NodesView::Graph) { ui.tick(app); ui.tick(app); }
+        // List additions deliberately happen before any Graph View frame.
+        const NodeId predecessor = selection < 2 || selection == 4 ? b :
+                                   selection == 2 ? app.primarySource : selection == 3 ? a : branch;
+        if (selection == 0) CHECK(selectNode(app, std::nullopt));
+        else if (selection == 1) selectOutput(app);
+        else CHECK(selectNode(app, predecessor));
+        const auto point = expected.at(predecessor.value);
+        CHECK(addNativeExposureNode(app)); const auto added = *app.selectedNodeId();
+        CHECK(selectedNode(app)->fixedInputs.at(ports::image) == (OutputRef{predecessor, ports::image}));
+        expected.emplace(added.value, PersistPosition{point.x + 320, point.y});
+        CHECK(samePositions(app.nodePositions, expected));
+        // Main-chain splicing can exactly overlap its existing consumer.
+        if (coordinates != 2 && selection == 3)
+          CHECK(same(app.nodePositions.at(added.value), app.nodePositions.at(b.value)));
+        CHECK(addNativeCstNode(app)); const auto repeated = *app.selectedNodeId();
+        expected.emplace(repeated.value, PersistPosition{point.x + 640, point.y});
+        CHECK(samePositions(app.nodePositions, expected));
+        app.nodesView = NodesView::Graph; ui.tick(app); ui.tick(app);
+        CHECK(samePositions(app.nodePositions, expected) && expected.size() == app.nodes.size());
+        CHECK(destroyNode(app, repeated) && destroyNode(app, added));
+        expected.erase(repeated.value); expected.erase(added.value);
+        CHECK(graph::reconnect(app, {app.primarySource, ports::image}, {b, {}, ports::image}).ok());
+        ui.tick(app);
+        CHECK(samePositions(app.nodePositions, expected));
+      }
+    }
+  }
+  // Output is automatic drawing geometry, never a persistent/draggable node.
+  App app;
+  CHECK(addNativeExposureNode(app));
+  const auto output = ui::layoutGraph(graph(app), app.nodePositions).output;
+  CHECK(addNativeCstNode(app));
+  const auto grown = ui::layoutGraph(graph(app), app.nodePositions).output;
+  CHECK(same(grown, {output.x + 320, output.y}) && app.nodePositions.size() == app.nodes.size());
+  return true;
+}
+
+bool failedPlacement() {
+  for (bool positioned : {false, true}) {
+    App app;
+    CHECK(addNativeExposureNode(app));
+    if (!positioned) app.nodePositions.clear();
+    else CHECK(ui::moveGraphNode(app, *app.selectedNodeId(), {-12.5, 7.25}));
+    const auto positions = app.nodePositions;
+    const auto topology = graphJson(app);
+    const auto selection = app.selection;
+    CHECK(!addCtlNode(app, "missing-placement-script.ctl") && !addNode(app, -1));
+    CHECK(app.selection == selection && graphJson(app) == topology && samePositions(app.nodePositions, positions));
+    // Backend failure retains the established render-recovery policy. Invalid
+    // selection is refused before mutation and must preserve demand exactly.
+    const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+    app.selection = NodeId{"stale-placement-selection"};
+    CHECK(!addNativeExposureNode(app) && !addNativeCstNode(app));
+    CHECK(graphJson(app) == topology && samePositions(app.nodePositions, positions));
+    const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(before.epoch == after.epoch && before.previewPending == after.previewPending &&
+          before.displayPending == after.displayPending && before.quietPending == after.quietPending);
+  }
+  return true;
+}
+
+bool placementSaveReopen() {
+  Files files;
+  const auto photo = (files.dir / "placement.png").string();
+  std::ofstream(photo) << "synthetic";
+  document_detail::ActionTestOptions options; options.decode = syntheticPhoto;
+  App app; app.nodesView = NodesView::List;
+  CHECK(document_detail::openPhoto(app, photo, {}, options));
+  const auto originalFile = bytes(inputSidecarPath(photo));
+  CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+  CHECK(addNativeCstNode(app)); const auto b = *app.selectedNodeId();
+  CHECK(selectNode(app, a) && addNativeExposureNode(app)); const auto inserted = *app.selectedNodeId();
+  CHECK(same(app.nodePositions.at(inserted.value), {640, 0}));
+  CHECK(same(app.nodePositions.at(b.value), {640, 0})); // Intentional overlap survives saving.
+  CHECK(ui::moveGraphNode(app, app.primarySource, {-90.25, 12.5}));
+  CHECK(graph::setDocumentOutput(app, {app.primarySource, ports::image}).ok());
+  CHECK(selectNode(app, a) && addNativeCstNode(app)); const auto branch = *app.selectedNodeId();
+  CHECK(same(app.nodePositions.at(branch.value), {640, 0}));
+  const auto positions = app.nodePositions;
+  const auto topology = graphJson(app);
+  CHECK(bytes(inputSidecarPath(photo)) == originalFile); // Add/move perform no sidecar I/O.
+  // Save/reopen through the real boundary before Graph View has ever opened.
+  CHECK(document_detail::openPhoto(app, photo, {}, options));
+  CHECK(samePositions(app.nodePositions, positions) && graphJson(app) == topology);
+  const auto savedFile = bytes(inputSidecarPath(photo));
+  Ui ui; app.nodesView = NodesView::Graph;
+  const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+  std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+  ui.tick(app); ui.tick(app);
+  CHECK(samePositions(app.nodePositions, positions) && graphJson(app) == topology);
+  CHECK(bytes(inputSidecarPath(photo)) == savedFile && mutations == 0);
+  const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+  CHECK(before.epoch == after.epoch && before.previewPending == after.previewPending &&
+        before.displayPending == after.displayPending && before.quietPending == after.quietPending);
+  RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  return true;
+}
+
 bool photoLayoutLifecycle() {
   Files files;
   const auto a = (files.dir / "a.png").string(), b = (files.dir / "b.png").string();
@@ -721,6 +842,8 @@ bool processorPickerInBothViews() {
             successor = node.id;
       }
       const auto count = app.nodes.size();
+      const auto positions = app.nodePositions;
+      const auto point = positions.at(predecessor.value);
       std::snprintf(app.pluginFilter, sizeof app.pluginFilter, "Exposure");
       ui.tick(app); ui.tick(app); ui.click(app, ui.addButton);
       CHECK(ui.pickerOpen);
@@ -735,6 +858,8 @@ bool processorPickerInBothViews() {
       const auto *node = selectedNode(app);
       CHECK(node && node->processor && nodeDisplayName(*node) == "Exposure");
       CHECK(node->fixedInputs.at(ports::image) == (OutputRef{predecessor, ports::image}));
+      CHECK(same(app.nodePositions.at(node->id.value), {point.x + 320, point.y}));
+      for (const auto &entry : positions) CHECK(same(app.nodePositions.at(entry.first), entry.second));
       if (successor) {
         CHECK(findNode(app, *successor)->fixedInputs.at(ports::image) == (OutputRef{node->id, ports::image}));
         CHECK(app.documentOutput == previousOutput);
@@ -1311,6 +1436,9 @@ bool editedWirePhotoPersistence() {
 bool testGraphView() {
   for (const auto &test : {
        std::make_pair("dependency layout, branches, missing nodes and typed ports", dependencyLayoutAndPorts),
+       std::make_pair("contextual placement, List/Graph parity, overlap and preservation through edits", contextualPlacement),
+       std::make_pair("failed additions preserve generated, missing and moved layout", failedPlacement),
+       std::make_pair("List placement saves/reopens before Graph View, without layout render or I/O", placementSaveReopen),
        std::make_pair("wire editing, no-op/cancel, Disconnect and port priority at zoom limits", wireEditingFrames),
        std::make_pair("typed Output wiring, pixel results and UI export/protection gates", outputAndTypedWireFrames),
        std::make_pair("focused nonrepeat deletion, Inspector cleanup and off-spine menu deletion", deletionFrames),

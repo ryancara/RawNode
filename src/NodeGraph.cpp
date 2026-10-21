@@ -9,6 +9,7 @@
 #include "processors/NativeExposureProcessor.h"
 #include "processors/NativeCstProcessor.h"
 #include "processors/CtlProcessor.h"
+#include "ui/GraphLayout.h"
 
 #include <algorithm>
 #include <cassert>
@@ -661,12 +662,16 @@ static bool insertProcessorNode(App &app, std::unique_ptr<Processor> processor, 
   auto node = makeProcessorNode(app.nodes, std::move(processor));
   std::optional<NodeId> selection = node.id; // Allocate identity before committing the graph.
   const graph::Document document{app.nodes, app.primarySource, app.documentOutput};
+  const auto upstream = insertion.branch ? *insertion.branch
+      : insertion.before ? **findInput(document, *insertion.before) : app.documentOutput;
+  auto positions = ui::positionsWithNewProcessor(document, app.nodePositions, node.id, upstream.nodeId);
   // Bind the detached branch before addNode stages/validates/commits it. Never
   // publish a disconnected node followed by a separately fallible connection.
   if (insertion.branch) node.fixedInputs.at(ports::image) = insertion.branch;
   const auto result = insertion.branch ? graph::addNode(document, std::move(node))
       : graph::insertImageNode(document, std::move(node), insertion.before);
   if (!result.ok()) { app.setStatus(result.error); return false; }
+  app.nodePositions.swap(positions);
   selectNode(app, std::move(selection));
   return true;
 }

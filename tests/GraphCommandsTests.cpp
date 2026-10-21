@@ -530,6 +530,7 @@ static bool testAppAndSourceMove() {
   // Active add/move/load semantics now produce one authoritative topology.
   CHECK(serial.nodes[0].fixedInputs.at(ports::image) == image(second) &&
         serial.nodes[2].fixedInputs.at(ports::image) == image(serial.primarySource) && serial.documentOutput == image(first));
+  serial.nodePositions.clear(); // Historical V2 fixtures intentionally omit layout.
   const auto chain = captureChain(serial);
   applyChain(serial, chain);
   CHECK(serial.documentOutput == image(first) && serial.nodes[1].id == second && serial.nodes[2].id == first &&

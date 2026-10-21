@@ -55,6 +55,7 @@ static bool testDocumentIdentity() {
   if (findNode(app, first) || app.documentOutput != sourceImage ||
       !documentStateError(app).empty()) return false;
   app.documentOutput = {second, ports::image}; // Capture the remaining complete linear graph.
+  app.nodePositions.clear(); // Historical V2 fixtures intentionally omit layout.
   const PersistChain chain = captureChain(app);
   clearNodes(app);
   if (app.nodes.size() != 1 || app.primarySource != sourceId || app.documentOutput != sourceImage) return false;

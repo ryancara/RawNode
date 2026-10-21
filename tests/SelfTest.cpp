@@ -262,6 +262,7 @@ static bool testExportPreservesSourceSidecar(bool crossImage) {
   const std::string targetSource = crossImage ? (files.dir / "DSC_0002.NEF").string() : app.path;
   const std::string targetSidecar = inputSidecarPath(targetSource);
   if (crossImage) {
+    app.nodePositions.clear(); // The foreign sidecar fixture uses historical V2.
     PersistChain otherGrade = captureChain(app);
     otherGrade.nodes[0].paramsJson["exposure"] = "-2";
     if (!saveInputSidecar(targetSource, PersistGui{}, otherGrade, &app.inputEncoding))
@@ -1880,6 +1881,7 @@ static bool testUnavailableProcessorRestore(bool append, bool ctl) {
   missing.enabled = false;
   missing.paramsJson["opaque"] = "{\"future\":true}";
   missing.groupOpen["group"] = true;
+  app.nodePositions.clear(); // Historical V2 fixtures intentionally omit layout.
   PersistChain replacement = captureChain(app);
   replacement.nodes.insert(replacement.nodes.begin() + 1, missing);
   replacement.selectedNodeId = missing.id;
@@ -2433,6 +2435,7 @@ int runSelfTests() {
         cstOut.px[7] != 0.75f)
       return fail("native CST float range/alpha");
 
+    cstApp.nodePositions.clear(); // Historical V2 fixtures intentionally omit layout.
     const PersistChain cstSaved = captureChain(cstApp);
     if (cstSaved.nodes.size() != 1 || cstSaved.nodes[0].backend != "native" ||
         cstSaved.nodes[0].identifier != NativeCstProcessor::kIdentifier ||
@@ -3102,8 +3105,12 @@ int runSelfTests() {
     {
       App preview;
       graphPreviewSource(preview);
+      preview.nodePositions[preview.primarySource.value] = {-75.25, 12.5};
       const int before = renderState(preview).epoch;
-      if (!addCtlNode(preview, scriptPath.string()) || !finishGraphPreview(preview, before, 0.25f))
+      if (!addCtlNode(preview, scriptPath.string()) ||
+          preview.nodePositions.at(preview.selectedNodeId()->value).x != 244.75 ||
+          preview.nodePositions.at(preview.selectedNodeId()->value).y != 12.5 ||
+          !finishGraphPreview(preview, before, 0.25f))
         return fail("CTL add transaction/request/result");
     }
 
@@ -3266,6 +3273,7 @@ int runSelfTests() {
     Image ctlSavedOut;
     if (!renderChain(ctlApp, src, ctlSavedOut, {}).ok) return fail("ctl persistence parameter render");
 
+    ctlApp.nodePositions.clear(); // Historical V2 fixtures intentionally omit layout.
     const PersistChain ctlSaved = captureChain(ctlApp);
     if (ctlSaved.nodes.size() != 1 || ctlSaved.nodes[0].backend != "ctl" ||
         fs::path(ctlSaved.nodes[0].identifier).filename() != scriptPath.filename() ||
@@ -3308,8 +3316,12 @@ int runSelfTests() {
     {
       App preview;
       graphPreviewSource(preview);
+      preview.nodePositions[preview.primarySource.value] = {-75.25, 12.5};
       const int before = renderState(preview).epoch;
-      if (!addNode(preview, cropIndex) || !finishGraphPreview(preview, before, 0.125f) ||
+      if (!addNode(preview, cropIndex) ||
+          preview.nodePositions.at(preview.selectedNodeId()->value).x != 244.75 ||
+          preview.nodePositions.at(preview.selectedNodeId()->value).y != 12.5 ||
+          !finishGraphPreview(preview, before, 0.125f) ||
           !testGraphEditWaits(false, ActiveGraphEdit::AddOfx, cropIndex) ||
           !testGraphEditWaits(true, ActiveGraphEdit::AddOfx, cropIndex))
         return fail("OFX add transaction and preview/export lifetime boundary");
@@ -3453,6 +3465,7 @@ int runSelfTests() {
         return fail("ART CTL RGB/alpha result");
     }
 
+    artApp.nodePositions.clear(); // Historical V2 fixtures intentionally omit layout.
     const PersistChain artSaved = captureChain(artApp);
     App artRestored;
     applyChain(artRestored, artSaved);
@@ -3563,6 +3576,7 @@ int runSelfTests() {
     // A non-default explicit choice value round-trips through Sidecar V2 as the
     // declared value (0), not a menu index, and restores the same render.
     {
+      artMeta.nodePositions.clear(); // Historical V2 fixtures intentionally omit layout.
       const PersistChain choiceSaved = captureChain(artMeta);
       if (choiceSaved.nodes[0].paramsJson.at("mode") != "0")
         return fail("ART explicit choice value Sidecar V2 capture");
@@ -3750,6 +3764,7 @@ int runSelfTests() {
         adjusterValue("derived", false) != ParameterValue(expectedDerived))
       return fail("ART scalar decimal places from derived step");
 
+    artAdjuster.nodePositions.clear(); // Historical V2 fixtures intentionally omit layout.
     const PersistChain adjusterSaved = captureChain(artAdjuster);
     App adjusterRestored;
     applyChain(adjusterRestored, adjusterSaved);
@@ -3919,6 +3934,7 @@ int runSelfTests() {
       if (mixedOut.px[i + 3] != cropOut.px[i + 3]) return fail("native exposure alpha");
     }
 
+    mixed.nodePositions.clear(); // Historical V2 fixtures intentionally omit layout.
     const PersistChain saved = captureChain(mixed);
     if (saved.nodes.size() != 3 || saved.nodes[1].backend != "native" ||
         saved.nodes[1].identifier != "rawnode.native.exposure")

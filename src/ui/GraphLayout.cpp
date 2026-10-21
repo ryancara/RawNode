@@ -10,7 +10,6 @@
 namespace ui {
 namespace {
 constexpr double columnSpacing = graphNodeWidth + 80;
-constexpr double rowGap = 40;
 
 bool finite(PersistPosition position) { return std::isfinite(position.x) && std::isfinite(position.y); }
 
@@ -62,45 +61,16 @@ std::map<std::string, size_t> dependencyColumns(const GraphLayout &layout) {
   }
   return columns;
 }
-
-bool overlaps(const GraphNodeLayout &a, const GraphNodeLayout &b) {
-  return a.position.x < b.position.x + graphNodeWidth + rowGap &&
-         a.position.x + graphNodeWidth + rowGap > b.position.x &&
-         a.position.y < b.position.y + b.height + rowGap &&
-         a.position.y + a.height + rowGap > b.position.y;
-}
 }  // namespace
 
 GraphLayout layoutGraph(GraphView graph, const PersistPositions &saved) {
   GraphLayout layout;
   for (const auto &node : graph.nodes) layout.nodes.emplace(node.id.value, nodeGeometry(node));
   const auto columns = dependencyColumns(layout);
-  std::vector<const GraphNodeLayout *> placed;
-  std::vector<std::string> missing;
   for (auto &entry : layout.nodes) {
     const auto found = saved.find(entry.first);
-    if (found != saved.end() && finite(found->second)) {
-      entry.second.position = found->second;
-      placed.push_back(&entry.second);
-    } else missing.push_back(entry.first);
-  }
-  std::sort(missing.begin(), missing.end(), [&](const auto &a, const auto &b) {
-    return columns.at(a) == columns.at(b) ? a < b : columns.at(a) < columns.at(b);
-  });
-  for (const auto &id : missing) {
-    auto &node = layout.nodes.at(id);
-    node.position = {columns.at(id) * columnSpacing, 0};
-    // Saved nodes are never moved. Missing nodes step below occupied rectangles.
-    bool collision;
-    do {
-      collision = false;
-      for (const auto *other : placed) {
-        if (!overlaps(node, *other)) continue;
-        node.position.y = other->position.y + other->height + rowGap;
-        collision = true;
-      }
-    } while (collision);
-    placed.push_back(&node);
+    entry.second.position = found != saved.end() && finite(found->second)
+        ? found->second : PersistPosition{columns.at(entry.first) * columnSpacing, 0};
   }
   double right = 0;
   for (const auto &entry : layout.nodes)
@@ -108,6 +78,18 @@ GraphLayout layoutGraph(GraphView graph, const PersistPositions &saved) {
   const auto output = layout.nodes.find(graph.documentOutput.nodeId.value);
   layout.output = {right + 80, output == layout.nodes.end() ? 0 : output->second.position.y};
   return layout;
+}
+
+PersistPositions positionsWithNewProcessor(GraphView graph, const PersistPositions &saved,
+                                          const NodeId &added, const NodeId &upstream) {
+  const auto layout = layoutGraph(graph, saved);
+  auto positions = saved;
+  // Freeze missing coordinates too, so List additions do not depend on whether
+  // Graph View has been opened. Generated and dragged positions share ownership.
+  for (const auto &entry : layout.nodes) positions.emplace(entry.first, entry.second.position);
+  const auto predecessor = layout.nodes.at(upstream.value).position;
+  positions.emplace(added.value, PersistPosition{predecessor.x + columnSpacing, predecessor.y});
+  return positions;
 }
 
 bool moveGraphNode(App &app, const NodeId &id, PersistPosition position) {

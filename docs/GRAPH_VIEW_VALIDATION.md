@@ -4,9 +4,9 @@ PR #79 delivered the visual foundation under D047; PR #80 delivered the
 contextual Inspector/workspace under D051; and PR #82 delivered focused typed
 wiring, Output rewiring, Disconnect and deletion interactions. All three are
 merged. See [WORKSPACE_INSPECTOR_VALIDATION.md](WORKSPACE_INSPECTOR_VALIDATION.md)
-for the PR #80 control mapping and historical validation. PR 2C placement/usability
-requires a separate approved scope. None of these UI PRs replaces the renderer,
-evaluator, graph commands or sidecar schema.
+for the PR #80 control mapping and historical validation. PR 2C's separately
+approved placement scope and checks are recorded below. None of these UI PRs
+replaces the renderer, evaluator, graph commands or sidecar schema.
 
 Selection-aware Add Processor is now separately approved under D051. The
 append-only checks in the historical PR 2B record below apply to that merged
@@ -21,9 +21,9 @@ pending; existing dated results below do not establish it.
   fixed/Slot input bindings and documentOutput. No second graph or UI edge list.
 - List and Graph share App::selection. Real nodes retain stable NodeIds; virtual
   Output has no stored identity. View changes retain selection and parameter filter.
-- Iterative dependency columns with stable NodeId tie-breaking place missing
-  nodes. A hand-authored diamond requires consumers right of dependencies,
-  nonoverlapping branches and visible disconnected nodes, independent of storage.
+- Iterative dependency columns place nodes without coordinates, independent of
+  storage order. Overlap is allowed; there is no collision avoidance. Add Processor
+  uses the contextual placement contract below instead of recalculating depths.
 - Generated and dragged coordinates use app.nodePositions/grade.positions and
   the same existing save lifecycle. Saved positions restore exactly. Protected
   photos derive drawing positions without changing the grade. No movement-time I/O.
@@ -62,6 +62,49 @@ Native macOS/Windows validation remains pending: physical Delete/Backspace
 floating Nodes panels, text/other-panel focus, view switches, and protected-photo
 or active-export restrictions. Earlier native Graph View results do not establish
 these List View checks.
+
+## PR 2C — approved contextual placement
+
+The approved acceptance criteria are predecessor-relative placement after a
+successful Add, identical List/Graph results, unchanged surviving coordinates
+through additions/deletion/reconnection, permitted overlap and exact save/reopen.
+Source remains draggable; virtual Output remains automatic and non-draggable.
+Paste/preset policies, Auto Arrange and processing semantics are outside scope.
+
+Implementation reuses PR #85's native/CTL/OFX insertion path and stages coordinates
+with the existing GraphLayout code. Commit the position map only after graph
+insertion succeeds. Missing existing coordinates are frozen from the pre-edit
+layout; use the existing node width (240) and horizontal gap (80), at the
+predecessor's Y. No new persistent state, render request or sidecar-write path.
+
+Focused tests use independent expectations (X = predecessor X + 320; Y unchanged),
+not layout output as the oracle. Both views exercise no selection, Output,
+Source, main-chain middle/tail and off-chain selection, repeated additions,
+reversed storage and missing/generated/manually moved coordinates. Middle
+insertion intentionally overlaps a downstream consumer; deletion/reconnection
+must preserve surviving coordinates. Real ImGui picker tests assert placement.
+Refusal tests retain layout on invalid selection, over-depth insertion and
+backend construction failure. Photo tests save/reopen before Graph View opens,
+preserve overlapping/fractional coordinates and check that layout performs no
+render mutation or immediate sidecar I/O. Output can move as additions grow the
+graph and never appears in the saved position map.
+
+Linux Release validation passed on 2026-10-21 using the pinned dependency sources
+and `FETCHCONTENT_UPDATES_DISCONNECTED=ON`: full `--selftest`, plus focused
+`--selftest-graph-view`, `--selftest-graph`, `--selftest-graph-runtime`,
+`--selftest-photo`, `--selftest-transfers` and `--selftest-preferences`.
+The full suite includes real CTL/OFX placement and existing render-lifetime checks.
+Removing the insertion position-map publication makes the new contextual test
+fail. The mutation was reverted; the final Release rebuild and Graph View suite passed.
+Historical V2 tests explicitly omit layout because V2 cannot represent positions;
+production grade persistence remains graph-native.
+
+Native macOS/Windows validation remains pending: add from Source, middle/tail,
+Output/no selection and an off-chain processor in both views; add several nodes
+in List before opening Graph; confirm overlap, unchanged positions after delete/
+reconnect, Source dragging, non-draggable automatic Output, and save/reopen.
+These headless ImGui checks do not establish physical input, native window or
+platform rendering behaviour. Claude's independent review remains outstanding.
 
 ## Historical PR #79 evidence
 

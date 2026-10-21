@@ -603,8 +603,32 @@ Reuse the existing staged graph commands and DocumentMutation ownership. Reroute
 only the chosen main-chain connection, preserving identities, parameters and all
 unrelated consumers/Slots. Clipboard Paste, preset Append and grade replacement
 retain their existing policies. This approval changes processing connections only
-and preserves existing visual placement. PR 2C, Auto Arrange and Insert Before/After
-remain unapproved; empty nodes and processor assignment/replacement remain deferred.
+and preserves existing visual placement. PR 2C was separately approved below;
+Auto Arrange, Insert Before/After, empty nodes and processor assignment/replacement
+remain deferred.
+
+### Superseding PR 2C approval — contextual node placement, 2026-10-21
+
+Newly added processors appear immediately right of their upstream Image
+predecessor, at the same Y, with a small gap. Reuse the existing 240-unit node
+width and 80-unit horizontal gap. This applies to PR #85's shared Add Processor
+workflow for main-chain insertion, appending and off-chain branching in both
+List and Graph View, including List additions before Graph View has opened.
+Only publish new coordinates after successful insertion. Freeze any missing
+existing coordinates from the pre-insertion layout in the same NodeId map.
+
+Existing generated and manually moved positions have equal ownership: adding,
+deleting or reconnecting processors never automatically moves surviving nodes.
+Overlap is permitted, including exact overlap with a downstream consumer; no
+collision avoidance or Auto Arrange. Source remains draggable. Output remains
+a virtual non-draggable endpoint with automatic positioning that may change
+as the graph grows; do not persist it or change processing semantics.
+
+Keep placement in the existing UI layout code, separate from graph commands,
+evaluation and rendering. Reuse NodeId positions and ordinary sidecar save
+boundaries without new persistent state, movement-time I/O or render demand.
+Clipboard/preset policies, paste/duplicate placement, navigation, Insert
+Before/After and empty-node semantics are outside this focused approval.
 
 ## D052 — Explicit product choices and proportionate architecture reuse
 
@@ -637,8 +661,9 @@ correctness, and distinguishes mandatory fixes from optional improvements.
 Successful tests do not authorise unrelated work.
 
 Selection-aware Add Processor connections are approved under D051's superseding
-approval above. Insert Before/After, automatic visual placement and Auto Arrange
-remain undecided product interactions, not implied by the Graph View milestone.
+approval above. D051 also records the separately approved PR 2C placement scope.
+Insert Before/After and Auto Arrange remain undecided product interactions,
+not implied by the Graph View milestone.
 Intentionally empty pass-through nodes and assigning or replacing processors
 while retaining NodeId/connections are deferred. The current graph already stores
 topology by NodeId and processor state inside nodes; future empty-node semantics must distinguish intentionally empty from

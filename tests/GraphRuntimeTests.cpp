@@ -193,6 +193,7 @@ static bool testTopologyAndV2() {
   const auto first = app.nodes[1].id, second = app.nodes[2].id;
   CHECK(app.nodes[1].fixedInputs.at(ports::image) == image(app.primarySource));
   CHECK(app.nodes[2].fixedInputs.at(ports::image) == image(first) && app.documentOutput == image(second));
+  app.nodePositions.clear(); // Historical V2 fixtures intentionally omit layout.
   auto saved = captureChain(app);
   moveNode(app, app.nodes[2].id, app.nodes[1].id);
   CHECK(app.nodes[1].id == first && app.nodes[2].id == second && app.documentOutput == image(first));

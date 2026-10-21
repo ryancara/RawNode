@@ -14,8 +14,8 @@ photo/preset/clipboard persistence and global preferences/workspace retirement.
 The targeted post-Step-7 graph safety and PNG colour correction gate is complete
 (see `docs/PROJECT_CONTEXT.md`). The switchable Graph/List editor (D047)
 has its visual foundation (#79), workspace/Inspector (#80) and focused graph
-editing (#82) merged. PR 2C placement/usability awaits owner approval of its
-exact scope before Step 8 masking.
+editing (#82) merged. PR 2C's approved contextual node placement is implemented
+for independent review/native validation before Step 8 masking (D051).
 These fixes do not add architecture steps.
 
 Read this together with:
@@ -304,9 +304,14 @@ projection neither changes connections nor supplies another execution order.
 The dockable Nodes panel switches that List presentation with a Graph canvas.
 Graph drawing borrows the same nodes, declares ports through `nodeInterface()`
 and reads consumer-owned bindings and documentOutput directly. Its visual Output
-endpoint is neither a stored node nor executable. Simple dependency-column
-placement fills missing positions in `App::nodePositions`; protected photos
-derive placement without modifying it. Header drags change only this layout map,
+endpoint is neither a stored node nor executable; its position is automatic.
+Simple dependency columns supply missing coordinates. Add Processor stages
+existing coordinates before insertion and publishes them only on success,
+placing the new node right of its upstream Image predecessor in both views.
+Surviving generated or manually moved positions never change automatically
+during additions, deletion or reconnection; overlap is allowed without collision
+avoidance. Protected photos derive placement without modifying the grade.
+Source and processor header drags change only `App::nodePositions`,
 saved by the existing grade lifecycle. Canvas pan/zoom and drag state are transient,
 and visual interactions never acquire DocumentMutation or request rendering.
 Inspector displays Source input/current-photo RAW controls, the existing processor
@@ -656,9 +661,9 @@ validation evidence is tracked separately in `docs/PROJECT_CONTEXT.md`.
 7. **Add versioned graph persistence — complete; PRs #63, #65, #66, #68, #69.**
 
    The post-Step-7 correction gate is complete. Graph/List visual foundation
-   (#79), workspace (#80) and editing (#82) are merged; PR 2C placement/
-   usability remains a future owner-scoped UI task before Step 8. This is a
-   UI milestone (D047), not another numbered architecture step. Both views edit the
+   (#79), workspace (#80) and editing (#82) are merged; PR 2C's approved contextual
+   placement is implemented for independent review/native validation before Step 8.
+   This is a UI milestone (D047), not another numbered architecture step. Both views edit the
    same authoritative document graph and share NodeId selection; no additional renderer or
    execution model is introduced.
 
