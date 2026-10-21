@@ -2088,7 +2088,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 }
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
-int runSelfTests() {
+static int runSelfTestsImpl() {
   if (!testPngColor()) return fail("PNG colour correctness");
   if (!testExportSafety()) return fail("export safety");
   if (!testPreferences()) return fail("Step 7 preferences");
@@ -4097,4 +4097,20 @@ int runSelfTests() {
     printf("ok  %s\n", pe.label.c_str());
   }
   return 0;
+}
+
+int runSelfTests() {
+  const int result = runSelfTestsImpl();
+  // All test-owned Apps/processors have now been destroyed. The OpenFX support
+  // library releases its describe/describe-in-context allocations on Unload;
+  // omitting this leaves plugin descriptors behind at process exit.
+  bool unloaded = true;
+  for (auto &entry : gPlugins) {
+    if (!ofxActionOk(callAction(entry.plugin, kOfxActionUnload, nullptr))) {
+      std::fprintf(stderr, "FAIL: unload plugin: %s\n", entry.label.c_str());
+      unloaded = false;
+    }
+  }
+  gPlugins.clear();
+  return result != 0 ? result : (unloaded ? 0 : 1);
 }

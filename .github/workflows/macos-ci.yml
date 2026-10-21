@@ -1,0 +1,41 @@
+name: macOS CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  arm64-build-selftest:
+    # Standard GitHub-hosted Apple Silicon runner; no Intel/Rosetta build.
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Keep dependencies and build invocation aligned with release.yml.
+      - name: Install build dependencies
+        run: brew install cmake libraw libtiff little-cms2 openexr
+
+      - name: Build
+        run: ARCHS=arm64 ./build.sh
+
+      - name: Verify Apple Silicon executable
+        run: |
+          test "$(uname -m)" = arm64
+          binary=build/OfxRawHost.app/Contents/MacOS/OfxRawHost
+          file "$binary"
+          test "$(lipo -archs "$binary")" = arm64
+
+      - name: Self-test
+        run: build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
