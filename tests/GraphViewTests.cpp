@@ -1150,6 +1150,65 @@ bool listDeletionSafetyFrames() {
   return true;
 }
 
+bool listPostDeletionHighlightFrames() {
+  for (bool keyboardNavigation : {false, true}) {
+    for (auto pressed : {ImGuiKey_Delete, ImGuiKey_Backspace}) {
+      Ui ui; ui.showInspector = true; ui.captureLog = true;
+      if (keyboardNavigation) ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+      // Give Selectable's hover fill a unique colour so the draw-data check
+      // cannot confuse it with text, buttons, borders or other theme colours.
+      ImGui::GetStyle().Colors[ImGuiCol_HeaderHovered] = {0.81f, 0.19f, 0.63f, 0.91f};
+      App app; app.nodesView = NodesView::List;
+      CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
+      CHECK(addNativeExposureNode(app)); const auto b = *app.selectedNodeId();
+      ui.tick(app); ui.tick(app);
+      const auto firstRow = ui.listProcessorFromEnd(1);
+      ui.click(app, firstRow); CHECK(app.selectedNodeId() == a && ui.listFocused());
+      const auto hoverColour = ImGui::GetColorU32(ImGuiCol_HeaderHovered);
+      const auto hasHoverFill = [&] {
+        const auto &vertices = ui.context->NavWindow->DrawList->VtxBuffer;
+        return std::any_of(vertices.begin(), vertices.end(), [&](const ImDrawVert &vertex) {
+          return vertex.col == hoverColour;
+        });
+      };
+      CHECK(hasHoverFill());
+      key(ui, app, pressed);
+      CHECK(!findNode(app, a) && !app.selectedNodeId() && ui.listFocused());
+      const auto remainingRow = ui.listProcessorFromEnd();
+      CHECK(firstRow.x == remainingRow.x && firstRow.y == remainingRow.y);
+      const auto scope = ui.context->NavWindow->GetID(b.value.c_str());
+      const auto remainingRowId = ImHashStr(nodeDisplayName(*findNode(app, b)).c_str(), 0, scope);
+      // Check the actual hover background submitted for drawing, plus navigation
+      // feedback: neither depends on RawNode's selectedNodeId().
+      for (int frame = 0; frame < 3; ++frame) {
+        CHECK(!hasHoverFill());
+        CHECK(ui.context->NavId != remainingRowId || !ui.context->NavCursorVisible);
+        ui.tick(app);
+      }
+      CHECK(ui.inspectorLog.find("Select Source, a processor or Output") != std::string::npos);
+      const auto unchanged = graphJson(app);
+      for (auto next : {ImGuiKey_Delete, ImGuiKey_Backspace}) {
+        key(ui, app, next); CHECK(graphJson(app) == unchanged && !app.selectedNodeId() && ui.listFocused());
+        CHECK(!hasHoverFill());
+      }
+      CHECK(ui.inspectorLog.find("Select Source, a processor or Output") != std::string::npos);
+      if (keyboardNavigation) {
+        // Deliberate pointer movement restores ordinary hover without selecting.
+        ui.hover(app, {remainingRow.x + 2, remainingRow.y});
+        CHECK(hasHoverFill() && !app.selectedNodeId());
+        key(ui, app, ImGuiKey_DownArrow);
+        CHECK(ui.context->NavId && ui.context->NavIdIsAlive && ui.context->NavCursorVisible);
+        CHECK(!app.selectedNodeId()); // Explicit navigation still works; it does not select a processor.
+      }
+      // In the default configuration, no mouse movement has occurred since deletion.
+      ui.click(app, remainingRow); CHECK(app.selectedNodeId() == b && ui.listFocused());
+      CHECK(ui.context->NavId == remainingRowId);
+      key(ui, app, pressed); CHECK(!findNode(app, b) && !app.selectedNodeId());
+    }
+  }
+  return true;
+}
+
 bool listDeletionRulesAndViewSwitching() {
   Ui ui;
   App app; app.path = "list-delete-rules"; app.nodesView = NodesView::List;
@@ -1316,6 +1375,7 @@ bool testGraphView() {
        std::make_pair("focused nonrepeat deletion, Inspector cleanup and off-spine menu deletion", deletionFrames),
        std::make_pair("List Delete/Backspace reuse splice, selection cleanup and render behaviour", listDeletionFrames),
        std::make_pair("List deletion focus, endpoints, protection, export, modifiers and held keys", listDeletionSafetyFrames),
+       std::make_pair("List post-deletion highlight, neutral Inspector and explicit reselection", listPostDeletionHighlightFrames),
        std::make_pair("List deletion refusal, disconnected consumers, view switches and X button", listDeletionRulesAndViewSwitching),
        std::make_pair("UI-only cancellation for removed endpoints, modifiers, views and photos", gestureEndpointLifecycle),
        std::make_pair("node/input menus close after same-photo Full Grade Paste reuses IDs, including macOS Ctrl+click", contextMenusAfterGradePaste),
