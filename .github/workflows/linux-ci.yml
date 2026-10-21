@@ -100,8 +100,18 @@ jobs:
         run: bash .github/sanitizers/check.sh
 
       - name: Self-test with ASan and UBSan
+        # Explicit Bash enables pipefail so tee cannot hide a sanitizer/test failure.
         shell: bash
         run: ./build-sanitizers/OfxRawHost --selftest 2>&1 | tee "$SANITIZER_LOG_DIR/selftest.log"
+
+      - name: Self-test duplicate and aliased OFX discovery
+        shell: bash
+        run: |
+          plugins="$PWD/build-sanitizers/Plugins"
+          alias="$RUNNER_TEMP/rawnode-ofx-plugins"
+          ln -s "$plugins" "$alias"
+          OFX_PLUGIN_PATH="$plugins:$alias" ./build-sanitizers/OfxRawHost --selftest 2>&1 \
+            | tee "$SANITIZER_LOG_DIR/duplicate-discovery.log"
 
       - name: Preserve sanitizer diagnostics
         if: always()

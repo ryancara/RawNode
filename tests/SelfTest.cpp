@@ -3060,6 +3060,12 @@ static int runSelfTestsImpl() {
   if (order.px[0] > 0.1f || order.px[(size_t)7 * 8 * 4] < 0.5f) return fail("source rows are not bottom-up");
 
   loadPlugins();
+  // Rediscovery must preserve one entry and one Load/Describe lifecycle per
+  // plugin. Sanitizer CI also exercises overlapping OFX_PLUGIN_PATH aliases.
+  const size_t pluginCount = gPlugins.size();
+  loadPlugins();
+  if (gPlugins.size() != pluginCount) return fail("OFX rediscovery duplicated plugin entries");
+  printf("ok  OFX plugin rediscovery\n");
   if (!testGraphPersistenceOfx()) return fail("Step 7 OFX persistence identity");
   if (!testGraphEvaluatorOfx()) return fail("Step 6C OFX graph evaluator");
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
