@@ -54,13 +54,14 @@ OfxParamHandle paramHandle(OfxParamSetHandle params, const char *name) {
 struct Plugin {
   struct Cache {
     double visibleAtCreate = 0, hiddenAtCreate = 0, gain = 0;
-    int notifications = 0;
+    int notifications = 0, syncs = 0;
   };
   OfxPlugin plugin{};
   int index = int(gPlugins.size());
   int creates = 0, destroys = 0, live = 0, invalidDestroys = 0, preCreationNotifications = 0;
   OfxStatus createStatus = kOfxStatOK;
   bool adjustGainOnCreate = false;
+  bool syncCacheOnCapture = false;
   std::function<void(OfxParamSetHandle)> inspectInitialValues;
   Plugin() {
     plugin.pluginIdentifier = "org.rawnode.selftest.persistence";
@@ -110,6 +111,13 @@ struct Plugin {
         ++cache->notifications;
         cache->gain = readGain(); // Ordinary UI edits still update private state.
         return kOfxStatOK;
+      }
+      if (!std::strcmp(action, kOfxActionSyncPrivateData) && self.syncCacheOnCapture) {
+        if (!cache) return kOfxStatFailed;
+        ++cache->syncs;
+        // The combined fixture keeps hidden gain at its default 1. This writes
+        // the actual render cache back, including a stale cache under mutation.
+        return parameters().paramSetValue(paramHandle(params, "visiblePersistent"), cache->gain);
       }
       if (std::strcmp(action, kOfxImageEffectActionRender)) return kOfxStatReplyDefault;
       if (!cache) return kOfxStatFailed;
@@ -698,8 +706,8 @@ OfxParamHandle paramHandle(Effect *effect, const char *id) {
 
 // Reuse the persistence descriptor, but keep a deferred private gain separate
 // from its saved hidden parameter. All callback reads/writes use real OFX suites.
-// Fresh instances read current parameters during Render: this deliberately does
-// not depend on the separate, still-unfixed pre-CreateInstance restore ordering.
+// Fresh instances read current parameters during Render to isolate capture.
+// cachedSyncRoundTrips separately covers creation-cache/synchronisation integration.
 struct SyncPlugin : Plugin {
   SyncPlugin() {
     plugin.pluginIdentifier = "org.rawnode.selftest.private-sync";
@@ -931,9 +939,88 @@ bool failedSyncPreservesCaptures(SyncPlugin &plugin) {
   std::puts("ok  OFX private sync failures: partial callback writes cannot publish sidecar/preset/clipboard or replace capture outputs; retry succeeds");
   return true;
 }
+
+bool cachedSyncRoundTrips() {
+  Plugin plugin;
+  plugin.plugin.pluginIdentifier = "org.rawnode.selftest.cached-sync";
+  plugin.syncCacheOnCapture = true;
+  Files files; Ui ui;
+  const auto photo = files.path("cached-sync.png"), away = files.path("away.png");
+  Image input; input.w = input.h = 1; input.px = {0.25f, 0.5f, 0.75f, 1};
+  const auto makePhoto = [&](const std::string &path) {
+    return writeImage(input, path, {RgbGamut::Rec709, TransferFunction::Linear});
+  };
+  CHECK(makePhoto(photo) && makePhoto(away));
+  App original;
+  CHECK(openPath(original, photo) && addNode(original, plugin.index));
+  const auto id = *original.selectedNodeId();
+  CHECK(setNodeParameterValue(original, id, "visiblePersistent", 5.0));
+  CHECK(cache(*findNode(original, id)).gain == 5.0);
+  CHECK(saveCurrentInputSidecar(original) && cache(*findNode(original, id)).syncs == 1);
+  const auto savedGainFive = [&](const std::string &path, const NodeId &nodeId) {
+    PersistFile file; std::string error;
+    CHECK(readGraphSidecar(inputSidecarPath(path), file, error) == SidecarReadStatus::Loaded && file.grade);
+    const auto &gain = record(file.grade->graph, nodeId).paramsJson.at("visiblePersistent");
+    if (gain != "5") std::fprintf(stderr, "OFX cached-sync saved gain: expected 5, got %s\n", gain.c_str());
+    CHECK(gain == "5");
+    return true;
+  };
+  const auto initialGainFive = [&](const App &app, const NodeId &nodeId) {
+    const auto *node = findNode(app, nodeId);
+    return node && parameter(*node, "visiblePersistent").value == ParameterValue(5.0) &&
+           parameter(*node, "hiddenPersistent").value == ParameterValue(1.0) &&
+           cache(*node).visibleAtCreate == 5.0 && cache(*node).gain == 5.0 &&
+           cache(*node).notifications == 0;
+  };
+  CHECK(savedGainFive(photo, id));
+
+  App reopened;
+  CHECK(openPath(reopened, photo) && !reopened.isPhotoProtected());
+  const bool initialised = initialGainFive(reopened, id);
+  const bool rendered = pixels(reopened, 5); // (.25,-.5,2,.375) -> (1.25,-2.5,10,.375).
+  CHECK(cache(*findNode(reopened, id)).syncs == 0);
+  // Delay the cache/pixel assertions until automatic resaving has run. Reversing
+  // creation order must demonstrate saved-value loss (5 -> 1), not just a bad cache.
+  CHECK(openPath(reopened, away));
+  CHECK(savedGainFive(photo, id));
+  CHECK(initialised && rendered);
+
+  App source;
+  CHECK(openPath(source, photo) && initialGainFive(source, id) && pixels(source, 5));
+  CHECK(selectNode(source, id));
+  for (bool nodeCopy : {false, true}) {
+    const auto destination = files.path(nodeCopy ? "cached-node.png" : "cached-grade.png");
+    CHECK(makePhoto(destination));
+    CHECK(nodeCopy ? copySelectedNode(source) : copyGrade(source));
+    CHECK(cache(*findNode(source, id)).syncs == (nodeCopy ? 2 : 1));
+    PersistTransfer transfer; std::string error;
+    CHECK(decodeTransferPayload(ui.clipboard, transfer, error));
+    const auto &saved = nodeCopy ? std::get<PersistFragment>(transfer).nodes.front()
+                                : record(std::get<PersistGrade>(transfer).graph, id);
+    CHECK(saved.paramsJson.at("visiblePersistent") == "5");
+    App pasted;
+    CHECK(openPath(pasted, destination) && pasteFromClipboard(pasted));
+    const auto pastedId = pasted.documentOutput.nodeId;
+    CHECK(nodeCopy ? pastedId != id : pastedId == id);
+    CHECK(initialGainFive(pasted, pastedId) && pixels(pasted, 5));
+    CHECK(cache(*findNode(pasted, pastedId)).syncs == 0);
+    CHECK(saveCurrentInputSidecar(pasted));
+    CHECK(cache(*findNode(pasted, pastedId)).syncs == 1 && savedGainFive(destination, pastedId));
+    CHECK(openPath(pasted, away) && savedGainFive(destination, pastedId));
+    App destinationReopened;
+    CHECK(openPath(destinationReopened, destination));
+    CHECK(initialGainFive(destinationReopened, pastedId) && pixels(destinationReopened, 5));
+  }
+  // A full-grade clipboard read must also leave the original photograph safe
+  // when navigation later saves the live source without any intervening edit.
+  CHECK(openPath(source, away) && savedGainFive(photo, id));
+  std::puts("ok  OFX combined restore/sync: CreateInstance reads saved gain 5, cached rendering, unedited navigation and grade/node clipboard destination resaving retain 5 and exact pixels");
+  return true;
+}
 }  // namespace
 
 bool testOfxPersistence() {
+  if (!cachedSyncRoundTrips()) return false;
   Plugin plugin;
   const bool passed = dynamicChoiceRestoration() && cachedGainFiveReopen(plugin) && productionRoundTrips(plugin) &&
                       nonpersistentRestoreGuards(plugin) && initialValueValidationAndLifecycle(plugin) &&
