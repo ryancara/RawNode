@@ -626,7 +626,7 @@ bool testGraphPersistenceRoundTrip(GraphView graph) {
     CHECK(copy->processor->identifier() == original.processor->identifier());
     const auto params = copy->processor->parameters();
     for (const auto &param : original.processor->parameters()) {
-      if (param.secret || !param.persistValue || param.type == ParameterType::Group ||
+      if (!param.persistValue || param.type == ParameterType::Group ||
           param.type == ParameterType::Page || param.type == ParameterType::PushButton ||
           param.type == ParameterType::Unsupported) continue;
       CHECK(record(saved.grade->graph, original.id.value)->paramsJson.count(param.id));
@@ -711,9 +711,8 @@ bool testGraphPersistenceOfx() {
   CHECK(saved.paramsJson.at("aspect") == "2");
   CHECK(testGraphPersistenceRoundTrip({app.nodes, app.primarySource, app.documentOutput}));
 
-  // Reuse the real OFX parameter/descriptor metadata to cover secret controls
-  // independently of ART's persistValue flag. Restore descriptor props before
-  // checking the result so subsequent plugin tests see the original metadata.
+  // Reuse the real OFX parameter/descriptor metadata to cover hidden values.
+  // Restore descriptor props so subsequent tests see the original metadata.
   auto *liveCrop = findParam(processor.effect(), "crop");
   auto *descriptorCrop = findParam(crop->descriptor.get(), "crop");
   CHECK(liveCrop && descriptorCrop);
@@ -723,13 +722,15 @@ bool testGraphPersistenceOfx() {
   const auto secretCapture = captureGraph({app.nodes, app.primarySource, app.documentOutput});
   liveCrop->props = liveProps;
   app.nodes[1].preservedParamsJson.erase("crop");
-  CHECK(!record(secretCapture, app.nodes[1].id.value)->paramsJson.count("crop"));
+  CHECK(record(secretCapture, app.nodes[1].id.value)->paramsJson.at("crop") == saved.paramsJson.at("crop"));
   CHECK(record(secretCapture, app.nodes[1].id.value)->paramsJson.at("aspect") == "2");
   propSetInt(H(&descriptorCrop->props), kOfxParamPropSecret, 0, 1);
-  const bool secretRejected = restoreRejects(captured);
+  auto hiddenRestored = document_detail::restoreGraph(captured);
   descriptorCrop->props = descriptorProps;
-  CHECK(secretRejected);
-  std::puts("ok  Graph-native real OFX parameter round-trip and secret parameter guards");
+  const auto hiddenParams = node(hiddenRestored, app.nodes[1].id.value)->processor->parameters();
+  const auto hidden = std::find_if(hiddenParams.begin(), hiddenParams.end(), [](const auto &p) { return p.id == "crop"; });
+  CHECK(hidden != hiddenParams.end() && hidden->secret && hidden->value == ParameterValue(33.3));
+  std::puts("ok  Graph-native real OFX parameter round-trip including hidden persistent values");
   std::puts("ok  Step 7 OFX restoration resolves identifier, never matching display label");
   return true;
 }

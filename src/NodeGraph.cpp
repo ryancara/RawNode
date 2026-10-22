@@ -715,7 +715,7 @@ static PersistNode capturePersistedNode(const Node &node, bool graphNative) {
     persisted.label = graphNative && !node.storedLabel.empty() ? node.storedLabel : node.processor->displayName();
 
     for (const ProcessorParameter &param : node.processor->parameters()) {
-      if (param.secret || !param.persistValue || !persistedParameterType(param.type)) {
+      if (!param.persistValue || !persistedParameterType(param.type)) {
         if (graphNative) persisted.paramsJson.erase(param.id);
         continue;
       }
@@ -789,7 +789,7 @@ static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &pers
       const auto value = persisted.paramsJson.find(param.id);
       if (value == persisted.paramsJson.end()) continue;
       if (!graphNative) { applyParamValueJson(*node.processor, param, value->second); continue; }
-      if (param.secret || !param.persistValue || !persistedParameterType(param.type))
+      if (!param.persistValue || !persistedParameterType(param.type))
         throw std::runtime_error("Non-persistent installed parameter: " + param.id);
       const auto parsed = persist_detail::parameterValue(param, value->second);
       if (!node.processor->setParameterValue(param.id, parsed, false))

@@ -41,6 +41,7 @@ ProcessorParameter snapshotParameter(const Param &param) {
   out.type = parameterType(param);
   out.enabled = dprop(param.props, kOfxParamPropEnabled, 0, 1) != 0;
   out.secret = dprop(param.props, kOfxParamPropSecret, 0, 0) != 0;
+  out.persistValue = dprop(param.props, kOfxParamPropPersistant, 0, 1) != 0;
   out.groupInitiallyOpen = dprop(param.props, kOfxParamPropGroupOpen, 0, 1) != 0;
 
   switch (out.type) {
