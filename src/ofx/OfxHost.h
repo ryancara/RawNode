@@ -84,6 +84,8 @@ extern std::vector<PluginEntry> gPlugins;
 
 OfxStatus callAction(OfxPlugin *p, const char *action, Effect *e, PropSet *in = nullptr, PropSet *out = nullptr);
 void loadPlugins();
+// Host-side clips, parameters and defaults only; no plugin lifecycle action.
+std::unique_ptr<Effect> prepareInstance(PluginEntry &pe);
 std::unique_ptr<Effect> createInstance(PluginEntry &pe);
 // Output size the plugin declares for input size inW×inH (kOfxImageEffectActionGetRegionOfDefinition).
 // Falls back to inW×inH when the plugin does not override its RoD.

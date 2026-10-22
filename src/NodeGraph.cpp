@@ -762,12 +762,45 @@ static PersistNode capturePersistedNode(const Node &node, bool graphNative) {
   return persisted;
 }
 
+static void restoreParameterValues(Processor &processor, const PersistNode &persisted, bool graphNative,
+                                   bool validateChoiceMembership = true) {
+  for (const auto &param : processor.parameters()) {
+    const auto value = persisted.paramsJson.find(param.id);
+    if (value == persisted.paramsJson.end()) continue;
+    if (!graphNative) { applyParamValueJson(processor, param, value->second); continue; }
+    if (!param.persistValue || !persistedParameterType(param.type))
+      throw std::runtime_error("Non-persistent installed parameter: " + param.id);
+    const auto parsed = persist_detail::parameterValue(param, value->second, validateChoiceMembership);
+    if (!processor.setParameterValue(param.id, parsed, false))
+      throw std::runtime_error("Processor refused parameter: " + param.id);
+    bool matched = false;
+    for (const auto &updated : processor.parameters())
+      if (updated.id == param.id && updated.value == parsed) matched = true;
+    if (!matched) throw std::runtime_error("Processor changed saved parameter value: " + param.id);
+  }
+}
+
+static void validateRestoredChoices(const Processor &processor, const PersistNode &persisted) {
+  for (const auto &param : processor.parameters()) {
+    const auto saved = persisted.paramsJson.find(param.id);
+    if (param.type != ParameterType::Choice || saved == persisted.paramsJson.end()) continue;
+    if (!param.persistValue) throw std::runtime_error("Non-persistent installed parameter: " + param.id);
+    // CreateInstance may populate options and legitimately change its selection.
+    // Validate both values against the instance menu without restoring again.
+    persist_detail::parameterValue(param, saved->second);
+    persist_detail::parameterValue(param, paramValueJson(param));
+  }
+}
+
 static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &persisted, bool preserveId, bool graphNative) {
   const std::string backend = persisted.backend.empty() ? "ofx" : persisted.backend;
   std::unique_ptr<Processor> processor;
   if (backend == "ofx") {
     const int index = findPluginIndex(persisted.identifier, graphNative ? std::string() : persisted.label);
-    if (index >= 0) processor = OfxProcessor::create(index);
+    if (index >= 0) processor = OfxProcessor::create(index, [&](Processor &prepared) {
+      restoreParameterValues(prepared, persisted, graphNative, /*validateChoiceMembership=*/false);
+    });
+    if (processor && graphNative) validateRestoredChoices(*processor, persisted);
   } else if (backend == "native" && persisted.identifier == NativeExposureProcessor::kIdentifier) {
     processor = std::make_unique<NativeExposureProcessor>();
   } else if (backend == "native" && persisted.identifier == NativeCstProcessor::kIdentifier) {
@@ -784,22 +817,7 @@ static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &pers
   node.storedIdentifier = persisted.identifier;
   node.storedLabel = persisted.label;
   node.preservedParamsJson = persisted.paramsJson;
-  if (node.processor) {
-    for (const auto &param : node.processor->parameters()) {
-      const auto value = persisted.paramsJson.find(param.id);
-      if (value == persisted.paramsJson.end()) continue;
-      if (!graphNative) { applyParamValueJson(*node.processor, param, value->second); continue; }
-      if (!param.persistValue || !persistedParameterType(param.type))
-        throw std::runtime_error("Non-persistent installed parameter: " + param.id);
-      const auto parsed = persist_detail::parameterValue(param, value->second);
-      if (!node.processor->setParameterValue(param.id, parsed, false))
-        throw std::runtime_error("Processor refused parameter: " + param.id);
-      bool matched = false;
-      for (const auto &updated : node.processor->parameters())
-        if (updated.id == param.id && updated.value == parsed) matched = true;
-      if (!matched) throw std::runtime_error("Processor changed saved parameter value: " + param.id);
-    }
-  }
+  if (node.processor && backend != "ofx") restoreParameterValues(*node.processor, persisted, graphNative);
   return node;
 }
 

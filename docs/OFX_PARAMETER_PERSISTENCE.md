@@ -2,9 +2,10 @@
 
 ## Scope and specification
 
-This correction separates parameter visibility from value persistence. It changes
-no persistence schema, instance lifecycle or undo/redo behaviour, and adds no
-migration or recovery of historically omitted values.
+Parameter visibility and value persistence are independent. Initial restoration
+also precedes the plugin's create-instance action. Neither correction changes
+the persistence schema or adds undo/redo, migration or recovery of historically
+omitted values.
 
 Independently checked against the upstream OpenFX documentation and the official
 header at RawNode's pinned OpenFX revision
@@ -81,7 +82,10 @@ backend or persistence format is enabled.
 - `copyGrade`, `copySelectedNode` and `pasteFromClipboard` exercise full grades
   and fragments onto opened photographs through ImGui clipboard callbacks.
   Inserted nodes get fresh IDs.
-- The evaluator independently expects `(1.5, -3, 12, 0.375)` from input
+- The diagnostic plugin reads initial gain through the real OFX parameter suite
+  during `CreateInstance` and builds a private cache. Render uses that cache;
+  ordinary UI changes update it, while restoration sends no change actions.
+  The evaluator independently expects `(1.5, -3, 12, 0.375)` from input
   `(0.25, -0.5, 2, 0.375)` at gain `2 * 3` after every reconstruction. This tests
   actual OFX processing, negative/HDR samples and unchanged alpha, beyond merely
   checking matching serialized values. Every reconstruction also processes its
@@ -118,58 +122,121 @@ rebuilt and run against the full suite, then removed:
 Native desktop dialogs and a third-party plugin collection are outside this
 automated evidence; the Inspector is rendered headlessly with actual ImGui.
 
-## Remaining OFX state-restoration limitations
+## Initial values before CreateInstance
 
-These are separate pre-existing correctness issues affecting ordinary sidecars,
-presets and clipboard transfers, rather than concerns specific to future undo.
-They prevent a universal same-output guarantee for arbitrary OFX plugins even
-after their persistent parameter values are saved correctly. The verified
-same-output guarantee above covers plugins reading their current parameter set
-during processing, including the test fixture; it does not cover arbitrary
-private-state reconstruction.
+The host prepares clips, parameter instances and defaults without invoking the
+plugin. `OfxProcessor::create` then runs a parameter-initialisation callback and
+calls `CreateInstance` exactly once. The graph layer supplies that callback,
+reusing its existing parsing, persistence eligibility and exact-value checks.
+No sidecar schema enters the OFX adapter. Native and CTL restoration is unchanged.
 
-1. **Private data is not synchronized before capture.** No production caller
-   dispatches `kOfxActionSyncPrivateData`. A plugin which defers writing private
-   state to persistent parameters until that action can save stale values.
-   `kOfxPropParamSetNeedsSyncing` is not honored either. The
-   [official header](https://github.com/AcademySoftwareFoundation/openfx/blob/ab779510b2655b4d11a7e01e5c521f9aa8c88976/include/ofxParam.h#L271)
-   requires synchronization when that optional flag is set or absent; setting it
-   to zero permits skipping synchronization. Removing the visibility filter
-   alone cannot flush deferred private state.
-2. **Restoration happens after `CreateInstance`.** `OfxPlugins::createInstance`
-   clones descriptors, applies defaults, then calls the action.
-   `NodeGraph::restoredNode` only then applies saved values. Plugins building
-   private state or adjusting parameter metadata from initial saved values see
-   defaults instead. This violates the specified setup ordering even when the
-   sidecar contains every persistent value.
-3. **Post-creation restoration suppresses change notifications.**
-   `restoredNode` calls `setParameterValue(..., false)`. No final notification
-   reconciles plugin caches with restored values. The existing UI edit path does
-   send Begin/Instance/EndChanged with `kOfxChangeUserEdited`; loading values into
-   an already-created instance currently does not. Blindly enabling callbacks
-   here could cause parameter-order-dependent overwrites and is not equivalent
-   to restoring a complete initial set before creation.
+Numeric OFX choices have one deliberate validation boundary: JSON must contain
+an integer index (not a string, boolean or fraction), but menu membership is
+checked after creation. A plugin may start with an empty or partial descriptor
+menu and append options to its instance during `CreateInstance`. The saved
+selection is already accessible through the OFX parameter suite at that time.
+Before publishing the node, the graph layer validates both the saved selection
+and the plugin's resulting selection against the completed instance menu.
+Valid plugin edits are retained; values are never restored a second time.
+An invalid saved selection is still rejected even if the plugin replaces it
+with a valid default. An empty final menu or invalid resulting selection also
+fails restoration.
 
-Temporary diagnostic probes used the same in-process descriptor and real PNG
-save/reopen paths. They were removed after collecting evidence, rather than
-adding regression assertions that would require retaining these bugs:
+`persist_detail::parameterValue` remains strict by default. Only pre-creation
+OFX numeric membership is explicitly deferred; its JSON/type checks, supported
+parameter and persistence rules are unchanged. Stable choice IDs still require
+strings and resolve through their existing ID/value mapping; deferral does not
+coerce numeric values to IDs or accept unknown IDs. Native/CTL, capture and
+other parsing callers retain complete validation.
 
-- A callback initialized a private gain from parameters at `CreateInstance`,
-  refreshed it on `InstanceChanged`, and rendered using that cache. Ordinary
-  edits set visible/hidden gains to 2 and 3. Before saving, cached gain was 6
-  after two notifications. On fresh reopen the parameter values were correctly
-  2 and 3, but creation had initialized gain to 1 and restoration sent zero
-  notifications. A 0.25 red input rendered as 1.5 before save and 0.25 after
-  reopen. This demonstrates the combined creation-order/notification failure.
-- The probe's private gain was then changed to 10 without updating the parameter
-  set. Its sync handler would write hidden gain 5 (visible gain remained 2).
-  Ordinary save wrote hidden gain 3, with zero sync calls. Explicitly invoking
-  the handler diagnostically before saving wrote 5, with one sync call. The
-  optional needs-syncing property was absent, so synchronization was required.
+Change actions are guarded until creation succeeds. A parameter preparation
+error releases host objects without sending
+`DestroyInstance`. A failed create action likewise sends no destroy action;
+success (including `ReplyDefault`) enables normal destruction. Existing graph
+staging publishes only completed processors and retains missing-processor data.
+Failure in post-creation choice validation destroys the successful instance
+normally and leaves the existing document and sidecar protection intact.
+Saved values are not applied again after the plugin's create action.
 
-Correcting those lifecycle issues requires a separately scoped OFX change;
-this PR does not silently add synchronization callbacks, change instance
-creation ordering or redesign processor restoration. They directly limit the
-broad interpretation of “restored output is always identical,” and should be
-resolved before relying on that claim for arbitrary OFX plugins. No migrations,
-compatibility mechanisms or undo/redo work are proposed here.
+This follows the precondition in the pinned
+[OpenFX header](https://github.com/AcademySoftwareFoundation/openfx/blob/ab779510b2655b4d11a7e01e5c521f9aa8c88976/include/ofxCore.h#L332).
+The independent references were examined directly:
+
+- [Natron RB-2.6, `createOfxImageEffectInstance`](https://github.com/NatronGitHub/Natron/blob/3763d805d7d277d10af10025ae41af677682b3e6/Engine/OfxEffectInstance.cpp#L344)
+  calls `populate`, loads serialized knob values, and only then calls
+  `createInstanceAction`. Its [`knobChanged` guard](https://github.com/NatronGitHub/Natron/blob/3763d805d7d277d10af10025ae41af677682b3e6/Engine/OfxEffectInstance.cpp#L2548)
+  suppresses normal notifications until initialisation is complete.
+- [TuttleOFX's copy constructor](https://github.com/tuttleofx/TuttleOFX/blob/13936341f897037b7a6be0a72aefe9d32c2bb849/libraries/tuttle/src/tuttle/host/ImageEffectNode.cpp#L52)
+  populates, copies attribute values, then calls `createInstanceAction`.
+  Its [OFX node implementation](https://github.com/tuttleofx/TuttleOFX/blob/13936341f897037b7a6be0a72aefe9d32c2bb849/libraries/tuttle/src/tuttle/host/ofx/OfxhImageEffectNode.cpp#L347)
+  sends `DestroyInstance` only after successful creation.
+
+Only the callback order and lifecycle guard inform this correction; no reference
+project's threading, GUI or knob infrastructure is introduced.
+
+Additional regression checks save gain 5, reopen the real photo, and assert the
+saved value, value observed during creation, private cache and exact pixels
+`(1.25, -2.5, 10, 0.375)` for input `(0.25, -0.5, 2, 0.375)`. All numbers are
+exact binary fractions. Missing defaults, hidden custom data, typed values,
+strict validation at the appropriate creation boundary, failed creation, staged graph cleanup and
+plugin edits during creation are covered. The last case detects a second restore.
+Preset Replace/Append and grade/node clipboard paths use the same cached fixture.
+
+The review correction adds a choice whose descriptor has no options. It saves
+index 2 to a real photo sidecar; creation reads 2 through the real suite, then
+adds three instance options. Reopening succeeds and preserves unknown JSON.
+Tests also cover a partial descriptor menu, valid plugin selection changes,
+invalid saved/resulting choices, a still-empty final menu, protected sidecar
+bytes, unchanged preset destinations and balanced post-creation destruction.
+Static choices and stable-ID parsing retain their existing strict tests.
+The fixture independently counts every Begin/Instance/EndChanged action received
+before successful creation, including calls made with `notify=true` during
+parameter preparation; the expected count is zero.
+
+Initial implementation validation on 2026-10-22 used the full self-test suite:
+
+| Check | Result |
+| --- | --- |
+| Release, GCC 14 | Pass, exit 0 |
+| Debug ASan/UBSan, GCC 14, leak detection enabled | Pass, exit 0 |
+| Debug TSan, GCC 14, halt on error | Pass, exit 0 |
+| Gain-5 test on unmodified `main` production sources (`1857a0b`) | Expected exit 1: creation/cache observed 1 |
+| Mutation moving the initialisation callback after `CreateInstance` | Expected exit 1: same gain-5 creation/cache assertion |
+
+The old-main build retained the same gain-5 fixture and real photo save/reopen
+test; only tests depending on the new factory callback API were omitted.
+Both temporary changes were removed, then all three final suites were rebuilt
+and passed. The only UBSan exception is the repository's existing narrow JPEG
+`shift-base` suppression. LeakSanitizer's sandboxed thread attachment was denied;
+the final leak-enabled run passed outside that sandbox. No extra suppression or
+production workaround was added. `git diff --check` also passed.
+
+Review-correction mutation checks independently exercise the new assertions:
+
+| Mutation | Result |
+| --- | --- |
+| Validate numeric menu membership before `CreateInstance` | Expected exit 1: saved index 2 reopens as protected |
+| Remove post-creation choice validation | Expected exit 1: invalid resulting selection is accepted |
+| Remove the `initialized_` notification guard | Expected exit 1: pre-creation notification counter is nonzero |
+
+After removing all three mutations, the corrected source passed complete Release,
+leak-enabled ASan/UBSan and TSan self-tests (GCC 14). These runs include the original
+gain-5 creation/cache/pixel test, successful/failed plugin destruction checks,
+static choices, stable-ID parsing, dynamic menus and notification suppression.
+The existing narrow JPEG UBSan exception is unchanged; no new suppression is used.
+
+User-visible changes are limited to these restoration paths initialising plugin
+private state from saved values and preserving reopening of valid instance-defined
+OFX choices. Invalid choices still protect/refuse the saved grade. There are no
+appearance or interaction changes.
+
+## Remaining OFX capture limitation
+
+No production caller dispatches `kOfxActionSyncPrivateData`. A plugin which defers
+writing private state to persistent parameters until that action can still save
+stale values. `kOfxPropParamSetNeedsSyncing` is not honored either. The
+[official header](https://github.com/AcademySoftwareFoundation/openfx/blob/ab779510b2655b4d11a7e01e5c521f9aa8c88976/include/ofxParam.h#L271)
+requires synchronization when that optional flag is set or absent; setting it to
+zero permits skipping synchronization. This separate capture issue remains
+outside the initial-restoration correction. No SyncPrivateData handling or
+general existing-instance notification redesign is included here.

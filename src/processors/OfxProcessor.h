@@ -3,11 +3,15 @@
 #include "processors/Processor.h"
 #include "ofx/OfxHost.h"
 
+#include <functional>
 #include <memory>
 
 class OfxProcessor final : public Processor {
  public:
-  static std::unique_ptr<OfxProcessor> create(int pluginIndex);
+  // Initialise host parameter values before CreateInstance. Exceptions abort
+  // construction without sending plugin lifecycle/change actions.
+  static std::unique_ptr<OfxProcessor> create(
+      int pluginIndex, const std::function<void(Processor &)> &initialiseParameters = {});
   ~OfxProcessor() override;
 
   ProcessorBackend backend() const override { return ProcessorBackend::OFX; }
@@ -30,4 +34,5 @@ class OfxProcessor final : public Processor {
 
   int pluginIndex_ = -1;
   std::unique_ptr<Effect> instance_;
+  bool initialized_ = false;
 };

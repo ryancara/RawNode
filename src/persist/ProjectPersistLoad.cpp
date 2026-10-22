@@ -535,7 +535,8 @@ bool decodeGraphFile(const Value &root, PersistFile &out, std::string &error,
   }
 }
 
-ParameterValue parameterValue(const ProcessorParameter &param, const std::string &raw) {
+ParameterValue parameterValue(const ProcessorParameter &param, const std::string &raw,
+                              bool validateChoiceMembership) {
   Value value;
   std::string error;
   if (!persist_json::read(raw, value, error)) throw std::runtime_error(param.id + ": " + error);
@@ -559,8 +560,9 @@ ParameterValue parameterValue(const ProcessorParameter &param, const std::string
       int selected;
       if (!persist_json::integer(value, selected)) invalid();
       if (param.choiceValues.size() == param.choices.size() && !param.choiceValues.empty()) {
-        if (std::find(param.choiceValues.begin(), param.choiceValues.end(), selected) == param.choiceValues.end()) invalid();
-      } else if (selected < 0 || size_t(selected) >= param.choices.size()) invalid();
+        if (validateChoiceMembership &&
+            std::find(param.choiceValues.begin(), param.choiceValues.end(), selected) == param.choiceValues.end()) invalid();
+      } else if (selected < 0 || (validateChoiceMembership && size_t(selected) >= param.choices.size())) invalid();
       return selected;
     }
     case ParameterType::Integer: {
