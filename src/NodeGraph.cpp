@@ -45,7 +45,8 @@ static NodeId makeNodeId(const std::vector<Node> &nodes);
 
 static PersistNode capturePersistedNode(const Node &node, bool graphNative = false);
 static std::vector<NodeId> linearCaptureOrder(const App &app);
-static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &persisted, bool preserveId, bool graphNative = false);
+static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &persisted, bool preserveId,
+                         bool graphNative = false, bool keepMissing = false);
 static bool parameterHasUnknownChoiceId(const Node &node, const ProcessorParameter &param);
 static bool persistedParameterType(ParameterType type);
 static std::string paramValueJson(const ProcessorParameter &param);
@@ -475,9 +476,18 @@ PersistGraph captureGraph(GraphView graph) {
 }
 
 namespace document_detail {
-RestoredGraph restoreGraph(const PersistGraph &graph) {
+RestoredGraph restoreGraph(const PersistGraph &graph, const std::map<std::string, bool> *workingProcessors) {
   const auto error = persist_detail::graphRecordError(graph, true);
   if (!error.empty()) throw std::runtime_error(error);
+  if (workingProcessors) {
+    size_t processors = 0;
+    for (const auto &record : graph.nodes) if (record.operation == NodeOperation::ImageProcessor) {
+      ++processors;
+      if (workingProcessors->find(record.id) == workingProcessors->end())
+        throw std::runtime_error("Missing history processor availability: " + record.id);
+    }
+    if (processors != workingProcessors->size()) throw std::runtime_error("Invalid history processor availability");
+  }
   RestoredGraph restored;
   restored.primarySource = graph.primarySource;
   restored.output = graph.documentOutput;
@@ -485,8 +495,15 @@ RestoredGraph restoreGraph(const PersistGraph &graph) {
   // First restore identities and backend state. Bindings may refer forwards in
   // storage; no insertion/splice command may infer topology from this order.
   for (const auto &record : graph.nodes) {
+    const bool keepMissing = workingProcessors && record.operation == NodeOperation::ImageProcessor &&
+                             !workingProcessors->at(record.id);
     Node node = record.operation == NodeOperation::ImageProcessor
-        ? restoredNode(restored.nodes, record, /*preserveId=*/true, /*graphNative=*/true) : Node(record.operation);
+        ? restoredNode(restored.nodes, record, /*preserveId=*/true, /*graphNative=*/true, keepMissing) : Node(record.operation);
+    if (workingProcessors && record.operation == NodeOperation::ImageProcessor && !keepMissing &&
+        (!node.processor || processorBackendName(node.processor->backend()) != record.backend ||
+         node.processor->identifier() != record.identifier))
+      throw std::runtime_error("Could not reconstruct working processor: " + record.id + " (" +
+                               record.backend + ": " + record.identifier + ")");
     node.id = NodeId{record.id};
     node.enabled = record.enabled;
     restored.nodes.push_back(std::move(node));
@@ -785,10 +802,13 @@ static void validateRestoredChoices(const Processor &processor, const PersistNod
   }
 }
 
-static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &persisted, bool preserveId, bool graphNative) {
+static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &persisted, bool preserveId,
+                         bool graphNative, bool keepMissing) {
   const std::string backend = persisted.backend.empty() ? "ofx" : persisted.backend;
   std::unique_ptr<Processor> processor;
-  if (backend == "ofx") {
+  if (keepMissing) {
+    // Replay the recorded absence even if this backend has since become available.
+  } else if (backend == "ofx") {
     const int index = findPluginIndex(persisted.identifier, graphNative ? std::string() : persisted.label);
     if (index >= 0) processor = OfxProcessor::create(index, [&](Processor &prepared) {
       restoreParameterValues(prepared, persisted, graphNative, /*validateChoiceMembership=*/false);

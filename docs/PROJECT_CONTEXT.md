@@ -587,6 +587,21 @@ need.
 
 ## Current development phase
 
+Undo/Redo design and behaviour are approved in D053. Stage 1 is the focused safe
+restoration draft: detached logical grade capture with history-only availability,
+and replay through the existing staged full-grade path. Working processors must
+reconstruct; missing nodes remain missing. Replay preserves valid selection and
+inspection and surviving Inspector expansion, with no sidecar writes. Ordinary
+preset/grade replacement and sidecar opening keep their existing policy.
+Independent Claude review is required before merge.
+
+Subsequent stages must implement history collection/cursor, snapshot measurement
+and an appropriate memory cap around the initial 100-step target, grouped edit/
+drag gestures, shortcuts and menus. None of those user controls or collection
+mechanisms is implemented in Stage 1. Successful photo switch/reopen resets and
+Save Grade retention remain integration requirements for those stages.
+
+
 **Step 6 is complete, independently reviewed and merged in PR #58 as
 `6294a034d30168063e2aa92e984a51666f56ca22`.** Step 5's product/architecture
 contract is complete. The full graph transition, NodeId selection, topology List

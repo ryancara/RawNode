@@ -670,6 +670,63 @@ topology by NodeId and processor state inside nodes; future empty-node semantics
 unavailable processors and consider interface compatibility. No graph,
 scheduler or sidecar redesign is approved for that possibility today.
 
+## D053 — Undo/Redo with bounded logical grade snapshots
+
+**Status:** Accepted, 2026-10-22. Stage 1 implements safe restoration only;
+Claude's independent design review was APPROVE WITH SMALL CHANGES.
+
+### Approved design and behaviour
+
+Keep one bounded, in-memory history for the current photograph. Entries are
+complete logical grades: stable NodeIds, topology/connections, processor identity,
+parameters, enabled state, node positions and photograph RAW/Output colour settings.
+They contain no rendered images or retained deleted processor instances. Rebuild
+the complete graph through existing staged restoration. No command inversion,
+disk-backed history, selective-restoration engine, graph diffing, new scheduler
+or processor-retention mechanism is approved.
+
+Successful photo switching and successful same-photo reopening reset history.
+Ordinary Save Grade does not clear it. Capture and replay obey control-thread
+ownership and existing DocumentMutation/RenderRuntime preview/export exclusion;
+processor persistence and restoration guarantees remain authoritative, including
+private-state synchronization, parameter validation and OFX initial-value ordering.
+
+History-only availability distinguishes processors already missing at capture
+from working processors. Previously missing processors remain valid missing nodes;
+a recorded working processor must reconstruct with the expected backend and
+identifier or replay fails before publication. Keep this information outside the
+persistent sidecar schema. Ordinary sidecar opening retains its missing-plugin
+policy. Do not require exact parameter equality after OFX CreateInstance: plugins
+may legitimately change parameters during creation. Reuse existing validation
+and creation-order guarantees, supplemented by availability checks.
+
+Undo uses Cmd+Z on macOS and Ctrl+Z elsewhere. Redo uses Cmd+Shift+Z on macOS;
+elsewhere support Ctrl+Shift+Z and Ctrl+Y. Group sliders, text edits and node drags
+into meaningful steps. Structural edits, parameter changes, positions and RAW/
+Output colour settings are undoable. Preserve selection and inspected endpoint
+where still valid; otherwise clear them. Inspector group expansion is transient
+view state and is not undoable. Undo/Redo is unavailable during export and on
+protected photographs.
+
+Stage and validate processors, graph, colours and any required RAW decode/preview
+before publishing. Failure displays an error, preserves the current live graph,
+processor ownership, output, colours, positions and relevant UI state, and cannot
+advance the history position. Restoration itself writes no sidecars.
+
+### Implementation details still to establish
+
+Start with a target of 100 history steps. Measure actual logical snapshots,
+including large/opaque processor parameter payloads, before selecting an appropriate
+memory cap and bounded-retention policy. Exact storage/cursor representation,
+meaningful gesture boundaries, command integration and shortcut/menu wiring still
+need implementation and testing; the approved behaviour above is not evidence
+that those mechanisms already exist.
+
+Stage 1 adds only capture/replay safety through existing full-grade restoration
+and focused regression tests. Subsequent stages supply history collection/cursor,
+measurement and bounds, edit/gesture integration and user controls. Do not infer
+approval for a second restoration engine or unrelated product changes (D052).
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:
