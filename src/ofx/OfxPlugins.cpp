@@ -202,7 +202,7 @@ void loadPlugins() {
   });
 }
 
-std::unique_ptr<Effect> createInstance(PluginEntry &pe) {
+std::unique_ptr<Effect> prepareInstance(PluginEntry &pe) {
   auto e = cloneEffect(*pe.descriptor);
   e->metalCapable = pe.metalCapable;
   OfxPropertySetHandle ep = H(&e->props);
@@ -231,6 +231,11 @@ std::unique_ptr<Effect> createInstance(PluginEntry &pe) {
     propSetInt(cp, kOfxImageClipPropConnected, 0, 1);
     propSetInt(cp, kOfxImageClipPropContinuousSamples, 0, 0);
   }
+  return e;
+}
+
+std::unique_ptr<Effect> createInstance(PluginEntry &pe) {
+  auto e = prepareInstance(pe);
   if (!ofxActionOk(callAction(pe.plugin, kOfxActionCreateInstance, e.get()))) return nullptr;
   return e;
 }

@@ -107,15 +107,20 @@ ProcessorParameter snapshotParameter(const Param &param) {
 OfxProcessor::OfxProcessor(int pluginIndex, std::unique_ptr<Effect> instance)
     : pluginIndex_(pluginIndex), instance_(std::move(instance)) {}
 
-std::unique_ptr<OfxProcessor> OfxProcessor::create(int pluginIndex) {
+std::unique_ptr<OfxProcessor> OfxProcessor::create(
+    int pluginIndex, const std::function<void(Processor &)> &initialiseParameters) {
   if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return nullptr;
-  auto instance = createInstance(gPlugins[pluginIndex]);
-  if (!instance) return nullptr;
-  return std::unique_ptr<OfxProcessor>(new OfxProcessor(pluginIndex, std::move(instance)));
+  auto instance = prepareInstance(gPlugins[pluginIndex]);
+  auto processor = std::unique_ptr<OfxProcessor>(new OfxProcessor(pluginIndex, std::move(instance)));
+  if (initialiseParameters) initialiseParameters(*processor);
+  const auto status = callAction(gPlugins[pluginIndex].plugin, kOfxActionCreateInstance, processor->effect());
+  if (status != kOfxStatOK && status != kOfxStatReplyDefault) return nullptr;
+  processor->initialized_ = true;
+  return processor;
 }
 
 OfxProcessor::~OfxProcessor() {
-  if (!instance_ || pluginIndex_ < 0 || pluginIndex_ >= (int)gPlugins.size()) return;
+  if (!initialized_ || !instance_ || pluginIndex_ < 0 || pluginIndex_ >= (int)gPlugins.size()) return;
   callAction(gPlugins[pluginIndex_].plugin, kOfxActionDestroyInstance, instance_.get());
 }
 
@@ -140,7 +145,7 @@ std::vector<ProcessorParameter> OfxProcessor::parameters() const {
 }
 
 void OfxProcessor::notifyChanged(Param *param) {
-  if (!param || !instance_ || pluginIndex_ < 0 || pluginIndex_ >= (int)gPlugins.size()) return;
+  if (!initialized_ || !param || !instance_ || pluginIndex_ < 0 || pluginIndex_ >= (int)gPlugins.size()) return;
 
   PropSet in;
   OfxPropertySetHandle args = H(&in);
