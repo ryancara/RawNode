@@ -92,7 +92,7 @@ bool captureNodeFragment(App &app, const std::vector<NodeId> &ids, PersistFragme
   if (!requireEditableGraph(app)) return false;
   if (ids.empty()) { app.setStatus("No nodes to capture"); return false; }
   // Topology and identity belong to the control thread; processor state is
-  // read only after DocumentMutation has drained preview and export execution.
+  // synchronised/read only after DocumentMutation drains preview and export.
   for (auto it = ids.begin(); it != ids.end(); ++it) {
     const Node *node = findNode(app, *it);
     if (!node || node->operation == NodeOperation::Source || std::find(ids.begin(), it, *it) != it) {

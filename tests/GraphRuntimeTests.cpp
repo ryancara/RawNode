@@ -101,10 +101,19 @@ class NumericProcessor final : public Processor {
   bool failCapture = false;
   mutable int captures = 0;
   mutable bool unsafeCapture = false;
+  int syncs = 0;
+  bool unsafeSync = false;
   const float *lastInput = nullptr;
   ProcessorBackend backend() const override { return ProcessorBackend::Native; }
   std::string identifier() const override { return "test.numeric"; }
   std::string displayName() const override { return "Test numeric"; }
+  ProcessorResult syncPrivateData() override {
+    if (!captureRuntime) return ProcessorResult::success();
+    ++syncs;
+    const auto state = RenderRuntimeTestAccess::snapshot(*captureRuntime);
+    unsafeSync |= rendering || state.previewBusy || state.exportBusy || state.mutationDepth == 0;
+    return unsafeSync ? ProcessorResult::failure(92, "unsafe private sync") : ProcessorResult::success();
+  }
   std::vector<ProcessorParameter> parameters() const override {
     if (!captureRuntime) return {};
     ++captures;
@@ -570,7 +579,7 @@ static bool testFragmentCaptureOwnership(bool exporting, bool failing) {
   const auto status = app.getStatus();
   release.join(); app.renderer.joinExport();
   CHECK(capturedOk == !failing && waited && probe.completed && probe.quiet);
-  CHECK(!processor->unsafeCapture && processor->captures == 2 && idle(app));
+  CHECK(!processor->unsafeCapture && !processor->unsafeSync && processor->syncs == 2 && processor->captures == 2 && idle(app));
   CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).mutationDepth == 0);
   CHECK(app.getStatus() == status); // Quiet recovery preserves export/capture status.
   CHECK(captured.nodes.size() == 1 && captured.nodes[0].id == id.value && captured.nodes[0].paramsJson.at("gain") == "2");

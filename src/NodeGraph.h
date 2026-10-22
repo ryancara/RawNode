@@ -42,9 +42,11 @@ bool moveNode(App &app, const NodeId &from, const NodeId &to);
 void setNodeEnabled(App &app, const NodeId &id, bool enabled);
 
 // Capture preserves unavailable processors and opaque parameter values.
-bool captureNode(const App &app, const NodeId &id, PersistNode &out);
+// Owns execution exclusion, like captureNodeFragment().
+bool captureNode(App &app, const NodeId &id, PersistNode &out);
 // Historical V2 sidecar support only; live capture uses captureGraph/captureGrade.
 // Refuse before writing when V2 cannot represent the topology.
+// Caller owns control-thread lifetime and processor execution exclusion.
 PersistChain captureChain(const App &app);
 
 // Single-node convenience uses the same graph-native fragment batch splice.
@@ -54,7 +56,8 @@ void applyChain(App &app, const PersistChain &chain);
 
 // Fragment capture preserves arbitrary supported internal topology, detaches
 // external inputs and reports omitted Mask/Reference links. No paste eligibility
-// check is made here. Caller owns processor execution exclusion; document/UI
+// check is made here. May synchronise private state into parameters. Caller owns
+// control-thread lifetime and processor execution exclusion; document/UI
 // callers use captureNodeFragment() in persist/DocumentActions.h.
 PersistFragment captureFragment(const App &app, const std::vector<NodeId> &ids,
                                 std::vector<std::string> &warnings);
@@ -63,7 +66,8 @@ PersistFragment captureFragment(const App &app, const std::vector<NodeId> &ids,
 bool appendGrade(App &app, const PersistGrade &grade, std::optional<NodeId> after = std::nullopt);
 bool pasteFragment(App &app, const PersistFragment &fragment, std::optional<NodeId> after = std::nullopt);
 
-// Capture all stored nodes. Caller owns graph/processor execution exclusion;
+// Capture all stored nodes, synchronising private state before reading parameters.
+// Caller owns control-thread lifetime and graph/processor execution exclusion;
 // these worker-free helpers never schedule or publish a live document.
 PersistGraph captureGraph(GraphView graph);
 

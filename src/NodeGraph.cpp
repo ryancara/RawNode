@@ -3,6 +3,7 @@
 #include "DocumentMutation.h"
 #include "GraphValidation.h"
 #include "GraphCommands.h"
+#include "persist/DocumentActions.h"
 #include "persist/ProjectPersistPriv.h"
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
@@ -27,8 +28,8 @@ static unsigned long long gNextNodeId = 1;
 
 using document_detail::DocumentMutation;
 
-// Mutation helpers borrow the public operation's scope; capture and parameter
-// helpers only translate live state to/from persistence records.
+// Helpers borrow their public operation's exclusion scope. Capture may flush
+// processor-private state before translating parameters to persistence records.
 static void clearNodesWithinMutation(App &app);
 // Resolved from the shared selection before processor construction/mutation.
 // An empty target appends at Output; a branch leaves all consumers untouched.
@@ -234,13 +235,12 @@ void setNodeEnabled(App &app, const NodeId &id, bool enabled) {
   mutation.changed();
 }
 
-bool captureNode(const App &app, const NodeId &id, PersistNode &out) {
-  try {
-    std::vector<std::string> warnings;
-    auto fragment = captureFragment(app, {id}, warnings);
-    out = std::move(fragment.nodes.front());
-    return true;
-  } catch (const std::exception &) { return false; }
+bool captureNode(App &app, const NodeId &id, PersistNode &out) {
+  std::vector<std::string> warnings;
+  PersistFragment fragment;
+  if (!captureNodeFragment(app, {id}, fragment, warnings)) return false;
+  out = std::move(fragment.nodes.front());
+  return true;
 }
 
 static std::vector<NodeId> linearCaptureOrder(const App &app) {
@@ -710,6 +710,8 @@ static PersistNode capturePersistedNode(const Node &node, bool graphNative) {
   persisted.paramsJson = node.preservedParamsJson;
 
   if (node.processor) {
+    const auto synced = node.processor->syncPrivateData();
+    if (!synced.ok) throw std::runtime_error(synced.message);
     persisted.backend = processorBackendName(node.processor->backend());
     persisted.identifier = node.processor->identifier();
     persisted.label = graphNative && !node.storedLabel.empty() ? node.storedLabel : node.processor->displayName();

@@ -13,9 +13,10 @@ PersistGradeColor captureGradeColor(const App &app);
 // changes before committing. Failure leaves the current document intact.
 bool applyGrade(App &app, const PersistGrade &grade);
 // Complete capture also supports editable Source-only grades. Owns execution
-// exclusion while reading processor parameters, and excludes photo metadata.
+// exclusion while synchronising/reading processor parameters; excludes photo metadata.
 bool captureGrade(App &app, PersistGrade &grade);
-// Control-thread, read-only capture. Rejects empty/Source/stale/duplicate IDs
+// Control-thread capture; may synchronise private state into parameters.
+// Rejects empty/Source/stale/duplicate IDs
 // before interrupting execution. On success, returns detached graph-native data
 // and omitted-link warnings; on failure, leaves both outputs untouched.
 // Owns preview/export exclusion only during capture, with quiet preview recovery.
