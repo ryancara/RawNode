@@ -55,6 +55,12 @@ class Processor {
   virtual bool resetParameter(const std::string &id, bool notify = true) = 0;
   virtual bool activateParameter(const std::string &id) = 0;
 
+  // Flush backend-private state into persistent parameters before save/copy.
+  // May write parameters. Caller owns control-thread instance lifetime and
+  // excludes preview/export execution (DocumentMutation for live documents).
+  // Ordinary parameter reads must not call this. Failure aborts capture.
+  virtual ProcessorResult syncPrivateData() { return ProcessorResult::success(); }
+
   // Allows backends to update any size-dependent state before rendering.
   // The app calls this only while it has exclusive render ownership.
   virtual void setRenderSize(int width, int height) = 0;

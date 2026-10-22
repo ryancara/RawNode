@@ -574,11 +574,6 @@ suppressions. The normal application shutdown still needs a focused correction.
 These are known but are not reasons to expand unrelated focused PRs:
 
 - the production OpenFX plugin descriptor shutdown leak described above;
-- OFX private-state capture: missing `SyncPrivateData` can save stale persistent
-  values. Initial restoration now validates and applies saved values before
-  `CreateInstance`, without change notifications. See
-  [OFX parameter persistence](OFX_PARAMETER_PERSISTENCE.md) for the regression
-  evidence and the separate, remaining capture limitation;
 - JPEG XL DNG decoding is not yet supported in the current image-loading path;
 - TIFF SubIFD handling is incomplete for some RAW-like TIFF structures;
 - export UX can block/wait on a non-cancellable full-resolution export;

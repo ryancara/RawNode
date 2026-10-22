@@ -1,9 +1,12 @@
 #include "OfxPersistenceTests.h"
 
 #include "GraphEvaluator.h"
+#include "DocumentMutation.h"
 #include "NodeGraph.h"
+#include "RenderRuntimeTestAccess.h"
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"
+#include "persist/DocumentActions.h"
 #include "processors/OfxProcessor.h"
 #include "ui/UiContext.h"
 
@@ -52,13 +55,14 @@ OfxParamHandle paramHandle(OfxParamSetHandle params, const char *name) {
 struct Plugin {
   struct Cache {
     double visibleAtCreate = 0, hiddenAtCreate = 0, gain = 0;
-    int notifications = 0;
+    int notifications = 0, syncs = 0;
   };
   OfxPlugin plugin{};
   int index = int(gPlugins.size());
   int creates = 0, destroys = 0, live = 0, invalidDestroys = 0, preCreationNotifications = 0;
   OfxStatus createStatus = kOfxStatOK;
   bool adjustGainOnCreate = false;
+  bool syncCacheOnCapture = false;
   std::function<void(OfxParamSetHandle)> inspectInitialValues;
   Plugin() {
     plugin.pluginIdentifier = "org.rawnode.selftest.persistence";
@@ -108,6 +112,13 @@ struct Plugin {
         ++cache->notifications;
         cache->gain = readGain(); // Ordinary UI edits still update private state.
         return kOfxStatOK;
+      }
+      if (!std::strcmp(action, kOfxActionSyncPrivateData) && self.syncCacheOnCapture) {
+        if (!cache) return kOfxStatFailed;
+        ++cache->syncs;
+        // The combined fixture keeps hidden gain at its default 1. This writes
+        // the actual render cache back, including a stale cache under mutation.
+        return parameters().paramSetValue(paramHandle(params, "visiblePersistent"), cache->gain);
       }
       if (std::strcmp(action, kOfxImageEffectActionRender)) return kOfxStatReplyDefault;
       if (!cache) return kOfxStatFailed;
@@ -220,8 +231,8 @@ bool restoredValues(const Node &node) {
   CHECK(parameter(node, "privateText").secret && parameter(node, "privateText").persistValue);
   return true;
 }
-bool pixels(const App &app) {
-  // Hand-calculated result: RGB gain 6, alpha unchanged. Negative and HDR
+bool pixels(const App &app, float gain = 6.0f) {
+  // Independently specified RGB gain, alpha unchanged. Negative and HDR
   // samples deliberately distinguish persistence correctness from clipping.
   auto input = std::make_shared<Image>();
   input->w = input->h = 1; input->px = {0.25f, -0.5f, 2.0f, 0.375f};
@@ -230,9 +241,9 @@ bool pixels(const App &app) {
   CHECK(result.state == EvaluationState::Available && result.diagnostics.empty());
   const auto *image = std::get_if<ImageValue>(&result.value);
   CHECK(image && *image && (*image)->w == 1 && (*image)->h == 1);
-  CHECK((*image)->px == (std::vector<float>{1.5f, -3.0f, 12.0f, 0.375f}));
+  CHECK((*image)->px == (std::vector<float>{0.25f * gain, -0.5f * gain, 2.0f * gain, 0.375f}));
   // Also process the document's actual decoded photograph after application or
-  // reopen. Its independently expected operation is the same RGB gain of 6.
+  // reopen. Its independently expected operation is the same RGB gain.
   auto photo = std::make_shared<Image>(app.full);
   CHECK(photo->w == 1 && photo->h == 1 && photo->px.size() == 4);
   const auto processed = evaluateGraph({app.nodes, app.primarySource, app.documentOutput}, app.documentOutput,
@@ -241,7 +252,7 @@ bool pixels(const App &app) {
   const auto *actual = std::get_if<ImageValue>(&processed.value);
   CHECK(actual && *actual && (*actual)->px.size() == 4);
   for (size_t i = 0; i < 4; ++i)
-    CHECK((*actual)->px[i] == photo->px[i] * (i == 3 ? 1.0f : 6.0f));
+    CHECK((*actual)->px[i] == photo->px[i] * (i == 3 ? 1.0f : gain));
   return true;
 }
 
@@ -661,13 +672,363 @@ bool typedInitialValues(Plugin &plugin) {
   std::puts("ok  OFX initial typed values: integer, boolean, static choice, floating/integer vectors, string and hidden custom values use the real suite; strict refusal before publication");
   return true;
 }
+
+const OfxParameterSuiteV1 &params() {
+  return *static_cast<const OfxParameterSuiteV1 *>(gOfxHost.fetchSuite(gOfxHost.host, kOfxParameterSuite, 1));
+}
+const OfxPropertySuiteV1 &props() {
+  return *static_cast<const OfxPropertySuiteV1 *>(gOfxHost.fetchSuite(gOfxHost.host, kOfxPropertySuite, 1));
+}
+
+struct PrivateState {
+  double hiddenGain = 1;
+  bool deferred = false, safe = true;
+  int syncs = 0;
+  OfxStatus status = kOfxStatOK;
+  RenderRuntime *runtime = nullptr;
+  std::thread::id controlThread = std::this_thread::get_id();
+};
+PrivateState &privateState(Effect *effect) {
+  void *data = nullptr;
+  props().propGetPointer(H(&effect->props), kOfxPropInstanceData, 0, &data);
+  return *static_cast<PrivateState *>(data);
+}
+Effect *effect(Node &node) { return static_cast<OfxProcessor *>(node.processor.get())->effect(); }
+OfxPropertySetHandle paramSet(Effect *effect) {
+  OfxPropertySetHandle properties = nullptr;
+  params().paramSetGetPropertySet(reinterpret_cast<OfxParamSetHandle>(effect), &properties);
+  return properties;
+}
+OfxParamHandle paramHandle(Effect *effect, const char *id) {
+  OfxParamHandle param = nullptr;
+  params().paramGetHandle(reinterpret_cast<OfxParamSetHandle>(effect), id, &param, nullptr);
+  return param;
+}
+
+// Reuse the persistence descriptor, but keep a deferred private gain separate
+// from its saved hidden parameter. All callback reads/writes use real OFX suites.
+// Fresh instances read current parameters during Render to isolate capture.
+// cachedSyncRoundTrips separately covers creation-cache/synchronisation integration.
+struct SyncPlugin : Plugin {
+  SyncPlugin() {
+    plugin.pluginIdentifier = "org.rawnode.selftest.private-sync";
+    plugin.mainEntry = [](const char *action, const void *handle, OfxPropertySetHandle in, OfxPropertySetHandle out) {
+      auto *instance = static_cast<Effect *>(const_cast<void *>(handle));
+      if (!std::strcmp(action, kOfxActionCreateInstance))
+        return props().propSetPointer(H(&instance->props), kOfxPropInstanceData, 0, new PrivateState);
+      if (!std::strcmp(action, kOfxActionDestroyInstance)) {
+        delete &privateState(instance);
+        return kOfxStatOK;
+      }
+      if (!std::strcmp(action, kOfxActionSyncPrivateData)) {
+        auto &state = privateState(instance);
+        ++state.syncs;
+        state.safe &= !in && !out && std::this_thread::get_id() == state.controlThread;
+        if (state.runtime) {
+          const auto ownership = RenderRuntimeTestAccess::snapshot(*state.runtime);
+          state.safe &= ownership.mutationDepth > 0 && !ownership.previewBusy && !ownership.exportBusy;
+        }
+        if (state.status == kOfxStatReplyDefault) return state.status;
+        // This setter takes gValueMutex. Calling the action under that lock
+        // deadlocks. Even a failed action writes a partial live value first.
+        if (state.deferred && params().paramSetValue(paramHandle(instance, "hiddenPersistent"), state.hiddenGain))
+          return kOfxStatFailed;
+        return state.status;
+      }
+      if (!std::strcmp(action, kOfxImageEffectActionRender)) {
+        double visible = 0, hidden = 0;
+        params().paramGetValue(paramHandle(instance, "visiblePersistent"), &visible);
+        params().paramGetValue(paramHandle(instance, "hiddenPersistent"), &hidden);
+        const auto &state = privateState(instance);
+        const float gain = float(visible * (state.deferred ? state.hiddenGain : hidden));
+        for (int i = 0; i < instance->w * instance->h * 4; ++i)
+          instance->dst[i] = instance->src[i] * (i % 4 == 3 ? 1.0f : gain);
+        return kOfxStatOK;
+      }
+      return kOfxStatReplyDefault;
+    };
+  }
+};
+
+void defer(App &app, Node &node, double hiddenGain) {
+  auto &state = privateState(effect(node));
+  state.hiddenGain = hiddenGain;
+  state.deferred = true;
+  state.runtime = &app.renderer;
+}
+std::string contents(const std::string &path) {
+  std::ifstream in(path, std::ios::binary);
+  return {std::istreambuf_iterator<char>(in), {}};
+}
+bool syncValues(const PersistGraph &graph, const NodeId &id, const char *hidden) {
+  CHECK(record(graph, id).paramsJson.at("visiblePersistent") == "2");
+  CHECK(record(graph, id).paramsJson.at("hiddenPersistent") == hidden);
+  return true;
+}
+bool syncRoundTrips(SyncPlugin &plugin) {
+  Files files; Ui ui; App app;
+  const auto photo = files.path("sync.png"), preset = files.path("sync-preset.rawnode.json");
+  Image input; input.w = input.h = 1; input.px = {0.25f, 0.5f, 0.75f, 1};
+  CHECK(writeImage(input, photo, {RgbGamut::Rec709, TransferFunction::Linear}) && openPath(app, photo));
+  CHECK(addNode(app, plugin.index));
+  const auto id = *app.selectedNodeId(); auto &node = *findNode(app, id);
+  CHECK(setNodeParameterValue(app, id, "visiblePersistent", 2.0));
+  CHECK(setNodeParameterValue(app, id, "hiddenPersistent", 3.0));
+  defer(app, node, 5);
+  auto &state = privateState(effect(node));
+  // Without sync the parameters say gain 6, while the live private gain is 10.
+  CHECK(parameter(node, "hiddenPersistent").value == ParameterValue(3.0) && pixels(app, 10));
+  ui.inspector(app, "");
+  CHECK(state.syncs == 0); // Inspector/ordinary reads must remain cheap.
+  CHECK(saveCurrentInputSidecar(app));
+  PersistFile saved; std::string error;
+  CHECK(readGraphSidecar(inputSidecarPath(photo), saved, error) == SidecarReadStatus::Loaded && saved.grade);
+  CHECK(syncValues(saved.grade->graph, id, "5"));
+  CHECK(state.syncs == 1 && state.safe);
+  App reopened;
+  CHECK(openPath(reopened, photo) && parameter(*findNode(reopened, id), "hiddenPersistent").value == ParameterValue(5.0));
+  CHECK(pixels(reopened, 10)); // (.25,-.5,2,.375) -> (2.5,-5,20,.375).
+
+  defer(app, node, 7);
+  CHECK(savePreset(app, preset) && state.syncs == 2 && state.safe);
+  PersistGrade grade;
+  CHECK(loadPresetFile(preset, grade, error) && syncValues(grade.graph, id, "7"));
+  const auto destination = [&](App &target, const char *name) {
+    const auto path = files.path(name);
+    return writeImage(input, path, {RgbGamut::Rec709, TransferFunction::Linear}) && openPath(target, path);
+  };
+  App presetTarget;
+  CHECK(destination(presetTarget, "preset.png") && loadPresetDialog(presetTarget, false, preset));
+  CHECK(parameter(*findNode(presetTarget, id), "hiddenPersistent").value == ParameterValue(7.0) && pixels(presetTarget, 14));
+
+  defer(app, node, 11);
+  CHECK(copyGrade(app) && state.syncs == 3 && state.safe);
+  PersistTransfer transfer;
+  CHECK(decodeTransferPayload(ui.clipboard, transfer, error));
+  CHECK(syncValues(std::get<PersistGrade>(transfer).graph, id, "11"));
+  App gradeTarget;
+  CHECK(destination(gradeTarget, "grade.png") && pasteFromClipboard(gradeTarget));
+  CHECK(parameter(*findNode(gradeTarget, id), "hiddenPersistent").value == ParameterValue(11.0) && pixels(gradeTarget, 22));
+
+  defer(app, node, 13);
+  CHECK(copySelectedNode(app) && state.syncs == 4 && state.safe);
+  CHECK(decodeTransferPayload(ui.clipboard, transfer, error));
+  CHECK(std::get<PersistFragment>(transfer).nodes.front().paramsJson.at("hiddenPersistent") == "13");
+  App nodeTarget;
+  CHECK(destination(nodeTarget, "node.png") && pasteFromClipboard(nodeTarget));
+  CHECK(parameter(*findNode(nodeTarget, nodeTarget.documentOutput.nodeId), "hiddenPersistent").value == ParameterValue(13.0));
+  CHECK(pixels(nodeTarget, 26));
+
+  // Automatic same-photo save-before-reopen destroys the original instance.
+  defer(app, node, 17);
+  CHECK(openPath(app, photo));
+  CHECK(parameter(*findNode(app, id), "hiddenPersistent").value == ParameterValue(17.0) && pixels(app, 34));
+  defer(app, *findNode(app, id), 19);
+  CHECK(preparePhotoDeparture(app)); // Same boundary used by close/shutdown.
+  App departed;
+  CHECK(openPath(departed, photo));
+  CHECK(parameter(*findNode(departed, id), "hiddenPersistent").value == ParameterValue(19.0) && pixels(departed, 38));
+  std::puts("ok  OFX private sync: stale private/parameter state, sidecar reopen, automatic save, preset and grade/node clipboard with independent pixels");
+  return true;
+}
+
+bool syncFlagsAndCaptures(SyncPlugin &plugin) {
+  for (int flag : {-1, 0, 1}) {
+    App app; CHECK(addNode(app, plugin.index));
+    const auto id = *app.selectedNodeId(); auto &node = *findNode(app, id);
+    auto *instance = effect(node); auto &state = privateState(instance);
+    CHECK(setNodeParameterValue(app, id, "visiblePersistent", 2.0));
+    CHECK(setNodeParameterValue(app, id, "hiddenPersistent", 3.0));
+    defer(app, node, 5);
+    // Decoys prove the flag is read from the parameter-set instance only.
+    props().propSetInt(H(&instance->props), kOfxPropParamSetNeedsSyncing, 0, 0);
+    props().propSetInt(H(&findParam(instance, "hiddenPersistent")->props), kOfxPropParamSetNeedsSyncing, 0, 0);
+    if (flag >= 0) props().propSetInt(paramSet(instance), kOfxPropParamSetNeedsSyncing, 0, flag);
+    PersistGrade grade;
+    CHECK(captureGrade(app, grade));
+    CHECK(syncValues(grade.graph, id, flag == 0 ? "3" : "5") && state.syncs == (flag == 0 ? 0 : 1) && state.safe);
+    int actual = -1;
+    const auto status = props().propGetInt(paramSet(instance), kOfxPropParamSetNeedsSyncing, 0, &actual);
+    CHECK(flag < 0 ? status == kOfxStatErrUnknown : status == kOfxStatOK && actual == 0);
+    defer(app, node, 7); // Do not reassert the flag yet.
+    CHECK(captureGrade(app, grade) && state.syncs == (flag < 0 ? 2 : flag));
+    CHECK(syncValues(grade.graph, id, flag < 0 ? "7" : flag == 0 ? "3" : "5"));
+    if (flag >= 0) {
+      props().propSetInt(paramSet(instance), kOfxPropParamSetNeedsSyncing, 0, 1);
+      CHECK(captureGrade(app, grade) && syncValues(grade.graph, id, "7"));
+      CHECK(props().propGetInt(paramSet(instance), kOfxPropParamSetNeedsSyncing, 0, &actual) == kOfxStatOK && actual == 0);
+    }
+    // ReplyDefault is the specified successful no-op for unsupported actions.
+    state.status = kOfxStatReplyDefault;
+    props().propSetInt(paramSet(instance), kOfxPropParamSetNeedsSyncing, 0, 1);
+    const auto calls = state.syncs;
+    CHECK(captureGrade(app, grade) && state.syncs == calls + 1);
+    CHECK(props().propGetInt(paramSet(instance), kOfxPropParamSetNeedsSyncing, 0, &actual) == kOfxStatOK && actual == 0);
+  }
+
+  App app; CHECK(addNode(app, plugin.index));
+  const auto first = *app.selectedNodeId();
+  CHECK(addNode(app, plugin.index)); const auto second = *app.selectedNodeId();
+  auto &a = *findNode(app, first); auto &b = *findNode(app, second);
+  defer(app, a, 5); defer(app, b, 7);
+  setNodeEnabled(app, second, false); // Disabled nodes still need capture.
+  PersistFragment fragment; std::vector<std::string> warnings;
+  CHECK(captureNodeFragment(app, {second, first}, fragment, warnings));
+  CHECK(fragment.nodes[0].paramsJson.at("hiddenPersistent") == "7" && fragment.nodes[1].paramsJson.at("hiddenPersistent") == "5");
+  auto &as = privateState(effect(a)); auto &bs = privateState(effect(b));
+  CHECK(as.syncs == 1 && bs.syncs == 1 && as.safe && bs.safe);
+  PersistFragment single; defer(app, a, 11);
+  CHECK(captureNodeFragment(app, {first}, single, warnings));
+  CHECK(single.nodes.size() == 1 && single.nodes.front().paramsJson.at("hiddenPersistent") == "11");
+  CHECK(as.syncs == 2 && bs.syncs == 1);
+  // Low-level detached graph/V2 captures borrow explicit execution exclusion.
+  app.nodePositions.clear();
+  document_detail::DocumentMutation ownership(app);
+  defer(app, a, 13);
+  const auto output = app.documentOutput;
+  app.documentOutput = {app.primarySource, ports::image}; // Both processors are unreachable.
+  CHECK(record(captureGraph({app.nodes, app.primarySource, app.documentOutput}), first).paramsJson.at("hiddenPersistent") == "13");
+  CHECK(as.syncs == 3 && bs.syncs == 2);
+  app.documentOutput = output;
+  defer(app, a, 17);
+  CHECK(captureChain(app).nodes[0].paramsJson.at("hiddenPersistent") == "17");
+  CHECK(as.syncs == 4 && bs.syncs == 3 && as.safe && bs.safe);
+  std::puts("ok  OFX private sync: absent/0/1 parameter-set flags, clearing, ReplyDefault, one action per captured node, fragments and low-level captures");
+  return true;
+}
+
+bool failedSyncPreservesCaptures(SyncPlugin &plugin) {
+  Files files; Ui ui; App app;
+  const auto photo = files.path("failure.png"), preset = files.path("valid-preset.rawnode.json");
+  const auto newPreset = files.path("failed-preset.rawnode.json");
+  Image input; input.w = input.h = 1; input.px = {0.25f, 0.5f, 0.75f, 1};
+  CHECK(writeImage(input, photo, {RgbGamut::Rec709, TransferFunction::Linear}) && openPath(app, photo));
+  CHECK(addNode(app, plugin.index)); const auto id = *app.selectedNodeId(); auto &node = *findNode(app, id);
+  CHECK(setNodeParameterValue(app, id, "visiblePersistent", 2.0));
+  defer(app, node, 5);
+  CHECK(saveCurrentInputSidecar(app) && savePreset(app, preset) && copyGrade(app));
+  const auto sidecar = inputSidecarPath(photo), validSidecar = contents(sidecar), validPreset = contents(preset);
+  const auto validClipboard = ui.clipboard;
+  PersistGrade grade; CHECK(captureGrade(app, grade));
+  std::string original, error; CHECK(encodeTransferPayload(grade, original, error));
+  auto &state = privateState(effect(node));
+  for (const auto status : {kOfxStatFailed, kOfxStatErrFatal}) {
+    state.status = status; defer(app, node, 23);
+    props().propSetInt(paramSet(effect(node)), kOfxPropParamSetNeedsSyncing, 0, 1);
+    CHECK(!saveCurrentInputSidecar(app, &error));
+    CHECK(error.find("SyncPrivateData") != std::string::npos && error.find(plugin.plugin.pluginIdentifier) != std::string::npos);
+    CHECK(contents(sidecar) == validSidecar && !app.persistenceWarning.empty());
+    CHECK(parameter(node, "hiddenPersistent").value == ParameterValue(23.0)); // Callback did run a setter before failure.
+    int flag = 0;
+    CHECK(props().propGetInt(paramSet(effect(node)), kOfxPropParamSetNeedsSyncing, 0, &flag) == kOfxStatOK && flag == 1);
+    bool confirmed = false;
+    CHECK(!savePreset(app, preset, [&](const auto &) { confirmed = true; return true; }) && !confirmed);
+    CHECK(contents(preset) == validPreset && !savePreset(app, newPreset) && !fs::exists(newPreset));
+    CHECK(!copyGrade(app) && ui.clipboard == validClipboard);
+    CHECK(!copySelectedNode(app) && ui.clipboard == validClipboard);
+    CHECK(!captureGrade(app, grade));
+    std::string after; CHECK(encodeTransferPayload(grade, after, error) && after == original);
+    PersistFragment fragment; fragment.positions["untouched"] = {1, 2};
+    std::vector<std::string> warnings{"untouched"};
+    CHECK(!captureNodeFragment(app, {id}, fragment, warnings));
+    CHECK(fragment.nodes.empty() && fragment.positions.count("untouched") && warnings == std::vector<std::string>{"untouched"});
+    CHECK(!openPath(app, photo) && findNode(app, id) == &node && contents(sidecar) == validSidecar);
+    CHECK(state.safe && !preparePhotoDeparture(app) && contents(sidecar) == validSidecar);
+  }
+  state.status = kOfxStatOK;
+  CHECK(saveCurrentInputSidecar(app) && app.persistenceWarning.empty());
+  App reopened; CHECK(openPath(reopened, photo) && pixels(reopened, 46));
+  std::puts("ok  OFX private sync failures: partial callback writes cannot publish sidecar/preset/clipboard or replace capture outputs; retry succeeds");
+  return true;
+}
+
+bool cachedSyncRoundTrips() {
+  Plugin plugin;
+  plugin.plugin.pluginIdentifier = "org.rawnode.selftest.cached-sync";
+  plugin.syncCacheOnCapture = true;
+  Files files; Ui ui;
+  const auto photo = files.path("cached-sync.png"), away = files.path("away.png");
+  Image input; input.w = input.h = 1; input.px = {0.25f, 0.5f, 0.75f, 1};
+  const auto makePhoto = [&](const std::string &path) {
+    return writeImage(input, path, {RgbGamut::Rec709, TransferFunction::Linear});
+  };
+  CHECK(makePhoto(photo) && makePhoto(away));
+  App original;
+  CHECK(openPath(original, photo) && addNode(original, plugin.index));
+  const auto id = *original.selectedNodeId();
+  CHECK(setNodeParameterValue(original, id, "visiblePersistent", 5.0));
+  CHECK(cache(*findNode(original, id)).gain == 5.0);
+  CHECK(saveCurrentInputSidecar(original) && cache(*findNode(original, id)).syncs == 1);
+  const auto savedGainFive = [&](const std::string &path, const NodeId &nodeId) {
+    PersistFile file; std::string error;
+    CHECK(readGraphSidecar(inputSidecarPath(path), file, error) == SidecarReadStatus::Loaded && file.grade);
+    const auto &gain = record(file.grade->graph, nodeId).paramsJson.at("visiblePersistent");
+    if (gain != "5") std::fprintf(stderr, "OFX cached-sync saved gain: expected 5, got %s\n", gain.c_str());
+    CHECK(gain == "5");
+    return true;
+  };
+  const auto initialGainFive = [&](const App &app, const NodeId &nodeId) {
+    const auto *node = findNode(app, nodeId);
+    return node && parameter(*node, "visiblePersistent").value == ParameterValue(5.0) &&
+           parameter(*node, "hiddenPersistent").value == ParameterValue(1.0) &&
+           cache(*node).visibleAtCreate == 5.0 && cache(*node).gain == 5.0 &&
+           cache(*node).notifications == 0;
+  };
+  CHECK(savedGainFive(photo, id));
+
+  App reopened;
+  CHECK(openPath(reopened, photo) && !reopened.isPhotoProtected());
+  const bool initialised = initialGainFive(reopened, id);
+  const bool rendered = pixels(reopened, 5); // (.25,-.5,2,.375) -> (1.25,-2.5,10,.375).
+  CHECK(cache(*findNode(reopened, id)).syncs == 0);
+  // Delay the cache/pixel assertions until automatic resaving has run. Reversing
+  // creation order must demonstrate saved-value loss (5 -> 1), not just a bad cache.
+  CHECK(openPath(reopened, away));
+  CHECK(savedGainFive(photo, id));
+  CHECK(initialised && rendered);
+
+  App source;
+  CHECK(openPath(source, photo) && initialGainFive(source, id) && pixels(source, 5));
+  CHECK(selectNode(source, id));
+  for (bool nodeCopy : {false, true}) {
+    const auto destination = files.path(nodeCopy ? "cached-node.png" : "cached-grade.png");
+    CHECK(makePhoto(destination));
+    CHECK(nodeCopy ? copySelectedNode(source) : copyGrade(source));
+    CHECK(cache(*findNode(source, id)).syncs == (nodeCopy ? 2 : 1));
+    PersistTransfer transfer; std::string error;
+    CHECK(decodeTransferPayload(ui.clipboard, transfer, error));
+    const auto &saved = nodeCopy ? std::get<PersistFragment>(transfer).nodes.front()
+                                : record(std::get<PersistGrade>(transfer).graph, id);
+    CHECK(saved.paramsJson.at("visiblePersistent") == "5");
+    App pasted;
+    CHECK(openPath(pasted, destination) && pasteFromClipboard(pasted));
+    const auto pastedId = pasted.documentOutput.nodeId;
+    CHECK(nodeCopy ? pastedId != id : pastedId == id);
+    CHECK(initialGainFive(pasted, pastedId) && pixels(pasted, 5));
+    CHECK(cache(*findNode(pasted, pastedId)).syncs == 0);
+    CHECK(saveCurrentInputSidecar(pasted));
+    CHECK(cache(*findNode(pasted, pastedId)).syncs == 1 && savedGainFive(destination, pastedId));
+    CHECK(openPath(pasted, away) && savedGainFive(destination, pastedId));
+    App destinationReopened;
+    CHECK(openPath(destinationReopened, destination));
+    CHECK(initialGainFive(destinationReopened, pastedId) && pixels(destinationReopened, 5));
+  }
+  // A full-grade clipboard read must also leave the original photograph safe
+  // when navigation later saves the live source without any intervening edit.
+  CHECK(openPath(source, away) && savedGainFive(photo, id));
+  std::puts("ok  OFX combined restore/sync: CreateInstance reads saved gain 5, cached rendering, unedited navigation and grade/node clipboard destination resaving retain 5 and exact pixels");
+  return true;
+}
 }  // namespace
 
 bool testOfxPersistence() {
+  if (!cachedSyncRoundTrips()) return false;
   Plugin plugin;
   const bool passed = dynamicChoiceRestoration() && cachedGainFiveReopen(plugin) && productionRoundTrips(plugin) &&
                       nonpersistentRestoreGuards(plugin) && initialValueValidationAndLifecycle(plugin) &&
                       typedInitialValues(plugin);
   CHECK(plugin.live == 0 && plugin.invalidDestroys == 0 && plugin.preCreationNotifications == 0);
-  return passed;
+  if (!passed) return false;
+  SyncPlugin sync;
+  return syncRoundTrips(sync) && syncFlagsAndCaptures(sync) && failedSyncPreservesCaptures(sync);
 }

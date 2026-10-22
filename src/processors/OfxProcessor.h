@@ -18,6 +18,7 @@ class OfxProcessor final : public Processor {
   std::string identifier() const override;
   std::string displayName() const override;
   std::vector<ProcessorParameter> parameters() const override;
+  ProcessorResult syncPrivateData() override;
   bool setParameterValue(const std::string &id, const ParameterValue &value, bool notify = true) override;
   bool resetParameter(const std::string &id, bool notify = true) override;
   bool activateParameter(const std::string &id) override;

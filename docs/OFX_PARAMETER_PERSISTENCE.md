@@ -3,9 +3,9 @@
 ## Scope and specification
 
 Parameter visibility and value persistence are independent. Initial restoration
-also precedes the plugin's create-instance action. Neither correction changes
-the persistence schema or adds undo/redo, migration or recovery of historically
-omitted values.
+precedes the plugin's create-instance action, and private state is synchronised
+before parameter capture. These complementary corrections change no persistence
+schema and add no undo/redo, migration or recovery of historically omitted values.
 
 Independently checked against the upstream OpenFX documentation and the official
 header at RawNode's pinned OpenFX revision
@@ -139,8 +139,11 @@ Before publishing the node, the graph layer validates both the saved selection
 and the plugin's resulting selection against the completed instance menu.
 Valid plugin edits are retained; values are never restored a second time.
 An invalid saved selection is still rejected even if the plugin replaces it
-with a valid default. An empty final menu or invalid resulting selection also
-fails restoration.
+with a valid default. An out-of-range numeric index can therefore reach
+`CreateInstance` before final menu membership validation; malformed JSON and
+non-integer types still fail before creation. An empty final menu causes
+restoration refusal when a saved choice is being validated, as does an invalid
+resulting selection. An unsaved choice does not enter this saved-value check.
 
 `persist_detail::parameterValue` remains strict by default. Only pre-creation
 OFX numeric membership is explicitly deferred; its JSON/type checks, supported
@@ -230,13 +233,218 @@ private state from saved values and preserving reopening of valid instance-defin
 OFX choices. Invalid choices still protect/refuse the saved grade. There are no
 appearance or interaction changes.
 
-## Remaining OFX capture limitation
+## Private-state synchronisation before capture
 
-No production caller dispatches `kOfxActionSyncPrivateData`. A plugin which defers
-writing private state to persistent parameters until that action can still save
-stale values. `kOfxPropParamSetNeedsSyncing` is not honored either. The
-[official header](https://github.com/AcademySoftwareFoundation/openfx/blob/ab779510b2655b4d11a7e01e5c521f9aa8c88976/include/ofxParam.h#L271)
-requires synchronization when that optional flag is set or absent; setting it to
-zero permits skipping synchronization. This separate capture issue remains
-outside the initial-restoration correction. No SyncPrivateData handling or
-general existing-instance notification redesign is included here.
+### Verified requirements and implementation
+
+Checked independently against the official
+[`ofxParam.h`](https://github.com/AcademySoftwareFoundation/openfx/blob/ab779510b2655b4d11a7e01e5c521f9aa8c88976/include/ofxParam.h#L271),
+[`ofxCore.h`](https://github.com/AcademySoftwareFoundation/openfx/blob/ab779510b2655b4d11a7e01e5c521f9aa8c88976/include/ofxCore.h#L297)
+and upstream generated [action specification](https://github.com/AcademySoftwareFoundation/openfx/blob/main/Documentation/sources/Reference/ofxImageEffectActions.rst).
+The upstream current headers agree with RawNode's pinned headers on this contract.
+The action takes the effect instance, null input/output arguments, and follows
+`CreateInstance`. Its postcondition is reconstructible private state in the
+parameter set. `OK` and `ReplyDefault` are non-failures; other returned statuses
+abort capture and are reported with the plugin identifier and OFX status.
+The [parameter-setting rules](https://github.com/AcademySoftwareFoundation/openfx/blob/ab779510b2655b4d11a7e01e5c521f9aa8c88976/Documentation/sources/Reference/ofxParameter.rst#setting-parameters)
+explicitly permit parameter writes in this callback. The
+[thread/recursion rules](https://github.com/AcademySoftwareFoundation/openfx/blob/ab779510b2655b4d11a7e01e5c521f9aa8c88976/Documentation/sources/Reference/ofxThreadSafety.rst)
+put it on the instance's main thread and permit it to trigger recursive actions.
+
+`kOfxPropParamSetNeedsSyncing` belongs to the **parameter-set instance**:
+
+| Property | Before parameter capture | After successful action |
+| --- | --- | --- |
+| absent | call `SyncPrivateData` every time | leave absent; never invent a default |
+| 1 | call `SyncPrivateData` | set to 0 |
+| 0 | skip action | leave 0 |
+
+There is an upstream specification/library discrepancy. The pinned header says
+"Property Set - param set instance (read/write)", and the official
+[properties-by-object reference](https://github.com/AcademySoftwareFoundation/openfx/blob/ab779510b2655b4d11a7e01e5c521f9aa8c88976/Documentation/sources/Reference/ofxPropertiesByObject.rst#properties-on-parameter-set-instances)
+also places it on the parameter-set instance. However, the official plugin
+[Support helper](https://github.com/AcademySoftwareFoundation/openfx/blob/ab779510b2655b4d11a7e01e5c521f9aa8c88976/Support/Library/ofxsImageEffect.cpp#L1355)
+sets `_effectProps`, and
+[HostSupport's `syncPrivateDataAction`](https://github.com/AcademySoftwareFoundation/openfx/blob/ab779510b2655b4d11a7e01e5c521f9aa8c88976/HostSupport/src/ofxhImageEffect.cpp#L801)
+reads the effect instance's `_properties`. Those libraries use the
+**effect-instance property set**, not the specified parameter-set instance.
+
+RawNode follows the specification conservatively: it reads only the parameter-set
+flag and creates no default. If that flag is absent, every capture synchronises,
+even if a plugin using the Support helper has an effect-instance flag of 0.
+RawNode neither reads nor clears that effect-instance flag. It does not treat
+the SDK helper's different property location as permission to skip the action.
+The existing effect/individual-parameter decoys independently cover this choice.
+
+Natron's [`NodeSerialization.cpp`](https://github.com/NatronGitHub/Natron/blob/RB-2.6/Engine/NodeSerialization.cpp)
+calls `syncPrivateData_other_thread()` before obtaining serialised knobs.
+[`OfxEffectInstance.cpp`](https://github.com/NatronGitHub/Natron/blob/RB-2.6/Engine/OfxEffectInstance.cpp)
+dispatches through its main-thread `onSyncPrivateDataRequested()` slot, enables
+parameter writes, and avoids a preferences lock that could deadlock recursive
+actions. RawNode uses its own existing control-thread/execution contract; no
+Natron scheduling or lifecycle machinery is imported.
+
+`Processor::syncPrivateData()` is an explicit capture-only hook, a no-op for
+native/CTL processors. `OfxProcessor` implements the property/action protocol.
+The common node capture helper calls it once immediately before reading that
+processor's parameters. `parameters()` remains an ordinary snapshot for the
+Inspector, parameter edits and restoration. No change notifications are added.
+
+### Capture and ownership audit
+
+| Capture | Existing execution boundary and common path |
+| --- | --- |
+| Explicit photograph Save Grade | `savePhoto` -> `captureGraph` |
+| Automatic same-photo reopen, navigation, folder switch, close/shutdown | departure -> `savePhoto` -> `captureGraph` |
+| Initial editable photograph save | `openPreparedPhoto` -> `savePhoto` -> `captureGraph` |
+| Full grade / preset save / grade clipboard | `captureGrade` -> `captureGraph` |
+| Individual node clipboard / multi-node fragments | `captureNodeFragment` -> `captureFragment` |
+| Low-level graph, fragment and historical V2 chain helpers | caller-owned exclusion -> common node capture |
+
+All live document paths above use `DocumentMutation` on the control thread.
+`RenderRuntime::beginMutation` closes dispatch, cancels/drains preview and waits
+for export before the plugin callback. The scope excludes subsequent execution
+and control-thread ownership prevents concurrent graph edits/destruction.
+`completeMutation` retains quiet recovery of interrupted work. Capture does not
+mark the document changed or request a new render merely for flushing private
+state, which should represent the same processing state in parameter form.
+
+The plugin action runs without `gValueMutex`; its parameter setters can acquire
+that mutex normally. Parameter snapshots take it only after the action returns.
+Low-level helpers retain their explicit caller-owned lifetime/exclusion contract
+for detached graphs and tests; they must not be used unguarded on an executing
+live graph. Document/UI single-node and multi-node capture both use
+`captureNodeFragment`; graph capture helpers do not call document actions. No new
+scheduler, mutation system or processor lifecycle framework is introduced.
+
+Synchronisation failure aborts the complete logical capture before its result
+is published or any file/clipboard replacement starts. The existing atomic file
+writer and staged capture outputs remain authoritative. A callback can partially
+change **live** parameters before failing; RawNode does not roll back plugin
+side effects. It leaves the needs-syncing flag uncleared and a later capture can
+retry. This is publication safety, not a transaction over arbitrary plugin code.
+
+### Regression evidence and precise guarantee
+
+`tests/OfxPersistenceTests.cpp` extends the existing in-process descriptor with
+a separate private-state diagnostic plugin. Its live hidden gain 5 initially
+differs from saved hidden gain 3, with visible gain 2. Before capture, ordinary
+parameter reads still report 3, while independently expected processing gain is
+10. The sync callback writes through the real OFX `paramSetValue` suite.
+This deferred-state fixture renders from current parameters in fresh instances
+to isolate capture behaviour. A separate cache-based integration regression below
+checks the combined initial-restoration and synchronisation contract.
+
+Coverage includes explicit/automatic sidecar save and fresh-App reopen, preset
+save/load, full-grade and node clipboard paste, multi-node fragments, disabled
+and unreachable processors, single-node and low-level graph/V2 captures, exact
+per-capture action counts, absent/0/1 flags (including decoy effect/individual
+parameter properties), successful no-op `ReplyDefault`, callback parameter writes,
+and `Failed`/`ErrFatal` publication refusal after a partial live write. Existing
+valid sidecars/presets/clipboard and caller outputs survive failure; new failed
+presets are absent, photo replacement/departure refuses, and retry succeeds.
+Every reconstruction checks saved/restored values and independently specified
+RGB gain with negative/HDR samples and unchanged alpha, plus decoded photo pixels.
+`tests/GraphRuntimeTests.cpp` also verifies the hook runs only under mutation
+exclusion after blocked preview/export work drains, including capture failure
+and quiet recovery.
+
+**Guarantee:** before any supported processor-state capture reads OFX parameters,
+RawNode obeys the parameter-set flag and completes the required private-data
+synchronisation. Failed actions do not publish a saved grade, preset or clipboard
+payload. For plugins that reconstruct processing from their current persistent
+parameters, the tested private state survives save/reopen and transfers with the
+expected output. Initial restoration now supplies saved values before
+`CreateInstance`, so plugins can rebuild their caches from those values before
+the first render or subsequent capture. The combined regression below checks
+that synchronisation cannot overwrite saved gain 5 with a cache built from defaults.
+
+User-visible changes required by this correction: deferred OFX state is included
+in saves/copies, and sync failures use the existing save/copy error paths while
+preserving prior valid output and refusing automatic departure. No appearance,
+controls or interaction workflows change. No schema, migration or undo/redo
+changes are included. Initial restoration is supplied by the separately merged
+PR #91; synchronisation adds no further restoration changes.
+
+Original #90 validation, before integration with #91:
+
+- Linux GCC 14 Release: full self-tests pass, including existing native, standard
+  CTL, ART CTL and OFX persistence/rendering tests.
+- GCC Debug with `-fsanitize=address,undefined -fno-omit-frame-pointer
+  -fno-optimize-sibling-calls`: full self-tests pass with
+  `ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:symbolize=1` and
+  `UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1:suppressions=$PWD/.github/sanitizers/ubsan.supp`.
+  This uses only the existing narrow JPEG UBSan suppression. The final leak scan
+  required running outside the execution sandbox, whose process restrictions
+  otherwise prevent LeakSanitizer inspection.
+- GCC Debug with `-fsanitize=thread -fno-omit-frame-pointer -O1`: full self-tests
+  pass with `TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1` and no suppressions.
+- Temporary mutation returning success immediately from
+  `OfxProcessor::syncPrivateData()`: rebuilt Release suite exits 1 at the saved
+  hidden-value assertion (stale 3 instead of independently expected 5). The
+  mutation is removed; the corrected suite passes again.
+- `git diff --check` passes. Repository macOS arm64 Release, Linux Release and
+  Linux Clang ASan/UBSan workflows run on the PR; their results are recorded there.
+
+### Combined restoration and synchronisation regression
+
+PR #91 supplies saved initial values before `CreateInstance`; PR #90 flushes
+private state before capture. The combined test `cachedSyncRoundTrips` exercises
+both through real photograph, document and OFX parameter-suite paths. It extends
+the existing diagnostic fixture locally; no lifecycle or test framework is added.
+
+The fixture reads visible gain 5 and hidden gain 1 during `CreateInstance`, builds
+private render gain 5, renders exclusively from that cache, and writes the cache
+back through `paramSetValue` during `SyncPrivateData`. The parameter-set flag is
+absent, so synchronisation is required at each capture. After initially saving a
+photograph, a fresh App opens it and checks the parameter, creation-time value,
+cache and independently calculated pixels. Navigation without editing triggers
+automatic saving, after which the sidecar must still contain 5.
+
+Full-grade copy/paste retains the grade ID; node copy/paste remaps it. Both
+destination photographs check their restored values/caches, explicit sidecar
+save, automatic navigation save and fresh-App disk reopening. The source also
+navigates away after copying without an edit and must retain 5. Action counters
+verify the real sync callbacks ran. Expected RGBA is exactly
+`(1.25, -2.5, 10, 0.375)` for input `(0.25, -0.5, 2, 0.375)`; decoded photograph
+pixels independently use RGB gain 5 with unchanged alpha.
+
+The first cache/pixel checks are recorded before departure but asserted after
+the sidecar check. This deliberately lets the incorrect-creation-order mutation
+reach automatic saving: creation caches default 1, restoration then exposes
+parameter 5, and synchronisation writes stale cache 1 back into the sidecar.
+The regression must fail on that saved-value loss, rather than stopping at the
+earlier cache mismatch. Existing #90 absent/0/1, failure-publication and blocked
+preview/export ownership regressions and #91 choice/lifecycle tests remain active.
+
+Integration validation on 2026-10-22 rebases #90 onto main
+`3f1f53ec194f4c4e35d482bed01f39cdc16060e0` (merged #91):
+
+| Check | Result |
+| --- | --- |
+| Complete Release, GCC 14 | Pass, exit 0 |
+| Complete Debug ASan/UBSan, GCC 14, leak detection enabled | Pass, exit 0 |
+| Complete Debug TSan, GCC 14, halt on error | Pass, exit 0 |
+| Mutation returning success without private synchronisation | Expected exit 1: combined fixture's first save receives zero sync callbacks |
+| Mutation restoring values after `CreateInstance` | Expected exit 1: unedited navigation saves stale gain 1 over gain 5; diagnostic prints `expected 5, got 1` |
+
+Both mutations were rebuilt as Release and run against the complete self-test
+entry point, then removed. The corrected Release suite was rebuilt and passed
+again; final ASan/UBSan and TSan builds/suites also passed. Sanitizer flags and
+runtime options are the same as the capture validation above: leak detection is
+enabled, only the existing narrow JPEG UBSan exception is used, and TSan has no
+suppressions. Process inspection required the sanitizer runs outside the sandbox.
+The reviewed #90 `SyncPrivateData` implementation is unchanged. `git diff --check`
+passes. The PR records the exact new head and Linux/macOS CI results for it.
+
+## Remaining limits
+
+Successful initial restoration and capture are complementary guarantees. They do
+not roll back arbitrary live side effects from a failed plugin action or add a
+general redesign of existing-instance parameter-change notifications. A plugin
+is responsible for encoding private state into its persistent parameters and
+reconstructing it during creation. Invalid final saved-choice membership still
+refuses restoration after creation; that validation boundary is described above.
+Desktop dialogs and a representative third-party plugin collection remain
+outside the automated evidence. Saved values are restored before `CreateInstance`.
+Historical migrations, undo/redo and new scheduling remain outside these corrections.

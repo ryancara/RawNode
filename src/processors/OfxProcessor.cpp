@@ -144,6 +144,27 @@ std::vector<ProcessorParameter> OfxProcessor::parameters() const {
   return out;
 }
 
+ProcessorResult OfxProcessor::syncPrivateData() {
+  if (!instance_ || pluginIndex_ < 0 || pluginIndex_ >= (int)gPlugins.size())
+    return ProcessorResult::failure(kOfxStatErrBadHandle, "SyncPrivateData: invalid OFX instance");
+
+  // This optional property belongs to the parameter-set instance. Absence
+  // requires the action on every capture, without creating a host default.
+  const auto &properties = instance_->paramSetProps.m;
+  const auto flag = properties.find(kOfxPropParamSetNeedsSyncing);
+  const bool hasFlag = flag != properties.end() && !flag->second.empty();
+  if (hasFlag && flag->second[0].i == 0) return ProcessorResult::success();
+
+  // Execution/lifetime exclusion is owned by capture's caller. Never hold
+  // gValueMutex here: the action may re-enter paramSetValue and take that lock.
+  const auto status = callAction(gPlugins[pluginIndex_].plugin, kOfxActionSyncPrivateData, instance_.get());
+  if (status != kOfxStatOK && status != kOfxStatReplyDefault)
+    return ProcessorResult::failure(status, "SyncPrivateData failed for " + identifier() +
+                                            " (OFX status " + std::to_string(status) + ")");
+  if (hasFlag) propSetInt(H(&instance_->paramSetProps), kOfxPropParamSetNeedsSyncing, 0, 0);
+  return ProcessorResult::success();
+}
+
 void OfxProcessor::notifyChanged(Param *param) {
   if (!initialized_ || !param || !instance_ || pluginIndex_ < 0 || pluginIndex_ >= (int)gPlugins.size()) return;
 
