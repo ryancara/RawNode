@@ -6,6 +6,7 @@
 #include "GraphModelTests.h"
 #include "GraphDepthTests.h"
 #include "GraphPersistenceTests.h"
+#include "OfxPersistenceTests.h"
 #include "SidecarFileTests.h"
 #include "PhotoDocumentTests.h"
 #include "PreferencesTests.h"
@@ -2096,6 +2097,7 @@ static int runSelfTestsImpl() {
   if (!testPhotoDocuments()) return fail("Step 7 photo lifecycle");
   if (!testSidecarFiles()) return fail("Step 7 safe sidecar files");
   if (!testGraphPersistence()) return fail("Step 7 graph persistence");
+  if (!testOfxPersistence()) return fail("OFX parameter persistence");
   if (!testGraphModel()) return fail("Step 6A graph model");
   if (!testGraphDepth()) return fail("Graph traversal depth safety");
   if (!testGraphCommands()) return fail("Step 6B topology commands");

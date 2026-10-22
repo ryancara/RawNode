@@ -53,10 +53,9 @@ struct ProcessorParameter {
   std::vector<int> choiceValues;
 
   bool enabled = true;
-  bool secret = false;
-  // UI-only controls such as ART preset selectors change other parameters but
-  // are not edit state themselves. Persistence skips their own value while
-  // still saving the parameters they modify.
+  bool secret = false;  // UI visibility only; independent of persistence.
+  // OFX non-persistent parameters and UI-only controls such as ART preset
+  // selectors are not saved. Parameters they modify may still be persistent.
   bool persistValue = true;
   bool readOnly = false;
   bool vectorIsInteger = false;
