@@ -69,8 +69,8 @@ bool restoreRejects(const PersistGraph &graph) {
   try { (void)document_detail::restoreGraph(graph); return false; }
   catch (const std::runtime_error &error) { return *error.what() != '\0'; }
 }
-bool parameterRejects(const ProcessorParameter &param, const std::string &json) {
-  try { (void)persist_detail::parameterValue(param, json); return false; }
+bool parameterRejects(const ProcessorParameter &param, const std::string &json, bool validateChoiceMembership = true) {
+  try { (void)persist_detail::parameterValue(param, json, validateChoiceMembership); return false; }
   catch (const std::runtime_error &) { return true; }
 }
 ImageValue pixel() {
@@ -565,9 +565,13 @@ bool typedParameters() {
   param.type = ParameterType::Choice; param.choices = {"first", "second"}; param.choiceValues = {2, 4};
   CHECK(std::get<int>(persist_detail::parameterValue(param, "4")) == 4);
   CHECK(parameterRejects(param, "3"));
+  CHECK(std::get<int>(persist_detail::parameterValue(param, "3", /*validateChoiceMembership=*/false)) == 3);
+  CHECK(parameterRejects(param, "\"4\"", false) && parameterRejects(param, "1.5", false));
   param.choiceIds = {"first-id", "second-id"};
   CHECK(std::get<int>(persist_detail::parameterValue(param, "\"second-id\"")) == 4);
   CHECK(parameterRejects(param, "4") && parameterRejects(param, "\"unknown\""));
+  CHECK(std::get<int>(persist_detail::parameterValue(param, "\"second-id\"", false)) == 4);
+  CHECK(parameterRejects(param, "4", false) && parameterRejects(param, "\"unknown\"", false));
   return true;
 }
 }  // namespace

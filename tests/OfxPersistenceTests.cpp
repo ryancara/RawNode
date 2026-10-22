@@ -56,7 +56,7 @@ struct Plugin {
   };
   OfxPlugin plugin{};
   int index = int(gPlugins.size());
-  int creates = 0, destroys = 0, live = 0, invalidDestroys = 0;
+  int creates = 0, destroys = 0, live = 0, invalidDestroys = 0, preCreationNotifications = 0;
   OfxStatus createStatus = kOfxStatOK;
   bool adjustGainOnCreate = false;
   std::function<void(OfxParamSetHandle)> inspectInitialValues;
@@ -104,7 +104,7 @@ struct Plugin {
       if (!std::strcmp(action, kOfxActionBeginInstanceChanged) ||
           !std::strcmp(action, kOfxActionInstanceChanged) ||
           !std::strcmp(action, kOfxActionEndInstanceChanged)) {
-        if (!cache) return kOfxStatFailed;
+        if (!cache) { ++self.preCreationNotifications; return kOfxStatFailed; }
         ++cache->notifications;
         cache->gain = readGain(); // Ordinary UI edits still update private state.
         return kOfxStatOK;
@@ -447,6 +447,7 @@ bool initialValueValidationAndLifecycle(Plugin &plugin) {
     });
   } catch (const std::runtime_error &) { threw = true; }
   CHECK(threw && plugin.creates == creates && plugin.destroys == destroys && plugin.live == live);
+  CHECK(plugin.preCreationNotifications == 0);
   plugin.createStatus = kOfxStatFailed;
   CHECK(!OfxProcessor::create(plugin.index));
   CHECK(plugin.creates == creates + 1 && plugin.destroys == destroys && plugin.live == live);
@@ -471,8 +472,128 @@ bool initialValueValidationAndLifecycle(Plugin &plugin) {
     CHECK(plugin.live == live + 1);
   }
   CHECK(plugin.destroys == destroys + 1 && plugin.live == live && plugin.invalidDestroys == 0);
+  CHECK(plugin.preCreationNotifications == 0);
   plugin.createStatus = kOfxStatOK;
   std::puts("ok  OFX construction: missing defaults, no second restore, silent preparation, validation aborts, failed creation, missing processor retention and balanced destruction");
+  std::puts("ok  OFX initialisation: no BeginInstanceChanged, InstanceChanged or EndInstanceChanged before successful creation, including notify=true preparation");
+  return true;
+}
+
+bool dynamicChoiceRestoration() {
+  Plugin plugin;
+  plugin.plugin.pluginIdentifier = "org.rawnode.selftest.dynamic-choice";
+  Files files;
+  const auto photo = files.path("dynamic-choice.png"), preset = files.path("choice.rawnode.json");
+  OfxParamSetHandle descriptor = nullptr;
+  effects().getParamSet(reinterpret_cast<OfxImageEffectHandle>(gPlugins[plugin.index].descriptor.get()), &descriptor);
+  OfxPropertySetHandle descriptorOptions = nullptr;
+  CHECK(parameters().paramDefine(descriptor, kOfxParamTypeChoice, "dynamicChoice", &descriptorOptions) == kOfxStatOK);
+  int optionCount = -1;
+  CHECK(properties().propGetDimension(descriptorOptions, kOfxParamPropChoiceOption, &optionCount) == kOfxStatOK && optionCount == 0);
+
+  int observed = -1, replacement = -1, populateCount = 3;
+  bool suiteOK = true;
+  plugin.inspectInitialValues = [&](OfxParamSetHandle params) {
+    OfxParamHandle choice = nullptr;
+    OfxPropertySetHandle options = nullptr;
+    suiteOK = parameters().paramGetHandle(params, "dynamicChoice", &choice, &options) == kOfxStatOK &&
+              parameters().paramGetValue(choice, &observed) == kOfxStatOK;
+    const char *labels[] = {"First", "Second", "Third"};
+    for (int i = 0; i < populateCount; ++i)
+      suiteOK &= properties().propSetString(options, kOfxParamPropChoiceOption, i, labels[i]) == kOfxStatOK;
+    if (replacement >= 0) suiteOK &= parameters().paramSetValue(choice, replacement) == kOfxStatOK;
+  };
+
+  Image input; input.w = input.h = 1; input.px = {0.25f, 0.5f, 0.75f, 1.0f};
+  CHECK(writeImage(input, photo, {RgbGamut::Rec709, TransferFunction::Linear}));
+  App original;
+  CHECK(openPath(original, photo) && addNode(original, plugin.index) && suiteOK && observed == 0);
+  const auto id = *original.selectedNodeId();
+  CHECK(setNodeParameterValue(original, id, "dynamicChoice", 2));
+  findNode(original, id)->preservedParamsJson["future"] = unknownJson;
+  CHECK(saveCurrentInputSidecar(original));
+  PersistFile saved; std::string error;
+  CHECK(readGraphSidecar(inputSidecarPath(photo), saved, error) == SidecarReadStatus::Loaded && saved.grade);
+  CHECK(record(saved.grade->graph, id).paramsJson.at("dynamicChoice") == "2");
+  {
+    const int creates = plugin.creates;
+    App reopened;
+    CHECK(openPath(reopened, photo) && !reopened.isPhotoProtected());
+    CHECK(suiteOK && observed == 2 && plugin.creates == creates + 1);
+    const auto &node = *findNode(reopened, id);
+    const auto choice = parameter(node, "dynamicChoice");
+    CHECK(choice.value == ParameterValue(2) && choice.choices == (std::vector<std::string>{"First", "Second", "Third"}));
+    CHECK(node.preservedParamsJson.at("future") == unknownJson && cache(node).notifications == 0);
+    CHECK(properties().propGetDimension(descriptorOptions, kOfxParamPropChoiceOption, &optionCount) == kOfxStatOK && optionCount == 0);
+  }
+  // Menus may also append to a partial descriptor list during creation.
+  properties().propSetString(descriptorOptions, kOfxParamPropChoiceOption, 0, "First");
+  {
+    auto restored = document_detail::restoreGraph(saved.grade->graph);
+    CHECK(suiteOK && observed == 2 && parameter(restored.nodes.back(), "dynamicChoice").choices.size() == 3);
+  }
+  properties().propReset(descriptorOptions, kOfxParamPropChoiceOption);
+  replacement = 1;
+  {
+    auto restored = document_detail::restoreGraph(saved.grade->graph);
+    CHECK(suiteOK && observed == 2 && parameter(restored.nodes.back(), "dynamicChoice").value == ParameterValue(1));
+    CHECK(record(captureGraph({restored.nodes, restored.primarySource, restored.output}), id).paramsJson.at("dynamicChoice") == "1");
+  }
+  // Invalid plugin results and a still-empty instance menu cannot be published.
+  for (bool empty : {false, true}) {
+    populateCount = empty ? 0 : 3;
+    replacement = empty ? -1 : 3;
+    const int creates = plugin.creates, destroys = plugin.destroys, live = plugin.live;
+    bool rejected = false;
+    try { (void)document_detail::restoreGraph(saved.grade->graph); }
+    catch (const std::runtime_error &) { rejected = true; }
+    CHECK(rejected && plugin.creates == creates + 1 && plugin.destroys == destroys + 1 && plugin.live == live);
+  }
+  populateCount = 3;
+  replacement = -1;
+  CHECK(savePreset(original, preset));
+  App destination;
+  const auto destinationPhoto = files.path("destination.png");
+  CHECK(writeImage(input, destinationPhoto, {RgbGamut::Rec709, TransferFunction::Linear}));
+  CHECK(openPath(destination, destinationPhoto) && addNativeExposureNode(destination));
+  CHECK(saveCurrentInputSidecar(destination));
+  const auto output = destination.documentOutput;
+  auto *processor = findNode(destination, output.nodeId)->processor.get();
+  const auto readText = [](const std::string &path) {
+    std::ifstream in(path);
+    return std::string(std::istreambuf_iterator<char>(in), {});
+  };
+  const auto destinationSidecar = inputSidecarPath(destinationPhoto);
+  const auto destinationBytes = readText(destinationSidecar);
+  CHECK(!destinationBytes.empty());
+  // Even a plugin that replaces an invalid saved index with 0 must not hide it.
+  replacement = 0;
+  for (const char *value : {"3", "-1", "1.5", "\"2\"", "true", "2147483648", "\"Third\""}) {
+    auto invalid = saved;
+    for (auto &node : invalid.grade->graph.nodes) if (node.id == id.value) node.paramsJson["dynamicChoice"] = value;
+    std::string json;
+    CHECK(encodeGraphFile(invalid, json, error));
+    { std::ofstream out(preset); out << json; CHECK(out.good()); }
+    const int creates = plugin.creates, destroys = plugin.destroys, live = plugin.live;
+    CHECK(!loadPresetDialog(destination, false, preset));
+    CHECK(destination.documentOutput == output && findNode(destination, output.nodeId)->processor.get() == processor);
+    CHECK(readText(destinationSidecar) == destinationBytes);
+    const int created = std::strcmp(value, "3") == 0 ? 1 : 0;
+    CHECK(plugin.creates == creates + created && plugin.destroys == destroys + created && plugin.live == live);
+    const auto sidecar = inputSidecarPath(photo);
+    { std::ofstream out(sidecar); out << json; CHECK(out.good()); }
+    App protectedPhoto;
+    CHECK(openPath(protectedPhoto, photo) && protectedPhoto.isPhotoProtected());
+    CHECK(protectedPhoto.persistenceWarning.find("Invalid parameter value: dynamicChoice") != std::string::npos);
+    CHECK(!saveCurrentInputSidecar(protectedPhoto) && readText(sidecar) == json);
+    CHECK(plugin.creates == creates + 2 * created && plugin.destroys == destroys + 2 * created && plugin.live == live);
+  }
+  replacement = -1;
+  const auto validPreset = files.path("valid-choice.rawnode.json");
+  CHECK(savePreset(original, validPreset) && loadPresetDialog(destination, false, validPreset));
+  CHECK(suiteOK && observed == 2 && parameter(*findNode(destination, id), "dynamicChoice").value == ParameterValue(2));
+  CHECK(plugin.preCreationNotifications == 0 && plugin.invalidDestroys == 0);
+  std::puts("ok  OFX dynamic choices: saved index 2 available during creation, instance menus, plugin edits, strict rejection, balanced post-create cleanup and unchanged protected sidecars/preset destinations");
   return true;
 }
 
@@ -523,27 +644,30 @@ bool typedInitialValues(Plugin &plugin) {
     CHECK(record(captured, id).paramsJson == record(graph, id).paramsJson);
   }
   plugin.inspectInitialValues = {};
-  const int creates = plugin.creates, destroys = plugin.destroys;
   for (const auto &invalid : std::vector<std::pair<const char *, const char *>>{
            {"integer", "1.5"}, {"integer", "2147483648"}, {"boolean", "1"},
            {"choice", "2"}, {"choice", "\"Second\""}, {"text", "5"}, {"privateText", "false"},
            {"vector", "[1,2]"}, {"vector", "[1,2,1e999]"}, {"intVector", "[1.5,2]"}}) {
+    const int creates = plugin.creates, destroys = plugin.destroys;
     auto bad = graph;
     for (auto &node : bad.nodes) if (node.id == id.value) node.paramsJson[invalid.first] = invalid.second;
     bool rejected = false;
     try { (void)document_detail::restoreGraph(bad); }
     catch (const std::runtime_error &) { rejected = true; }
-    CHECK(rejected && plugin.creates == creates && plugin.destroys == destroys);
+    // Integral choice membership is deferred; JSON/type errors still abort before creation.
+    const int created = std::strcmp(invalid.first, "choice") == 0 && std::strcmp(invalid.second, "2") == 0 ? 1 : 0;
+    CHECK(rejected && plugin.creates == creates + created && plugin.destroys == destroys + created);
   }
-  std::puts("ok  OFX initial typed values: integer, boolean, choice, floating/integer vectors, string and hidden custom values use the real suite; strict invalid-value refusal precedes creation");
+  std::puts("ok  OFX initial typed values: integer, boolean, static choice, floating/integer vectors, string and hidden custom values use the real suite; strict refusal before publication");
   return true;
 }
 }  // namespace
 
 bool testOfxPersistence() {
   Plugin plugin;
-  const bool passed = cachedGainFiveReopen(plugin) && productionRoundTrips(plugin) &&
-                      nonpersistentRestoreGuards(plugin) && initialValueValidationAndLifecycle(plugin) && typedInitialValues(plugin);
-  CHECK(plugin.live == 0 && plugin.invalidDestroys == 0);
+  const bool passed = dynamicChoiceRestoration() && cachedGainFiveReopen(plugin) && productionRoundTrips(plugin) &&
+                      nonpersistentRestoreGuards(plugin) && initialValueValidationAndLifecycle(plugin) &&
+                      typedInitialValues(plugin);
+  CHECK(plugin.live == 0 && plugin.invalidDestroys == 0 && plugin.preCreationNotifications == 0);
   return passed;
 }

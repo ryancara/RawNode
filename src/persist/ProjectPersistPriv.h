@@ -52,5 +52,8 @@ bool encodeTransferPayload(const PersistTransfer &transfer, std::string &json, s
 bool decodeTransferPayload(const std::string &json, PersistTransfer &out, std::string &error,
                            bool testOperations);
 // Throws a descriptive error on wrong types or unknown choices.
-ParameterValue parameterValue(const ProcessorParameter &param, const std::string &raw);
+// Only initial OFX restoration may defer numeric choice membership until the
+// plugin has populated instance options. Types and stable-ID resolution stay strict.
+ParameterValue parameterValue(const ProcessorParameter &param, const std::string &raw,
+                              bool validateChoiceMembership = true);
 }

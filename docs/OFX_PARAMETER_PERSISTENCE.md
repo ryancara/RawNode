@@ -130,11 +130,32 @@ calls `CreateInstance` exactly once. The graph layer supplies that callback,
 reusing its existing parsing, persistence eligibility and exact-value checks.
 No sidecar schema enters the OFX adapter. Native and CTL restoration is unchanged.
 
-Change actions are guarded until creation succeeds. An invalid saved value or
-exception during parameter preparation releases host objects without sending
+Numeric OFX choices have one deliberate validation boundary: JSON must contain
+an integer index (not a string, boolean or fraction), but menu membership is
+checked after creation. A plugin may start with an empty or partial descriptor
+menu and append options to its instance during `CreateInstance`. The saved
+selection is already accessible through the OFX parameter suite at that time.
+Before publishing the node, the graph layer validates both the saved selection
+and the plugin's resulting selection against the completed instance menu.
+Valid plugin edits are retained; values are never restored a second time.
+An invalid saved selection is still rejected even if the plugin replaces it
+with a valid default. An empty final menu or invalid resulting selection also
+fails restoration.
+
+`persist_detail::parameterValue` remains strict by default. Only pre-creation
+OFX numeric membership is explicitly deferred; its JSON/type checks, supported
+parameter and persistence rules are unchanged. Stable choice IDs still require
+strings and resolve through their existing ID/value mapping; deferral does not
+coerce numeric values to IDs or accept unknown IDs. Native/CTL, capture and
+other parsing callers retain complete validation.
+
+Change actions are guarded until creation succeeds. A parameter preparation
+error releases host objects without sending
 `DestroyInstance`. A failed create action likewise sends no destroy action;
 success (including `ReplyDefault`) enables normal destruction. Existing graph
 staging publishes only completed processors and retains missing-processor data.
+Failure in post-creation choice validation destroys the successful instance
+normally and leaves the existing document and sidecar protection intact.
 Saved values are not applied again after the plugin's create action.
 
 This follows the precondition in the pinned
@@ -157,11 +178,22 @@ Additional regression checks save gain 5, reopen the real photo, and assert the
 saved value, value observed during creation, private cache and exact pixels
 `(1.25, -2.5, 10, 0.375)` for input `(0.25, -0.5, 2, 0.375)`. All numbers are
 exact binary fractions. Missing defaults, hidden custom data, typed values,
-strict validation before creation, failed creation, staged graph cleanup and
+strict validation at the appropriate creation boundary, failed creation, staged graph cleanup and
 plugin edits during creation are covered. The last case detects a second restore.
 Preset Replace/Append and grade/node clipboard paths use the same cached fixture.
 
-Validation on 2026-10-22 used the full self-test suite:
+The review correction adds a choice whose descriptor has no options. It saves
+index 2 to a real photo sidecar; creation reads 2 through the real suite, then
+adds three instance options. Reopening succeeds and preserves unknown JSON.
+Tests also cover a partial descriptor menu, valid plugin selection changes,
+invalid saved/resulting choices, a still-empty final menu, protected sidecar
+bytes, unchanged preset destinations and balanced post-creation destruction.
+Static choices and stable-ID parsing retain their existing strict tests.
+The fixture independently counts every Begin/Instance/EndChanged action received
+before successful creation, including calls made with `notify=true` during
+parameter preparation; the expected count is zero.
+
+Initial implementation validation on 2026-10-22 used the full self-test suite:
 
 | Check | Result |
 | --- | --- |
@@ -179,8 +211,24 @@ and passed. The only UBSan exception is the repository's existing narrow JPEG
 the final leak-enabled run passed outside that sandbox. No extra suppression or
 production workaround was added. `git diff --check` also passed.
 
-The only user-visible change is that these restoration paths initialise plugin
-private state from the saved values. There are no appearance or interaction changes.
+Review-correction mutation checks independently exercise the new assertions:
+
+| Mutation | Result |
+| --- | --- |
+| Validate numeric menu membership before `CreateInstance` | Expected exit 1: saved index 2 reopens as protected |
+| Remove post-creation choice validation | Expected exit 1: invalid resulting selection is accepted |
+| Remove the `initialized_` notification guard | Expected exit 1: pre-creation notification counter is nonzero |
+
+After removing all three mutations, the corrected source passed complete Release,
+leak-enabled ASan/UBSan and TSan self-tests (GCC 14). These runs include the original
+gain-5 creation/cache/pixel test, successful/failed plugin destruction checks,
+static choices, stable-ID parsing, dynamic menus and notification suppression.
+The existing narrow JPEG UBSan exception is unchanged; no new suppression is used.
+
+User-visible changes are limited to these restoration paths initialising plugin
+private state from saved values and preserving reopening of valid instance-defined
+OFX choices. Invalid choices still protect/refuse the saved grade. There are no
+appearance or interaction changes.
 
 ## Remaining OFX capture limitation
 
