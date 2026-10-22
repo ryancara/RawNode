@@ -51,6 +51,9 @@ selectors remain transient and their resulting adjustments remain persistent.
 User-visible changes, all required by this correction:
 
 - Sidecars, presets and clipboard transfers retain hidden persistent OFX values.
+- Hidden persistent values are now subject to RawNode's existing strict
+  representability checks; malformed UTF-8, non-finite numbers or invalid choices
+  may cause saving or copying to fail explicitly instead of being silently omitted.
 - They omit OFX values declared non-persistent. Fresh instances keep their
   defaults for these omitted controls.
 - A saved known non-persistent value triggers the existing incompatible-grade
