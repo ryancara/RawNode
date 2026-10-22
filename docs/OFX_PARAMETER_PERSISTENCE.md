@@ -299,7 +299,6 @@ Inspector, parameter edits and restoration. No change notifications are added.
 | Initial editable photograph save | `openPreparedPhoto` -> `savePhoto` -> `captureGraph` |
 | Full grade / preset save / grade clipboard | `captureGrade` -> `captureGraph` |
 | Individual node clipboard / multi-node fragments | `captureNodeFragment` -> `captureFragment` |
-| Single-node capture convenience | `captureNode` -> guarded `captureNodeFragment` |
 | Low-level graph, fragment and historical V2 chain helpers | caller-owned exclusion -> common node capture |
 
 All live document paths above use `DocumentMutation` on the control thread.
@@ -314,9 +313,9 @@ The plugin action runs without `gValueMutex`; its parameter setters can acquire
 that mutex normally. Parameter snapshots take it only after the action returns.
 Low-level helpers retain their explicit caller-owned lifetime/exclusion contract
 for detached graphs and tests; they must not be used unguarded on an executing
-live graph. `captureNode` now takes mutable `App&` and owns the same guarded path
-as document fragment capture. This is a local capture API change, with no new
-scheduler, mutation system or processor lifecycle framework.
+live graph. Document/UI single-node and multi-node capture both use
+`captureNodeFragment`; graph capture helpers do not call document actions. No new
+scheduler, mutation system or processor lifecycle framework is introduced.
 
 Synchronisation failure aborts the complete logical capture before its result
 is published or any file/clipboard replacement starts. The existing atomic file

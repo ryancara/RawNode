@@ -3,7 +3,6 @@
 #include "DocumentMutation.h"
 #include "GraphValidation.h"
 #include "GraphCommands.h"
-#include "persist/DocumentActions.h"
 #include "persist/ProjectPersistPriv.h"
 #include "ofx/OfxHost.h"
 #include "processors/OfxProcessor.h"
@@ -233,14 +232,6 @@ void setNodeEnabled(App &app, const NodeId &id, bool enabled) {
   DocumentMutation mutation(app);
   node->enabled = enabled;
   mutation.changed();
-}
-
-bool captureNode(App &app, const NodeId &id, PersistNode &out) {
-  std::vector<std::string> warnings;
-  PersistFragment fragment;
-  if (!captureNodeFragment(app, {id}, fragment, warnings)) return false;
-  out = std::move(fragment.nodes.front());
-  return true;
 }
 
 static std::vector<NodeId> linearCaptureOrder(const App &app) {

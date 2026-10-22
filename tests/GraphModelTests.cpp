@@ -2,6 +2,7 @@
 
 #include "NodeGraph.h"
 #include "GraphCommands.h"
+#include "persist/DocumentActions.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -27,9 +28,11 @@ static bool testDocumentIdentity() {
   if (!source || source->processor || source->isMissingProcessor() ||
       !source->fixedInputs.empty() || !source->slots.empty()) return false;
 
-  PersistNode record;
+  PersistFragment fragment;
+  std::vector<std::string> warnings;
   if (!selectNode(app, app.primarySource) || app.selectedNodeId() != sourceId) return false;
-  if (selectedNode(app) || captureNode(app, app.nodes[0].id, record) || !captureChain(app).nodes.empty()) return false;
+  if (selectedNode(app) || captureNodeFragment(app, {app.nodes[0].id}, fragment, warnings) ||
+      !captureChain(app).nodes.empty()) return false;
   destroyNode(app, app.nodes[0].id);
   setNodeEnabled(app, app.nodes[0].id, false);
   clearNodes(app);
@@ -66,6 +69,7 @@ static bool testDocumentIdentity() {
 
   // V2 copy/paste/presets contain processor records only. A colliding ID cannot
   // claim Source identity, even when restoring a foreign/unavailable processor.
+  PersistNode record;
   record.id = sourceId.value;
   record.backend = "graph";
   record.identifier = "source";

@@ -41,9 +41,6 @@ bool destroyNode(App &app, const NodeId &id);
 bool moveNode(App &app, const NodeId &from, const NodeId &to);
 void setNodeEnabled(App &app, const NodeId &id, bool enabled);
 
-// Capture preserves unavailable processors and opaque parameter values.
-// Owns execution exclusion, like captureNodeFragment().
-bool captureNode(App &app, const NodeId &id, PersistNode &out);
 // Historical V2 sidecar support only; live capture uses captureGraph/captureGrade.
 // Refuse before writing when V2 cannot represent the topology.
 // Caller owns control-thread lifetime and processor execution exclusion.

@@ -6,6 +6,7 @@
 #include "RenderRuntimeTestAccess.h"
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"
+#include "persist/DocumentActions.h"
 #include "processors/OfxProcessor.h"
 #include "ui/UiContext.h"
 
@@ -876,8 +877,9 @@ bool syncFlagsAndCaptures(SyncPlugin &plugin) {
   CHECK(fragment.nodes[0].paramsJson.at("hiddenPersistent") == "7" && fragment.nodes[1].paramsJson.at("hiddenPersistent") == "5");
   auto &as = privateState(effect(a)); auto &bs = privateState(effect(b));
   CHECK(as.syncs == 1 && bs.syncs == 1 && as.safe && bs.safe);
-  PersistNode single; defer(app, a, 11);
-  CHECK(captureNode(app, first, single) && single.paramsJson.at("hiddenPersistent") == "11");
+  PersistFragment single; defer(app, a, 11);
+  CHECK(captureNodeFragment(app, {first}, single, warnings));
+  CHECK(single.nodes.size() == 1 && single.nodes.front().paramsJson.at("hiddenPersistent") == "11");
   CHECK(as.syncs == 2 && bs.syncs == 1);
   // Low-level detached graph/V2 captures borrow explicit execution exclusion.
   app.nodePositions.clear();
