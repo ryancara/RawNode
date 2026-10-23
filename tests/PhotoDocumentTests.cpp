@@ -690,6 +690,65 @@ bool historyNativeCtlAndMissing() {
   return true;
 }
 
+bool historyReusedNodeIdentity() {
+  Files files;
+  const auto script = files.path("identity.ctl");
+  write(script,
+      "void main(input varying float rIn, input varying float gIn, input varying float bIn,\n"
+      "output varying float rOut, output varying float gOut, output varying float bOut)\n"
+      "{ rOut = rIn; gOut = gIn; bOut = bIn; }\n");
+  App app;
+  CHECK(openPath(app, photo(files, "identity.png")) && addCtlNode(app, script));
+  const auto reused = *app.selectedNodeId();
+  // Keep document Output distinct from the inspected node so retaining stale
+  // inspection cannot accidentally look like a successful reset.
+  CHECK(addNativeExposureNode(app));
+  const auto output = app.documentOutput;
+  CHECK(output.nodeId != reused);
+  document_detail::GradeSnapshot ctl;
+  CHECK(document_detail::captureGradeSnapshot(app, ctl));
+  auto native = ctl;
+  for (auto &node : native.grade.graph.nodes) if (node.id == reused.value) {
+    node.backend = "native";
+    node.identifier = "rawnode.native.exposure";
+    node.paramsJson = {{"exposure", "1"}};
+  }
+  app.renderer.start();
+  // Reproduce CTL -> Exposure under the same NodeId, then replay back to CTL.
+  // Neither processor may inherit the unrelated processor's view state.
+  for (const auto *snapshot : {&native, &ctl}) {
+    CHECK(selectNode(app, reused));
+    std::snprintf(app.paramFilter, sizeof(app.paramFilter), "old processor");
+    findNode(app, reused)->groupOpen["old-processor-group"] = false;
+    app.renderer.requestInspection({reused, ports::image});
+    CHECK(idle(app));
+    CHECK(document_detail::restoreGradeSnapshot(app, *snapshot) && idle(app));
+    CHECK(!app.selectedNodeId() && std::string(app.paramFilter).empty());
+    CHECK(findNode(app, reused)->groupOpen.count("old-processor-group") == 0);
+    CHECK(findNode(app, reused)->storedBackend == (snapshot == &native ? "native" : "ctl"));
+    CHECK(app.documentOutput == output && documentStateError(app).empty());
+    {
+      std::lock_guard<std::mutex> lock(app.displayMutex);
+      CHECK(app.processed.result.requested == output);
+    }
+    // Reconstructing the same logical processor must still retain its state.
+    CHECK(selectNode(app, reused));
+    std::snprintf(app.paramFilter, sizeof(app.paramFilter), "same processor");
+    findNode(app, reused)->groupOpen["same-processor-group"] = false;
+    app.renderer.requestInspection({reused, ports::image});
+    CHECK(idle(app));
+    CHECK(document_detail::restoreGradeSnapshot(app, *snapshot) && idle(app));
+    CHECK(app.selectedNodeId() == reused && std::string(app.paramFilter) == "same processor");
+    CHECK(!findNode(app, reused)->groupOpen.at("same-processor-group"));
+    {
+      std::lock_guard<std::mutex> lock(app.displayMutex);
+      CHECK(app.processed.result.requested == (OutputRef{reused, ports::image}));
+    }
+  }
+  app.renderer.shutdown();
+  return true;
+}
+
 bool historyRawFailureSafety() {
   Files files; Options options; options.decode = syntheticRaw;
   App app; CHECK(document_detail::openPhoto(app, files.path("a.nef"), {}, options));
@@ -810,6 +869,7 @@ bool testPhotoDocuments() {
        std::make_pair("folder auto-open after Discard saves and prompts only once", folderDiscardOnlyOnce),
        std::make_pair("same-photo save-before-reload, atomic failures and strict backend UTF-8", samePhotoAndAtomicFailures),
        std::make_pair("history native/CTL reconstruction, topology, pixels and missing/working availability", historyNativeCtlAndMissing),
+       std::make_pair("history NodeId reuse clears unrelated UI state and matching identities preserve it", historyReusedNodeIdentity),
        std::make_pair("history RAW decode/preparation failure preserves ownership and UI state", historyRawFailureSafety),
        std::make_pair("two-photo synthetic RAW colour ownership and coherent full/preview pixels", twoPhotoColourOwnership),
        std::make_pair("failed decoding retains the full prior document and usable editor", failedDecodeRetainsDocument),

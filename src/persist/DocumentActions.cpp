@@ -146,6 +146,11 @@ bool savePreset(App &app, const std::string &path, const OverwritePrompt &confir
   return document_detail::savePreset(app, path, confirm, {});
 }
 
+static bool sameNodeIdentity(const Node &a, const Node &b) {
+  return a.id == b.id && a.operation == b.operation &&
+         a.storedBackend == b.storedBackend && a.storedIdentifier == b.storedIdentifier;
+}
+
 static bool applyGradeState(App &app, const PersistGrade &incoming,
                             const document_detail::ActionTestOptions &options,
                             const std::map<std::string, bool> *workingProcessors) {
@@ -167,13 +172,24 @@ static bool applyGradeState(App &app, const PersistGrade &incoming,
     // Backend construction still requires the existing execution exclusion.
     document_detail::DocumentMutation mutation(app);
     auto restored = document_detail::restoreGraph(grade.graph, workingProcessors);
-    // Expansion is view state, not a history step. Copy before publication so
-    // allocation failure cannot leave the document partly replaced.
-    if (workingProcessors) for (auto &node : restored.nodes)
-      if (const auto *live = findNode(app, node.id)) node.groupOpen = live->groupOpen;
-    const auto selection = app.selectedNodeId();
-    const bool clearSelection = workingProcessors && selection &&
-        !findNode(GraphView{restored.nodes, restored.primarySource, restored.output}, *selection);
+    // View state belongs to the logical node, not just its potentially reused ID.
+    // Stage expansion copies and reset decisions before any graph publication.
+    bool clearSelection = false;
+    bool changedNodeIdentity = false;
+    if (workingProcessors) {
+      const auto selection = app.selectedNodeId();
+      clearSelection = selection.has_value();
+      for (auto &node : restored.nodes) {
+        const auto *live = findNode(app, node.id);
+        if (!live) continue;
+        if (!sameNodeIdentity(*live, node)) {
+          changedNodeIdentity = true;
+          continue;
+        }
+        node.groupOpen = live->groupOpen;
+        if (selection && *selection == node.id) clearSelection = false;
+      }
+    }
     bool reloadRaw;
     {
       std::lock_guard<std::mutex> lock(app.colorMutex);
@@ -207,8 +223,9 @@ static bool applyGradeState(App &app, const PersistGrade &incoming,
       selectNode(app, std::nullopt);
       app.paramFilter[0] = '\0';
       app.renderer.resetInspection();
-    } else if (clearSelection) {
-      selectNode(app, std::nullopt);
+    } else {
+      if (clearSelection) selectNode(app, std::nullopt);
+      if (changedNodeIdentity) app.renderer.resetInspection();
     }
     // DocumentMutation already clears an invalid inspected endpoint and keeps
     // a valid one when scheduling the completed graph.

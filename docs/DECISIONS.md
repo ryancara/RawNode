@@ -510,7 +510,9 @@ policy; future default changes never replace an existing saved grade.
 Save the current complete grade on departure, same-photo reopening and close,
 before replacement/teardown, whether adjustments changed or not. Explicit Save
 Grade remains. Reuse open-path/protection state without live grade-presence/dirty
-flags, per-edit notifications, comparison snapshots, revisions or an event bus.
+flags, per-edit notifications, comparison snapshots, revisions or an event bus
+to determine sidecar saves. This restriction does not prohibit temporary
+Undo/Redo history (D053).
 Persistence is independent of render demand.
 
 Initial-save failure leaves the photo editable with a persistent non-modal
@@ -690,6 +692,10 @@ Ordinary Save Grade does not clear it. Capture and replay obey control-thread
 ownership and existing DocumentMutation/RenderRuntime preview/export exclusion;
 processor persistence and restoration guarantees remain authoritative, including
 private-state synchronization, parameter validation and OFX initial-value ordering.
+
+Saving remains governed by D050: history snapshots, availability and any later
+pending-step state never decide whether, when or what to save, and are never
+persisted.
 
 History-only availability distinguishes processors already missing at capture
 from working processors. Previously missing processors remain valid missing nodes;
