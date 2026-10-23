@@ -2,6 +2,7 @@
 
 #include "imgio/ImageIO.h"
 #include "GraphEvaluator.h"
+#include "GradeHistory.h"
 #include "RenderRuntime.h"
 #include "persist/ProjectPersist.h"
 #include "persist/Preferences.h"
@@ -88,6 +89,7 @@ struct App {
   // protection, never this text; render/export status cannot erase it.
   std::string persistenceWarning;
   PersistPositions nodePositions;
+  GradeHistory history;
   // Colour state is read by the render worker and written by the UI/document
   // thread. Guard snapshots/updates so gamut+gamma pairs remain coherent.
   mutable std::mutex colorMutex;

@@ -9,6 +9,7 @@
 #include "OfxPersistenceTests.h"
 #include "SidecarFileTests.h"
 #include "PhotoDocumentTests.h"
+#include "HistoryTests.h"
 #include "PreferencesTests.h"
 #include "PresetClipboardTests.h"
 #include "GraphCommandsTests.h"
@@ -2094,6 +2095,7 @@ static int runSelfTestsImpl() {
   if (!testExportSafety()) return fail("export safety");
   if (!testPreferences()) return fail("Step 7 preferences");
   if (!testPresetsAndClipboard()) return fail("Step 7 presets and clipboard");
+  if (!testGradeHistory()) return fail("Grade history");
   if (!testPhotoDocuments()) return fail("Step 7 photo lifecycle");
   if (!testSidecarFiles()) return fail("Step 7 safe sidecar files");
   if (!testGraphPersistence()) return fail("Step 7 graph persistence");

@@ -29,27 +29,30 @@ void document_detail::setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFu
                                            const ActionTestOptions &options) {
   if (!requireEditableGraph(app) || app.path.empty()) return;
   const ColorEncoding requested{gamut, gamma};
-  document_detail::DocumentMutation mutation(app);
   {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    if (!app.inputIsRaw || app.photoRawWorkingEncoding == requested) return;
+    document_detail::DocumentMutation mutation(app);
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      if (!app.inputIsRaw || app.photoRawWorkingEncoding == requested) return;
+    }
+    Image decoded;
+    ColorEncoding detected;
+    bool raw = false;
+    if (!options.decode(app.path, decoded, detected, raw, requested) || !raw) {
+      app.setStatus("Could not reload RAW in " + colorEncodingName(requested));
+      return;
+    }
+    auto preview = document_detail::makePreviewSource(decoded, detected, app.previewRes);
+    app.full.swap(decoded);
+    app.preview.swap(preview);
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      app.inputEncoding = detected;
+      app.photoRawWorkingEncoding = requested;
+    }
+    mutation.changed();
   }
-  Image decoded;
-  ColorEncoding detected;
-  bool raw = false;
-  if (!options.decode(app.path, decoded, detected, raw, requested) || !raw) {
-    app.setStatus("Could not reload RAW in " + colorEncodingName(requested));
-    return;
-  }
-  auto preview = document_detail::makePreviewSource(decoded, detected, app.previewRes);
-  app.full.swap(decoded);
-  app.preview.swap(preview);
-  {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    app.inputEncoding = detected;
-    app.photoRawWorkingEncoding = requested;
-  }
-  mutation.changed();
+  app.history.recordCompletedEdit(app);
   app.setStatus("RAW working encoding: " + colorEncodingName(requested));
 }
 
@@ -61,8 +64,10 @@ bool setOutputEncoding(App &app, ColorEncoding encoding) {
   if (!requireEditableGraph(app) || app.path.empty()) return false;
   {
     std::lock_guard<std::mutex> lock(app.colorMutex);
+    if (app.outputEncoding == encoding) return true;
     app.outputEncoding = encoding;
   }
+  app.history.recordCompletedEdit(app);
   app.renderer.requestDisplayRefresh();
   return true;
 }
@@ -96,6 +101,10 @@ bool captureGrade(App &app, PersistGrade &grade) {
 }
 
 bool document_detail::captureGradeSnapshot(App &app, GradeSnapshot &snapshot) {
+  if (!app.renderer.canCaptureSnapshot()) {
+    app.setStatus("Cannot capture history during export, document mutation or protection");
+    return false;
+  }
   return captureGradeState(app, snapshot.grade, &snapshot.workingProcessors);
 }
 
@@ -238,7 +247,9 @@ static bool applyGradeState(App &app, const PersistGrade &incoming,
 }
 
 bool document_detail::applyGrade(App &app, const PersistGrade &grade, const ActionTestOptions &options) {
-  return applyGradeState(app, grade, options, nullptr);
+  const bool applied = applyGradeState(app, grade, options, nullptr);
+  if (applied) app.history.recordCompletedEdit(app);
+  return applied;
 }
 
 bool document_detail::restoreGradeSnapshot(App &app, const GradeSnapshot &snapshot, const ActionTestOptions &options) {
@@ -326,7 +337,7 @@ bool prepareShutdown(App &app, const ConfigPaths &config, bool preferencesLoaded
 namespace document_detail {
 // Caller has resolved departure before reading the incoming file. This is also
 // used by folder auto-open so explicit Discard does not trigger a second save.
-static bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOptions &options) {
+static bool stagePreparedPhoto(App &app, const std::string &path, const ActionTestOptions &options, bool &initialSave) {
   DocumentMutation mutation(app);
   try {
     std::string json, error;
@@ -338,7 +349,7 @@ static bool openPreparedPhoto(App &app, const std::string &path, const ActionTes
       error = inputSidecarPath(path) + ": " + error;
       protectedSource = true;
     }
-    const bool initialSave = !protectedSource && !file.grade;
+    initialSave = !protectedSource && !file.grade;
     ColorEncoding raw, output;
     {
       std::lock_guard<std::mutex> lock(app.colorMutex);
@@ -419,12 +430,22 @@ static bool openPreparedPhoto(App &app, const std::string &path, const ActionTes
       app.status.swap(loaded);
     }
     mutation.changed();
-    if (initialSave) { std::string failure; savePhoto(app, failure, options); }
     return true;
   } catch (const std::exception &failure) {
     app.setStatus("Could not open " + path + ": " + failure.what());
     return false;
   }
+}
+
+static bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOptions &options) {
+  bool initialSave = false;
+  if (!stagePreparedPhoto(app, path, options, initialSave)) return false;
+  if (initialSave) { std::string failure; savePhoto(app, failure, options); }
+  app.history.reset(app);
+  // Baseline capture may quietly recover interrupted work. Opening still owns
+  // the final normal preview request once the complete document is established.
+  app.renderer.requestPreview();
+  return true;
 }
 
 bool openPhoto(App &app, const std::string &path, const SaveFailurePrompt &prompt,

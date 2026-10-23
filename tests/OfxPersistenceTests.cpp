@@ -458,6 +458,33 @@ bool cachedGainFiveReopen(Plugin &plugin) {
   const auto *image = std::get_if<ImageValue>(&result.value);
   // Exact binary fractions times integer gain 5 need no numerical tolerance.
   CHECK(image && *image && (*image)->px == (std::vector<float>{1.25f, -2.5f, 10.0f, 0.375f}));
+  // A permitted CreateInstance adjustment must not turn the next unchanged
+  // completed edit into a history entry or discard the existing redo branch.
+  CHECK(addNativeExposureNode(reopened));
+  const auto historySize = reopened.history.size();
+  const auto snapshotMemory = reopened.history.bytes();
+  plugin.adjustGainOnCreate = true;
+  const bool replayed = reopened.history.undo(reopened);
+  plugin.adjustGainOnCreate = false;
+  CHECK(replayed && parameter(*findNode(reopened, id), "visiblePersistent").value == ParameterValue(6.0));
+  CHECK(reopened.history.bytes() > snapshotMemory); // The optional comparison key is budgeted.
+  CHECK(reopened.history.recordCompletedEdit(reopened));
+  CHECK(reopened.history.size() == historySize && reopened.history.canRedo());
+  CHECK(reopened.history.redo(reopened) && reopened.history.size() == historySize);
+  // Two ordinary snapshots fit exactly, but an initialization-difference key
+  // does not. Restoration succeeds; only further history traversal pauses.
+  document_detail::GradeSnapshot measured;
+  CHECK(document_detail::captureGradeSnapshot(reopened, measured));
+  const auto limit = 2 * GradeHistory::snapshotBytes(measured);
+  reopened.history = GradeHistory{100, limit}; CHECK(reopened.history.reset(reopened));
+  CHECK(setOutputEncoding(reopened, {RgbGamut::DisplayP3, TransferFunction::Linear}));
+  CHECK(reopened.history.size() == 2);
+  plugin.adjustGainOnCreate = true;
+  const bool boundedReplay = reopened.history.undo(reopened);
+  plugin.adjustGainOnCreate = false;
+  CHECK(boundedReplay && reopened.history.cursor() == 0 && reopened.history.size() == 2);
+  CHECK(reopened.history.hasUnrecordedEdit() && reopened.history.bytes() <= limit && !reopened.history.canRedo());
+  CHECK(reopened.history.recordCompletedEdit(reopened) && !reopened.history.hasUnrecordedEdit());
   std::puts("ok  OFX initial values: saved gain 5 read by the real parameter suite during CreateInstance, cached gain 5, exact pixels, no change notifications");
   return true;
 }
@@ -839,21 +866,22 @@ bool syncRoundTrips(SyncPlugin &plugin) {
   CHECK(setNodeParameterValue(app, id, "hiddenPersistent", 3.0));
   defer(app, node, 5);
   auto &state = privateState(effect(node));
+  const auto historySyncs = state.syncs; // Add Processor already captured its completed edit.
   // Without sync the parameters say gain 6, while the live private gain is 10.
   CHECK(parameter(node, "hiddenPersistent").value == ParameterValue(3.0) && pixels(app, 10));
   ui.inspector(app, "");
-  CHECK(state.syncs == 0); // Inspector/ordinary reads must remain cheap.
+  CHECK(state.syncs == historySyncs + 0); // Inspector/ordinary reads must remain cheap.
   CHECK(saveCurrentInputSidecar(app));
   PersistFile saved; std::string error;
   CHECK(readGraphSidecar(inputSidecarPath(photo), saved, error) == SidecarReadStatus::Loaded && saved.grade);
   CHECK(syncValues(saved.grade->graph, id, "5"));
-  CHECK(state.syncs == 1 && state.safe);
+  CHECK(state.syncs == historySyncs + 1 && state.safe);
   App reopened;
   CHECK(openPath(reopened, photo) && parameter(*findNode(reopened, id), "hiddenPersistent").value == ParameterValue(5.0));
   CHECK(pixels(reopened, 10)); // (.25,-.5,2,.375) -> (2.5,-5,20,.375).
 
   defer(app, node, 7);
-  CHECK(savePreset(app, preset) && state.syncs == 2 && state.safe);
+  CHECK(savePreset(app, preset) && state.syncs == historySyncs + 2 && state.safe);
   PersistGrade grade;
   CHECK(loadPresetFile(preset, grade, error) && syncValues(grade.graph, id, "7"));
   const auto destination = [&](App &target, const char *name) {
@@ -865,7 +893,7 @@ bool syncRoundTrips(SyncPlugin &plugin) {
   CHECK(parameter(*findNode(presetTarget, id), "hiddenPersistent").value == ParameterValue(7.0) && pixels(presetTarget, 14));
 
   defer(app, node, 11);
-  CHECK(copyGrade(app) && state.syncs == 3 && state.safe);
+  CHECK(copyGrade(app) && state.syncs == historySyncs + 3 && state.safe);
   PersistTransfer transfer;
   CHECK(decodeTransferPayload(ui.clipboard, transfer, error));
   CHECK(syncValues(std::get<PersistGrade>(transfer).graph, id, "11"));
@@ -874,7 +902,7 @@ bool syncRoundTrips(SyncPlugin &plugin) {
   CHECK(parameter(*findNode(gradeTarget, id), "hiddenPersistent").value == ParameterValue(11.0) && pixels(gradeTarget, 22));
 
   defer(app, node, 13);
-  CHECK(copySelectedNode(app) && state.syncs == 4 && state.safe);
+  CHECK(copySelectedNode(app) && state.syncs == historySyncs + 4 && state.safe);
   CHECK(decodeTransferPayload(ui.clipboard, transfer, error));
   CHECK(std::get<PersistFragment>(transfer).nodes.front().paramsJson.at("hiddenPersistent") == "13");
   App nodeTarget;
@@ -1010,6 +1038,47 @@ bool failedSyncPreservesCaptures(SyncPlugin &plugin) {
   return true;
 }
 
+bool historyCaptureFailureAndMemory(SyncPlugin &plugin) {
+  Files files; App app;
+  const auto photo = files.path("history-ofx.png");
+  Image image; image.w = image.h = 1; image.px = {.25f, .5f, .75f, 1};
+  CHECK(writeImage(image, photo, {RgbGamut::Rec709, TransferFunction::Linear}) && openPath(app, photo));
+  CHECK(addNode(app, plugin.index)); const auto id = *app.selectedNodeId();
+  CHECK(setOutputEncoding(app, {RgbGamut::DisplayP3, TransferFunction::Linear}));
+  CHECK(app.history.undo(app) && app.history.canRedo());
+  auto &state = privateState(effect(*findNode(app, id)));
+  const auto *owner = findNode(app, id)->processor.get();
+  const auto size = app.history.size(), cursor = app.history.cursor(), memory = app.history.bytes();
+  state.status = kOfxStatFailed;
+  defer(app, *findNode(app, id), 5);
+  setNodeEnabled(app, id, false); // Live edit succeeds; its capture fails after a plugin write.
+  CHECK(findNode(app, id)->processor.get() == owner && !findNode(app, id)->enabled);
+  CHECK(app.history.size() == size && app.history.cursor() == cursor && app.history.bytes() == memory);
+  CHECK(app.history.hasUnrecordedEdit() && !app.history.undo(app) && !app.history.redo(app));
+  CHECK(state.safe && parameter(*findNode(app, id), "hiddenPersistent").value == ParameterValue(5.0));
+  state.status = kOfxStatOK;
+  CHECK(app.history.recordCompletedEdit(app) && !app.history.hasUnrecordedEdit());
+  CHECK(!app.history.canRedo() && app.history.size() == size); // Old colour redo is discarded only now.
+  CHECK(app.history.undo(app) && findNode(app, id)->enabled);
+  CHECK(app.history.redo(app) && !findNode(app, id)->enabled);
+  CHECK(app.outputEncoding == (ColorEncoding{RgbGamut::Rec709, TransferFunction::SRGB}));
+  CHECK(setNodeParameterValue(app, id, "privateText", std::string(2 * 1024 * 1024, 'a')));
+  document_detail::GradeSnapshot large;
+  CHECK(document_detail::captureGradeSnapshot(app, large));
+  const auto measured = GradeHistory::snapshotBytes(large);
+  CHECK(measured >= 2 * 1024 * 1024);
+  std::printf("history measurement: OFX with 2 MiB persistent custom payload = %zu accounted bytes\n", measured);
+  app.history = GradeHistory{100, 2 * measured}; CHECK(app.history.reset(app));
+  for (const char fill : {'b', 'c', 'd'}) {
+    CHECK(setNodeParameterValue(app, id, "privateText", std::string(2 * 1024 * 1024, fill)));
+    CHECK(app.history.recordCompletedEdit(app) && app.history.bytes() <= 2 * measured && app.history.size() <= 2);
+  }
+  CHECK(app.history.undo(app) && !app.history.undo(app) && app.history.redo(app));
+  CHECK(std::get<std::string>(parameter(*findNode(app, id), "privateText").value) == std::string(2 * 1024 * 1024, 'd'));
+  std::puts("ok  Grade history OFX: partial sync failure preserves cursor/owners, pauses traversal, retries safely and bounds large custom data");
+  return true;
+}
+
 bool cachedSyncRoundTrips() {
   Plugin plugin;
   plugin.plugin.pluginIdentifier = "org.rawnode.selftest.cached-sync";
@@ -1026,7 +1095,7 @@ bool cachedSyncRoundTrips() {
   const auto id = *original.selectedNodeId();
   CHECK(setNodeParameterValue(original, id, "visiblePersistent", 5.0));
   CHECK(cache(*findNode(original, id)).gain == 5.0);
-  CHECK(saveCurrentInputSidecar(original) && cache(*findNode(original, id)).syncs == 1);
+  CHECK(saveCurrentInputSidecar(original) && cache(*findNode(original, id)).syncs == 2);
   const auto savedGainFive = [&](const std::string &path, const NodeId &nodeId) {
     PersistFile file; std::string error;
     CHECK(readGraphSidecar(inputSidecarPath(path), file, error) == SidecarReadStatus::Loaded && file.grade);
@@ -1048,7 +1117,7 @@ bool cachedSyncRoundTrips() {
   CHECK(openPath(reopened, photo) && !reopened.isPhotoProtected());
   const bool initialised = initialGainFive(reopened, id);
   const bool rendered = pixels(reopened, 5); // (.25,-.5,2,.375) -> (1.25,-2.5,10,.375).
-  CHECK(cache(*findNode(reopened, id)).syncs == 0);
+  CHECK(cache(*findNode(reopened, id)).syncs == 1);
   // Delay the cache/pixel assertions until automatic resaving has run. Reversing
   // creation order must demonstrate saved-value loss (5 -> 1), not just a bad cache.
   CHECK(openPath(reopened, away));
@@ -1062,7 +1131,7 @@ bool cachedSyncRoundTrips() {
     const auto destination = files.path(nodeCopy ? "cached-node.png" : "cached-grade.png");
     CHECK(makePhoto(destination));
     CHECK(nodeCopy ? copySelectedNode(source) : copyGrade(source));
-    CHECK(cache(*findNode(source, id)).syncs == (nodeCopy ? 2 : 1));
+    CHECK(cache(*findNode(source, id)).syncs == (nodeCopy ? 3 : 2));
     PersistTransfer transfer; std::string error;
     CHECK(decodeTransferPayload(ui.clipboard, transfer, error));
     const auto &saved = nodeCopy ? std::get<PersistFragment>(transfer).nodes.front()
@@ -1073,9 +1142,9 @@ bool cachedSyncRoundTrips() {
     const auto pastedId = pasted.documentOutput.nodeId;
     CHECK(nodeCopy ? pastedId != id : pastedId == id);
     CHECK(initialGainFive(pasted, pastedId) && pixels(pasted, 5));
-    CHECK(cache(*findNode(pasted, pastedId)).syncs == 0);
+    CHECK(cache(*findNode(pasted, pastedId)).syncs == 1);
     CHECK(saveCurrentInputSidecar(pasted));
-    CHECK(cache(*findNode(pasted, pastedId)).syncs == 1 && savedGainFive(destination, pastedId));
+    CHECK(cache(*findNode(pasted, pastedId)).syncs == 2 && savedGainFive(destination, pastedId));
     CHECK(openPath(pasted, away) && savedGainFive(destination, pastedId));
     App destinationReopened;
     CHECK(openPath(destinationReopened, destination));
@@ -1098,5 +1167,6 @@ bool testOfxPersistence() {
   CHECK(plugin.live == 0 && plugin.invalidDestroys == 0 && plugin.preCreationNotifications == 0);
   if (!passed) return false;
   SyncPlugin sync;
-  return syncRoundTrips(sync) && syncFlagsAndCaptures(sync) && failedSyncPreservesCaptures(sync);
+  return syncRoundTrips(sync) && syncFlagsAndCaptures(sync) && failedSyncPreservesCaptures(sync) &&
+         historyCaptureFailureAndMemory(sync);
 }

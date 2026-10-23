@@ -587,20 +587,25 @@ need.
 
 ## Current development phase
 
-Undo/Redo design and behaviour are approved in D053. Stage 1 is the focused safe
-restoration draft: detached logical grade capture with history-only availability,
-and replay through the existing staged full-grade path. Working processors must
-reconstruct; missing nodes remain missing. Replay preserves valid selection and
-inspection and surviving Inspector expansion, with no sidecar writes. Ordinary
-preset/grade replacement and sidecar opening keep their existing policy.
-Independent Claude review is required before merge.
+Undo/Redo design and behaviour are approved in D053. Stage 1 was independently
+reviewed, approved and merged in PR #92 at
+`c2624989213bb656f9552b3c52c7146dbfd432c2`. Its staged reconstruction and
+logical-node identity rules remain the replay boundary.
 
-Subsequent stages must implement history collection/cursor, snapshot measurement
-and an appropriate memory cap around the initial 100-step target, grouped edit/
-drag gestures, shortcuts and menus. None of those user controls or collection
-mechanisms is implemented in Stage 1. Successful photo switch/reopen resets and
-Save Grade retention remain integration requirements for those stages.
+Stage 2 is the current milestone: one App-owned in-memory snapshot history,
+cursor, 100 undo steps and a 64 MiB accounted-memory cap, with explicit recording
+of completed discrete document/graph edits. Successful photo switches and
+same-photo reopening reset it; failed/cancelled navigation and Save Grade preserve
+it. Capture happens outside document mutations and refuses active export.
+Failed capture retains the live edit/entries/cursor and pauses traversal until a
+successful completed-edit capture; failed replay leaves the cursor unchanged.
+[UNDO_HISTORY.md](UNDO_HISTORY.md) records the integration, measurements and
+failure policy. This draft requires Claude's independent review before merge.
 
+Stage 3 remains gesture completion/grouping for parameter widgets and node drags,
+shortcuts and visible Undo/Redo controls. Parameter/position changes only mark the
+current state unrecorded in Stage 2; they never capture per frame. No history
+state controls sidecar saves. Ordinary replacement/sidecar policies are unchanged.
 
 **Step 6 is complete, independently reviewed and merged in PR #58 as
 `6294a034d30168063e2aa92e984a51666f56ca22`.** Step 5's product/architecture

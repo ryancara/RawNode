@@ -341,7 +341,12 @@ processor availability checks. A recorded working processor must reconstruct wit
 its backend/identifier before publication; recorded missing processors stay missing.
 This information is absent from persistent records. Replay retains valid selection
 and inspection plus surviving Inspector expansion; ordinary Replace still resets
-selection/filter and inspection. No history collection or cursor exists in Stage 1.
+selection/filter and inspection. Stage 2 adds one App-owned GradeHistory of
+logical snapshots and a cursor, explicitly recorded after completed document/
+graph operations release mutation ownership. Capture eligibility uses existing
+export/mutation state; no scheduler or worker is added. Unrecorded continuous
+edits and failed captures pause traversal until a successful completion capture.
+See `UNDO_HISTORY.md` for bounds, measurements, integration and Stage 3 deferrals.
 Linear Append and fragment Paste construct detached nodes, remap IDs/positions and
 commit one StagedEdit batch. Only the chosen main-spine successor or Output changes;
 unrelated branches remain. Fragment capture retains internal links independently

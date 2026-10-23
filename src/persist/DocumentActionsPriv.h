@@ -15,12 +15,6 @@ struct ActionTestOptions {
   decltype(&loadImage) decode = loadImage;
   decltype(&makePreviewSource) preparePreview = makePreviewSource;
 };
-// Detached logical state only; availability never enters the sidecar schema.
-// Every ImageProcessor has an entry: true was working, false was missing.
-struct GradeSnapshot {
-  PersistGrade grade;
-  std::map<std::string, bool> workingProcessors;
-};
 bool captureGradeSnapshot(App &app, GradeSnapshot &snapshot);
 bool restoreGradeSnapshot(App &app, const GradeSnapshot &snapshot,
                           const ActionTestOptions &options = {});

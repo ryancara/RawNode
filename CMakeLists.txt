@@ -107,6 +107,7 @@ add_executable(OfxRawHost
   tests/SidecarFileTests.cpp
   tests/PreferencesTests.cpp
   tests/PhotoDocumentTests.cpp
+  tests/HistoryTests.cpp
   tests/PresetClipboardTests.cpp
   tests/GraphCommandsTests.cpp
   tests/GraphEvaluatorTests.cpp
@@ -134,6 +135,7 @@ add_executable(OfxRawHost
   src/RenderPipeline.cpp
   src/RenderRuntime.cpp
   src/DocumentMutation.cpp
+  src/GradeHistory.cpp
   src/Export.cpp
   src/persist/Preferences.cpp
   src/persist/DocumentActions.cpp

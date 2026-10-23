@@ -96,7 +96,10 @@ bool moveGraphNode(App &app, const NodeId &id, PersistPosition position) {
   if (app.isPhotoProtected() || !finite(position) || !findNode(app, id)) return false;
   // Control-thread layout data only. The existing grade-save lifecycle captures
   // it; no DocumentMutation, render request or immediate save belongs here.
+  const auto existing = app.nodePositions.find(id.value);
+  if (existing != app.nodePositions.end() && existing->second.x == position.x && existing->second.y == position.y) return true;
   app.nodePositions[id.value] = position;
+  app.history.noteUnrecordedEdit();
   return true;
 }
 
