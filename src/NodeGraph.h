@@ -76,7 +76,11 @@ struct RestoredGraph {
 };
 // Construct a detached graph, or throw on invalid structure or installed
 // parameter values. Does not publish a document or schedule rendering.
-RestoredGraph restoreGraph(const PersistGraph &graph);
+// History supplies complete availability by processor NodeId. Working instances
+// must reconstruct with the recorded identity; missing instances stay missing.
+// Ordinary sidecars/presets omit it and retain their missing-plugin policy.
+RestoredGraph restoreGraph(const PersistGraph &graph,
+                           const std::map<std::string, bool> *workingProcessors = nullptr);
 
 // Operation-local restoration, so grade application can prepare nodes and
 // colour/source changes before replacing anything. Both helpers borrow their

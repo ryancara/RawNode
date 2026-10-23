@@ -2,6 +2,7 @@
 
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersistPriv.h"
+#include "DocumentMutation.h"
 
 namespace document_detail {
 // Operation-local self-test seams, never stored in App or installed globally.
@@ -12,7 +13,17 @@ struct ActionTestOptions {
   persist_detail::FileFault readFault = persist_detail::FileFault::None;
   std::function<persist_detail::FileFault()> beforeSave;
   decltype(&loadImage) decode = loadImage;
+  decltype(&makePreviewSource) preparePreview = makePreviewSource;
 };
+// Detached logical state only; availability never enters the sidecar schema.
+// Every ImageProcessor has an entry: true was working, false was missing.
+struct GradeSnapshot {
+  PersistGrade grade;
+  std::map<std::string, bool> workingProcessors;
+};
+bool captureGradeSnapshot(App &app, GradeSnapshot &snapshot);
+bool restoreGradeSnapshot(App &app, const GradeSnapshot &snapshot,
+                          const ActionTestOptions &options = {});
 void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma,
                            const ActionTestOptions &options);
 bool applyGrade(App &app, const PersistGrade &grade,

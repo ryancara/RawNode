@@ -4,6 +4,7 @@
 #include "DocumentMutation.h"
 #include "Export.h"
 #include "GraphCommands.h"
+#include "GraphEvaluator.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "GraphPersistenceTestAccess.h"
@@ -588,6 +589,234 @@ bool rawControlsAndReplace() {
   return true;
 }
 
+bool historyNativeCtlAndMissing() {
+  Files files;
+  const auto script = files.path("history.ctl");
+  write(script,
+      "void main(input varying float rIn, input varying float gIn, input varying float bIn,\n"
+      "output varying float rOut, output varying float gOut, output varying float bOut,\n"
+      "output varying float aOut, input varying float aIn = 1.0, input uniform float gain = 2.0)\n"
+      "{ rOut = rIn * gain; gOut = gIn * gain; bOut = bIn * gain; aOut = aIn; }\n");
+  const auto path = photo(files, "history.png");
+  App app; CHECK(openPath(app, path) && addNativeExposureNode(app));
+  const auto native = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app, native, "exposure", 1.0) && addCtlNode(app, script));
+  const auto ctl = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app, ctl, "gain", 3.0));
+  // A missing processor whose identifier is now available must stay missing.
+  Node missingNode; missingNode.id = NodeId{"missing"}; missingNode.storedBackend = "ctl";
+  missingNode.storedIdentifier = script; missingNode.preservedParamsJson["gain"] = "7";
+  missingNode.fixedInputs.at(ports::image) = OutputRef{app.primarySource, ports::image};
+  CHECK(graph::addNode(app, std::move(missingNode)).ok());
+  app.nodePositions = {{native.value, {-12.5, 8.25}}, {ctl.value, {123, -42}}};
+  document_detail::GradeSnapshot snapshot;
+  CHECK(document_detail::captureGradeSnapshot(app, snapshot));
+  CHECK(snapshot.workingProcessors.size() == 3 && snapshot.workingProcessors.at(native.value) &&
+        snapshot.workingProcessors.at(ctl.value) && !snapshot.workingProcessors.at("missing"));
+  // Storage order is deliberately unrelated to dependency order.
+  std::reverse(snapshot.grade.graph.nodes.begin(), snapshot.grade.graph.nodes.end());
+  CHECK(setNodeParameterValue(app, native, "exposure", -1.0));
+  app.nodePositions[native.value] = {9, 10};
+  CHECK(selectNode(app, native)); std::snprintf(app.paramFilter, sizeof(app.paramFilter), "exposure");
+  findNode(app, native)->groupOpen["view-only"] = false;
+  app.renderer.requestInspection({native, ports::image});
+  const auto sidecar = bytes(inputSidecarPath(path));
+  const auto *oldNative = findNode(app, native)->processor.get();
+  const auto *oldCtl = findNode(app, ctl)->processor.get();
+  app.renderer.start(); CHECK(idle(app));
+  CHECK(document_detail::restoreGradeSnapshot(app, snapshot) && idle(app));
+  CHECK(app.nodes.size() == 4 && app.primarySource == snapshot.grade.graph.primarySource &&
+        app.documentOutput == (OutputRef{ctl, ports::image}) && documentStateError(app).empty());
+  CHECK(findNode(app, native)->processor.get() != oldNative && findNode(app, ctl)->processor.get() != oldCtl);
+  CHECK(findNode(app, native)->fixedInputs.at(ports::image) == (OutputRef{app.primarySource, ports::image}));
+  CHECK(findNode(app, ctl)->fixedInputs.at(ports::image) == (OutputRef{native, ports::image}));
+  CHECK(findNode(app, NodeId{"missing"})->isMissingProcessor() &&
+        findNode(app, NodeId{"missing"})->preservedParamsJson.at("gain") == "7");
+  CHECK(app.nodePositions.at(native.value).x == -12.5 && app.nodePositions.at(native.value).y == 8.25 &&
+        app.nodePositions.at(ctl.value).x == 123 && app.nodePositions.at(ctl.value).y == -42);
+  CHECK(app.selectedNodeId() == native && std::string(app.paramFilter) == "exposure" &&
+        !findNode(app, native)->groupOpen.at("view-only"));
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.processed.result.requested == (OutputRef{native, ports::image}));
+  }
+  // Independently: Exposure +1 multiplies by 2, CTL gain 3 multiplies by 3.
+  // Binary fractions and integer factors are exact, including extended RGB/alpha.
+  auto samples = std::make_shared<Image>(); samples->w = samples->h = 1;
+  samples->px = {0.25f, -0.5f, 2.0f, 0.375f};
+  {
+    document_detail::DocumentMutation ownership(app);
+    const auto result = evaluateGraph({app.nodes, app.primarySource, app.documentOutput}, app.documentOutput,
+                                     {EvaluationPurpose::Preview, 1, 1, 1, 1}, samples);
+    CHECK(result.state == EvaluationState::Available);
+    CHECK(std::get<ImageValue>(result.value)->px == (std::vector<float>{1.5f, -3.0f, 12.0f, 0.375f}));
+  }
+  CHECK(bytes(inputSidecarPath(path)) == sidecar);
+  // Remove a working script: refusal must preserve the original compiled instance.
+  const auto scriptText = bytes(script);
+  fs::remove(script);
+  const auto *liveNative = findNode(app, native)->processor.get();
+  const auto *liveCtl = findNode(app, ctl)->processor.get();
+  CHECK(!document_detail::restoreGradeSnapshot(app, snapshot));
+  CHECK(app.getStatus().find("Could not reconstruct working processor") != std::string::npos && idle(app));
+  CHECK(findNode(app, native)->processor.get() == liveNative && findNode(app, ctl)->processor.get() == liveCtl);
+  CHECK(app.selectedNodeId() == native && app.nodePositions.at(native.value).x == -12.5);
+  // Availability must be complete; malformed internal snapshots fail closed.
+  auto incomplete = snapshot; incomplete.workingProcessors.erase(ctl.value);
+  CHECK(!document_detail::restoreGradeSnapshot(app, incomplete));
+  CHECK(findNode(app, ctl)->processor.get() == liveCtl);
+  // Native identity unavailable: normal grade replacement may preserve a missing
+  // plugin, whereas history refuses to lose a processor recorded as working.
+  write(script, scriptText); // Isolate native failure from the earlier CTL fault.
+  auto unavailable = snapshot;
+  for (auto &node : unavailable.grade.graph.nodes) if (node.id == native.value) node.identifier = "unavailable.native";
+  CHECK(!document_detail::restoreGradeSnapshot(app, unavailable));
+  CHECK(app.getStatus().find(native.value + " (native: unavailable.native)") != std::string::npos);
+  CHECK(findNode(app, native)->processor.get() == liveNative && bytes(inputSidecarPath(path)) == sidecar);
+  // Removed selection and inspection clear; surviving virtual Output remains valid.
+  document_detail::GradeSnapshot sourceOnly;
+  App empty; CHECK(document_detail::captureGradeSnapshot(empty, sourceOnly));
+  CHECK(document_detail::restoreGradeSnapshot(app, sourceOnly) && idle(app));
+  CHECK(!app.selectedNodeId() && std::string(app.paramFilter).empty());
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.processed.result.requested == app.documentOutput);
+  }
+  selectOutput(app);
+  CHECK(document_detail::restoreGradeSnapshot(app, sourceOnly) && app.outputSelected());
+  // Ordinary replacement still resets Output selection/filter and inspection.
+  CHECK(applyGrade(app, sourceOnly.grade) && !app.outputSelected());
+  CHECK(idle(app)); app.renderer.shutdown();
+  return true;
+}
+
+bool historyReusedNodeIdentity() {
+  Files files;
+  const auto script = files.path("identity.ctl");
+  write(script,
+      "void main(input varying float rIn, input varying float gIn, input varying float bIn,\n"
+      "output varying float rOut, output varying float gOut, output varying float bOut)\n"
+      "{ rOut = rIn; gOut = gIn; bOut = bIn; }\n");
+  App app;
+  CHECK(openPath(app, photo(files, "identity.png")) && addCtlNode(app, script));
+  const auto reused = *app.selectedNodeId();
+  // Keep document Output distinct from the inspected node so retaining stale
+  // inspection cannot accidentally look like a successful reset.
+  CHECK(addNativeExposureNode(app));
+  const auto output = app.documentOutput;
+  CHECK(output.nodeId != reused);
+  document_detail::GradeSnapshot ctl;
+  CHECK(document_detail::captureGradeSnapshot(app, ctl));
+  auto native = ctl;
+  for (auto &node : native.grade.graph.nodes) if (node.id == reused.value) {
+    node.backend = "native";
+    node.identifier = "rawnode.native.exposure";
+    node.paramsJson = {{"exposure", "1"}};
+  }
+  app.renderer.start();
+  // Reproduce CTL -> Exposure under the same NodeId, then replay back to CTL.
+  // Neither processor may inherit the unrelated processor's view state.
+  for (const auto *snapshot : {&native, &ctl}) {
+    CHECK(selectNode(app, reused));
+    std::snprintf(app.paramFilter, sizeof(app.paramFilter), "old processor");
+    findNode(app, reused)->groupOpen["old-processor-group"] = false;
+    app.renderer.requestInspection({reused, ports::image});
+    CHECK(idle(app));
+    CHECK(document_detail::restoreGradeSnapshot(app, *snapshot) && idle(app));
+    CHECK(!app.selectedNodeId() && std::string(app.paramFilter).empty());
+    CHECK(findNode(app, reused)->groupOpen.count("old-processor-group") == 0);
+    CHECK(findNode(app, reused)->storedBackend == (snapshot == &native ? "native" : "ctl"));
+    CHECK(app.documentOutput == output && documentStateError(app).empty());
+    {
+      std::lock_guard<std::mutex> lock(app.displayMutex);
+      CHECK(app.processed.result.requested == output);
+    }
+    // Reconstructing the same logical processor must still retain its state.
+    CHECK(selectNode(app, reused));
+    std::snprintf(app.paramFilter, sizeof(app.paramFilter), "same processor");
+    findNode(app, reused)->groupOpen["same-processor-group"] = false;
+    app.renderer.requestInspection({reused, ports::image});
+    CHECK(idle(app));
+    CHECK(document_detail::restoreGradeSnapshot(app, *snapshot) && idle(app));
+    CHECK(app.selectedNodeId() == reused && std::string(app.paramFilter) == "same processor");
+    CHECK(!findNode(app, reused)->groupOpen.at("same-processor-group"));
+    {
+      std::lock_guard<std::mutex> lock(app.displayMutex);
+      CHECK(app.processed.result.requested == (OutputRef{reused, ports::image}));
+    }
+  }
+  app.renderer.shutdown();
+  return true;
+}
+
+bool historyRawFailureSafety() {
+  Files files; Options options; options.decode = syntheticRaw;
+  App app; CHECK(document_detail::openPhoto(app, files.path("a.nef"), {}, options));
+  CHECK(addNativeExposureNode(app)); const auto id = *app.selectedNodeId();
+  app.nodePositions[id.value] = {-2, 3};
+  document_detail::GradeSnapshot snapshot;
+  CHECK(document_detail::captureGradeSnapshot(app, snapshot));
+  snapshot.grade.color = {"rec2020", "srgb", "display-p3", "srgb"};
+  snapshot.grade.positions[id.value] = {100, 200};
+  for (auto &node : snapshot.grade.graph.nodes) if (node.id == id.value) node.paramsJson["exposure"] = "2";
+  const auto preview = app.preview; const auto full = app.full;
+  const auto *storage = app.full.px.data(); const auto *processor = findNode(app, id)->processor.get();
+  const auto input = app.inputEncoding, raw = app.photoRawWorkingEncoding, output = app.outputEncoding;
+  const auto source = app.primarySource; const auto endpoint = app.documentOutput;
+  const auto sidecar = bytes(inputSidecarPath(app.path));
+  std::snprintf(app.paramFilter, sizeof(app.paramFilter), "keep");
+  findNode(app, id)->groupOpen["keep"] = true;
+  app.renderer.requestInspection({source, ports::image});
+  app.renderer.start(); CHECK(idle(app));
+  for (int failure = 0; failure < 3; ++failure) {
+    Options failed = options;
+    if (failure == 0) failed.decode = [](const std::string &, Image &out, ColorEncoding &, bool &, ColorEncoding) {
+      out.w = out.h = 1; out.px = {99,99,99,1}; return false;
+    };
+    if (failure == 1) failed.decode = [](const std::string &, Image &, ColorEncoding &, bool &raw, ColorEncoding) {
+      raw = false; return true;
+    };
+    if (failure == 2) failed.preparePreview = [](const Image &, ColorEncoding, int) -> std::shared_ptr<const Image> {
+      throw std::runtime_error("Injected RAW preview preparation failure");
+    };
+    CHECK(!document_detail::restoreGradeSnapshot(app, snapshot, failed));
+    CHECK(!app.getStatus().empty() && idle(app));
+    CHECK(findNode(app, id)->processor.get() == processor && app.nodes.size() == 2);
+    CHECK(app.primarySource == source && app.documentOutput == endpoint && app.nodePositions.at(id.value).x == -2);
+    CHECK(app.full.px == full.px && app.full.px.data() == storage && app.preview == preview);
+    CHECK(app.inputEncoding == input && app.photoRawWorkingEncoding == raw && app.outputEncoding == output);
+    CHECK(app.selectedNodeId() == id && std::string(app.paramFilter) == "keep" && findNode(app, id)->groupOpen.at("keep"));
+    CHECK(bytes(inputSidecarPath(app.path)) == sidecar);
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.processed.result.requested == (OutputRef{source, ports::image}));
+  }
+  // Export guard returns before attempting a mutation (which would wait on the lease).
+  {
+    auto exporting = app.renderer.acquireExport(); CHECK(bool(exporting));
+    CHECK(!document_detail::restoreGradeSnapshot(app, snapshot, options));
+    CHECK(findNode(app, id)->processor.get() == processor);
+  }
+  app.sidecarWriteBlockedPath = app.path;
+  CHECK(!document_detail::restoreGradeSnapshot(app, snapshot, options));
+  app.sidecarWriteBlockedPath.clear();
+  CHECK(document_detail::restoreGradeSnapshot(app, snapshot, options) && idle(app));
+  CHECK(app.inputEncoding == (ColorEncoding{RgbGamut::Rec2020, TransferFunction::SRGB}));
+  // a.nef has scene red -0.125 and green 1.5; sRGB OETF then +2 EV.
+  // The negative branch is linear; green uses the independent power formula.
+  {
+    document_detail::DocumentMutation ownership(app);
+    const auto result = evaluateGraph({app.nodes, app.primarySource, app.documentOutput}, app.documentOutput,
+        {EvaluationPurpose::Preview, app.full.w, app.full.h, app.preview->w, app.preview->h}, app.preview);
+    CHECK(result.state == EvaluationState::Available);
+    const auto image = std::get<ImageValue>(result.value);
+    CHECK(std::abs(image->px[0] - 4 * 12.92 * -0.125) < 1e-5);
+    CHECK(std::abs(image->px[1] - 4 * (1.055 * std::pow(1.5, 1.0/2.4) - 0.055)) < 1e-5 && image->px[3] == 0.75f);
+  }
+  CHECK(bytes(inputSidecarPath(app.path)) == sidecar);
+  CHECK(idle(app)); app.renderer.shutdown();
+  return true;
+}
+
 bool twoPhotoColourOwnership() {
   Files files; const auto a = files.path("a.nef"), b = files.path("b.nef");
   const std::string colorA = R"("color":{"rawWorking":{"colorSpace":"rec2020","gamma":"linear"},"output":{"colorSpace":"display-p3","gamma":"srgb"}})";
@@ -639,6 +868,9 @@ bool testPhotoDocuments() {
        std::make_pair("persistent warnings and Retry/Discard/Cancel before navigation/shutdown", failureDecisions),
        std::make_pair("folder auto-open after Discard saves and prompts only once", folderDiscardOnlyOnce),
        std::make_pair("same-photo save-before-reload, atomic failures and strict backend UTF-8", samePhotoAndAtomicFailures),
+       std::make_pair("history native/CTL reconstruction, topology, pixels and missing/working availability", historyNativeCtlAndMissing),
+       std::make_pair("history NodeId reuse clears unrelated UI state and matching identities preserve it", historyReusedNodeIdentity),
+       std::make_pair("history RAW decode/preparation failure preserves ownership and UI state", historyRawFailureSafety),
        std::make_pair("two-photo synthetic RAW colour ownership and coherent full/preview pixels", twoPhotoColourOwnership),
        std::make_pair("failed decoding retains the full prior document and usable editor", failedDecodeRetainsDocument),
        std::make_pair("photo RAW controls and full-grade Replace retain defaults and save actual decoding", rawControlsAndReplace)}) {

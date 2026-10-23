@@ -242,7 +242,9 @@ photos, not another live state machine. Capture/save the current complete grade
 before navigation, folder-driven document replacement, same-photo reopening
 and shutdown, whether or not any adjustment changed. Explicit Save Grade remains.
 No per-edit notifications, comparison snapshots, revision counters, history or
-mutation event bus are needed. Saving is independent of rendering demand and
+mutation event bus are needed to determine sidecar saves. This restriction does
+not prohibit temporary Undo/Redo history (D053); that state never governs saving
+and is never persisted. Saving is independent of rendering demand and
 `DocumentMutation::changed()`; no autosave timer is introduced.
 
 For photograph opening:

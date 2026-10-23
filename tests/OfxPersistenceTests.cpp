@@ -6,7 +6,7 @@
 #include "RenderRuntimeTestAccess.h"
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"
-#include "persist/DocumentActions.h"
+#include "persist/DocumentActionsPriv.h"
 #include "processors/OfxProcessor.h"
 #include "ui/UiContext.h"
 
@@ -364,6 +364,69 @@ bool nonpersistentRestoreGuards(Plugin &plugin) {
     CHECK(std::string(std::istreambuf_iterator<char>(in), {}) == json);
   }
   std::puts("ok  OFX non-persistent values: installed transient restore refusal preserves the destination");
+  return true;
+}
+
+bool historyReconstruction(Plugin &plugin) {
+  App app;
+  CHECK(addNativeExposureNode(app)); const auto native = *app.selectedNodeId();
+  CHECK(addNode(app, plugin.index)); const auto id = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app, id, "visiblePersistent", 5.0));
+  app.nodePositions[id.value] = {-17.5, 29};
+  document_detail::GradeSnapshot snapshot;
+  CHECK(document_detail::captureGradeSnapshot(app, snapshot));
+  const int live = plugin.live;
+  const auto *original = findNode(app, id)->processor.get();
+  const auto *originalNative = findNode(app, native)->processor.get();
+  // Failure after a native processor was staged cannot replace either owner.
+  plugin.createStatus = kOfxStatFailed;
+  CHECK(!document_detail::restoreGradeSnapshot(app, snapshot));
+  CHECK(app.getStatus().find("Could not reconstruct working processor") != std::string::npos);
+  CHECK(plugin.live == live && plugin.invalidDestroys == 0);
+  CHECK(findNode(app, id)->processor.get() == original && findNode(app, native)->processor.get() == originalNative);
+  CHECK(app.documentOutput == snapshot.grade.graph.documentOutput && app.selectedNodeId() == id);
+  CHECK(app.nodePositions.at(id.value).x == -17.5 && app.nodePositions.at(id.value).y == 29);
+  // Normal grade replacement retains its existing unavailable-plugin policy.
+  CHECK(applyGrade(app, snapshot.grade) && findNode(app, id)->isMissingProcessor());
+  CHECK(plugin.live == live - 1);
+  plugin.createStatus = kOfxStatOK;
+  CHECK(document_detail::restoreGradeSnapshot(app, snapshot));
+  CHECK(plugin.live == live && parameter(*findNode(app, id), "visiblePersistent").value == ParameterValue(5.0));
+  CHECK(findNode(app, id)->fixedInputs.at(ports::image) == (OutputRef{native, ports::image}));
+  CHECK(cache(*findNode(app, id)).visibleAtCreate == 5 && cache(*findNode(app, id)).notifications == 0);
+  // A non-null instance alone is insufficient: it must retain the expected
+  // identifier. Simulate a plugin changing identity during creation.
+  const char *expectedIdentifier = plugin.plugin.pluginIdentifier;
+  plugin.inspectInitialValues = [&](OfxParamSetHandle) {
+    plugin.plugin.pluginIdentifier = "org.rawnode.selftest.unexpected-identity";
+  };
+  const auto *beforeIdentityFailure = findNode(app, id)->processor.get();
+  const bool acceptedWrongIdentity = document_detail::restoreGradeSnapshot(app, snapshot);
+  plugin.inspectInitialValues = {};
+  plugin.plugin.pluginIdentifier = expectedIdentifier;
+  CHECK(!acceptedWrongIdentity && plugin.live == live &&
+        findNode(app, id)->processor.get() == beforeIdentityFailure);
+  // Plugins may legitimately alter a parameter during CreateInstance. The
+  // history path must accept it and must not apply a second restoration.
+  plugin.adjustGainOnCreate = true;
+  CHECK(document_detail::restoreGradeSnapshot(app, snapshot));
+  const auto &node = *findNode(app, id);
+  CHECK(parameter(node, "visiblePersistent").value == ParameterValue(6.0));
+  CHECK(cache(node).visibleAtCreate == 5 && cache(node).gain == 5 && cache(node).notifications == 0);
+  auto samples = std::make_shared<Image>(); samples->w = samples->h = 1;
+  samples->px = {0.25f, -0.5f, 2.0f, 0.375f};
+  const auto result = evaluateGraph({app.nodes, app.primarySource, app.documentOutput}, app.documentOutput,
+                                   {EvaluationPurpose::Preview, 1, 1, 1, 1}, samples);
+  // +0 EV native followed by the plugin's private gain 5: exact binary fractions.
+  CHECK(result.state == EvaluationState::Available &&
+        std::get<ImageValue>(result.value)->px == (std::vector<float>{1.25f, -2.5f, 10, 0.375f}));
+  plugin.adjustGainOnCreate = false;
+  // Preserve the established strict parameter validation in history replay too.
+  auto malformed = snapshot;
+  for (auto &record : malformed.grade.graph.nodes) if (record.id == id.value) record.paramsJson["visiblePersistent"] = "false";
+  const auto *working = node.processor.get();
+  CHECK(!document_detail::restoreGradeSnapshot(app, malformed));
+  CHECK(findNode(app, id)->processor.get() == working && plugin.live == live);
   return true;
 }
 
@@ -910,6 +973,8 @@ bool failedSyncPreservesCaptures(SyncPlugin &plugin) {
   const auto sidecar = inputSidecarPath(photo), validSidecar = contents(sidecar), validPreset = contents(preset);
   const auto validClipboard = ui.clipboard;
   PersistGrade grade; CHECK(captureGrade(app, grade));
+  document_detail::GradeSnapshot history; CHECK(document_detail::captureGradeSnapshot(app, history));
+  const auto availability = history.workingProcessors;
   std::string original, error; CHECK(encodeTransferPayload(grade, original, error));
   auto &state = privateState(effect(node));
   for (const auto status : {kOfxStatFailed, kOfxStatErrFatal}) {
@@ -927,6 +992,9 @@ bool failedSyncPreservesCaptures(SyncPlugin &plugin) {
     CHECK(!copyGrade(app) && ui.clipboard == validClipboard);
     CHECK(!copySelectedNode(app) && ui.clipboard == validClipboard);
     CHECK(!captureGrade(app, grade));
+    CHECK(!document_detail::captureGradeSnapshot(app, history));
+    CHECK(history.workingProcessors == availability);
+    std::string historyAfter; CHECK(encodeTransferPayload(history.grade, historyAfter, error) && historyAfter == original);
     std::string after; CHECK(encodeTransferPayload(grade, after, error) && after == original);
     PersistFragment fragment; fragment.positions["untouched"] = {1, 2};
     std::vector<std::string> warnings{"untouched"};
@@ -1024,7 +1092,7 @@ bool cachedSyncRoundTrips() {
 bool testOfxPersistence() {
   if (!cachedSyncRoundTrips()) return false;
   Plugin plugin;
-  const bool passed = dynamicChoiceRestoration() && cachedGainFiveReopen(plugin) && productionRoundTrips(plugin) &&
+  const bool passed = historyReconstruction(plugin) && dynamicChoiceRestoration() && cachedGainFiveReopen(plugin) && productionRoundTrips(plugin) &&
                       nonpersistentRestoreGuards(plugin) && initialValueValidationAndLifecycle(plugin) &&
                       typedInitialValues(plugin);
   CHECK(plugin.live == 0 && plugin.invalidDestroys == 0 && plugin.preCreationNotifications == 0);

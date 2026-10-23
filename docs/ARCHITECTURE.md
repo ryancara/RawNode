@@ -336,6 +336,12 @@ run at editable open and document boundaries, independently of render demand.
 Sidecars, presets and clipboard grades share that codec. Full-grade Replace
 prepares incoming nodes, both colour pairs and any required RAW decode/preview
 before replacement; selection/filter and inspection reset even when IDs are reused.
+D053 history replay borrows this same staged path with complete, in-memory
+processor availability checks. A recorded working processor must reconstruct with
+its backend/identifier before publication; recorded missing processors stay missing.
+This information is absent from persistent records. Replay retains valid selection
+and inspection plus surviving Inspector expansion; ordinary Replace still resets
+selection/filter and inspection. No history collection or cursor exists in Stage 1.
 Linear Append and fragment Paste construct detached nodes, remap IDs/positions and
 commit one StagedEdit batch. Only the chosen main-spine successor or Output changes;
 unrelated branches remain. Fragment capture retains internal links independently

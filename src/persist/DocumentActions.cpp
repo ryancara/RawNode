@@ -67,7 +67,7 @@ bool setOutputEncoding(App &app, ColorEncoding encoding) {
   return true;
 }
 
-bool captureGrade(App &app, PersistGrade &grade) {
+static bool captureGradeState(App &app, PersistGrade &grade, std::map<std::string, bool> *workingProcessors) {
   if (!requireEditableGraph(app)) return false;
   document_detail::DocumentMutation mutation(app);
   try {
@@ -75,15 +75,28 @@ bool captureGrade(App &app, PersistGrade &grade) {
     captured.graph = captureGraph({app.nodes, app.primarySource, app.documentOutput});
     captured.color = captureGradeColor(app);
     captured.positions = app.nodePositions;
+    std::map<std::string, bool> availability;
+    if (workingProcessors) for (const auto &node : app.nodes)
+      if (node.operation == NodeOperation::ImageProcessor)
+        availability.emplace(node.id.value, bool(node.processor));
     std::string json, error;
     PersistFile file; file.grade = captured;
     if (!encodeGraphFile(file, json, error) || !decodeGraphFile(json, file, error)) throw std::runtime_error(error);
     grade = std::move(*file.grade);
+    if (workingProcessors) workingProcessors->swap(availability);
     return true;
   } catch (const std::exception &failure) {
     app.setStatus("Could not capture grade: " + std::string(failure.what()));
     return false;
   }
+}
+
+bool captureGrade(App &app, PersistGrade &grade) {
+  return captureGradeState(app, grade, nullptr);
+}
+
+bool document_detail::captureGradeSnapshot(App &app, GradeSnapshot &snapshot) {
+  return captureGradeState(app, snapshot.grade, &snapshot.workingProcessors);
 }
 
 bool captureNodeFragment(App &app, const std::vector<NodeId> &ids, PersistFragment &fragment,
@@ -133,7 +146,14 @@ bool savePreset(App &app, const std::string &path, const OverwritePrompt &confir
   return document_detail::savePreset(app, path, confirm, {});
 }
 
-bool document_detail::applyGrade(App &app, const PersistGrade &incoming, const ActionTestOptions &options) {
+static bool sameNodeIdentity(const Node &a, const Node &b) {
+  return a.id == b.id && a.operation == b.operation &&
+         a.storedBackend == b.storedBackend && a.storedIdentifier == b.storedIdentifier;
+}
+
+static bool applyGradeState(App &app, const PersistGrade &incoming,
+                            const document_detail::ActionTestOptions &options,
+                            const std::map<std::string, bool> *workingProcessors) {
   if (!requireEditableGraph(app)) return false;
   document_detail::DocumentMutation::assertControlThread(app);
   try {
@@ -151,7 +171,25 @@ bool document_detail::applyGrade(App &app, const PersistGrade &incoming, const A
     // Malformed/deep input is refused without interrupting preview/export.
     // Backend construction still requires the existing execution exclusion.
     document_detail::DocumentMutation mutation(app);
-    auto restored = document_detail::restoreGraph(grade.graph);
+    auto restored = document_detail::restoreGraph(grade.graph, workingProcessors);
+    // View state belongs to the logical node, not just its potentially reused ID.
+    // Stage expansion copies and reset decisions before any graph publication.
+    bool clearSelection = false;
+    bool changedNodeIdentity = false;
+    if (workingProcessors) {
+      const auto selection = app.selectedNodeId();
+      clearSelection = selection.has_value();
+      for (auto &node : restored.nodes) {
+        const auto *live = findNode(app, node.id);
+        if (!live) continue;
+        if (!sameNodeIdentity(*live, node)) {
+          changedNodeIdentity = true;
+          continue;
+        }
+        node.groupOpen = live->groupOpen;
+        if (selection && *selection == node.id) clearSelection = false;
+      }
+    }
     bool reloadRaw;
     {
       std::lock_guard<std::mutex> lock(app.colorMutex);
@@ -166,7 +204,7 @@ bool document_detail::applyGrade(App &app, const PersistGrade &incoming, const A
         app.setStatus("Could not reload RAW in " + colorEncodingName(raw));
         return false;
       }
-      preview = document_detail::makePreviewSource(decoded, detected, app.previewRes);
+      preview = options.preparePreview(decoded, detected, app.previewRes);
     }
     // All fallible work precedes publication. Retired nodes/pixels are destroyed
     // while this DocumentMutation still excludes preview and full export.
@@ -181,15 +219,33 @@ bool document_detail::applyGrade(App &app, const PersistGrade &incoming, const A
       app.photoRawWorkingEncoding = raw;
       if (reloadRaw) app.inputEncoding = detected;
     }
-    selectNode(app, std::nullopt);
-    app.paramFilter[0] = '\0';
-    app.renderer.resetInspection();
+    if (!workingProcessors) {
+      selectNode(app, std::nullopt);
+      app.paramFilter[0] = '\0';
+      app.renderer.resetInspection();
+    } else {
+      if (clearSelection) selectNode(app, std::nullopt);
+      if (changedNodeIdentity) app.renderer.resetInspection();
+    }
+    // DocumentMutation already clears an invalid inspected endpoint and keeps
+    // a valid one when scheduling the completed graph.
     mutation.changed();
     return true;
   } catch (const std::exception &failure) {
     app.setStatus("Could not apply full grade: " + std::string(failure.what()));
     return false;
   }
+}
+
+bool document_detail::applyGrade(App &app, const PersistGrade &grade, const ActionTestOptions &options) {
+  return applyGradeState(app, grade, options, nullptr);
+}
+
+bool document_detail::restoreGradeSnapshot(App &app, const GradeSnapshot &snapshot, const ActionTestOptions &options) {
+  // History replay is unavailable during export; ordinary replacement retains
+  // its existing drain-and-replace behaviour. Both use the same staged path.
+  if (!app.renderer.canEditParameters()) return false;
+  return applyGradeState(app, snapshot.grade, options, &snapshot.workingProcessors);
 }
 
 bool applyGrade(App &app, const PersistGrade &grade) {
