@@ -103,8 +103,7 @@ class StagedEdit {
       }
       if (owner->selectedNodeId() && !findNode(*owner, *owner->selectedNodeId())) selectNode(*owner, std::nullopt);
       mutation->changed();
-      mutation.reset(); // Release execution ownership before capture.
-      owner->history.recordCompletedEdit(*owner);
+      owner->history.recordCompletedEdit(*owner, &*mutation);
     }
     return {{}, addedSlot};
   }

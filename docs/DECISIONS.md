@@ -726,7 +726,17 @@ retained-memory cap. Actual native and large/opaque OFX payload measurements,
 straightforward accounting, explicit command integration and conservative capture
 failure recovery are documented in [UNDO_HISTORY.md](UNDO_HISTORY.md). These are
 implementation choices to validate in Stage 2, not additions to the approved
-user-facing contract.
+user-facing contract. Completed edits may reuse their existing DocumentMutation
+scope for capture without nested ownership or an intermediate preview request.
+Output-only recording derives from the current entry when no edits are pending,
+preserving display-only refresh and export status; otherwise the combined state
+awaits full capture. Automatic Graph View positions are housekeeping.
+
+Replay uses one restoration mutation, without post-replay capture/comparison
+metadata. Accept the narrow trade-off that a later apparent no-op full capture
+may record the effective live grade and truncate Redo when OFX CreateInstance
+changed persistent parameters. This never loses the live document or changes
+whether restoration succeeded.
 
 Stage 3 supplies meaningful gesture boundaries for shared parameter widgets and
 node drags, plus shortcuts and visible controls. Until that wiring exists,

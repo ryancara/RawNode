@@ -14,6 +14,7 @@ class DocumentMutation {
   DocumentMutation &operator=(const DocumentMutation &) = delete;
 
   void changed() { changed_ = true; }
+  bool owns(const App &app) const { return &app_ == &app; }
   // Validate control-thread intent before staging an edit that may not commit.
   static void assertControlThread(const App &app);
   // Rebuild source pixels inside this same boundary, without a second barrier

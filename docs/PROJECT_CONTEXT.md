@@ -596,15 +596,22 @@ Stage 2 is the current milestone: one App-owned in-memory snapshot history,
 cursor, 100 undo steps and a 64 MiB accounted-memory cap, with explicit recording
 of completed discrete document/graph edits. Successful photo switches and
 same-photo reopening reset it; failed/cancelled navigation and Save Grade preserve
-it. Capture happens outside document mutations and refuses active export.
+it. Completed edits and opening reuse their existing mutation scope for capture,
+without nested ownership or intermediate preview requests; standalone capture
+checks eligibility before acquiring one scope. Output-only edits derive from the
+current entry when no edits are pending and preserve display-only/export behaviour.
+Automatic Graph View position materialisation leaves Redo available.
 Failed capture retains the live edit/entries/cursor and pauses traversal until a
 successful completed-edit capture; failed replay leaves the cursor unchanged.
 [UNDO_HISTORY.md](UNDO_HISTORY.md) records the integration, measurements and
-failure policy. This draft requires Claude's independent review before merge.
+failure policy, including the accepted apparent-no-op OFX trade-off after
+creation-time parameter changes. Replay performs one restoration and no additional
+capture. PR #93 requires Claude's final independent review before merge.
 
 Stage 3 remains gesture completion/grouping for parameter widgets and node drags,
-shortcuts and visible Undo/Redo controls. Parameter/position changes only mark the
-current state unrecorded in Stage 2; they never capture per frame. No history
+shortcuts and visible Undo/Redo controls. Parameter/manual-position changes mark the
+current state unrecorded in Stage 2; they never capture per frame. Output changes
+made during pending edits wait for the next full completed-edit capture. No history
 state controls sidecar saves. Ordinary replacement/sidecar policies are unchanged.
 
 **Step 6 is complete, independently reviewed and merged in PR #58 as

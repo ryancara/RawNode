@@ -150,8 +150,8 @@ void clearNodes(App &app) {
     DocumentMutation mutation(app);
     clearNodesWithinMutation(app);
     mutation.changed();
+    app.history.recordCompletedEdit(app, &mutation);
   }
-  app.history.recordCompletedEdit(app);
 }
 
 bool addNode(App &app, int pluginIndex) {
@@ -163,9 +163,11 @@ bool addNode(App &app, int pluginIndex) {
   {
     DocumentMutation mutation(app);
     added = addOfxWithinMutation(app, pluginIndex, *insertion);
-    if (added) mutation.changed();
+    if (added) {
+      mutation.changed();
+      app.history.recordCompletedEdit(app, &mutation);
+    }
   }
-  if (added) app.history.recordCompletedEdit(app);
   return added;
 }
 
@@ -177,9 +179,11 @@ bool addNativeExposureNode(App &app) {
   {
     DocumentMutation mutation(app);
     added = insertProcessorNode(app, std::make_unique<NativeExposureProcessor>(), *insertion);
-    if (added) mutation.changed();
+    if (added) {
+      mutation.changed();
+      app.history.recordCompletedEdit(app, &mutation);
+    }
   }
-  if (added) app.history.recordCompletedEdit(app);
   return added;
 }
 
@@ -191,9 +195,11 @@ bool addNativeCstNode(App &app) {
   {
     DocumentMutation mutation(app);
     added = insertProcessorNode(app, std::make_unique<NativeCstProcessor>(), *insertion);
-    if (added) mutation.changed();
+    if (added) {
+      mutation.changed();
+      app.history.recordCompletedEdit(app, &mutation);
+    }
   }
-  if (added) app.history.recordCompletedEdit(app);
   return added;
 }
 
@@ -205,9 +211,11 @@ bool addCtlNode(App &app, const std::string &path) {
   {
     DocumentMutation mutation(app);
     added = addCtlWithinMutation(app, path, *insertion);
-    if (added) mutation.changed();
+    if (added) {
+      mutation.changed();
+      app.history.recordCompletedEdit(app, &mutation);
+    }
   }
-  if (added) app.history.recordCompletedEdit(app);
   return added;
 }
 
@@ -254,8 +262,8 @@ void setNodeEnabled(App &app, const NodeId &id, bool enabled) {
     DocumentMutation mutation(app);
     node->enabled = enabled;
     mutation.changed();
+    app.history.recordCompletedEdit(app, &mutation);
   }
-  app.history.recordCompletedEdit(app);
 }
 
 static std::vector<NodeId> linearCaptureOrder(const App &app) {
@@ -432,8 +440,8 @@ static bool insertFragment(App &app, const PersistFragment &fragment, std::optio
       app.nodePositions.swap(positions);
       selectNode(app, std::move(selection));
       mutation.changed();
+      app.history.recordCompletedEdit(app, &mutation);
     }
-    app.history.recordCompletedEdit(app);
     return true;
   } catch (const std::exception &failure) {
     app.setStatus("Could not insert grade/fragment: " + std::string(failure.what()));

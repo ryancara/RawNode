@@ -9,6 +9,7 @@
 #include "persist/DocumentActionsPriv.h"
 #include "ui/GraphLayout.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -60,12 +61,13 @@ bool traversalAndDiscreteEdits() {
   const auto path = photo(files, "steps.png");
   CHECK(openPath(app, path));
   CHECK(app.history.size() == 1 && app.history.cursor() == 0 && !app.history.canUndo() && !app.history.canRedo());
-  CHECK(count.deepest == 1); // Open/save/baseline never nest capture ownership.
+  CHECK(count.completed == 1 && count.deepest == 1); // Open/save/baseline share one scope.
   CHECK(addNativeExposureNode(app)); const auto first = *app.selectedNodeId();
-  CHECK(app.history.size() == 2 && app.history.cursor() == 1);
+  CHECK(app.history.size() == 2 && app.history.cursor() == 1 && count.completed == 2);
   setNodeEnabled(app, first, false);
-  CHECK(app.history.size() == 3 && !findNode(app, first)->enabled);
+  CHECK(app.history.size() == 3 && !findNode(app, first)->enabled && count.completed == 3);
   CHECK(app.history.undo(app) && findNode(app, first)->enabled && app.history.cursor() == 1);
+  CHECK(count.completed == 4 && !app.history.hasUnrecordedEdit()); // Exactly one restoration, no capture.
   CHECK(app.history.undo(app) && !findNode(app, first) && app.history.cursor() == 0);
   CHECK(!app.history.undo(app));
   CHECK(app.history.redo(app) && findNode(app, first) && app.history.size() == 3);
@@ -190,6 +192,121 @@ bool measurementsAndMemoryLimit() {
   return true;
 }
 
+bool availabilityAndRedoMemory() {
+  Files files; App app;
+  CHECK(openPath(app, photo(files, "availability.png")) && addNativeExposureNode(app));
+  const auto id = *app.selectedNodeId();
+  document_detail::GradeSnapshot working, missing;
+  CHECK(document_detail::captureGradeSnapshot(app, working));
+  auto &node = *findNode(app, id);
+  for (const auto &record : working.grade.graph.nodes)
+    if (record.id == id.value) node.preservedParamsJson = record.paramsJson;
+  node.processor.reset(); // Same persisted grade, different history-only availability.
+  CHECK(document_detail::captureGradeSnapshot(app, missing));
+  std::string before, after, error;
+  CHECK(encodeTransferPayload(working.grade, before, error) && encodeTransferPayload(missing.grade, after, error));
+  CHECK(before == after && working.workingProcessors != missing.workingProcessors);
+  const auto size = app.history.size();
+  CHECK(app.history.recordCompletedEdit(app) && app.history.size() == size + 1);
+  CHECK(app.history.undo(app) && findNode(app, id)->processor);
+  CHECK(app.history.redo(app) && findNode(app, id)->isMissingProcessor());
+
+  CHECK(openPath(app, photo(files, "redo-memory.png")));
+  document_detail::GradeSnapshot baseline, ordinary, branch;
+  CHECK(document_detail::captureGradeSnapshot(app, baseline));
+  CHECK(addNativeExposureNode(app)); const auto retained = *app.selectedNodeId();
+  CHECK(document_detail::captureGradeSnapshot(app, ordinary));
+  findNode(app, retained)->preservedParamsJson["opaque"] = jsonStringValue(std::string(64 * 1024, 'x'));
+  CHECK(app.history.recordCompletedEdit(app));
+  const auto withRedo = app.history.bytes();
+  CHECK(app.history.undo(app) && app.history.canRedo());
+  setNodeEnabled(app, retained, false);
+  CHECK(document_detail::captureGradeSnapshot(app, branch));
+  const auto expected = GradeHistory::snapshotBytes(baseline) + GradeHistory::snapshotBytes(ordinary) + GradeHistory::snapshotBytes(branch);
+  CHECK(app.history.size() == 3 && !app.history.canRedo());
+  CHECK(app.history.bytes() == expected && withRedo > expected + 60 * 1024);
+  return true;
+}
+
+bool outputOnlyAndPendingEdits() {
+  struct Probe {
+    std::mutex mutex; std::condition_variable cv;
+    bool release = false; int entered = 0;
+    std::atomic<int> evaluations{0}, mutations{0}, waits{0};
+    void hold() {
+      std::unique_lock<std::mutex> lock(mutex);
+      ++entered; cv.notify_all(); cv.wait(lock, [&] { return release; });
+    }
+    bool await(int count) {
+      std::unique_lock<std::mutex> lock(mutex);
+      return cv.wait_for(lock, std::chrono::seconds(2), [&] { return entered >= count; });
+    }
+    void unblock() { std::lock_guard<std::mutex> lock(mutex); release = true; cv.notify_all(); }
+  } probe;
+  Files files; App app;
+  CHECK(openPath(app, photo(files, "display.png")) && addNativeExposureNode(app));
+  const auto id = *app.selectedNodeId();
+  struct Stop {
+    App &app; Probe &probe;
+    ~Stop() { probe.unblock(); app.renderer.shutdown(); RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr); }
+  } stop{app, probe};
+  RenderRuntimeTestAccess::evaluation(app.renderer, nullptr, [](void *context) {
+    auto &probe = *static_cast<Probe *>(context); ++probe.evaluations; probe.hold();
+  }, &probe);
+  RenderRuntimeTestAccess::observe(app.renderer, &probe, [](void *context, auto event) noexcept {
+    auto &probe = *static_cast<Probe *>(context);
+    if (event == RenderRuntimeTestAccess::Event::MutationCompleted) ++probe.mutations;
+    // A regressed drain releases test work, then fails assertions instead of hanging.
+    if (event == RenderRuntimeTestAccess::Event::MutationWaiting) { ++probe.waits; probe.unblock(); }
+  });
+  app.renderer.start(); CHECK(probe.await(1));
+  const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+  const auto size = app.history.size();
+  const ColorEncoding output{RgbGamut::DisplayP3, TransferFunction::Linear};
+  CHECK(setOutputEncoding(app, output));
+  const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+  const bool displayOnly = before.previewBusy && after.previewBusy && after.epoch == before.epoch &&
+      after.previewPending == before.previewPending && after.displayPending && probe.mutations == 0 && probe.waits == 0;
+  probe.unblock();
+  CHECK(RenderRuntimeTestAccess::wait(app.renderer, [](auto state) { return !state.previewBusy && !state.previewPending && !state.displayPending; }));
+  CHECK(displayOnly && probe.evaluations == 1 && app.history.size() == size + 1);
+  CHECK(app.history.undo(app) && app.outputEncoding != output && app.history.redo(app) && app.outputEncoding == output);
+  CHECK(RenderRuntimeTestAccess::wait(app.renderer, [](auto state) { return !state.previewBusy && !state.previewPending; }));
+
+  int exportEntry;
+  { std::lock_guard<std::mutex> lock(probe.mutex); probe.release = false; exportEntry = probe.entered + 1; }
+  auto exporting = app.renderer.acquireExport(); CHECK(bool(exporting));
+  exporting.start([&]() noexcept { probe.hold(); }); CHECK(probe.await(exportEntry));
+  app.setStatus("Exporting test image");
+  const auto exportBefore = RenderRuntimeTestAccess::snapshot(app.renderer);
+  const auto mutations = probe.mutations.load(), evaluations = probe.evaluations.load();
+  const auto exportSize = app.history.size();
+  const ColorEncoding exportedOutput{RgbGamut::Rec2020, TransferFunction::SRGB};
+  CHECK(setOutputEncoding(app, exportedOutput));
+  const auto exportAfter = RenderRuntimeTestAccess::snapshot(app.renderer);
+  const bool exportSafe = exportAfter.exportBusy && exportAfter.epoch == exportBefore.epoch &&
+      exportAfter.previewPending == exportBefore.previewPending && exportAfter.displayPending &&
+      probe.mutations == mutations && probe.evaluations == evaluations && probe.waits == 0 &&
+      app.getStatus() == "Exporting test image" && app.history.size() == exportSize + 1;
+  probe.unblock(); app.renderer.joinExport();
+  CHECK(exportSafe);
+  CHECK(RenderRuntimeTestAccess::wait(app.renderer, [](auto state) { return !state.previewBusy && !state.previewPending && !state.displayPending; }));
+  CHECK(probe.evaluations == evaluations + 1); // Only the runtime's established export recovery preview.
+  CHECK(app.history.undo(app) && app.outputEncoding == output);
+  CHECK(app.history.redo(app) && app.outputEncoding == exportedOutput);
+
+  CHECK(setNodeParameterValue(app, id, "exposure", 2.0));
+  const auto pendingSize = app.history.size(), pendingCursor = app.history.cursor();
+  const auto pendingMutations = probe.mutations.load();
+  CHECK(setOutputEncoding(app, output));
+  CHECK(app.history.hasUnrecordedEdit() && app.history.size() == pendingSize && app.history.cursor() == pendingCursor);
+  CHECK(probe.mutations == pendingMutations && !app.history.undo(app));
+  CHECK(app.history.recordCompletedEdit(app)); // Captures both pending parameter and Output changes.
+  CHECK(app.history.undo(app) && exposure(app, id) == 0 && app.outputEncoding == exportedOutput);
+  CHECK(app.history.redo(app) && exposure(app, id) == 2 && app.outputEncoding == output);
+  return true;
+}
+
 bool reconstructionAndFailure() {
   Files files; const auto script = files.path("gain.ctl");
   const std::string ctl = "void main(input varying float rIn, input varying float gIn, input varying float bIn,\n"
@@ -274,6 +391,10 @@ bool photoLifetimeAndGuards() {
     document_detail::DocumentMutation owned(app);
     document_detail::GradeSnapshot untouched;
     CHECK(!document_detail::captureGradeSnapshot(app, untouched) && !app.history.redo(app));
+    app.path = b; // Incoming photo published while capture is temporarily ineligible.
+    CHECK(!app.history.reset(app) && app.history.size() == 0 && app.history.bytes() == 0);
+    CHECK(app.history.hasUnrecordedEdit() && !app.history.canUndo() && !app.history.canRedo());
+    app.path = a;
   }
   CHECK(openPath(app, a) && app.history.size() == 1 && app.history.cursor() == 0 && !app.history.canRedo());
   CHECK(addNativeExposureNode(app) && openPath(app, b) && app.history.size() == 1);
@@ -291,6 +412,8 @@ bool testGradeHistory() {
        std::make_pair("node/grade paste and preset Replace/Append record one completed batch", pasteReplaceAndAppend),
        std::make_pair("unrecorded gestures, Save Grade independence and step bounds", unrecordedEditsAndBounds),
        std::make_pair("actual snapshot accounting, memory eviction and oversize recovery", measurementsAndMemoryLimit),
+       std::make_pair("availability-only changes and released redo memory", availabilityAndRedoMemory),
+       std::make_pair("Output-only render/export safety and preservation of pending edits", outputOnlyAndPendingEdits),
        std::make_pair("deleted CTL reconstruction, exact pixels and atomic failed replay", reconstructionAndFailure),
        std::make_pair("photo lifetime, cancelled/failed navigation, protection and capture/export guards", photoLifetimeAndGuards)}) {
     if (!test.second()) { std::fprintf(stderr, "history group failed: %s\n", test.first); return false; }

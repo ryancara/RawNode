@@ -458,33 +458,45 @@ bool cachedGainFiveReopen(Plugin &plugin) {
   const auto *image = std::get_if<ImageValue>(&result.value);
   // Exact binary fractions times integer gain 5 need no numerical tolerance.
   CHECK(image && *image && (*image)->px == (std::vector<float>{1.25f, -2.5f, 10.0f, 0.375f}));
-  // A permitted CreateInstance adjustment must not turn the next unchanged
-  // completed edit into a history entry or discard the existing redo branch.
+  // Replay performs one restoration mutation and no post-creation private sync.
+  // A subsequent full capture may record the effective live parameters and
+  // truncate redo; this is the accepted trade-off for avoiding a second capture.
   CHECK(addNativeExposureNode(reopened));
-  const auto historySize = reopened.history.size();
-  const auto snapshotMemory = reopened.history.bytes();
+  const auto historySize = reopened.history.size(), snapshotMemory = reopened.history.bytes();
+  int mutations = 0;
+  RenderRuntimeTestAccess::observe(reopened.renderer, &mutations, [](void *context, auto event) noexcept {
+    if (event == RenderRuntimeTestAccess::Event::MutationCompleted) ++*static_cast<int *>(context);
+  });
   plugin.adjustGainOnCreate = true;
   const bool replayed = reopened.history.undo(reopened);
   plugin.adjustGainOnCreate = false;
-  CHECK(replayed && parameter(*findNode(reopened, id), "visiblePersistent").value == ParameterValue(6.0));
-  CHECK(reopened.history.bytes() > snapshotMemory); // The optional comparison key is budgeted.
+  CHECK(replayed && mutations == 1 && !reopened.history.hasUnrecordedEdit() && reopened.history.canRedo());
+  CHECK(reopened.history.bytes() == snapshotMemory && cache(*findNode(reopened, id)).syncs == 0);
+  CHECK(parameter(*findNode(reopened, id), "visiblePersistent").value == ParameterValue(6.0));
+  const auto *owner = findNode(reopened, id)->processor.get();
   CHECK(reopened.history.recordCompletedEdit(reopened));
-  CHECK(reopened.history.size() == historySize && reopened.history.canRedo());
-  CHECK(reopened.history.redo(reopened) && reopened.history.size() == historySize);
-  // Two ordinary snapshots fit exactly, but an initialization-difference key
-  // does not. Restoration succeeds; only further history traversal pauses.
-  document_detail::GradeSnapshot measured;
-  CHECK(document_detail::captureGradeSnapshot(reopened, measured));
-  const auto limit = 2 * GradeHistory::snapshotBytes(measured);
-  reopened.history = GradeHistory{100, limit}; CHECK(reopened.history.reset(reopened));
-  CHECK(setOutputEncoding(reopened, {RgbGamut::DisplayP3, TransferFunction::Linear}));
-  CHECK(reopened.history.size() == 2);
+  CHECK(reopened.history.size() == historySize && !reopened.history.canRedo() && reopened.history.cursor() == 1);
+  CHECK(findNode(reopened, id)->processor.get() == owner && cache(*findNode(reopened, id)).gain == 5.0);
+
+  // Colour-only history keeps the original processor initial values. Copying
+  // the visible gain 6 instead would change this plugin's cached render gain.
   plugin.adjustGainOnCreate = true;
-  const bool boundedReplay = reopened.history.undo(reopened);
+  CHECK(reopened.history.undo(reopened));
+  const auto syncs = cache(*findNode(reopened, id)).syncs;
+  const auto beforeOutput = mutations;
+  const ColorEncoding output{RgbGamut::DisplayP3, TransferFunction::Linear};
+  CHECK(setOutputEncoding(reopened, output));
+  CHECK(mutations == beforeOutput && cache(*findNode(reopened, id)).syncs == syncs);
+  CHECK(reopened.history.undo(reopened) && reopened.history.redo(reopened));
   plugin.adjustGainOnCreate = false;
-  CHECK(boundedReplay && reopened.history.cursor() == 0 && reopened.history.size() == 2);
-  CHECK(reopened.history.hasUnrecordedEdit() && reopened.history.bytes() <= limit && !reopened.history.canRedo());
-  CHECK(reopened.history.recordCompletedEdit(reopened) && !reopened.history.hasUnrecordedEdit());
+  CHECK(reopened.outputEncoding == output && !reopened.history.hasUnrecordedEdit());
+  CHECK(parameter(*findNode(reopened, id), "visiblePersistent").value == ParameterValue(6.0));
+  CHECK(cache(*findNode(reopened, id)).gain == 5.0 && cache(*findNode(reopened, id)).syncs == 0);
+  const auto colourReplay = evaluateGraph({reopened.nodes, reopened.primarySource, reopened.documentOutput}, reopened.documentOutput,
+                                        {EvaluationPurpose::Preview, 1, 1, 1, 1}, samples);
+  CHECK(colourReplay.state == EvaluationState::Available &&
+        std::get<ImageValue>(colourReplay.value)->px == (std::vector<float>{1.25f, -2.5f, 10.0f, 0.375f}));
+  RenderRuntimeTestAccess::observe(reopened.renderer, nullptr, nullptr);
   std::puts("ok  OFX initial values: saved gain 5 read by the real parameter suite during CreateInstance, cached gain 5, exact pixels, no change notifications");
   return true;
 }

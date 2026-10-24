@@ -1479,10 +1479,37 @@ bool editedWirePhotoPersistence() {
   return true;
 }
 
+bool automaticPositionsPreserveRedo() {
+  Files files; const auto path = (files.dir / "history-layout.png").string();
+  std::ofstream(path) << "synthetic";
+  document_detail::ActionTestOptions options; options.decode = syntheticPhoto;
+  App app; CHECK(document_detail::openPhoto(app, path, {}, options));
+  CHECK(app.nodePositions.empty() && addNativeExposureNode(app));
+  Ui ui;
+  CHECK(app.history.undo(app) && app.nodes.size() == 1 && app.nodePositions.empty());
+  const auto size = app.history.size(), memory = app.history.bytes();
+  app.nodesView = NodesView::Graph; ui.tick(app); ui.tick(app);
+  CHECK(app.nodePositions.size() == 1 && app.nodePositions.count(app.primarySource.value));
+  CHECK(!app.history.hasUnrecordedEdit() && app.history.canRedo());
+  CHECK(app.history.size() == size && app.history.bytes() == memory);
+  CHECK(app.history.redo(app) && app.nodes.size() == 2);
+  // Also replay a multi-node snapshot with absent optional layout coordinates.
+  PersistGrade grade; CHECK(captureGrade(app, grade)); grade.positions.clear();
+  CHECK(applyGrade(app, grade));
+  const auto id = app.nodes.back().id;
+  setNodeEnabled(app, id, false);
+  CHECK(app.history.undo(app) && app.nodePositions.empty());
+  ui.tick(app);
+  CHECK(app.history.canRedo() && !app.history.hasUnrecordedEdit());
+  CHECK(app.history.redo(app));
+  return true;
+}
+
 }  // namespace
 
 bool testGraphView() {
   for (const auto &test : {
+       std::make_pair("automatic Graph positions preserve Redo after replay, including Source-only baseline", automaticPositionsPreserveRedo),
        std::make_pair("dependency layout, branches, missing nodes and typed ports", dependencyLayoutAndPorts),
        std::make_pair("contextual placement, List/Graph parity, overlap and preservation through edits", contextualPlacement),
        std::make_pair("failed additions preserve generated, missing and moved layout", failedPlacement),

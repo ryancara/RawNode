@@ -6,8 +6,9 @@ availability, never processors or image buffers. The cursor names the current
 entry. Undo/Redo call Stage 1 restoration and move the cursor only on success;
 replay never calls the ordinary Replace command or records itself.
 
-Opening establishes a baseline after graph/source/colour publication and after
-opening/initial-save mutation scopes have ended. Successful photo switches and
+Opening establishes a baseline after graph/source/colour publication and any
+initial save, within the same opening execution-exclusion scope. Its completion
+requests the preview once. Successful photo switches and
 same-photo reopening reset history, including when the incoming photo is
 protected (which has no editable history). Failed/cancelled navigation retains
 it. Save Grade never changes history, including an unrecorded-state marker.
@@ -15,11 +16,24 @@ History never determines whether, when or what to save (D050).
 
 ## Recording and failure policy
 
-Completed discrete operations explicitly call `recordCompletedEdit()` after
-releasing their document mutation. Capture synchronises processors through the
-existing Stage 1 API. The runtime's capture eligibility query checks existing
-export/mutation/protection state; capture cannot nest a mutation or wait for an
-active export. No new scheduler, worker or runtime state is introduced.
+Completed discrete operations explicitly call `recordCompletedEdit()` with their
+existing `DocumentMutation` scope, after publishing the complete edit. The capture
+API verifies that the supplied scope owns the same App and reuses its exclusion;
+it neither creates a nested mutation nor requests an intermediate preview.
+Standalone capture (including Stage 3 gesture completion) acquires one scope after
+checking existing export/mutation/protection state. Processor synchronisation is
+unchanged. No history capture waits for active export. No new scheduler, worker
+or runtime state is introduced.
+
+Output-only edits use `recordOutputChange()`: when no other edit is pending, copy
+the current entry, update its colours and current positions, then use the same
+comparison, retention and redo-truncation code. No processor access, private sync,
+mutation, cancellation or full preview request occurs. Display refresh remains
+permitted during export and preserves export status. If another edit is pending
+(or the baseline is absent), keep that state pending for the next full completed-
+edit capture; never copy a stale entry while omitting unrecorded changes. A copy/
+retention failure uses the ordinary pending-state policy without overwriting
+active export status.
 
 An unchanged logical snapshot adds nothing and preserves redo. Comparison uses
 the existing codec with canonical NodeId order, retaining Slot order and opaque
@@ -27,8 +41,10 @@ parameter tokens; availability participates too. New entries truncate redo only
 after capture, comparison, size checks and allocation succeed. Oldest entries
 are then evicted to meet both limits.
 
-Parameter writes and node movement/materialisation only mark the current state
-unrecorded: they never capture per frame. Stage 3 will call the same completion
+Parameter writes and manual node movement only mark the current state
+unrecorded: they never capture per frame. Automatic Graph View materialisation of
+missing positions is housekeeping: it persists through ordinary saving but does
+not mark history pending or disable Redo. Stage 3 will call the same completion
 API once per gesture. Until then, traversal pauses after these unwired changes;
 it cannot silently undo past them. A later successful completed-edit capture
 records the current logical state and safely truncates any obsolete redo branch.
@@ -43,14 +59,15 @@ a later successful capture establishes its baseline. No old-photo history surviv
 
 Failed replay preserves the live document, processor ownership, entries and
 cursor, and leaves the Stage 1 error visible. A missing CTL file/plugin can be
-restored and replay retried. After successful restoration moves the cursor, an ownership-safe capture refreshes
-no-op comparison metadata. OFX may legitimately adjust parameters during
-CreateInstance: when actual logical values differ, keep one optional comparison
-key without replacing the original restoration snapshot or adding a step. This
-prevents an unchanged completion from incorrectly truncating redo. The key counts
-against the same memory cap. If this refresh fails or cannot fit, the replay
-itself succeeded; retain its selected cursor and pause further traversal under
-the capture-failure policy until a successful completed-edit capture.
+restored and replay retried. Successful replay performs exactly one restoration
+mutation, with no subsequent capture or private-state sync, and reports success
+immediately. There is no separate replay comparison metadata or failure state.
+An accepted narrow trade-off: after replaying an OFX plugin that changes persistent
+parameters during CreateInstance, an apparent no-op full capture may record its
+effective live grade as an additional step and truncate Redo. The live document
+is retained and restoration success is never reclassified as failure. Output-only
+entries keep the original processor initial values, so their reconstruction
+preserves those same permitted creation-time differences.
 
 ## Limits and measurements
 
@@ -63,9 +80,7 @@ map values/keys and a conventional three-pointer tree-node overhead. Counting
 inline string capacity again is conservative. This is a simple retained-history
 budget, not an allocator/RSS promise: outer-vector spare capacity, allocator
 metadata and temporary capture/codec/reconstruction allocations are excluded.
-The latter can exceed the retained budget temporarily. An optional current-state
-comparison key is retained only for permitted backend initialization differences;
-its capacity participates in the same cap, not a separate cache budget.
+The latter can exceed the retained budget temporarily.
 
 Measured by deterministic self-tests on Linux/libstdc++:
 

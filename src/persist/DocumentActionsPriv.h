@@ -15,7 +15,7 @@ struct ActionTestOptions {
   decltype(&loadImage) decode = loadImage;
   decltype(&makePreviewSource) preparePreview = makePreviewSource;
 };
-bool captureGradeSnapshot(App &app, GradeSnapshot &snapshot);
+bool captureGradeSnapshot(App &app, GradeSnapshot &snapshot, const DocumentMutation *mutation = nullptr);
 bool restoreGradeSnapshot(App &app, const GradeSnapshot &snapshot,
                           const ActionTestOptions &options = {});
 void setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFunction gamma,

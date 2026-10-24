@@ -55,21 +55,43 @@ size_t GradeHistory::snapshotBytes(const document_detail::GradeSnapshot &snapsho
 
 void GradeHistory::clear() noexcept {
   entries_.clear();
-  replayKey_.reset();
   cursor_ = bytes_ = 0;
   unrecorded_ = false;
 }
 
-bool GradeHistory::reset(App &app) {
+bool GradeHistory::reset(App &app, const document_detail::DocumentMutation *mutation) {
   document_detail::DocumentMutation::assertControlThread(app);
-  if (!app.path.empty() && !app.isPhotoProtected() && !app.renderer.canCaptureSnapshot()) return false;
   clear();
   if (app.path.empty() || app.isPhotoProtected()) return false;
-  unrecorded_ = true; // A new photograph awaits its initial baseline.
-  return recordCompletedEdit(app);
+  unrecorded_ = true; // A new photograph awaits its initial baseline, even if capture is refused.
+  return recordCompletedEdit(app, mutation);
 }
 
-bool GradeHistory::recordCompletedEdit(App &app) {
+void GradeHistory::recordSnapshot(document_detail::GradeSnapshot captured) {
+  if (!entries_.empty() && captured.workingProcessors == entries_[cursor_].snapshot.workingProcessors &&
+      gradeKey(captured.grade) == gradeKey(entries_[cursor_].snapshot.grade)) {
+    unrecorded_ = false;
+    return;
+  }
+  const auto bytes = snapshotBytes(captured);
+  if (bytes > memoryLimit_) throw std::runtime_error("snapshot exceeds the history memory limit");
+  // Allocate before discarding redo. Every operation after reserve is noexcept.
+  static_assert(std::is_nothrow_move_constructible_v<Entry> && std::is_nothrow_move_assignable_v<Entry>);
+  const auto retained = entries_.empty() ? 0 : cursor_ + 1;
+  entries_.reserve(retained + 1);
+  for (size_t i = retained; i < entries_.size(); ++i) bytes_ -= entries_[i].bytes;
+  entries_.erase(entries_.begin() + retained, entries_.end());
+  entries_.push_back({std::move(captured), bytes});
+  bytes_ += bytes;
+  while (entries_.size() > undoSteps_ + 1 || bytes_ > memoryLimit_) {
+    bytes_ -= entries_.front().bytes;
+    entries_.erase(entries_.begin());
+  }
+  cursor_ = entries_.size() - 1;
+  unrecorded_ = false;
+}
+
+bool GradeHistory::recordCompletedEdit(App &app, const document_detail::DocumentMutation *mutation) {
   document_detail::DocumentMutation::assertControlThread(app);
   if (app.path.empty() || app.isPhotoProtected()) return false;
   // Only successful photo opening/reset activates collection. An empty,
@@ -80,33 +102,32 @@ bool GradeHistory::recordCompletedEdit(App &app) {
   unrecorded_ = true;
   try {
     document_detail::GradeSnapshot captured;
-    if (!document_detail::captureGradeSnapshot(app, captured)) return false;
-    const auto key = gradeKey(captured.grade);
-    if (!entries_.empty() && captured.workingProcessors == entries_[cursor_].snapshot.workingProcessors &&
-        (replayKey_ ? key == *replayKey_ : key == gradeKey(entries_[cursor_].snapshot.grade))) {
-      unrecorded_ = false;
-      return true;
-    }
-    const auto bytes = snapshotBytes(captured);
-    if (bytes > memoryLimit_) throw std::runtime_error("snapshot exceeds the history memory limit");
-    // Allocate before discarding redo. Every operation after reserve is noexcept.
-    static_assert(std::is_nothrow_move_constructible_v<Entry> && std::is_nothrow_move_assignable_v<Entry>);
-    const auto retained = entries_.empty() ? 0 : cursor_ + 1;
-    entries_.reserve(retained + 1);
-    for (size_t i = retained; i < entries_.size(); ++i) bytes_ -= entries_[i].bytes;
-    entries_.erase(entries_.begin() + retained, entries_.end());
-    entries_.push_back({std::move(captured), bytes});
-    bytes_ += bytes;
-    replayKey_.reset();
-    while (entries_.size() > undoSteps_ + 1 || bytes_ > memoryLimit_) {
-      bytes_ -= entries_.front().bytes;
-      entries_.erase(entries_.begin());
-    }
-    cursor_ = entries_.size() - 1;
-    unrecorded_ = false;
+    if (!document_detail::captureGradeSnapshot(app, captured, mutation)) return false;
+    recordSnapshot(std::move(captured));
     return true;
   } catch (const std::exception &failure) {
     app.setStatus("Could not record Undo history: " + std::string(failure.what()));
+    return false;
+  }
+}
+
+bool GradeHistory::recordOutputChange(App &app) {
+  document_detail::DocumentMutation::assertControlThread(app);
+  if (app.path.empty() || app.isPhotoProtected() || entries_.empty() || unrecorded_) return false;
+  unrecorded_ = true;
+  try {
+    // Keep the original processor initial values, including those from before
+    // permitted OFX CreateInstance adjustments. Replaying this colour-only step
+    // must reconstruct processors exactly as the current entry does.
+    auto captured = entries_[cursor_].snapshot;
+    captured.grade.color = captureGradeColor(app);
+    captured.grade.positions = app.nodePositions;
+    recordSnapshot(std::move(captured));
+    return true;
+  } catch (const std::exception &failure) {
+    // Output changes remain permitted during export; its status takes priority.
+    if (app.renderer.canEditParameters())
+      app.setStatus("Could not record Undo history: " + std::string(failure.what()));
     return false;
   }
 }
@@ -124,25 +145,6 @@ bool GradeHistory::replay(App &app, bool forward) {
   // that records completed edits. OFX creation may legitimately adjust values.
   if (!document_detail::restoreGradeSnapshot(app, entries_[target].snapshot)) return false;
   cursor_ = target;
-  replayKey_.reset();
-  // Capture only comparison metadata after releasing restoration ownership.
-  // OFX may have changed parameters during creation; comparing the next edit
-  // against its initial values would create a false step and discard redo.
-  // This never replaces an entry or demands exact post-creation equality.
-  unrecorded_ = true;
-  try {
-    document_detail::GradeSnapshot actual;
-    if (!document_detail::captureGradeSnapshot(app, actual)) return true;
-    auto key = gradeKey(actual.grade);
-    if (key != gradeKey(entries_[cursor_].snapshot.grade)) {
-      if (key.capacity() + 1 > memoryLimit_ - bytes_)
-        throw std::runtime_error("replay comparison exceeds the history memory limit");
-      replayKey_ = std::move(key);
-    }
-    unrecorded_ = false;
-  } catch (const std::exception &failure) {
-    app.setStatus("Replay succeeded; could not refresh history comparison: " + std::string(failure.what()));
-  }
   return true;
 }
 bool GradeHistory::undo(App &app) { return replay(app, false); }

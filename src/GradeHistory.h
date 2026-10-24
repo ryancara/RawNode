@@ -8,6 +8,7 @@
 struct App;
 
 namespace document_detail {
+class DocumentMutation;
 // Detached logical state only; availability never enters the sidecar schema.
 // Every ImageProcessor has an entry: true was working, false was missing.
 struct GradeSnapshot {
@@ -26,8 +27,10 @@ class GradeHistory {
       : undoSteps_(undoSteps), memoryLimit_(memoryLimit) {}
 
   void clear() noexcept;
-  bool reset(App &app);                 // Successful photo open, after mutation/save scopes.
-  bool recordCompletedEdit(App &app);   // Also the Stage 3 completed-gesture boundary.
+  // An optional scope reuses the completed edit's existing execution exclusion.
+  bool reset(App &app, const document_detail::DocumentMutation *mutation = nullptr);
+  bool recordCompletedEdit(App &app, const document_detail::DocumentMutation *mutation = nullptr);
+  bool recordOutputChange(App &app);    // Colours/layout only; never synchronises processors.
   void noteUnrecordedEdit() noexcept { if (!entries_.empty()) unrecorded_ = true; }
   bool undo(App &app);
   bool redo(App &app);
@@ -37,19 +40,17 @@ class GradeHistory {
   bool hasUnrecordedEdit() const { return unrecorded_; }
   size_t size() const { return entries_.size(); }
   size_t cursor() const { return cursor_; }
-  size_t bytes() const { return bytes_ + (replayKey_ ? replayKey_->capacity() + 1 : 0); }
+  size_t bytes() const { return bytes_; }
   // Retained allocations plus a conventional tree-node overhead estimate;
   // excludes temporary capture/codec/reconstruction work and allocator metadata.
   static size_t snapshotBytes(const document_detail::GradeSnapshot &snapshot);
 
  private:
   struct Entry { document_detail::GradeSnapshot snapshot; size_t bytes = 0; };
+  void recordSnapshot(document_detail::GradeSnapshot snapshot);
   bool replay(App &app, bool forward);
   std::vector<Entry> entries_;
   size_t cursor_ = 0, bytes_ = 0;
   size_t undoSteps_, memoryLimit_;
   bool unrecorded_ = false;
-  // Only needed when permitted backend initialization changes the live logical
-  // values. Keep the original restoration snapshot, including its initial values.
-  std::optional<std::string> replayKey_;
 };

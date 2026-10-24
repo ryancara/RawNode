@@ -342,9 +342,12 @@ its backend/identifier before publication; recorded missing processors stay miss
 This information is absent from persistent records. Replay retains valid selection
 and inspection plus surviving Inspector expansion; ordinary Replace still resets
 selection/filter and inspection. Stage 2 adds one App-owned GradeHistory of
-logical snapshots and a cursor, explicitly recorded after completed document/
-graph operations release mutation ownership. Capture eligibility uses existing
-export/mutation state; no scheduler or worker is added. Unrecorded continuous
+logical snapshots and a cursor, explicitly recorded within completed document/
+graph operations' existing exclusion scopes, without nested mutations. Standalone
+capture checks existing export/mutation state before acquiring one scope. Output-
+only recording copies the current entry when no edit is pending, preserving
+processor-free display refresh even during export. Replay performs one restoration
+without post-replay capture. No scheduler or worker is added. Unrecorded continuous
 edits and failed captures pause traversal until a successful completion capture.
 See `UNDO_HISTORY.md` for bounds, measurements, integration and Stage 3 deferrals.
 Linear Append and fragment Paste construct detached nodes, remap IDs/positions and
