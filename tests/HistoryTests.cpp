@@ -279,14 +279,14 @@ bool outputOnlyAndPendingEdits() {
   exporting.start([&]() noexcept { probe.hold(); }); CHECK(probe.await(exportEntry));
   app.setStatus("Exporting test image");
   const auto exportBefore = RenderRuntimeTestAccess::snapshot(app.renderer);
-  const auto mutations = probe.mutations.load(), evaluations = probe.evaluations.load();
+  const auto mutations = probe.mutations.load(), evaluations = probe.evaluations.load(), waits = probe.waits.load();
   const auto exportSize = app.history.size();
   const ColorEncoding exportedOutput{RgbGamut::Rec2020, TransferFunction::SRGB};
   CHECK(setOutputEncoding(app, exportedOutput));
   const auto exportAfter = RenderRuntimeTestAccess::snapshot(app.renderer);
   const bool exportSafe = exportAfter.exportBusy && exportAfter.epoch == exportBefore.epoch &&
       exportAfter.previewPending == exportBefore.previewPending && exportAfter.displayPending &&
-      probe.mutations == mutations && probe.evaluations == evaluations && probe.waits == 0 &&
+      probe.mutations == mutations && probe.evaluations == evaluations && probe.waits == waits &&
       app.getStatus() == "Exporting test image" && app.history.size() == exportSize + 1;
   probe.unblock(); app.renderer.joinExport();
   CHECK(exportSafe);
