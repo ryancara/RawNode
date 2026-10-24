@@ -57,6 +57,12 @@ void RenderRuntime::requestDisplayRefresh() {
   workCv_.notify_one();
 }
 
+bool RenderRuntime::canCaptureSnapshot() const {
+  assertControlThread();
+  std::lock_guard<std::mutex> lock(mutex_);
+  return !stopping_ && !exportBusy_ && mutationDepth_ == 0 && !app_.isPhotoProtected();
+}
+
 bool RenderRuntime::canEditParameters() const {
   assertControlThread();
   std::lock_guard<std::mutex> lock(mutex_);

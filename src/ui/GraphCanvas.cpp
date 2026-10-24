@@ -404,7 +404,8 @@ void drawGraphCanvas(App &app) {
   // Materialize only missing auto positions, in the existing grade layout map.
   // No disk writes: ordinary Save Grade/photo departure/shutdown captures these.
   if (!app.isPhotoProtected())
-    for (const auto &entry : layout.nodes) app.nodePositions.emplace(entry.first, entry.second.position);
+    for (const auto &entry : layout.nodes)
+      app.nodePositions.emplace(entry.first, entry.second.position);
   // Newly docked windows can report their pre-dock size on the first frame.
   // Fit once geometry settles; later user resizing does not erase their pan.
   const bool sizeStable = state.lastCanvasSize.x == canvasSize.x && state.lastCanvasSize.y == canvasSize.y;
