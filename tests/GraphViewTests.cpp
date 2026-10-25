@@ -1589,6 +1589,24 @@ bool groupedPositionHistory() {
   ui.hover(app, {sourcePoint.x + 40, sourcePoint.y}); ui.hover(app, sourcePoint);
   ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
   CHECK(app.history.size() == sourceSize && app.history.canRedo() && mutations == 0);
+  // An export may defer both an interrupted parameter and a position gesture.
+  // Finishing the parameter already captures the combined grade: no second
+  // full capture is needed when the canvas then completes its metadata.
+  CHECK(app.history.redo(app)); selectNode(app, id); ui.showInspector = true; ui.tick(app); ui.tick(app);
+  const auto slider = ui.inspectorLastRect.GetCenter();
+  ui.hover(app, slider); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+  ui.hover(app, {slider.x + 20, slider.y}); CHECK(app.parameterGesture && app.history.needsFullCapture());
+  {
+    auto exporting = app.renderer.acquireExport(); CHECK(bool(exporting));
+    ui.showInspector = false; ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+    const auto position = app.nodePositions.at(id.value);
+    const auto header = ui.screen(app, {position.x + 70, position.y + 16});
+    ui.drag(app, header, {20, 0}, 0);
+    CHECK(app.parameterGesture && app.graphCanvas.positionEditPending);
+  }
+  mutations = 0; ui.tick(app);
+  CHECK(mutations == 1 && !app.parameterGesture && !app.graphCanvas.positionEditPending && !app.history.hasUnrecordedEdit());
+  CHECK(app.history.undo(app) && std::get<double>(findNode(app, id)->processor->parameters()[0].value) == 0);
   RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
   return true;
 }

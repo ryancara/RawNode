@@ -387,10 +387,11 @@ void finishGraphDrag(App &app) {
     return;
   }
   if (!state.positionEditPending || state.dragging) return;
+  finishParameterGesture(app);
+  if (app.parameterGesture) return;
   if (app.history.needsFullCapture()) {
     // A prior parameter edit must not be omitted by copying an old entry.
-    finishParameterGesture(app);
-    if (app.parameterGesture || !app.renderer.canCaptureSnapshot()) return;
+    if (!app.renderer.canCaptureSnapshot()) return;
     state.positionEditPending = false;
     app.history.recordCompletedEdit(app);
   } else {
