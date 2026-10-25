@@ -674,7 +674,7 @@ scheduler or sidecar redesign is approved for that possibility today.
 
 ## D053 — Undo/Redo with bounded logical grade snapshots
 
-**Status:** Accepted, 2026-10-22. Stage 1 implements safe restoration only;
+**Status:** Accepted, 2026-10-22. Stage 1 safe restoration is merged as PR #92;
 Claude's independent design review was APPROVE WITH SMALL CHANGES.
 
 ### Approved design and behaviour
@@ -719,19 +719,30 @@ before publishing. Failure displays an error, preserves the current live graph,
 processor ownership, output, colours, positions and relevant UI state, and cannot
 advance the history position. Restoration itself writes no sidecars.
 
-### Implementation details still to establish
+### Staged implementation and measurements
 
-Start with a target of 100 history steps. Measure actual logical snapshots,
-including large/opaque processor parameter payloads, before selecting an appropriate
-memory cap and bounded-retention policy. Exact storage/cursor representation,
-meaningful gesture boundaries, command integration and shortcut/menu wiring still
-need implementation and testing; the approved behaviour above is not evidence
-that those mechanisms already exist.
+Stage 2 targets 100 undo steps plus the baseline and uses a 64 MiB accounted
+retained-memory cap. Actual native and large/opaque OFX payload measurements,
+straightforward accounting, explicit command integration and conservative capture
+failure recovery are documented in [UNDO_HISTORY.md](UNDO_HISTORY.md). These are
+implementation choices to validate in Stage 2, not additions to the approved
+user-facing contract. Completed edits may reuse their existing DocumentMutation
+scope for capture without nested ownership or an intermediate preview request.
+Output-only recording derives from the current entry when no edits are pending,
+preserving display-only refresh and export status; otherwise the combined state
+awaits full capture. Automatic Graph View positions are housekeeping.
 
-Stage 1 adds only capture/replay safety through existing full-grade restoration
-and focused regression tests. Subsequent stages supply history collection/cursor,
-measurement and bounds, edit/gesture integration and user controls. Do not infer
-approval for a second restoration engine or unrelated product changes (D052).
+Replay uses one restoration mutation, without post-replay capture/comparison
+metadata. Accept the narrow trade-off that a later apparent no-op full capture
+may record the effective live grade and truncate Redo when OFX CreateInstance
+changed persistent parameters. This never loses the live document or changes
+whether restoration succeeded.
+
+Stage 3 supplies meaningful gesture boundaries for shared parameter widgets and
+node drags, plus shortcuts and visible controls. Until that wiring exists,
+unrecorded parameter/position changes pause traversal rather than creating
+per-frame entries. No second restoration engine or unrelated product change is
+approved (D052).
 
 ## Pending decisions
 

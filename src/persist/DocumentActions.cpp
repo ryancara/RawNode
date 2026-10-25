@@ -10,6 +10,7 @@
 #include "DocumentMutation.h"
 
 #include <algorithm>
+#include <cassert>
 #include <filesystem>
 #include <stdexcept>
 
@@ -29,27 +30,30 @@ void document_detail::setRawWorkingEncoding(App &app, RgbGamut gamut, TransferFu
                                            const ActionTestOptions &options) {
   if (!requireEditableGraph(app) || app.path.empty()) return;
   const ColorEncoding requested{gamut, gamma};
-  document_detail::DocumentMutation mutation(app);
   {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    if (!app.inputIsRaw || app.photoRawWorkingEncoding == requested) return;
+    document_detail::DocumentMutation mutation(app);
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      if (!app.inputIsRaw || app.photoRawWorkingEncoding == requested) return;
+    }
+    Image decoded;
+    ColorEncoding detected;
+    bool raw = false;
+    if (!options.decode(app.path, decoded, detected, raw, requested) || !raw) {
+      app.setStatus("Could not reload RAW in " + colorEncodingName(requested));
+      return;
+    }
+    auto preview = document_detail::makePreviewSource(decoded, detected, app.previewRes);
+    app.full.swap(decoded);
+    app.preview.swap(preview);
+    {
+      std::lock_guard<std::mutex> lock(app.colorMutex);
+      app.inputEncoding = detected;
+      app.photoRawWorkingEncoding = requested;
+    }
+    mutation.changed();
+    app.history.recordCompletedEdit(app, &mutation);
   }
-  Image decoded;
-  ColorEncoding detected;
-  bool raw = false;
-  if (!options.decode(app.path, decoded, detected, raw, requested) || !raw) {
-    app.setStatus("Could not reload RAW in " + colorEncodingName(requested));
-    return;
-  }
-  auto preview = document_detail::makePreviewSource(decoded, detected, app.previewRes);
-  app.full.swap(decoded);
-  app.preview.swap(preview);
-  {
-    std::lock_guard<std::mutex> lock(app.colorMutex);
-    app.inputEncoding = detected;
-    app.photoRawWorkingEncoding = requested;
-  }
-  mutation.changed();
   app.setStatus("RAW working encoding: " + colorEncodingName(requested));
 }
 
@@ -61,15 +65,16 @@ bool setOutputEncoding(App &app, ColorEncoding encoding) {
   if (!requireEditableGraph(app) || app.path.empty()) return false;
   {
     std::lock_guard<std::mutex> lock(app.colorMutex);
+    if (app.outputEncoding == encoding) return true;
     app.outputEncoding = encoding;
   }
+  app.history.recordOutputChange(app);
   app.renderer.requestDisplayRefresh();
   return true;
 }
 
 static bool captureGradeState(App &app, PersistGrade &grade, std::map<std::string, bool> *workingProcessors) {
   if (!requireEditableGraph(app)) return false;
-  document_detail::DocumentMutation mutation(app);
   try {
     PersistGrade captured;
     captured.graph = captureGraph({app.nodes, app.primarySource, app.documentOutput});
@@ -92,10 +97,22 @@ static bool captureGradeState(App &app, PersistGrade &grade, std::map<std::strin
 }
 
 bool captureGrade(App &app, PersistGrade &grade) {
+  if (!requireEditableGraph(app)) return false;
+  document_detail::DocumentMutation mutation(app);
   return captureGradeState(app, grade, nullptr);
 }
 
-bool document_detail::captureGradeSnapshot(App &app, GradeSnapshot &snapshot) {
+bool document_detail::captureGradeSnapshot(App &app, GradeSnapshot &snapshot, const DocumentMutation *mutation) {
+  DocumentMutation::assertControlThread(app);
+  if (mutation) {
+    assert(mutation->owns(app));
+    return captureGradeState(app, snapshot.grade, &snapshot.workingProcessors);
+  }
+  if (!app.renderer.canCaptureSnapshot()) {
+    app.setStatus("Cannot capture history during export, document mutation or protection");
+    return false;
+  }
+  DocumentMutation owned(app);
   return captureGradeState(app, snapshot.grade, &snapshot.workingProcessors);
 }
 
@@ -230,6 +247,7 @@ static bool applyGradeState(App &app, const PersistGrade &incoming,
     // DocumentMutation already clears an invalid inspected endpoint and keeps
     // a valid one when scheduling the completed graph.
     mutation.changed();
+    if (!workingProcessors) app.history.recordCompletedEdit(app, &mutation);
     return true;
   } catch (const std::exception &failure) {
     app.setStatus("Could not apply full grade: " + std::string(failure.what()));
@@ -253,15 +271,7 @@ bool applyGrade(App &app, const PersistGrade &grade) {
 }
 
 namespace document_detail {
-bool savePhoto(App &app, std::string &error, const ActionTestOptions &options) {
-  error.clear();
-  if (app.path.empty()) return true;
-  if (app.isPhotoProtected()) {
-    error = "The saved grade was not loaded; grade saving is disabled";
-    app.setStatus(error);
-    return false;
-  }
-  DocumentMutation mutation(app);
+static bool savePhotoWithinMutation(App &app, std::string &error, const ActionTestOptions &options) {
   try {
     PersistGrade grade;
     grade.graph = captureGraph({app.nodes, app.primarySource, app.documentOutput});
@@ -279,6 +289,18 @@ bool savePhoto(App &app, std::string &error, const ActionTestOptions &options) {
   app.persistenceWarning = "Could not save grade: " + error;
   app.setStatus(app.persistenceWarning);
   return false;
+}
+
+bool savePhoto(App &app, std::string &error, const ActionTestOptions &options) {
+  error.clear();
+  if (app.path.empty()) return true;
+  if (app.isPhotoProtected()) {
+    error = "The saved grade was not loaded; grade saving is disabled";
+    app.setStatus(error);
+    return false;
+  }
+  DocumentMutation mutation(app);
+  return savePhotoWithinMutation(app, error, options);
 }
 
 bool leavePhoto(App &app, const SaveFailurePrompt &prompt, const ActionTestOptions &options) {
@@ -419,7 +441,8 @@ static bool openPreparedPhoto(App &app, const std::string &path, const ActionTes
       app.status.swap(loaded);
     }
     mutation.changed();
-    if (initialSave) { std::string failure; savePhoto(app, failure, options); }
+    if (initialSave) { std::string failure; savePhotoWithinMutation(app, failure, options); }
+    app.history.reset(app, &mutation);
     return true;
   } catch (const std::exception &failure) {
     app.setStatus("Could not open " + path + ": " + failure.what());

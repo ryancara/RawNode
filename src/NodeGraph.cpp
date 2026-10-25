@@ -124,6 +124,7 @@ static bool editNodeParameter(App &app, const NodeId &id, Edit edit) {
   if (!requireEditableGraph(app) || !app.renderer.canEditParameters()) return false;
   Node *node = findNode(app, id);
   if (!node || !node->processor || !edit(*node->processor)) return false;
+  app.history.noteUnrecordedEdit();
   app.renderer.requestPreview();
   return true;
 }
@@ -145,9 +146,12 @@ void clearNodes(App &app) {
     app.renderer.resetInspection();
     return;
   }
-  DocumentMutation mutation(app);
-  clearNodesWithinMutation(app);
-  mutation.changed();
+  {
+    DocumentMutation mutation(app);
+    clearNodesWithinMutation(app);
+    mutation.changed();
+    app.history.recordCompletedEdit(app, &mutation);
+  }
 }
 
 bool addNode(App &app, int pluginIndex) {
@@ -155,9 +159,15 @@ bool addNode(App &app, int pluginIndex) {
   if (pluginIndex < 0 || pluginIndex >= (int)gPlugins.size()) return false;
   const auto insertion = processorInsertion(app);
   if (!insertion) return false;
-  DocumentMutation mutation(app);
-  const bool added = addOfxWithinMutation(app, pluginIndex, *insertion);
-  if (added) mutation.changed();
+  bool added;
+  {
+    DocumentMutation mutation(app);
+    added = addOfxWithinMutation(app, pluginIndex, *insertion);
+    if (added) {
+      mutation.changed();
+      app.history.recordCompletedEdit(app, &mutation);
+    }
+  }
   return added;
 }
 
@@ -165,9 +175,15 @@ bool addNativeExposureNode(App &app) {
   if (!requireEditableGraph(app)) return false;
   const auto insertion = processorInsertion(app);
   if (!insertion) return false;
-  DocumentMutation mutation(app);
-  const bool added = insertProcessorNode(app, std::make_unique<NativeExposureProcessor>(), *insertion);
-  if (added) mutation.changed();
+  bool added;
+  {
+    DocumentMutation mutation(app);
+    added = insertProcessorNode(app, std::make_unique<NativeExposureProcessor>(), *insertion);
+    if (added) {
+      mutation.changed();
+      app.history.recordCompletedEdit(app, &mutation);
+    }
+  }
   return added;
 }
 
@@ -175,9 +191,15 @@ bool addNativeCstNode(App &app) {
   if (!requireEditableGraph(app)) return false;
   const auto insertion = processorInsertion(app);
   if (!insertion) return false;
-  DocumentMutation mutation(app);
-  const bool added = insertProcessorNode(app, std::make_unique<NativeCstProcessor>(), *insertion);
-  if (added) mutation.changed();
+  bool added;
+  {
+    DocumentMutation mutation(app);
+    added = insertProcessorNode(app, std::make_unique<NativeCstProcessor>(), *insertion);
+    if (added) {
+      mutation.changed();
+      app.history.recordCompletedEdit(app, &mutation);
+    }
+  }
   return added;
 }
 
@@ -185,9 +207,15 @@ bool addCtlNode(App &app, const std::string &path) {
   if (!requireEditableGraph(app)) return false;
   const auto insertion = processorInsertion(app);
   if (!insertion) return false;
-  DocumentMutation mutation(app);
-  const bool added = addCtlWithinMutation(app, path, *insertion);
-  if (added) mutation.changed();
+  bool added;
+  {
+    DocumentMutation mutation(app);
+    added = addCtlWithinMutation(app, path, *insertion);
+    if (added) {
+      mutation.changed();
+      app.history.recordCompletedEdit(app, &mutation);
+    }
+  }
   return added;
 }
 
@@ -230,9 +258,12 @@ void setNodeEnabled(App &app, const NodeId &id, bool enabled) {
   if (!requireEditableGraph(app)) return;
   Node *node = findNode(app, id);
   if (!node || node->enabled == enabled || node->operation == NodeOperation::Source) return;
-  DocumentMutation mutation(app);
-  node->enabled = enabled;
-  mutation.changed();
+  {
+    DocumentMutation mutation(app);
+    node->enabled = enabled;
+    mutation.changed();
+    app.history.recordCompletedEdit(app, &mutation);
+  }
 }
 
 static std::vector<NodeId> linearCaptureOrder(const App &app) {
@@ -392,22 +423,25 @@ static bool insertFragment(App &app, const PersistFragment &fragment, std::optio
     auto output = app.documentOutput;
     const auto staged = graph::insertImageChain({topology, app.primarySource, output}, pending, after);
     if (!staged.ok()) throw std::runtime_error(staged.error);
-    document_detail::DocumentMutation mutation(app);
-    std::vector<Node> additions;
-    additions.reserve(order.size());
-    for (const auto &id : order) {
-      const auto saved = std::find_if(fragment.nodes.begin(), fragment.nodes.end(), [&](const auto &n) { return n.id == id.value; });
-      Node node = restoredNode(additions, *saved, true, true);
-      node.id = ids.at(saved->id);
-      node.fixedInputs = saved->inputs;
-      for (auto &binding : node.fixedInputs) if (binding.second) binding.second->nodeId = ids.at(binding.second->nodeId.value);
-      additions.push_back(std::move(node));
+    {
+      document_detail::DocumentMutation mutation(app);
+      std::vector<Node> additions;
+      additions.reserve(order.size());
+      for (const auto &id : order) {
+        const auto saved = std::find_if(fragment.nodes.begin(), fragment.nodes.end(), [&](const auto &n) { return n.id == id.value; });
+        Node node = restoredNode(additions, *saved, true, true);
+        node.id = ids.at(saved->id);
+        node.fixedInputs = saved->inputs;
+        for (auto &binding : node.fixedInputs) if (binding.second) binding.second->nodeId = ids.at(binding.second->nodeId.value);
+        additions.push_back(std::move(node));
+      }
+      const auto result = graph::insertImageChain({app.nodes, app.primarySource, app.documentOutput}, additions, after);
+      if (!result.ok()) throw std::runtime_error(result.error);
+      app.nodePositions.swap(positions);
+      selectNode(app, std::move(selection));
+      mutation.changed();
+      app.history.recordCompletedEdit(app, &mutation);
     }
-    const auto result = graph::insertImageChain({app.nodes, app.primarySource, app.documentOutput}, additions, after);
-    if (!result.ok()) throw std::runtime_error(result.error);
-    app.nodePositions.swap(positions);
-    selectNode(app, std::move(selection));
-    mutation.changed();
     return true;
   } catch (const std::exception &failure) {
     app.setStatus("Could not insert grade/fragment: " + std::string(failure.what()));

@@ -103,6 +103,7 @@ class StagedEdit {
       }
       if (owner->selectedNodeId() && !findNode(*owner, *owner->selectedNodeId())) selectNode(*owner, std::nullopt);
       mutation->changed();
+      owner->history.recordCompletedEdit(*owner, &*mutation);
     }
     return {{}, addedSlot};
   }

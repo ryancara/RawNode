@@ -33,6 +33,8 @@ class RenderRuntime {
   // its mutation; that mutation supplies the completion preview.
   void resetInspection();
   void requestDisplayRefresh();
+  // A new capture may drain preview, but must not nest mutation or wait on export.
+  bool canCaptureSnapshot() const;
   bool canEditParameters() const;      // Same control thread as export acquisition.
   // Caller already owns preview/export execution exclusion. This is the one
   // evaluator invocation seam; test hooks are configured before execution only.
