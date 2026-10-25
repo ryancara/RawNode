@@ -47,6 +47,14 @@ void doExport(App &app) {
   startExport(app, outPath);
 }
 
+void finishUiEdits(App &app) {
+  // Parameter completion may already have attempted a full capture.
+  // Ending a simultaneous canvas interaction must not repeat that attempt.
+  if (finishParameterGesture(app, true)) app.graphCanvas.positionEditPending = false;
+  app.graphCanvas.cancelInteraction();
+  ui::finishGraphDrag(app);
+}
+
 bool canCopySelectedNode(const App &app) {
   const Node *node = selectedNode(app);
   return !app.isPhotoProtected() && node && node->operation == NodeOperation::ImageProcessor;
@@ -87,9 +95,7 @@ bool pasteFromClipboard(App &app) {
     app.setStatus("Clipboard does not contain supported RawNode data: " + error); return false;
   }
   const auto *grade = std::get_if<PersistGrade>(&transfer);
-  finishParameterGesture(app, true);
-  app.graphCanvas.cancelInteraction();
-  ui::finishGraphDrag(app);
+  finishUiEdits(app);
   const bool applied = grade ? applyGrade(app, *grade)
       : pasteFragment(app, std::get<PersistFragment>(transfer), selectedNode(app) ? app.selectedNodeId() : std::nullopt);
   if (applied) {
@@ -127,9 +133,7 @@ bool loadPresetDialog(App &app, bool append, std::string path) {
   PersistGrade grade;
   std::string error;
   if (!loadPresetFile(path, grade, error)) { app.setStatus(error); return false; }
-  finishParameterGesture(app, true);
-  app.graphCanvas.cancelInteraction();
-  ui::finishGraphDrag(app);
+  finishUiEdits(app);
   const bool applied = append ? appendGrade(app, grade, selectedNode(app) ? app.selectedNodeId() : std::nullopt) : applyGrade(app, grade);
   if (applied) {
     if (!append) app.parameterGesture.reset();
@@ -152,9 +156,7 @@ static void openUrl(const std::string &url) {
 static void openImageDialog(App &app) {
   const auto paths = pfd::open_file("Open image", "", openImageDialogFilters()).result();
   if (!paths.empty()) {
-    finishParameterGesture(app, true);
-    app.graphCanvas.cancelInteraction();
-    ui::finishGraphDrag(app);
+    finishUiEdits(app);
     if (openPath(app, paths.front(), promptSaveFailure)) app.parameterGesture.reset();
   }
 }
@@ -221,9 +223,7 @@ void DrawUiFrame(App &app) {
   if (!app.pendingFolderDir.empty()) {
     const std::string dir = std::move(app.pendingFolderDir);
     app.pendingFolderDir.clear();
-    finishParameterGesture(app, true);
-    app.graphCanvas.cancelInteraction();
-    ui::finishGraphDrag(app);
+    finishUiEdits(app);
     openFolder(app, dir, promptSaveFailure);
   }
 

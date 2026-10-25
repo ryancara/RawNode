@@ -53,9 +53,7 @@ void drawFilmstripPanel(App &app) {
     if (ImGui::IsItemVisible()) requestFilmstripThumb(app, i, selected);
     if (selected) ImGui::PopStyleColor();
     if (ImGui::IsItemClicked()) {
-      finishParameterGesture(app, true);
-      app.graphCanvas.cancelInteraction();
-      ui::finishGraphDrag(app);
+      finishUiEdits(app);
       if (openPath(app, e.path, promptSaveFailure)) app.parameterGesture.reset();
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))

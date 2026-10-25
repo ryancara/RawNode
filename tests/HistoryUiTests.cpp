@@ -193,6 +193,73 @@ bool ctlDeferredInputAndFailure() {
   return true;
 }
 
+bool droppedPhotoCompletesOutgoingGesture() {
+  for (const auto decision : {SaveFailureDecision::Discard, SaveFailureDecision::Cancel}) {
+    Files files; App app; Ui ui;
+    const auto path = files.photo("drop.png"), script = (files.dir / "exposure.ctl").string();
+    std::ofstream(script) << "void main(input varying float rIn, input varying float gIn, input varying float bIn, "
+        "output varying float rOut, output varying float gOut, output varying float bOut, "
+        "input uniform float exposure = 1.25) { rOut=rIn*exposure; gOut=gIn*exposure; bOut=bIn*exposure; }";
+    CHECK(openPath(app, path) && addCtlNode(app, script));
+    const auto id = *app.selectedNodeId();
+    CHECK(saveCurrentInputSidecar(app));
+    std::ifstream savedFile(inputSidecarPath(path), std::ios::binary);
+    const std::string saved{std::istreambuf_iterator<char>(savedFile), {}};
+    savedFile.close();
+    PersistGrade native; CHECK(captureGrade(app, native));
+    for (auto &node : native.graph.nodes) if (node.id == id.value) {
+      node.backend = "native"; node.identifier = "rawnode.native.exposure"; node.label = "Exposure";
+      node.paramsJson = {{"exposure", "0"}};
+    }
+    CHECK(applyGrade(app, native) && selectNode(app, id));
+    CHECK(findNode(app, id)->processor->backend() == ProcessorBackend::Native && exposure(app, id) == 0);
+    ui.tick(app); ui.tick(app);
+    const float h = ImGui::GetFrameHeight(), gap = ImGui::GetStyle().ItemInnerSpacing.x;
+    ui.click(app, {28 + 1.5f * h + gap, ui.item.GetCenter().y}); ui.tick(app); ui.type(app, "7");
+    CHECK(app.parameterGesture && app.parameterGesture->pendingValue == std::optional<ParameterValue>{7.0});
+    CHECK(exposure(app, id) == 0);
+    const auto size = app.history.size(), cursor = app.history.cursor();
+    int saves = 0, prompts = 0, mutations = 0;
+    bool completedBeforeSave = false, completedBeforeDecision = false;
+    RenderRuntimeTestAccess::observe(app.renderer, &mutations, [](void *context, auto event) noexcept {
+      if (event == RenderRuntimeTestAccess::Event::MutationCompleted) ++*static_cast<int *>(context);
+    });
+    document_detail::ActionTestOptions options;
+    options.beforeSave = [&] {
+      ++saves;
+      completedBeforeSave = !app.parameterGesture && exposure(app, id) == 7 &&
+          app.history.size() == size + 1 && app.history.cursor() == cursor + 1 && !app.history.hasUnrecordedEdit();
+      return persist_detail::FileFault::Replace;
+    };
+    // This is the dispatch called by GLFW, between ImGui frames. A failed save
+    // must see the outgoing value before the user chooses Discard or Cancel.
+    const bool opened = openDroppedPhoto(app, path, [&](const std::string &error) {
+      ++prompts;
+      completedBeforeDecision = !error.empty() && completedBeforeSave && !app.parameterGesture && exposure(app, id) == 7;
+      return decision;
+    }, options);
+    ui.tick(app); ui.tick(app);
+    if (decision == SaveFailureDecision::Discard) {
+      CHECK(opened && findNode(app, id)->processor->backend() == ProcessorBackend::CTL);
+      CHECK(findNode(app, id)->processor->identifier() == script && exposure(app, id) == 1.25);
+      CHECK(app.history.size() == 1 && app.history.cursor() == 0 && !app.history.hasUnrecordedEdit());
+      CHECK(!app.history.canUndo() && !app.history.canRedo() && mutations == 3);
+    } else {
+      CHECK(!opened && findNode(app, id)->processor->backend() == ProcessorBackend::Native && exposure(app, id) == 7);
+      // Cancel may leave the unchanged input focused. Ending that focus adds no step.
+      ui.key(app, ImGuiKey_Enter);
+      CHECK(app.history.size() == size + 1 && app.history.cursor() == cursor + 1 && mutations == 2);
+      CHECK(app.history.canUndo() && !app.history.hasUnrecordedEdit());
+    }
+    CHECK(saves == 1 && prompts == 1 && completedBeforeSave && completedBeforeDecision && !app.parameterGesture);
+    std::ifstream afterFile(inputSidecarPath(path), std::ios::binary);
+    CHECK((std::string{std::istreambuf_iterator<char>(afterFile), {}}) == saved);
+    RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  }
+  std::puts("ok  History UI: GLFW drop dispatch completes numeric input before saving; Discard reopens CTL without NodeId reuse leakage; Cancel retains outgoing state");
+  return true;
+}
+
 bool shortcutsAndMenus() {
   for (const bool mac : {false, true}) {
     Files files; App app; Ui ui; ui.full = true;
@@ -242,7 +309,7 @@ bool shortcutsAndMenus() {
 }
 
 bool testHistoryUi() {
-  if (!nativeGestures() || !ctlDeferredInputAndFailure() || !shortcutsAndMenus()) return false;
+  if (!nativeGestures() || !ctlDeferredInputAndFailure() || !droppedPhotoCompletesOutgoingGesture() || !shortcutsAndMenus()) return false;
   std::puts("ok  History UI: native gestures, numeric commits/interruption, discrete buttons, shortcuts and eligibility");
   return true;
 }

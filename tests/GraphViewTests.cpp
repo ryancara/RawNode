@@ -1627,10 +1627,44 @@ bool groupedPositionHistory() {
   return true;
 }
 
+bool failedMetadataSurvivesReturnToStart() {
+  Files files; const auto path = (files.dir / "pending-metadata.png").string(); std::ofstream(path) << "synthetic";
+  document_detail::ActionTestOptions options; options.decode = syntheticPhoto;
+  App app; Ui ui;
+  CHECK(document_detail::openPhoto(app, path, {}, options) && addNativeExposureNode(app));
+  const auto id = *app.selectedNodeId();
+  // Optional positions are absent from this baseline. Graph View materialises
+  // them as housekeeping, then Output's metadata copy exceeds this small cap.
+  app.nodePositions.clear();
+  document_detail::GradeSnapshot baseline; CHECK(document_detail::captureGradeSnapshot(app, baseline));
+  app.history = GradeHistory{100, GradeHistory::snapshotBytes(baseline) + 16}; CHECK(app.history.reset(app));
+  app.nodesView = NodesView::Graph; ui.tick(app); ui.tick(app);
+  app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 40}, 1}; ui.tick(app);
+  CHECK(!app.history.hasUnrecordedEdit() && app.nodePositions.size() == 2);
+  const auto size = app.history.size(), cursor = app.history.cursor(), memory = app.history.bytes();
+  CHECK(setOutputEncoding(app, {RgbGamut::Rec709, TransferFunction::DaVinciIntermediate}));
+  CHECK(app.history.hasUnrecordedEdit() && !app.history.needsFullCapture());
+  CHECK(app.getStatus().find("snapshot exceeds the history memory limit") != std::string::npos);
+  const auto original = app.nodePositions.at(id.value);
+  const auto from = ui.screen(app, {original.x + 70, original.y + 16});
+  std::atomic<int> mutations{0}; RenderRuntimeTestAccess::observe(app.renderer, &mutations, observeMutation);
+  ui.hover(app, from); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+  CHECK(!app.graphCanvas.cleanHistoryAtDragStart);
+  ui.hover(app, {from.x + 40, from.y + 20}); ui.hover(app, from);
+  ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+  CHECK(same(app.nodePositions.at(id.value), original) && mutations == 0);
+  CHECK(app.history.hasUnrecordedEdit() && !app.history.needsFullCapture());
+  CHECK(!app.history.canUndo() && !app.history.canRedo() && !canUndoGrade(app) && !canRedoGrade(app));
+  CHECK(app.history.size() == size && app.history.cursor() == cursor && app.history.bytes() == memory);
+  RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  return true;
+}
+
 }  // namespace
 
 bool testGraphView() {
   for (const auto &test : {
+       std::make_pair("return-to-start drag retains unrelated failed Output metadata", failedMetadataSurvivesReturnToStart),
        std::make_pair("grouped position-only history, return/no-op, interruptions and pending parameters", groupedPositionHistory),
        std::make_pair("automatic Graph positions preserve Redo after replay, including Source-only baseline", automaticPositionsPreserveRedo),
        std::make_pair("dependency layout, branches, missing nodes and typed ports", dependencyLayoutAndPorts),

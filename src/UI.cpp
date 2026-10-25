@@ -2,6 +2,7 @@
 
 #include "AppState.h"
 #include "persist/DocumentActions.h"
+#include "persist/DocumentActionsPriv.h"
 #include "persist/Preferences.h"
 #include "portable-file-dialogs.h"
 #include <cstdio>
@@ -19,6 +20,14 @@
 #endif
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
+
+bool openDroppedPhoto(App &app, const std::string &path, const SaveFailurePrompt &prompt,
+                      const document_detail::ActionTestOptions &options) {
+  finishUiEdits(app);
+  const bool opened = document_detail::openPhoto(app, path, prompt, options);
+  if (opened) app.parameterGesture.reset();
+  return opened;
+}
 
 int runApp(const std::string &optionalPath) {
   if (!glfwInit()) return 1;
@@ -63,7 +72,7 @@ int runApp(const std::string &optionalPath) {
 
   glfwSetDropCallback(app.window, [](GLFWwindow *w, int count, const char **paths) {
     auto *app = static_cast<App *>(glfwGetWindowUserPointer(w));
-    if (app && count > 0) openPath(*app, paths[0], promptSaveFailure);
+    if (app && count > 0) openDroppedPhoto(*app, paths[0], promptSaveFailure, {});
   });
   glfwSetWindowUserPointer(app.window, &app);
 
