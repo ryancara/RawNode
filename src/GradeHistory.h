@@ -30,14 +30,18 @@ class GradeHistory {
   // An optional scope reuses the completed edit's existing execution exclusion.
   bool reset(App &app, const document_detail::DocumentMutation *mutation = nullptr);
   bool recordCompletedEdit(App &app, const document_detail::DocumentMutation *mutation = nullptr);
-  bool recordOutputChange(App &app);    // Colours/layout only; never synchronises processors.
-  void noteUnrecordedEdit() noexcept { if (!entries_.empty()) unrecorded_ = true; }
+  bool recordMetadataChange(App &app);  // Colours/layout only; never synchronises processors.
+  void noteUnrecordedEdit() noexcept { if (!entries_.empty()) pending_ = Pending::Grade; }
+  void notePositionChange() noexcept { if (!entries_.empty() && pending_ == Pending::None) pending_ = Pending::Metadata; }
+  // UI returned a clean layout gesture to its start; processor failures remain pending.
+  void cancelPositionChange() noexcept { if (pending_ == Pending::Metadata) pending_ = Pending::None; }
   bool undo(App &app);
   bool redo(App &app);
 
-  bool canUndo() const { return !unrecorded_ && !entries_.empty() && cursor_ > 0; }
-  bool canRedo() const { return !unrecorded_ && cursor_ + 1 < entries_.size(); }
-  bool hasUnrecordedEdit() const { return unrecorded_; }
+  bool canUndo() const { return pending_ == Pending::None && !entries_.empty() && cursor_ > 0; }
+  bool canRedo() const { return pending_ == Pending::None && cursor_ + 1 < entries_.size(); }
+  bool hasUnrecordedEdit() const { return pending_ != Pending::None; }
+  bool needsFullCapture() const { return pending_ == Pending::Grade; }
   size_t size() const { return entries_.size(); }
   size_t cursor() const { return cursor_; }
   size_t bytes() const { return bytes_; }
@@ -52,5 +56,6 @@ class GradeHistory {
   std::vector<Entry> entries_;
   size_t cursor_ = 0, bytes_ = 0;
   size_t undoSteps_, memoryLimit_;
-  bool unrecorded_ = false;
+  enum class Pending { None, Metadata, Grade };
+  Pending pending_ = Pending::None;
 };

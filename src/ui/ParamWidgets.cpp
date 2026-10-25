@@ -1,14 +1,16 @@
 #include "ui/ParamWidgets.h"
+#include "AppState.h"
 #include "NodeGraph.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 static void drawPencilIcon(ImVec2 a, ImVec2 b) {
@@ -78,49 +80,94 @@ static bool paramStepButton(bool plus) {
   return clicked;
 }
 
-static bool paramEditButton(double &value, bool asInt, double lo, double hi) {
-  static std::unordered_map<ImGuiID, double> pendingEdits;
+void finishParameterGesture(App &app, bool force) {
+  if (!app.parameterGesture) return;
+  if (app.parameterGesture->photoPath != app.path || app.isPhotoProtected()) {
+    app.parameterGesture.reset();
+    return;
+  }
+  const auto &context = *ImGui::GetCurrentContext();
+  if (!force && !ImGui::GetIO().AppFocusLost && context.ActiveId == app.parameterGesture->item &&
+      context.ActiveIdIsAlive == app.parameterGesture->item) return;
+  // Export can start while a widget is losing focus. Complete once it releases
+  // execution, without repeatedly attempting capture or changing export status.
+  if (!app.renderer.canCaptureSnapshot()) return;
+  auto gesture = std::move(*app.parameterGesture);
+  app.parameterGesture.reset();
+  if (gesture.pendingValue) {
+    Node *node = findNode(app, gesture.node);
+    if (node && node->processor) {
+      const auto params = node->processor->parameters();
+      for (const auto &param : params)
+        if (param.id == gesture.parameter && param.enabled && !param.readOnly && param.value != *gesture.pendingValue)
+          setNodeParameterValue(app, gesture.node, gesture.parameter, *gesture.pendingValue);
+    }
+  }
+  if (app.history.hasUnrecordedEdit()) app.history.recordCompletedEdit(app);
+}
 
+static void observeParameterItem(App &app, const Node &node, const ProcessorParameter &param, bool enabled) {
+  const auto item = ImGui::GetItemID();
+  if (enabled && ImGui::IsItemActive() && (!app.parameterGesture || app.parameterGesture->item != item)) {
+    finishParameterGesture(app, true);
+    app.parameterGesture = ui::ParameterGesture{item, app.path, node.id, param.id, std::nullopt};
+  }
+  if (app.parameterGesture && app.parameterGesture->item == item && (!enabled || ImGui::IsItemDeactivated()))
+    finishParameterGesture(app, true);
+}
+
+// Numeric text retains its existing deferred-write behaviour. The single active
+// item owns the pending value, so disappearing controls can complete it too.
+static bool numericInput(App &app, Node &node, const ProcessorParameter &param, const char *label,
+                         double &value, bool asInt, double lo, double hi, int component,
+                         ImGuiInputTextFlags flags) {
+  const auto item = ImGui::GetID(label);
+  double edit = value;
+  if (app.parameterGesture && app.parameterGesture->item == item && app.parameterGesture->pendingValue) {
+    const auto &pending = *app.parameterGesture->pendingValue;
+    if (component >= 0) edit = std::get<std::vector<double>>(pending)[size_t(component)];
+    else edit = asInt ? double(std::get<int>(pending)) : std::get<double>(pending);
+  }
+  bool edited;
+  if (asInt) {
+    int integer = int(std::lround(edit));
+    edited = ImGui::InputInt(label, &integer, 0, 0, flags);
+    edit = integer;
+  } else edited = ImGui::InputDouble(label, &edit, 0, 0, "%.6g", flags);
+  const bool enabled = param.enabled && app.renderer.canEditParameters();
+  if (enabled && ImGui::IsItemActive() && (!app.parameterGesture || app.parameterGesture->item != item)) {
+    finishParameterGesture(app, true);
+    app.parameterGesture = ui::ParameterGesture{item, app.path, node.id, param.id, std::nullopt};
+  }
+  if (enabled && app.parameterGesture && app.parameterGesture->item == item &&
+      (edited || app.parameterGesture->pendingValue)) {
+    edit = std::clamp(edit, lo, hi);
+    if (component >= 0) {
+      auto values = std::get<std::vector<double>>(param.value);
+      values[size_t(component)] = asInt ? std::round(edit) : edit;
+      app.parameterGesture->pendingValue = std::move(values);
+    } else if (asInt) app.parameterGesture->pendingValue = int(std::lround(edit));
+    else app.parameterGesture->pendingValue = edit;
+  }
+  const bool completed = ImGui::IsItemDeactivated();
+  observeParameterItem(app, node, param, enabled);
+  if (completed) value = edit;
+  return completed;
+}
+
+static bool paramEditButton(App &app, Node &node, const ProcessorParameter &param,
+                            double &value, bool asInt, double lo, double hi, int component = -1) {
   const float h = ImGui::GetFrameHeight();
   if (ImGui::Button("##edit", ImVec2(h, h))) ImGui::OpenPopup("##type");
   drawPencilIcon(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) ImGui::SetTooltip("Type value");
-
-  const ImGuiID editId = ImGui::GetID("##type-pending");
-  if (!ImGui::BeginPopup("##type")) {
-    pendingEdits.erase(editId);
-    return false;
-  }
-
+  if (!ImGui::BeginPopup("##type")) return false;
   if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
-
-  const auto pending = pendingEdits.find(editId);
-  double edit = pending != pendingEdits.end() ? pending->second : value;
-  bool edited = false;
-  if (asInt) {
-    int iv = (int)std::lround(edit);
-    edited = ImGui::InputInt("##v", &iv, 0, 0, ImGuiInputTextFlags_AutoSelectAll);
-    edit = iv;
-  } else {
-    edited = ImGui::InputDouble("##v", &edit, 0, 0, "%.6g", ImGuiInputTextFlags_AutoSelectAll);
-  }
-
-  if (edited) pendingEdits[editId] = edit;
-
-  bool commit = false;
-  if (ImGui::IsItemDeactivatedAfterEdit()) {
-    if (edit != value) {
-      value = std::clamp(edit, lo, hi);
-      commit = true;
-    }
-    pendingEdits.erase(editId);
-    ImGui::CloseCurrentPopup();
-  } else if (!ImGui::IsItemActive()) {
-    pendingEdits.erase(editId);
-  }
-
+  const bool completed = numericInput(app, node, param, "##v", value, asInt, lo, hi, component,
+                                      ImGuiInputTextFlags_AutoSelectAll);
+  if (completed) ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
-  return commit;
+  return completed;
 }
 
 static void drawParam(App &app, Node &node, ProcessorParameter param) {
@@ -137,10 +184,23 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
   // Export cannot start mid-call on the same UI/control thread; it may only
   // finish, in which case these controls become editable on their next draw.
   auto setValue = [&](const ParameterValue &value) {
+    if (app.parameterGesture && app.parameterGesture->item != ImGui::GetItemID() && ImGui::IsItemActive())
+      finishParameterGesture(app, true);
     return editable && setNodeParameterValue(app, node.id, param.id, value);
   };
-  auto reset = [&] { return editable && resetNodeParameter(app, node.id, param.id); };
-  auto activate = [&] { return editable && activateNodeParameter(app, node.id, param.id); };
+  auto complete = [&] {
+    if (app.history.hasUnrecordedEdit()) app.history.recordCompletedEdit(app);
+  };
+  auto reset = [&] {
+    finishParameterGesture(app, true);
+    const bool changed = editable && resetNodeParameter(app, node.id, param.id);
+    if (changed) complete();
+    return changed;
+  };
+  auto activate = [&] {
+    finishParameterGesture(app, true);
+    if (editable && activateNodeParameter(app, node.id, param.id)) complete();
+  };
 
   const float btn = ImGui::GetFrameHeight();
   const float gap = ImGui::GetStyle().ItemInnerSpacing.x;
@@ -184,31 +244,11 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     }
 
     if (!param.hasRange) {
-      // No declared range: edit the number directly and commit once editing
-      // finishes (Enter, Tab or focus loss) rather than rendering on every
-      // keystroke. The value being typed is kept here because `value` is
-      // re-read from the processor each frame.
-      static std::unordered_map<ImGuiID, double> pendingEdits;
       ImGui::SameLine(0, gap);
       ImGui::SetNextItemWidth(valueWidth());
-      const ImGuiID editId = ImGui::GetID(idLabel.c_str());
-      const auto pending = pendingEdits.find(editId);
-      double edit = pending != pendingEdits.end() ? pending->second : value;
-      bool edited = false;
-      if (asInt) {
-        int iv = (int)std::lround(edit);
-        edited = ImGui::InputInt(idLabel.c_str(), &iv, 0, 0);
-        edit = iv;
-      } else {
-        edited = ImGui::InputDouble(idLabel.c_str(), &edit, 0.0, 0.0, "%.6g");
-      }
-      if (edited) pendingEdits[editId] = edit;
-      if (ImGui::IsItemDeactivatedAfterEdit()) {
-        if (edit != value) commitNumeric(edit);  // Escape restores the old text
-        pendingEdits.erase(editId);
-      } else if (!ImGui::IsItemActive()) {
-        pendingEdits.erase(editId);
-      }
+      const double low = asInt ? double(std::numeric_limits<int>::lowest()) : std::numeric_limits<double>::lowest();
+      const double high = asInt ? double(std::numeric_limits<int>::max()) : std::numeric_limits<double>::max();
+      numericInput(app, node, param, idLabel.c_str(), value, asInt, low, high, -1, 0);
       ImGui::EndDisabled();
       ImGui::PopID();
       return;
@@ -216,20 +256,23 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
 
     ImGui::SameLine(0, gap);
     double typed = value;
-    if (paramEditButton(typed, asInt, hardLo, hardHi)) {
-      commitNumeric(typed);
+    if (paramEditButton(app, node, param, typed, asInt, hardLo, hardHi)) {
       value = typed;
     }
 
     ImGui::SameLine(0, gap);
     if (paramStepButton(false)) {
+      finishParameterGesture(app, true);
       value = std::clamp(value - step, lo, hi);
       commitNumeric(value);
+      complete();
     }
     ImGui::SameLine(0, gap);
     if (paramStepButton(true)) {
+      finishParameterGesture(app, true);
       value = std::clamp(value + step, lo, hi);
       commitNumeric(value);
+      complete();
     }
 
     ImGui::SameLine(0, gap);
@@ -248,6 +291,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       std::snprintf(sliderFormat, sizeof sliderFormat, "%%.%df", decimals);
     }
     if (ImGui::SliderFloat(idLabel.c_str(), &fv, (float)lo, (float)hi, sliderFormat)) commitNumeric(fv);
+    observeParameterItem(app, node, param, param.enabled && editable);
 
   } else if (param.type == ParameterType::Boolean) {
     bool value = false;
@@ -258,7 +302,10 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     }
 
     ImGui::SameLine(0, gap);
-    if (ImGui::Checkbox(idLabel.c_str(), &value)) setValue(value);
+    if (ImGui::Checkbox(idLabel.c_str(), &value)) {
+      finishParameterGesture(app, true);
+      if (setValue(value)) complete();
+    }
 
   } else if (param.type == ParameterType::Choice) {
     int currentValue = 0;
@@ -287,7 +334,8 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     ImGui::SetNextItemWidth(valueWidth());
     if (!items.empty() && ImGui::Combo(idLabel.c_str(), &currentIndex, items.data(), (int)items.size())) {
       const int value = explicitValues ? param.choiceValues[(size_t)currentIndex] : currentIndex;
-      setValue(value);
+      finishParameterGesture(app, true);
+      if (setValue(value)) complete();
     }
 
   } else if (param.type == ParameterType::PushButton) {
@@ -309,6 +357,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       std::snprintf(buf, sizeof buf, "%s", value.c_str());
       ImGui::SetNextItemWidth(valueWidth());
       if (ImGui::InputText(idLabel.c_str(), buf, sizeof buf)) setValue(std::string(buf));
+      observeParameterItem(app, node, param, param.enabled && editable);
     }
 
   } else if (param.type == ParameterType::Vector) {
@@ -326,9 +375,8 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     for (size_t i = 0; i < values.size(); ++i) {
       ImGui::PushID((int)i);
       double typed = values[i];
-      if (paramEditButton(typed, param.vectorIsInteger, -1e7, 1e7)) {
+      if (paramEditButton(app, node, param, typed, param.vectorIsInteger, -1e7, 1e7, int(i))) {
         values[i] = param.vectorIsInteger ? std::round(typed) : typed;
-        setValue(values);
       }
       ImGui::SameLine(0, gap);
       ImGui::SetNextItemWidth(std::max(40.0f, rowW - btn - gap));
@@ -337,6 +385,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
         values[i] = param.vectorIsInteger ? std::round(fv) : fv;
         setValue(values);
       }
+      observeParameterItem(app, node, param, param.enabled && editable);
       ImGui::PopID();
     }
     ImGui::Unindent();

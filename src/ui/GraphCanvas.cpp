@@ -216,7 +216,8 @@ std::optional<WireDrop> interact(App &app, const Canvas &canvas, GraphLayout &la
     state.wire.reset();
   }
   if (state.wire && (!active || !ImGui::IsMouseDown(ImGuiMouseButton_Left))) state.wire.reset();
-  if (!active || !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+  if (!active || !ImGui::IsMouseDown(ImGuiMouseButton_Left) || io.AppFocusLost ||
+      !ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
     state.dragging.reset();
     state.panningFromEmptyCanvas = false;
   }
@@ -229,7 +230,10 @@ std::optional<WireDrop> interact(App &app, const Canvas &canvas, GraphLayout &la
     } else if (const auto *node = hitNode(layout, point, app.selectedNodeId())) {
       selectNode(app, node->node->id);
       if (!app.isPhotoProtected() && point.y < node->position.y + graphHeaderHeight) {
+        finishParameterGesture(app, true);
         state.dragging = node->node->id;
+        state.dragStart = state.dragLast = node->position;
+        state.cleanHistoryAtDragStart = !app.history.hasUnrecordedEdit();
         state.dragOffset = {point.x - node->position.x, point.y - node->position.y};
       }
     } else {
@@ -250,8 +254,14 @@ std::optional<WireDrop> interact(App &app, const Canvas &canvas, GraphLayout &la
     zoomGraphAt(state.view, mouse, std::pow(1.15, io.MouseWheel));
   if (active && state.dragging && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
     const auto point = canvasToGraph(state.view, mouse);
-    if (moveGraphNode(app, *state.dragging, {point.x - state.dragOffset.x, point.y - state.dragOffset.y}))
-      layout = layoutGraph({app.nodes, app.primarySource, app.documentOutput}, app.nodePositions);
+    const PersistPosition position{point.x - state.dragOffset.x, point.y - state.dragOffset.y};
+    if (position.x != state.dragLast.x || position.y != state.dragLast.y) {
+      if (moveGraphNode(app, *state.dragging, position)) {
+        state.dragLast = position;
+        state.positionEditPending = true;
+        layout = layoutGraph({app.nodes, app.primarySource, app.documentOutput}, app.nodePositions);
+      }
+    }
   }
   return drop;
 }
@@ -370,6 +380,27 @@ std::optional<NodeId> nodeContextMenu(App &app, const Canvas &canvas, const Grap
 
 }  // namespace
 
+void finishGraphDrag(App &app) {
+  auto &state = app.graphCanvas;
+  if (state.photoPath != app.path || app.isPhotoProtected()) {
+    state.positionEditPending = false;
+    return;
+  }
+  if (!state.positionEditPending || state.dragging) return;
+  if (app.history.needsFullCapture()) {
+    // A prior parameter edit must not be omitted by copying an old entry.
+    finishParameterGesture(app);
+    if (app.parameterGesture || !app.renderer.canCaptureSnapshot()) return;
+    state.positionEditPending = false;
+    app.history.recordCompletedEdit(app);
+  } else {
+    state.positionEditPending = false;
+    if (state.cleanHistoryAtDragStart && state.dragStart.x == state.dragLast.x && state.dragStart.y == state.dragLast.y)
+      app.history.cancelPositionChange();
+    else app.history.recordMetadataChange(app);
+  }
+}
+
 void drawGraphCanvas(App &app) {
   auto &state = app.graphCanvas;
   if (state.photoPath != app.path) {
@@ -432,6 +463,7 @@ void drawGraphCanvas(App &app) {
   const auto disconnect = portContextMenu(app, canvas, layout, hovered);
   if (const auto menuRemove = nodeContextMenu(app, canvas, layout, hovered)) remove = menuRemove;
   ImGui::EndChild();
+  finishGraphDrag(app);
   // All frame-local geometry borrows live nodes. Dispatch after drawing/menus.
   if (remove && app.renderer.canEditParameters()) destroyNode(app, *remove);
   else if (drop) commitWire(app, drop->first, drop->second);

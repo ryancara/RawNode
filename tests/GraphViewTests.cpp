@@ -1505,10 +1505,99 @@ bool automaticPositionsPreserveRedo() {
   return true;
 }
 
+bool groupedPositionHistory() {
+  Files files; const auto path = (files.dir / "drag-history.png").string(); std::ofstream(path) << "synthetic";
+  document_detail::ActionTestOptions options; options.decode = syntheticPhoto;
+  App app; Ui ui;
+  CHECK(document_detail::openPhoto(app, path, {}, options) && addNativeExposureNode(app));
+  const auto id = *app.selectedNodeId();
+  app.nodesView = NodesView::Graph; ui.tick(app); ui.tick(app);
+  app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 40}, 1}; ui.tick(app);
+  const auto original = app.nodePositions.at(id.value);
+  const auto from = ui.screen(app, {original.x + 70, original.y + 16});
+  const auto size = app.history.size(), cursor = app.history.cursor();
+  struct Probe {
+    std::mutex mutex; std::condition_variable cv; bool release = false;
+    std::atomic<int> mutations{0}, evaluations{0};
+    void unblock() { std::lock_guard<std::mutex> lock(mutex); release = true; cv.notify_all(); }
+  } probe;
+  auto &mutations = probe.mutations;
+  RenderRuntimeTestAccess::evaluation(app.renderer, nullptr, [](void *context) {
+    auto &probe = *static_cast<Probe *>(context);
+    std::unique_lock<std::mutex> lock(probe.mutex); ++probe.evaluations; probe.cv.notify_all();
+    probe.cv.wait(lock, [&] { return probe.release; });
+  }, &probe);
+  RenderRuntimeTestAccess::observe(app.renderer, &probe, [](void *context, auto event) noexcept {
+    auto &probe = *static_cast<Probe *>(context);
+    if (event == RenderRuntimeTestAccess::Event::MutationCompleted) ++probe.mutations;
+    if (event == RenderRuntimeTestAccess::Event::MutationWaiting) probe.unblock();
+  });
+  struct Stop {
+    App &app; Probe &probe;
+    ~Stop() { probe.unblock(); app.renderer.shutdown(); RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr); }
+  } stop{app, probe};
+  app.renderer.start();
+  { std::unique_lock<std::mutex> lock(probe.mutex);
+    CHECK(probe.cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe.evaluations == 1; })); }
+  const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+  ui.hover(app, from); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+  for (int i = 1; i <= 24; ++i) {
+    ui.hover(app, {from.x + i * 2.0f, from.y + i});
+    CHECK(app.history.size() == size && app.history.cursor() == cursor && mutations == 0);
+  }
+  ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+  CHECK(app.history.size() == size + 1 && mutations == 0 && !app.history.hasUnrecordedEdit());
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch && probe.evaluations == 1);
+  probe.unblock(); CHECK(idle(app)); CHECK(probe.evaluations == 1);
+  CHECK(same(app.nodePositions.at(id.value), {original.x + 48, original.y + 24}));
+  CHECK(app.history.undo(app) && same(app.nodePositions.at(id.value), original) && app.history.canRedo());
+  const auto before = app.history.size(); mutations = 0;
+  ui.click(app, from); CHECK(app.history.size() == before && app.history.canRedo() && mutations == 0);
+  ui.hover(app, from); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+  ui.hover(app, {from.x + 40, from.y + 15}); ui.hover(app, from);
+  ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+  CHECK(app.history.size() == before && app.history.canRedo() && mutations == 0);
+  // Losing application focus completes actual movement, without a render drain.
+  ui.hover(app, from); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+  ui.hover(app, {from.x + 20, from.y}); ImGui::GetIO().AddFocusEvent(false); ui.tick(app);
+  CHECK(!app.history.hasUnrecordedEdit() && !app.graphCanvas.dragging && mutations == 0);
+  ImGui::GetIO().AddFocusEvent(true); ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+  CHECK(app.history.undo(app));
+  // Switching to List completes the same position-only operation.
+  ui.hover(app, from); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+  ui.hover(app, {from.x + 30, from.y}); app.nodesView = NodesView::List; ui.tick(app);
+  CHECK(!app.history.hasUnrecordedEdit() && !app.graphCanvas.positionEditPending);
+  ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+  CHECK(app.history.undo(app));
+  // A pending processor edit cannot be omitted by metadata copying.
+  CHECK(setNodeParameterValue(app, id, "exposure", 2.0));
+  app.nodesView = NodesView::Graph; ui.tick(app); ui.tick(app);
+  app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 40}, 1}; ui.tick(app);
+  ui.drag(app, from, {40, 0}, 0);
+  CHECK(!app.history.hasUnrecordedEdit());
+  CHECK(app.history.undo(app) && std::get<double>(findNode(app, id)->processor->parameters()[0].value) == 0);
+  CHECK(app.history.redo(app) && std::get<double>(findNode(app, id)->processor->parameters()[0].value) == 2);
+  // The original Source-only baseline has no persisted positions. Returning
+  // its generated position to the start still preserves the existing Redo.
+  while (app.history.canUndo()) CHECK(app.history.undo(app));
+  CHECK(app.nodes.size() == 1 && app.nodePositions.empty());
+  ui.tick(app); app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 40}, 1}; ui.tick(app);
+  const auto source = app.nodePositions.at(app.primarySource.value);
+  const auto sourcePoint = ui.screen(app, {source.x + 70, source.y + 16});
+  const auto sourceSize = app.history.size(); mutations = 0;
+  ui.hover(app, sourcePoint); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+  ui.hover(app, {sourcePoint.x + 40, sourcePoint.y}); ui.hover(app, sourcePoint);
+  ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+  CHECK(app.history.size() == sourceSize && app.history.canRedo() && mutations == 0);
+  RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  return true;
+}
+
 }  // namespace
 
 bool testGraphView() {
   for (const auto &test : {
+       std::make_pair("grouped position-only history, return/no-op, interruptions and pending parameters", groupedPositionHistory),
        std::make_pair("automatic Graph positions preserve Redo after replay, including Source-only baseline", automaticPositionsPreserveRedo),
        std::make_pair("dependency layout, branches, missing nodes and typed ports", dependencyLayoutAndPorts),
        std::make_pair("contextual placement, List/Graph parity, overlap and preservation through edits", contextualPlacement),

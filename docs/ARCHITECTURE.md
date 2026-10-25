@@ -347,9 +347,15 @@ graph operations' existing exclusion scopes, without nested mutations. Standalon
 capture checks existing export/mutation state before acquiring one scope. Output-
 only recording copies the current entry when no edit is pending, preserving
 processor-free display refresh even during export. Replay performs one restoration
-without post-replay capture. No scheduler or worker is added. Unrecorded continuous
-edits and failed captures pause traversal until a successful completion capture.
-See `UNDO_HISTORY.md` for bounds, measurements, integration and Stage 3 deferrals.
+without post-replay capture. Shared parameter widgets identify gesture completion
+with ImGui lifecycle; one transient Inspector item record retains deferred numeric
+text and logical identity across interruptions. Existing canvas state completes
+node drags through the same colours/positions metadata recording path. Pending
+metadata and full-grade changes remain distinct; layout completion cannot omit
+processor edits. UI menu/shortcut eligibility includes active gestures, text focus,
+export/protection and history availability. No scheduler or worker is added.
+Failed captures pause traversal until a successful completion capture.
+See `UNDO_HISTORY.md` for bounds, measurements and interaction/failure policies.
 Linear Append and fragment Paste construct detached nodes, remap IDs/positions and
 commit one StagedEdit batch. Only the chosen main-spine successor or Output changes;
 unrelated branches remain. Fragment capture retains internal links independently

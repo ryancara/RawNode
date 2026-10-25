@@ -1,4 +1,5 @@
 #include "ui/UiContext.h"
+#include "ui/ParamWidgets.h"
 
 #include "persist/DocumentActions.h"
 #include "persist/ProjectPersist.h"
@@ -42,6 +43,7 @@ void doExport(App &app) {
   std::string outPath = sel.result();
   if (outPath.empty()) return;
   if (fs::path(outPath).extension().empty()) outPath += exts[app.exportFormat];
+  finishParameterGesture(app, true);
   startExport(app, outPath);
 }
 
@@ -85,9 +87,15 @@ bool pasteFromClipboard(App &app) {
     app.setStatus("Clipboard does not contain supported RawNode data: " + error); return false;
   }
   const auto *grade = std::get_if<PersistGrade>(&transfer);
+  finishParameterGesture(app, true);
+  app.graphCanvas.cancelInteraction();
+  ui::finishGraphDrag(app);
   const bool applied = grade ? applyGrade(app, *grade)
       : pasteFragment(app, std::get<PersistFragment>(transfer), selectedNode(app) ? app.selectedNodeId() : std::nullopt);
-  if (applied) app.setStatus(grade ? "Pasted full grade" : "Pasted node/fragment");
+  if (applied) {
+    if (grade) app.parameterGesture.reset();
+    app.setStatus(grade ? "Pasted full grade" : "Pasted node/fragment");
+  }
   return applied;
 }
 
@@ -119,8 +127,14 @@ bool loadPresetDialog(App &app, bool append, std::string path) {
   PersistGrade grade;
   std::string error;
   if (!loadPresetFile(path, grade, error)) { app.setStatus(error); return false; }
+  finishParameterGesture(app, true);
+  app.graphCanvas.cancelInteraction();
+  ui::finishGraphDrag(app);
   const bool applied = append ? appendGrade(app, grade, selectedNode(app) ? app.selectedNodeId() : std::nullopt) : applyGrade(app, grade);
-  if (applied) app.setStatus(append ? "Appended preset" : "Replaced grade from preset");
+  if (applied) {
+    if (!append) app.parameterGesture.reset();
+    app.setStatus(append ? "Appended preset" : "Replaced grade from preset");
+  }
   return applied;
 }
 
@@ -137,7 +151,12 @@ static void openUrl(const std::string &url) {
 
 static void openImageDialog(App &app) {
   const auto paths = pfd::open_file("Open image", "", openImageDialogFilters()).result();
-  if (!paths.empty()) openPath(app, paths.front(), promptSaveFailure);
+  if (!paths.empty()) {
+    finishParameterGesture(app, true);
+    app.graphCanvas.cancelInteraction();
+    ui::finishGraphDrag(app);
+    if (openPath(app, paths.front(), promptSaveFailure)) app.parameterGesture.reset();
+  }
 }
 
 static void openFolderDialog(App &app) {
@@ -175,6 +194,14 @@ static void drawFileToolbar(App &app) {
   ImGui::End();
 }
 
+static bool historyIdle(const App &app) {
+  return !app.path.empty() && app.renderer.canCaptureSnapshot() &&
+         !app.parameterGesture && !app.graphCanvas.dragging && !app.graphCanvas.positionEditPending;
+}
+
+bool canUndoGrade(const App &app) { return historyIdle(app) && app.history.canUndo(); }
+bool canRedoGrade(const App &app) { return historyIdle(app) && app.history.canRedo(); }
+
 void DrawUiFrame(App &app) {
   if (!app.preferencesWarning.empty()) {
     bool visible = true;
@@ -194,6 +221,9 @@ void DrawUiFrame(App &app) {
   if (!app.pendingFolderDir.empty()) {
     const std::string dir = std::move(app.pendingFolderDir);
     app.pendingFolderDir.clear();
+    finishParameterGesture(app, true);
+    app.graphCanvas.cancelInteraction();
+    ui::finishGraphDrag(app);
     openFolder(app, dir, promptSaveFailure);
   }
 
@@ -228,6 +258,10 @@ void DrawUiFrame(App &app) {
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Edit")) {
+      const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
+      if (ImGui::MenuItem("Undo", mac ? "⌘+Z" : "Ctrl+Z", false, canUndoGrade(app))) app.history.undo(app);
+      if (ImGui::MenuItem("Redo", mac ? "⌘+Shift+Z" : "Ctrl+Shift+Z / Ctrl+Y", false, canRedoGrade(app))) app.history.redo(app);
+      ImGui::Separator();
 #ifdef __APPLE__
       const char *copyShortcut = "⌘+C";
       const char *pasteShortcut = "⌘+V";
@@ -292,7 +326,11 @@ void DrawUiFrame(App &app) {
     ImGui::EndMainMenuBar();
   }
 
-  if (!ImGui::GetIO().WantTextInput) {
+  if (!ImGui::GetIO().WantTextInput && !ImGui::GetInputTextState(ImGui::GetActiveID())) {
+    const bool redo = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, ImGuiInputFlags_None) ||
+        (!ImGui::GetIO().ConfigMacOSXBehaviors && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiInputFlags_None));
+    if (redo && canRedoGrade(app)) app.history.redo(app);
+    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z, ImGuiInputFlags_None) && canUndoGrade(app)) app.history.undo(app);
     // With ConfigMacOSXBehaviors enabled, Dear ImGui maps ImGuiMod_Ctrl to
     // Command on macOS and to Control on Windows/Linux.
     const ImGuiKeyChord copyNodeChord = ImGuiMod_Ctrl | ImGuiKey_C;
@@ -376,4 +414,6 @@ void DrawUiFrame(App &app) {
     if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
   }
+  finishParameterGesture(app);
+  ui::finishGraphDrag(app);
 }

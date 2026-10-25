@@ -56,21 +56,21 @@ size_t GradeHistory::snapshotBytes(const document_detail::GradeSnapshot &snapsho
 void GradeHistory::clear() noexcept {
   entries_.clear();
   cursor_ = bytes_ = 0;
-  unrecorded_ = false;
+  pending_ = Pending::None;
 }
 
 bool GradeHistory::reset(App &app, const document_detail::DocumentMutation *mutation) {
   document_detail::DocumentMutation::assertControlThread(app);
   clear();
   if (app.path.empty() || app.isPhotoProtected()) return false;
-  unrecorded_ = true; // A new photograph awaits its initial baseline, even if capture is refused.
+  pending_ = Pending::Grade; // A new photograph awaits its initial baseline, even if capture is refused.
   return recordCompletedEdit(app, mutation);
 }
 
 void GradeHistory::recordSnapshot(document_detail::GradeSnapshot captured) {
   if (!entries_.empty() && captured.workingProcessors == entries_[cursor_].snapshot.workingProcessors &&
       gradeKey(captured.grade) == gradeKey(entries_[cursor_].snapshot.grade)) {
-    unrecorded_ = false;
+    pending_ = Pending::None;
     return;
   }
   const auto bytes = snapshotBytes(captured);
@@ -88,7 +88,7 @@ void GradeHistory::recordSnapshot(document_detail::GradeSnapshot captured) {
     entries_.erase(entries_.begin());
   }
   cursor_ = entries_.size() - 1;
-  unrecorded_ = false;
+  pending_ = Pending::None;
 }
 
 bool GradeHistory::recordCompletedEdit(App &app, const document_detail::DocumentMutation *mutation) {
@@ -96,10 +96,10 @@ bool GradeHistory::recordCompletedEdit(App &app, const document_detail::Document
   if (app.path.empty() || app.isPhotoProtected()) return false;
   // Only successful photo opening/reset activates collection. An empty,
   // unrecorded history is a failed baseline that a later capture can retry.
-  if (entries_.empty() && !unrecorded_) return false;
+  if (entries_.empty() && pending_ == Pending::None) return false;
   // Failure retains the live edit and every stored entry/cursor, but traversal
   // must not skip this unrecorded state or follow its obsolete redo branch.
-  unrecorded_ = true;
+  pending_ = Pending::Grade;
   try {
     document_detail::GradeSnapshot captured;
     if (!document_detail::captureGradeSnapshot(app, captured, mutation)) return false;
@@ -111,13 +111,13 @@ bool GradeHistory::recordCompletedEdit(App &app, const document_detail::Document
   }
 }
 
-bool GradeHistory::recordOutputChange(App &app) {
+bool GradeHistory::recordMetadataChange(App &app) {
   document_detail::DocumentMutation::assertControlThread(app);
-  if (app.path.empty() || app.isPhotoProtected() || entries_.empty() || unrecorded_) return false;
-  unrecorded_ = true;
+  if (app.path.empty() || app.isPhotoProtected() || entries_.empty() || needsFullCapture()) return false;
+  pending_ = Pending::Metadata;
   try {
     // Keep the original processor initial values, including those from before
-    // permitted OFX CreateInstance adjustments. Replaying this colour-only step
+    // permitted OFX CreateInstance adjustments. Replaying this metadata-only step
     // must reconstruct processors exactly as the current entry does.
     auto captured = entries_[cursor_].snapshot;
     captured.grade.color = captureGradeColor(app);
@@ -135,7 +135,7 @@ bool GradeHistory::recordOutputChange(App &app) {
 bool GradeHistory::replay(App &app, bool forward) {
   document_detail::DocumentMutation::assertControlThread(app);
   if (app.path.empty() || !app.renderer.canCaptureSnapshot()) return false;
-  if (unrecorded_) {
+  if (hasUnrecordedEdit()) {
     app.setStatus("Undo/Redo unavailable: the current edit has not been recorded");
     return false;
   }

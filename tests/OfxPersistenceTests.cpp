@@ -62,11 +62,11 @@ struct Plugin {
   int creates = 0, destroys = 0, live = 0, invalidDestroys = 0, preCreationNotifications = 0;
   OfxStatus createStatus = kOfxStatOK;
   bool adjustGainOnCreate = false;
-  bool syncCacheOnCapture = false;
+  bool syncCacheOnCapture = false, pushChangesPersistent = false;
   std::function<void(OfxParamSetHandle)> inspectInitialValues;
   Plugin() {
     plugin.pluginIdentifier = "org.rawnode.selftest.persistence";
-    plugin.mainEntry = [](const char *action, const void *handle, OfxPropertySetHandle, OfxPropertySetHandle) {
+    plugin.mainEntry = [](const char *action, const void *handle, OfxPropertySetHandle inArgs, OfxPropertySetHandle) {
       const auto effectHandle = static_cast<OfxImageEffectHandle>(const_cast<void *>(handle));
       OfxPropertySetHandle props = nullptr;
       effects().getPropertySet(effectHandle, &props);
@@ -110,6 +110,14 @@ struct Plugin {
           !std::strcmp(action, kOfxActionEndInstanceChanged)) {
         if (!cache) { ++self.preCreationNotifications; return kOfxStatFailed; }
         ++cache->notifications;
+        if (self.pushChangesPersistent && !std::strcmp(action, kOfxActionInstanceChanged)) {
+          char *name = nullptr;
+          properties().propGetString(inArgs, kOfxPropName, 0, &name);
+          if (name && !std::strcmp(name, "trigger")) {
+            double gain = 0; parameters().paramGetValue(paramHandle(params, "visiblePersistent"), &gain);
+            parameters().paramSetValue(paramHandle(params, "visiblePersistent"), gain + 1);
+          }
+        }
         cache->gain = readGain(); // Ordinary UI edits still update private state.
         return kOfxStatOK;
       }
@@ -160,10 +168,13 @@ struct Plugin {
 struct Ui {
   ImGuiContext *previous = ImGui::GetCurrentContext();
   ImGuiContext *context = ImGui::CreateContext();
-  std::string clipboard;
+  std::string clipboard, activeFilter;
+  ImRect item;
+  ImVec2 reset;
   Ui() {
     auto &io = ImGui::GetIO();
-    io.IniFilename = nullptr;
+    io.IniFilename = nullptr; io.ConfigInputTrickleEventQueue = false;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     unsigned char *pixels; int width, height;
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
     auto &platform = ImGui::GetPlatformIO();
@@ -177,6 +188,7 @@ struct Ui {
   }
   ~Ui() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
   std::string inspector(App &app, const char *filter) {
+    activeFilter = filter;
     std::snprintf(app.paramFilter, sizeof app.paramFilter, "%s", filter);
     auto &io = ImGui::GetIO(); io.DisplaySize = {800, 800}; io.DeltaTime = 1.0f / 60;
     ImGui::NewFrame();
@@ -184,12 +196,31 @@ struct Ui {
     ImGui::Begin("OFX persistence Inspector");
     ImGui::LogToBuffer(0);
     drawInspector(app);
+    item = context->LastItemData.Rect;
+    reset = {ImGui::GetWindowPos().x + ImGui::GetStyle().WindowPadding.x + ImGui::GetFrameHeight() / 2, item.GetCenter().y};
     const std::string text = context->LogBuffer.c_str();
     ImGui::LogFinish();
     ImGui::End();
     ImGui::EndFrame();
     return text;
   }
+  void tick(App &app) { const auto filter = activeFilter; inspector(app, filter.c_str()); }
+  void click(App &app, ImVec2 point) {
+    ImGui::GetIO().AddMousePosEvent(point.x, point.y); tick(app);
+    ImGui::GetIO().AddMouseButtonEvent(0, true); tick(app);
+    ImGui::GetIO().AddMouseButtonEvent(0, false); tick(app);
+  }
+  void key(App &app, ImGuiKey key, bool modifier = false) {
+    auto &io = ImGui::GetIO(); const auto mod = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+    if (modifier) io.AddKeyEvent(mod, true);
+    io.AddKeyEvent(key, true); tick(app); io.AddKeyEvent(key, false);
+    if (modifier) io.AddKeyEvent(mod, false);
+    tick(app);
+  }
+  void type(App &app, const char *value) {
+    key(app, ImGuiKey_A, true); ImGui::GetIO().AddInputCharactersUTF8(value); tick(app);
+  }
+
 };
 
 const std::string privateText = "analysis \"state\"\n\u03bb";
@@ -710,6 +741,103 @@ bool dynamicChoiceRestoration() {
   return true;
 }
 
+bool parameterGestureFrames(Plugin &plugin) {
+  OfxParamSetHandle descriptor = nullptr;
+  effects().getParamSet(reinterpret_cast<OfxImageEffectHandle>(gPlugins[plugin.index].descriptor.get()), &descriptor);
+  OfxPropertySetHandle trigger = nullptr;
+  CHECK(parameters().paramDefine(descriptor, kOfxParamTypePushButton, "trigger", &trigger) == kOfxStatOK);
+  // A label distinct from intVector lets filtering expose exactly this row.
+  for (auto &param : gPlugins[plugin.index].descriptor->params)
+    if (param->name == "vector") properties().propSetString(H(&param->props), kOfxPropLabel, 0, "Coordinates");
+    else if (param->name == "integer") {
+      properties().propSetDouble(H(&param->props), kOfxParamPropMin, 0, -100);
+      properties().propSetDouble(H(&param->props), kOfxParamPropMax, 0, 100);
+      properties().propSetDouble(H(&param->props), kOfxParamPropDisplayMin, 0, -20);
+      properties().propSetDouble(H(&param->props), kOfxParamPropDisplayMax, 0, 20);
+    }
+  Files files; Ui ui; App app;
+  Image image; image.w = image.h = 1; image.px = {.25f, -.5f, 2, .375f};
+  const auto photo = files.path("gestures.png");
+  CHECK(writeImage(image, photo, {RgbGamut::Rec709, TransferFunction::Linear}) && openPath(app, photo));
+  CHECK(addNode(app, plugin.index)); const auto id = *app.selectedNodeId();
+  plugin.syncCacheOnCapture = true;
+  ui.inspector(app, "text"); ui.tick(app);
+  ui.click(app, {ui.item.Min.x + 20, ui.item.GetCenter().y});
+  const auto stringSize = app.history.size(); const auto syncs = cache(*findNode(app, id)).syncs;
+  for (const char c : std::string("hello")) {
+    ImGui::GetIO().AddInputCharacter(c); ui.tick(app);
+    CHECK(app.history.size() == stringSize && cache(*findNode(app, id)).syncs == syncs);
+  }
+  ui.key(app, ImGuiKey_Enter);
+  CHECK(app.history.size() == stringSize + 1 && cache(*findNode(app, id)).syncs == syncs + 1);
+  CHECK(parameter(*findNode(app, id), "text").value == ParameterValue(std::string("hello")));
+  CHECK(app.history.undo(app) && parameter(*findNode(app, id), "text").value == ParameterValue(std::string()));
+  CHECK(app.history.redo(app) && parameter(*findNode(app, id), "text").value == ParameterValue(std::string("hello")));
+
+  ui.inspector(app, "text"); ui.tick(app);
+  ui.click(app, {ui.item.Min.x + 20, ui.item.GetCenter().y}); ui.type(app, "cancelled"); ui.key(app, ImGuiKey_Escape);
+  CHECK(parameter(*findNode(app, id), "text").value == ParameterValue(std::string("hello")) && app.history.size() == stringSize + 1);
+  ui.inspector(app, "Coordinates"); ui.tick(app);
+  const auto start = ui.item.GetCenter();
+  ImGui::GetIO().AddMousePosEvent(start.x, start.y); ui.tick(app);
+  ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+  const auto vectorSize = app.history.size(); const auto vectorSyncs = cache(*findNode(app, id)).syncs;
+  for (int i = 1; i <= 20; ++i) {
+    ImGui::GetIO().AddMousePosEvent(start.x + 3 * i, start.y); ui.tick(app);
+    CHECK(app.history.size() == vectorSize && cache(*findNode(app, id)).syncs == vectorSyncs);
+  }
+  ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+  const auto vector = parameter(*findNode(app, id), "vector").value;
+  CHECK(app.history.size() == vectorSize + 1 && std::get<std::vector<double>>(vector)[2] > 0);
+  CHECK(app.history.undo(app) && std::get<std::vector<double>>(parameter(*findNode(app, id), "vector").value)[2] == 0);
+  CHECK(app.history.redo(app) && parameter(*findNode(app, id), "vector").value == vector);
+
+  ui.inspector(app, "integer"); ui.tick(app);
+  const auto numberSize = app.history.size();
+  ui.click(app, {ui.reset.x + ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x, ui.item.GetCenter().y});
+  ui.tick(app); ui.type(app, "7");
+  CHECK(parameter(*findNode(app, id), "integer").value == ParameterValue(0));
+  ui.key(app, ImGuiKey_Enter);
+  CHECK(parameter(*findNode(app, id), "integer").value == ParameterValue(7) && app.history.size() == numberSize + 1);
+  ui.click(app, {ui.reset.x + ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x, ui.item.GetCenter().y});
+  ui.tick(app); ui.type(app, "9"); ui.key(app, ImGuiKey_Escape);
+  CHECK(parameter(*findNode(app, id), "integer").value == ParameterValue(7) && app.history.size() == numberSize + 1);
+
+  ui.click(app, {ui.reset.x + ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x, ui.item.GetCenter().y});
+  ui.tick(app); ui.type(app, "8");
+  Param *integer = nullptr;
+  for (auto &param : static_cast<OfxProcessor *>(findNode(app, id)->processor.get())->effect()->params) if (param->name == "integer") integer = param.get();
+  CHECK(integer); properties().propSetInt(H(&integer->props), kOfxParamPropEnabled, 0, 0); ui.tick(app);
+  CHECK(parameter(*findNode(app, id), "integer").value == ParameterValue(7) && !app.parameterGesture && app.history.size() == numberSize + 1);
+  properties().propSetInt(H(&integer->props), kOfxParamPropEnabled, 0, 1);
+  ui.inspector(app, "boolean"); ui.tick(app); const auto booleanSize = app.history.size();
+  ui.click(app, {ui.item.Min.x + 5, ui.item.GetCenter().y});
+  CHECK(parameter(*findNode(app, id), "boolean").value == ParameterValue(true) && app.history.size() == booleanSize + 1);
+  ui.click(app, ui.reset);
+  CHECK(parameter(*findNode(app, id), "boolean").value == ParameterValue(false) && app.history.size() == booleanSize + 2);
+  ui.inspector(app, "choice"); ui.tick(app); const auto choiceSize = app.history.size();
+  ui.click(app, {ui.item.Min.x + 20, ui.item.GetCenter().y});
+  ui.key(app, ImGuiKey_End); ui.key(app, ImGuiKey_Enter);
+  CHECK(parameter(*findNode(app, id), "choice").value == ParameterValue(1) && app.history.size() == choiceSize + 1);
+  ui.inspector(app, "trigger"); ui.tick(app); const auto buttonSize = app.history.size();
+  ui.click(app, ui.item.GetCenter()); CHECK(app.history.size() == buttonSize); // Unrepresentable activation is a no-op.
+  plugin.pushChangesPersistent = true;
+  ui.click(app, ui.item.GetCenter()); plugin.pushChangesPersistent = false;
+  CHECK(app.history.size() == buttonSize + 1 && parameter(*findNode(app, id), "visiblePersistent").value == ParameterValue(2.0));
+  CHECK(app.history.undo(app) && parameter(*findNode(app, id), "visiblePersistent").value == ParameterValue(1.0));
+  CHECK(app.history.redo(app) && parameter(*findNode(app, id), "visiblePersistent").value == ParameterValue(2.0));
+  // Metadata-only completion never enters the plugin, even under export ownership.
+  const auto metadataSyncs = cache(*findNode(app, id)).syncs;
+  {
+    auto exporting = app.renderer.acquireExport(); CHECK(bool(exporting));
+    CHECK(ui::moveGraphNode(app, id, {-10, 25}) && app.history.recordMetadataChange(app));
+    CHECK(cache(*findNode(app, id)).syncs == metadataSyncs);
+  }
+  plugin.syncCacheOnCapture = false;
+  std::puts("ok  OFX ImGui gestures: string/vector/numeric/choice/bool/reset/button grouping, one sync at completion, metadata exclusion");
+  return true;
+}
+
 bool typedInitialValues(Plugin &plugin) {
   OfxParamSetHandle descriptor = nullptr;
   effects().getParamSet(reinterpret_cast<OfxImageEffectHandle>(gPlugins[plugin.index].descriptor.get()), &descriptor);
@@ -1175,7 +1303,7 @@ bool testOfxPersistence() {
   Plugin plugin;
   const bool passed = historyReconstruction(plugin) && dynamicChoiceRestoration() && cachedGainFiveReopen(plugin) && productionRoundTrips(plugin) &&
                       nonpersistentRestoreGuards(plugin) && initialValueValidationAndLifecycle(plugin) &&
-                      typedInitialValues(plugin);
+                      typedInitialValues(plugin) && parameterGestureFrames(plugin);
   CHECK(plugin.live == 0 && plugin.invalidDestroys == 0 && plugin.preCreationNotifications == 0);
   if (!passed) return false;
   SyncPlugin sync;

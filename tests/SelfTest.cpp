@@ -10,6 +10,7 @@
 #include "SidecarFileTests.h"
 #include "PhotoDocumentTests.h"
 #include "HistoryTests.h"
+#include "HistoryUiTests.h"
 #include "PreferencesTests.h"
 #include "PresetClipboardTests.h"
 #include "GraphCommandsTests.h"
@@ -2096,6 +2097,7 @@ static int runSelfTestsImpl() {
   if (!testPreferences()) return fail("Step 7 preferences");
   if (!testPresetsAndClipboard()) return fail("Step 7 presets and clipboard");
   if (!testGradeHistory()) return fail("Grade history");
+  if (!testHistoryUi()) return fail("History UI");
   if (!testPhotoDocuments()) return fail("Step 7 photo lifecycle");
   if (!testSidecarFiles()) return fail("Step 7 safe sidecar files");
   if (!testGraphPersistence()) return fail("Step 7 graph persistence");
