@@ -133,7 +133,10 @@ Graph Canvas latches movement within its existing drag state. Release, focus los
 List switch and hidden/collapsed Nodes complete it. Colours and positions share
 metadata-only recording: no processor access, private sync, mutation, preview
 request or sidecar write. If a processor edit is pending, completion waits until
-full capture is safe and includes both changes. A clean drag returning to its
+full capture is safe and includes both changes. A parameter completion reports
+its capture attempt so a combined drag cannot repeat it, including after failure.
+An unchanged parameter interaction does not turn layout-only completion into a
+full capture. A clean drag returning to its
 starting position clears only its metadata marker, including generated positions
 absent from the Source-only baseline; existing failed captures remain pending.
 Panning, zooming, framing, selection and inspection are not history steps.

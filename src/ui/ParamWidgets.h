@@ -18,4 +18,6 @@ struct ParameterGesture {
 void drawParams(App &app, Node &node, const std::string &parent);
 // Called after drawing, or explicitly before navigation/discrete actions.
 // A vanished/disabled item completes its actual live edit. Export defers capture.
-void finishParameterGesture(App &app, bool force = false);
+// True means a full capture was attempted, including failure. A combined
+// position completion can reuse that attempt instead of capturing twice.
+bool finishParameterGesture(App &app, bool force = false);

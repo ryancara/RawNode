@@ -726,7 +726,7 @@ Stage 2 targets 100 undo steps plus the baseline and uses a 64 MiB accounted
 retained-memory cap. Actual native and large/opaque OFX payload measurements,
 straightforward accounting, explicit command integration and conservative capture
 failure recovery are documented in [UNDO_HISTORY.md](UNDO_HISTORY.md). These are
-implementation choices to validate in Stage 2, not additions to the approved
+implementation choices validated in Stage 2, not additions to the approved
 user-facing contract. Completed edits may reuse their existing DocumentMutation
 scope for capture without nested ownership or an intermediate preview request.
 Output/position metadata recording derives from the current entry when no processor edits are pending,

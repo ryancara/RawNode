@@ -80,18 +80,18 @@ static bool paramStepButton(bool plus) {
   return clicked;
 }
 
-void finishParameterGesture(App &app, bool force) {
-  if (!app.parameterGesture) return;
+bool finishParameterGesture(App &app, bool force) {
+  if (!app.parameterGesture) return false;
   if (app.parameterGesture->photoPath != app.path || app.isPhotoProtected()) {
     app.parameterGesture.reset();
-    return;
+    return false;
   }
   const auto &context = *ImGui::GetCurrentContext();
   if (!force && !ImGui::GetIO().AppFocusLost && context.ActiveId == app.parameterGesture->item &&
-      context.ActiveIdIsAlive == app.parameterGesture->item) return;
+      context.ActiveIdIsAlive == app.parameterGesture->item) return false;
   // Export can start while a widget is losing focus. Complete once it releases
   // execution, without repeatedly attempting capture or changing export status.
-  if (!app.renderer.canCaptureSnapshot()) return;
+  if (!app.renderer.canCaptureSnapshot()) return false;
   auto gesture = std::move(*app.parameterGesture);
   app.parameterGesture.reset();
   if (gesture.pendingValue) {
@@ -103,7 +103,11 @@ void finishParameterGesture(App &app, bool force) {
           setNodeParameterValue(app, gesture.node, gesture.parameter, *gesture.pendingValue);
     }
   }
-  if (app.history.hasUnrecordedEdit()) app.history.recordCompletedEdit(app);
+  if (app.history.needsFullCapture()) {
+    app.history.recordCompletedEdit(app);
+    return true;
+  }
+  return false;
 }
 
 static void observeParameterItem(App &app, const Node &node, const ProcessorParameter &param, bool enabled) {
