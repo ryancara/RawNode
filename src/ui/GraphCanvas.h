@@ -21,7 +21,8 @@ struct GraphCanvasState {
   PersistPosition lastCanvasSize;
   std::optional<NodeId> dragging;
   bool panningFromEmptyCanvas = false;
-  PersistPosition dragOffset;
+  PersistPosition dragOffset, dragStart, dragLast;
+  bool positionEditPending = false, cleanHistoryAtDragStart = false;
   std::optional<GraphPortAddress> wire;
   std::optional<GraphPortAddress> contextPort;
   std::optional<NodeId> contextNode;
@@ -32,5 +33,6 @@ struct GraphCanvasState {
 };
 
 void drawGraphCanvas(App &app);
+void finishGraphDrag(App &app);
 
 }  // namespace ui

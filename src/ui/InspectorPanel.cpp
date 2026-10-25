@@ -113,4 +113,5 @@ void drawInspector(App &app) {
     drawProcessorParameters(app);
     ImGui::EndDisabled();
   }
+  finishParameterGesture(app);
 }

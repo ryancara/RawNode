@@ -68,7 +68,7 @@ bool setOutputEncoding(App &app, ColorEncoding encoding) {
     if (app.outputEncoding == encoding) return true;
     app.outputEncoding = encoding;
   }
-  app.history.recordOutputChange(app);
+  app.history.recordMetadataChange(app);
   app.renderer.requestDisplayRefresh();
   return true;
 }

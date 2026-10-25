@@ -592,27 +592,27 @@ reviewed, approved and merged in PR #92 at
 `c2624989213bb656f9552b3c52c7146dbfd432c2`. Its staged reconstruction and
 logical-node identity rules remain the replay boundary.
 
-Stage 2 is the current milestone: one App-owned in-memory snapshot history,
-cursor, 100 undo steps and a 64 MiB accounted-memory cap, with explicit recording
-of completed discrete document/graph edits. Successful photo switches and
-same-photo reopening reset it; failed/cancelled navigation and Save Grade preserve
-it. Completed edits and opening reuse their existing mutation scope for capture,
-without nested ownership or intermediate preview requests; standalone capture
-checks eligibility before acquiring one scope. Output-only edits derive from the
-current entry when no edits are pending and preserve display-only/export behaviour.
-Automatic Graph View position materialisation leaves Redo available.
-Failed capture retains the live edit/entries/cursor and pauses traversal until a
-successful completed-edit capture; failed replay leaves the cursor unchanged.
-[UNDO_HISTORY.md](UNDO_HISTORY.md) records the integration, measurements and
-failure policy, including the accepted apparent-no-op OFX trade-off after
-creation-time parameter changes. Replay performs one restoration and no additional
-capture. PR #93 requires Claude's final independent review before merge.
+Stage 2 was independently reviewed, approved and merged in PR #93 at
+`342fd2f1b97994931a4a27806348162ebe05793d`: one App-owned in-memory snapshot
+history/cursor, 100 undo steps and a 64 MiB accounted-memory cap. Successful photo
+switches/reopening reset it; failed/cancelled navigation and Save Grade preserve
+it. Completed graph/document edits reuse existing mutation ownership. Replay uses
+one staged restoration without post-replay capture. The accepted OFX initialization
+apparent-no-op limitation remains documented in [UNDO_HISTORY.md](UNDO_HISTORY.md).
 
-Stage 3 remains gesture completion/grouping for parameter widgets and node drags,
-shortcuts and visible Undo/Redo controls. Parameter/manual-position changes mark the
-current state unrecorded in Stage 2; they never capture per frame. Output changes
-made during pending edits wait for the next full completed-edit capture. No history
-state controls sidecar saves. Ordinary replacement/sidecar policies are unchanged.
+Stage 3 is the current implementation milestone: shared parameter widgets complete
+meaningful gestures through ImGui lifecycle, and Graph Canvas completes metadata-
+only drags without processor execution. One Inspector edit record handles deferred
+numeric values and disappearing controls; existing canvas state handles drag
+interruptions. UI completion defers during export; failed capture preserves the
+live edit and pauses history until recovery. Pending metadata is distinguished
+from processor edits so position-only copying cannot omit them. Automatic layout
+positions remain housekeeping. The existing Edit menu and platform shortcuts share
+history/document/export eligibility and preserve active text-input shortcuts.
+
+No history state controls sidecar saving. Ordinary replacement/sidecar policies,
+full-graph reconstruction and document/runtime ownership remain unchanged. This
+stage requires Claude's independent review before merge.
 
 **Step 6 is complete, independently reviewed and merged in PR #58 as
 `6294a034d30168063e2aa92e984a51666f56ca22`.** Step 5's product/architecture

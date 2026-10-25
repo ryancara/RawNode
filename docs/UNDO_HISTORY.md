@@ -1,6 +1,6 @@
 # In-memory grade history (D053)
 
-Stage 2 uses one `App::history` (`GradeHistory`) for the current photograph.
+Stages 2–3 use one `App::history` (`GradeHistory`) for the current photograph.
 Entries own complete detached `GradeSnapshot` values, including processor
 availability, never processors or image buffers. The cursor names the current
 entry. Undo/Redo call Stage 1 restoration and move the cursor only on success;
@@ -25,7 +25,7 @@ checking existing export/mutation/protection state. Processor synchronisation is
 unchanged. No history capture waits for active export. No new scheduler, worker
 or runtime state is introduced.
 
-Output-only edits use `recordOutputChange()`: when no other edit is pending, copy
+Output-only edits use `recordMetadataChange()`: when no other edit is pending, copy
 the current entry, update its colours and current positions, then use the same
 comparison, retention and redo-truncation code. No processor access, private sync,
 mutation, cancellation or full preview request occurs. Display refresh remains
@@ -41,13 +41,15 @@ parameter tokens; availability participates too. New entries truncate redo only
 after capture, comparison, size checks and allocation succeed. Oldest entries
 are then evicted to meet both limits.
 
-Parameter writes and manual node movement only mark the current state
-unrecorded: they never capture per frame. Automatic Graph View materialisation of
+Parameter writes and manual node movement mark the current state pending without
+capturing per frame. The marker distinguishes metadata from a full logical grade:
+position completion may copy the current entry only when no processor edit awaits
+capture. Both pending kinds disable traversal. Metadata capture failures remain
+pending and cannot be erased by an unrelated unchanged drag. Automatic Graph View materialisation of
 missing positions is housekeeping: it persists through ordinary saving but does
-not mark history pending or disable Redo. Stage 3 will call the same completion
-API once per gesture. Until then, traversal pauses after these unwired changes;
-it cannot silently undo past them. A later successful completed-edit capture
-records the current logical state and safely truncates any obsolete redo branch.
+not mark history pending or disable Redo. The UI calls the same completion API
+once per gesture. A later successful completed-edit capture records the actual
+logical state and safely truncates any obsolete redo branch.
 
 Failed capture (including private-state sync failure, allocation/codec failure or
 an oversized snapshot) keeps the live edit, all stored entries and the cursor.
@@ -107,9 +109,42 @@ fragment/node paste, grade Replace and preset Append; discrete RAW and Output
 colour changes. Each completed batch records once. Legacy V1/V2 fixture-only
 transfer helpers are outside the live history workflow.
 
-Stage 3 still owns gesture completion/grouping for shared parameter widgets
-(including text, sliders, choices/reset/activation) and node drags, plus keyboard
-shortcuts and menus/visible availability. These interactions currently mark
-unrecorded state without collecting steps. There is no pending-work scheduler,
-per-frame capture or history-driven persistence. Inspector expansion, selection,
-inspection and other view-only changes are not history steps.
+## Gesture and UI boundaries (Stage 3)
+
+Shared parameter widgets use ImGui activation/deactivation, with one optional
+Inspector edit record: item ID, photograph, logical node/parameter identity and
+an optional deferred numeric value. Sliders, vector drags and strings keep their
+existing live writes/preview behaviour. Numeric text remains deferred until Enter
+or focus loss. Escape follows the actual ImGui-restored value. Resets, steps,
+choices, booleans and representable push-button changes complete immediately.
+Unchanged interactions preserve Redo through the existing snapshot comparison.
+
+After drawing, a missing/deactivated item completes the same gesture. This covers
+selection/filter changes, hidden/collapsed Inspector, disabled controls and focus
+loss. Unapplied numeric text is committed only while the original node/parameter
+is still editable; otherwise it is discarded and the actual live grade is kept.
+UI navigation explicitly completes edits before ordinary departure/save; successful
+photo opening still resets history. Export defers completion until execution is
+available, without capture attempts or status changes each frame. A real capture
+failure clears the UI gesture but leaves history paused; a later completed edit
+can recover. There is no retry scheduler or per-frame snapshot collection.
+
+Graph Canvas latches movement within its existing drag state. Release, focus loss,
+List switch and hidden/collapsed Nodes complete it. Colours and positions share
+metadata-only recording: no processor access, private sync, mutation, preview
+request or sidecar write. If a processor edit is pending, completion waits until
+full capture is safe and includes both changes. A parameter completion reports
+its capture attempt so a combined drag cannot repeat it, including after failure.
+An unchanged parameter interaction does not turn layout-only completion into a
+full capture. A clean drag returning to its
+starting position clears only its metadata marker, including generated positions
+absent from the Source-only baseline; existing failed captures remain pending.
+Panning, zooming, framing, selection and inspection are not history steps.
+
+Edit-menu availability and keyboard actions share document/export eligibility,
+history endpoint/pending checks and refusal while a UI gesture is active. Undo is
+Cmd+Z on macOS and Ctrl+Z elsewhere; Redo is Cmd+Shift+Z on macOS and Ctrl+Shift+Z
+or Ctrl+Y elsewhere, using ConfigMacOSXBehaviors. Active text inputs retain their
+own shortcuts. A shortcut during an uncommitted gesture is refused; it does not
+silently finish and traverse in one action. Restoration/capture errors use the
+existing status path. No toolbar or history panel is added.

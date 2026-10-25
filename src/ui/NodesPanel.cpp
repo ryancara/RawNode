@@ -20,6 +20,7 @@ void drawNodesPanel(App &app) {
   if (app.nodesView == NodesView::Graph) ui::drawGraphCanvas(app);
   else {
     app.graphCanvas.cancelInteraction();
+    ui::finishGraphDrag(app);
     ui::drawNodeList(app);
   }
 }

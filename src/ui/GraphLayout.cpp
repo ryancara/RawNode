@@ -99,7 +99,7 @@ bool moveGraphNode(App &app, const NodeId &id, PersistPosition position) {
   const auto existing = app.nodePositions.find(id.value);
   if (existing != app.nodePositions.end() && existing->second.x == position.x && existing->second.y == position.y) return true;
   app.nodePositions[id.value] = position;
-  app.history.noteUnrecordedEdit();
+  app.history.notePositionChange();
   return true;
 }
 

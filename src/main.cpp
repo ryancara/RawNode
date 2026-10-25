@@ -5,6 +5,7 @@
 #include "ExportSafetyTests.h"
 #include "PhotoDocumentTests.h"
 #include "HistoryTests.h"
+#include "HistoryUiTests.h"
 #include "PreferencesTests.h"
 #include "PresetClipboardTests.h"
 #include "GraphRuntimeTests.h"
@@ -27,6 +28,7 @@ int main(int argc, char **argv) {
   if (argc > 1 && std::string(argv[1]) == "--selftest-graph-runtime") return testGraphRuntime() ? 0 : 1;
   if (argc > 1 && std::string(argv[1]) == "--selftest-transfers") return testPresetsAndClipboard() ? 0 : 1;
   if (argc > 1 && std::string(argv[1]) == "--selftest-preferences") return testPreferences() ? 0 : 1;
+  if (argc > 1 && std::string(argv[1]) == "--selftest-history-ui") return testHistoryUi() ? 0 : 1;
   if (argc > 1 && std::string(argv[1]) == "--selftest-history") return testGradeHistory() ? 0 : 1;
   if (argc > 1 && std::string(argv[1]) == "--selftest-photo") return testPhotoDocuments() ? 0 : 1;
   if (argc > 1 && !strcmp(argv[1], "--selftest")) return runSelfTests();

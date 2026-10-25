@@ -108,6 +108,7 @@ add_executable(OfxRawHost
   tests/PreferencesTests.cpp
   tests/PhotoDocumentTests.cpp
   tests/HistoryTests.cpp
+  tests/HistoryUiTests.cpp
   tests/PresetClipboardTests.cpp
   tests/GraphCommandsTests.cpp
   tests/GraphEvaluatorTests.cpp

@@ -674,7 +674,8 @@ scheduler or sidecar redesign is approved for that possibility today.
 
 ## D053 — Undo/Redo with bounded logical grade snapshots
 
-**Status:** Accepted, 2026-10-22. Stage 1 safe restoration is merged as PR #92;
+**Status:** Accepted, 2026-10-22. Safe restoration and in-memory history are merged
+as PR #92 and PR #93;
 Claude's independent design review was APPROVE WITH SMALL CHANGES.
 
 ### Approved design and behaviour
@@ -725,10 +726,10 @@ Stage 2 targets 100 undo steps plus the baseline and uses a 64 MiB accounted
 retained-memory cap. Actual native and large/opaque OFX payload measurements,
 straightforward accounting, explicit command integration and conservative capture
 failure recovery are documented in [UNDO_HISTORY.md](UNDO_HISTORY.md). These are
-implementation choices to validate in Stage 2, not additions to the approved
+implementation choices validated in Stage 2, not additions to the approved
 user-facing contract. Completed edits may reuse their existing DocumentMutation
 scope for capture without nested ownership or an intermediate preview request.
-Output-only recording derives from the current entry when no edits are pending,
+Output/position metadata recording derives from the current entry when no processor edits are pending,
 preserving display-only refresh and export status; otherwise the combined state
 awaits full capture. Automatic Graph View positions are housekeeping.
 
@@ -738,11 +739,19 @@ may record the effective live grade and truncate Redo when OFX CreateInstance
 changed persistent parameters. This never loses the live document or changes
 whether restoration succeeded.
 
-Stage 3 supplies meaningful gesture boundaries for shared parameter widgets and
-node drags, plus shortcuts and visible controls. Until that wiring exists,
-unrecorded parameter/position changes pause traversal rather than creating
-per-frame entries. No second restoration engine or unrelated product change is
-approved (D052).
+Stage 3 implements gesture boundaries in shared parameter widgets using ImGui's
+activation/deactivation lifecycle. One transient Inspector edit record handles
+deferred numeric values and interrupted/disappearing controls. Existing canvas
+state completes node drags; clean return-to-start movement creates no step.
+Positions and Output colours share metadata-only recording, with no processor
+execution/private sync or sidecar writes. Pending processor edits require safe
+full capture instead of metadata copying. Completion defers while export owns
+execution; failures retain the actual document and safely pause traversal.
+
+The existing Edit menu displays Undo/Redo with platform shortcuts and shared
+history/document/export availability. Text-input shortcuts remain owned by ImGui;
+history actions refuse active/uncommitted gestures. No second restoration engine,
+gesture framework, toolbar or unrelated product change is approved (D052).
 
 ## Pending decisions
 
