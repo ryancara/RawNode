@@ -241,7 +241,7 @@ bool droppedPhotoCompletesOutgoingGesture() {
     ui.tick(app); ui.tick(app);
     if (decision == SaveFailureDecision::Discard) {
       CHECK(opened && findNode(app, id)->processor->backend() == ProcessorBackend::CTL);
-      CHECK(findNode(app, id)->processor->identifier() == script && exposure(app, id) == 1.25);
+      CHECK(findNode(app, id)->processor->identifier() == std::filesystem::canonical(script).string() && exposure(app, id) == 1.25);
       CHECK(app.history.size() == 1 && app.history.cursor() == 0 && !app.history.hasUnrecordedEdit());
       CHECK(!app.history.canUndo() && !app.history.canRedo() && mutations == 3);
     } else {
