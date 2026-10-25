@@ -12,10 +12,13 @@ manual-validation evidence is not recorded; see `docs/STEP6_MANUAL_VALIDATION.md
 Step 7 PRs 1–5 are merged (#63, #65, #66, #68, #69), completing graph-native
 photo/preset/clipboard persistence and global preferences/workspace retirement.
 The targeted post-Step-7 graph safety and PNG colour correction gate is complete
-(see `docs/PROJECT_CONTEXT.md`). The switchable Graph/List editor (D047)
-has its visual foundation (#79), workspace/Inspector (#80) and focused graph
-editing (#82) merged. PR 2C's approved contextual node placement is implemented
-for independent review/native validation before Step 8 masking (D051).
+(see `docs/PROJECT_CONTEXT.md`). The switchable Graph/List editor (D047/D051)
+is complete and merged: visual foundation (#79), workspace/Inspector (#80), graph
+editing (#82), selection-aware insertion (#85), List deletion parity (#86) and
+contextual node placement (#87, PR 2C). Undo/Redo Stages 1–3 are complete and merged
+(#92–#94, D053). Step 8's first concrete production Mask path is next.
+Outstanding native Graph/List checks and unrecorded Undo/Redo desktop visual
+validation remain separate from milestone completion (see `docs/PROJECT_CONTEXT.md`).
 These fixes do not add architecture steps.
 
 Read this together with:
@@ -680,14 +683,14 @@ validation evidence is tracked separately in `docs/PROJECT_CONTEXT.md`.
 
 7. **Add versioned graph persistence — complete; PRs #63, #65, #66, #68, #69.**
 
-   The post-Step-7 correction gate is complete. Graph/List visual foundation
-   (#79), workspace (#80) and editing (#82) are merged; PR 2C's approved contextual
-   placement is implemented for independent review/native validation before Step 8.
-   This is a UI milestone (D047), not another numbered architecture step. Both views edit the
+   The post-Step-7 correction gate and Graph/List editor milestone, through
+   contextual placement (#87), are complete and merged. Undo/Redo Stages 1–3
+   (#92–#94, D053) are also complete; outstanding native validation remains tracked.
+   The editor is a UI milestone (D047), not another numbered architecture step. Both views edit the
    same authoritative document graph and share NodeId selection; no additional renderer or
    execution model is introduced.
 
-8. **Settle remaining concrete mask details and add the first mask path.**
+8. **Next: settle remaining concrete Mask details and add the first production Mask path.**
    Implement the Step 5 contract; settle remaining representation, range,
    filtering/sampling and concrete blend encoding where not already needed in
    Step 5. Global alpha association remains separate until the corresponding

@@ -224,15 +224,16 @@ reference and found the direction **sound for the next stage**. Step 5 has now
 closed after independent final Codex/Claude implementation-readiness review.
 No further broad architectural refactor was required before Step 6. The explicit
 graph and sequential evaluator are now implemented, independently reviewed and
-merged. Step 7 persistence is also complete. The Graph/List editor now includes its
-PR #79 foundation, PR #80 contextual Inspector/workspace and PR #82 connection/
-deletion editing (D051), all merged and independently reviewed. Owner-reported
+merged. Step 7 persistence is also complete. The completed Graph/List editor
+includes its PR #79 foundation, PR #80 contextual Inspector/workspace and PR #82 connection/
+deletion editing (D051), selection-aware insertion (#85), List deletion parity
+(#86) and contextual node placement (#87, PR 2C), all merged. Owner-reported
 native macOS validation of PR #82 is in `docs/GRAPH_VIEW_VALIDATION.md`;
 corrupted-sidecar protection and export/edit overlap scenarios, as well
-as Windows GUI checks, remain separately tracked. PR 2C's approved contextual
-node placement is implemented for independent review/native validation (D051);
-the concrete production Mask path follows. PR 2A
-historical validation remains in `docs/WORKSPACE_INSPECTOR_VALIDATION.md`.
+as Windows GUI checks and later insertion/placement/List input checks, remain
+separately tracked. Undo/Redo Stages 1–3 are complete and merged (#92–#94).
+Step 8's first concrete production Mask path is the next architectural milestone.
+PR 2A historical validation remains in `docs/WORKSPACE_INSPECTOR_VALIDATION.md`.
 The approved target is
 documented in `docs/ARCHITECTURE.md`; checkpoint
 evidence is in `docs/ARCHITECTURE_AUDIT.md`.
@@ -587,6 +588,10 @@ need.
 
 ## Current development phase
 
+The Graph/List editor milestone, including PR #87, and all three Undo/Redo stages
+are complete and merged. **Step 8, the first concrete production Mask path, is the
+next architectural milestone**, under the accepted Step 5 contract.
+
 Undo/Redo design and behaviour are approved in D053. Stage 1 was independently
 reviewed, approved and merged in PR #92 at
 `c2624989213bb656f9552b3c52c7146dbfd432c2`. Its staged reconstruction and
@@ -600,7 +605,8 @@ it. Completed graph/document edits reuse existing mutation ownership. Replay use
 one staged restoration without post-replay capture. The accepted OFX initialization
 apparent-no-op limitation remains documented in [UNDO_HISTORY.md](UNDO_HISTORY.md).
 
-Stage 3 is the current implementation milestone: shared parameter widgets complete
+Stage 3 is complete and merged in PR #94 at
+`e2e4c4f835dd94c81ded61228bea1ef6df582ef4`: shared parameter widgets complete
 meaningful gestures through ImGui lifecycle, and Graph Canvas completes metadata-
 only drags without processor execution. One Inspector edit record handles deferred
 numeric values and disappearing controls; existing canvas state handles drag
@@ -611,8 +617,9 @@ positions remain housekeeping. The existing Edit menu and platform shortcuts sha
 history/document/export eligibility and preserve active text-input shortcuts.
 
 No history state controls sidecar saving. Ordinary replacement/sidecar policies,
-full-graph reconstruction and document/runtime ownership remain unchanged. This
-stage requires Claude's independent review before merge.
+full-graph reconstruction and document/runtime ownership remain unchanged.
+Native desktop visual validation of Stage 3 remains unrecorded; passing Linux
+and macOS CI does not establish those manual results.
 
 **Step 6 is complete, independently reviewed and merged in PR #58 as
 `6294a034d30168063e2aa92e984a51666f56ca22`.** Step 5's product/architecture
@@ -684,7 +691,7 @@ a practical composition root; the remaining thread-launch/lifetime findings are
 focused implementation follow-ups, not reasons to reopen the architecture audit.
 See `docs/ARCHITECTURE_AUDIT.md` for the candidate dispositions.
 
-The remaining sequence is:
+The architecture sequence and completed intervening milestones are:
 
     Step 5: First mask/graph product contract       [complete]
           |
@@ -698,10 +705,13 @@ The remaining sequence is:
     Targeted graph safety + PNG colour corrections   [complete; independently reviewed]
           |
           v
-    Switchable Graph/List editor                   [#79/#80/#82 merged; PR 2C in review, D047/D051]
+    Switchable Graph/List editor                   [complete; through #87, D047/D051]
           |
           v
-    Step 8: Concrete first mask path + remaining implementation details
+    Undo/Redo Stages 1–3                           [complete; #92/#93/#94, D053]
+          |
+          v
+    Step 8: First concrete production Mask path + remaining details [next]
 
 The completed gates are stabilisation/review work, not extra numbered
 architecture steps. The checkpoint validates the direction for the next stage,
@@ -763,12 +773,13 @@ compositing or alpha-carrying I/O requires it.
 Next architecture/product work:
 
 - The visual Graph/List foundation (#79), contextual Inspector/workspace (#80)
-  and focused connection/deletion editing (#82) are merged after independent
-  review. Native macOS Graph View testing was reported successful; the
+  and focused connection/deletion editing (#82), selection-aware insertion (#85),
+  List deletion parity (#86) and contextual placement (#87) are complete and merged.
+  Native macOS Graph View testing was reported successful; the
   corrupted-sidecar protection, export/edit overlap and Windows GUI checks
   remain separately tracked.
-- PR 2C implements approved contextual placement for independent review/native
-  validation, then continue toward Step 8's first concrete Mask path. New
+- PR 2C's approved contextual placement is merged as #87; its native validation
+  remains tracked in `docs/GRAPH_VIEW_VALIDATION.md`. New
   processors appear right of their upstream Image predecessor with an 80-unit
   gap in both views, even before Graph View has opened. Preserve existing
   positions through graph edits; permit overlap without collision avoidance.
@@ -782,7 +793,7 @@ Next architecture/product work:
   changes connections only. PR 2C's visual placement is separately approved;
   Insert Before/After and Auto Arrange still require separate decisions.
   Empty nodes and processor assignment/replacement
-  remain deferred, without blocking PR 2C or Step 8. Clipboard/preset policies remain.
+  remain deferred, without blocking Step 8. Clipboard/preset policies remain.
   Keep graph NodeId/connections distinct from processor instances.
 - Preview owns resolution; Nodes owns Add Processor and List/Graph; Inspector
   follows Source/processor/virtual Output/no selection. The top toolbar owns file
@@ -790,6 +801,9 @@ Next architecture/product work:
   is waived, while new layouts persist normally and photo/grade contracts remain.
 - Both editor views share the authoritative document graph and NodeId selection;
   switching views introduces no additional execution model.
+- Undo/Redo Stages 1–3 are complete (#92–#94); proceed to Step 8's first concrete
+  production Mask path under the accepted Step 5 contract. Outstanding manual
+  validation and deferred quality work remain separately tracked.
 
 The checkpoint, immediate follow-ups, Step 5 contract and whole-Step-6
 implementation/architecture review are complete. These focused corrections do
@@ -834,11 +848,11 @@ parameter-edit preview scheduling, graph traversal depth and PNG colour
 metadata/ICC placement are corrected and independently reviewed. PNG regression
 coverage independently checks chunks, CRCs, profiles and pixels.
 
-**In progress:** the switchable Graph/List editor (D047) has its visual
-foundation (#79), workspace/Inspector (#80) and Graph wiring/deletion (#82)
-merged and independently reviewed. PR 2C's approved contextual node placement is
-implemented for independent review/native validation. **Then Step 8** adds the
-first concrete Mask path.
+**Completed milestones:** the switchable Graph/List editor (D047/D051), including
+contextual node placement (#87), and all three Undo/Redo stages (#92–#94, D053)
+are merged. **Next: Step 8**, the first concrete production Mask path.
+Outstanding native Graph/List checks remain in `docs/GRAPH_VIEW_VALIDATION.md`;
+Undo/Redo Stage 3 native desktop visual validation remains unrecorded.
 These completed corrections are a preparatory gate, not additional
 architecture steps or a reason for a new whole-system audit.
 

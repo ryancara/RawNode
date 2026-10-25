@@ -416,7 +416,7 @@ Arbitrary-DAG List View presentation remains deferred.
 
 ## D047 — Switchable Graph/List editor follows graph-native persistence
 
-**Status:** Accepted
+**Status:** Accepted; UI milestone complete and merged through PR #87.
 
 After Step 7 graph-native persistence and before Step 8's first concrete
 production Mask path, add a switchable Graph/List editor. This is a UI milestone
@@ -611,6 +611,9 @@ remain deferred.
 
 ### Superseding PR 2C approval — contextual node placement, 2026-10-21
 
+**Implementation status:** Complete and merged as PR #87. Outstanding native
+checks remain tracked in [GRAPH_VIEW_VALIDATION.md](GRAPH_VIEW_VALIDATION.md).
+
 Newly added processors appear immediately right of their upstream Image
 predecessor, at the same Y, with a small gap. Reuse the existing 240-unit node
 width and 80-unit horizontal gap. This applies to PR #85's shared Add Processor
@@ -674,8 +677,9 @@ scheduler or sidecar redesign is approved for that possibility today.
 
 ## D053 — Undo/Redo with bounded logical grade snapshots
 
-**Status:** Accepted, 2026-10-22. Safe restoration and in-memory history are merged
-as PR #92 and PR #93;
+**Status:** Accepted, 2026-10-22. All three stages are complete and merged:
+safe restoration (#92), bounded in-memory history (#93), and gesture completion/
+Edit controls (#94). Native desktop visual validation of Stage 3 remains unrecorded.
 Claude's independent design review was APPROVE WITH SMALL CHANGES.
 
 ### Approved design and behaviour
@@ -722,7 +726,7 @@ advance the history position. Restoration itself writes no sidecars.
 
 ### Staged implementation and measurements
 
-Stage 2 targets 100 undo steps plus the baseline and uses a 64 MiB accounted
+Stage 2 retains up to 100 undo steps plus the baseline and uses a 64 MiB accounted
 retained-memory cap. Actual native and large/opaque OFX payload measurements,
 straightforward accounting, explicit command integration and conservative capture
 failure recovery are documented in [UNDO_HISTORY.md](UNDO_HISTORY.md). These are
@@ -786,11 +790,12 @@ The D037 stabilisation gate and immediate checkpoint follow-ups are complete.
 7. Add versioned graph persistence — complete; PRs 1–5 merged as #63, #65, #66,
    #68 and #69.
 
-   After the focused corrections tracked in `docs/PROJECT_CONTEXT.md`, add the
-   switchable Graph/List editor UI milestone (D047), before Step 8.
+   The focused correction gate and switchable Graph/List editor UI milestone
+   (D047/D051, through #87) are complete. Undo/Redo Stages 1–3 (D053, #92–#94)
+   are also complete; these add no numbered architecture steps.
 
-8. Settle remaining concrete mask details and add the first mask path under the
-   Step 5 contract.
+8. **Next:** settle remaining concrete Mask details and add the first production
+   Mask path under the accepted Step 5 contract.
 
 If implementation evidence changes this direction, update this log rather than
 letting the architecture drift silently.

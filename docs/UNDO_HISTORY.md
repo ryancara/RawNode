@@ -1,5 +1,14 @@
 # In-memory grade history (D053)
 
+**Status:** All three stages are complete and merged: safe logical restoration
+(#92), bounded current-photo history (#93), and gesture completion/Edit controls
+(#94). Step 8's first concrete production Mask path is the next architectural
+milestone; the accepted Step 5 contract is unchanged.
+
+Native desktop visual validation of Stage 3 remains unrecorded. Passing Linux
+and macOS CI does not establish manual input/window validation. The accepted OFX
+initialization trade-off and memory-accounting limits remain documented below.
+
 Stages 2–3 use one `App::history` (`GradeHistory`) for the current photograph.
 Entries own complete detached `GradeSnapshot` values, including processor
 availability, never processors or image buffers. The cursor names the current
@@ -101,7 +110,7 @@ OFX snapshots (30 undo steps). Measurements depend on platform/container
 capacities; tests check invariants and payload scale rather than these exact
 implementation sizes.
 
-## Integration and remaining work
+## Completed integration
 
 Integrated: native/OFX/CTL Add Processor; deletion, enable/disable and Clear;
 App graph commands (connections, Output rewiring, structural/Slot changes);
