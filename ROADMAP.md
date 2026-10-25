@@ -59,13 +59,18 @@ are non-blocking follow-ups.
 - **Post-Step-7 correction gate — complete:** Copy Node ownership/capture,
   parameter-edit preview scheduling, graph traversal depth and PNG colour
   metadata/ICC placement are corrected and independently reviewed.
-- **Graph View UI milestone (between Steps 7 and 8; D047), in progress:**
+- **Graph/List editor milestone — complete (between Steps 7 and 8; D047/D051):**
   PR #79 added the dockable List/Graph foundation, PR #80 the contextual
   Inspector/workspace, and PR #82 the focused wiring/deletion interactions.
-  All three are merged. PR 2C's contextual Add Processor placement is approved
-  and implemented for independent review; native validation remains pending.
-- **Step 8:** first concrete mask path and remaining implementation details
-  under the Step 5 product/architectural contract. TIFF and EXR format
+  PR #85 added selection-aware insertion, #86 List deletion parity, and #87
+  contextual Add Processor placement (PR 2C). All are merged; outstanding native
+  validation remains tracked in `docs/GRAPH_VIEW_VALIDATION.md`.
+- **Undo/Redo — complete (D053):** safe restoration (#92), bounded in-memory
+  history (#93), and gesture completion/Edit controls (#94) are merged.
+  See `docs/UNDO_HISTORY.md` for behaviour and retained limitations.
+- **Step 8 — next architectural milestone:** first concrete production Mask path
+  and remaining implementation details under the Step 5 product/architectural
+  contract. TIFF and EXR format
   correctness and JPEG encoder UB remain independently tracked follow-ups,
   not prerequisites for Graph View, nor for masks unless the first Mask path
   decodes external TIFF files.
@@ -192,11 +197,13 @@ required.
 
 ## Graph / List interface
 
-**UI delivery milestone in progress (D047):** the dockable Nodes panel switches
+**UI delivery milestone complete (D047/D051):** the dockable Nodes panel switches
 between List and Graph over the same authoritative graph. The visual foundation
 (PR #79), contextual workspace (PR #80) and connection/deletion UI (PR #82)
-are merged. PR 2C adds the approved contextual processor placement described
-below, before Step 8 introduces masks. Independent review/native validation remain.
+are merged, along with selection-aware insertion (#85), List deletion parity
+(#86) and contextual processor placement (#87, PR 2C) described below.
+Step 8's first production Mask path is next; outstanding native validation remains
+tracked separately in [GRAPH_VIEW_VALIDATION.md](docs/GRAPH_VIEW_VALIDATION.md).
 This is a UI/product milestone, not an additional numbered architecture refactor.
 The completed correction gate and deferred image-format issues are tracked in
 `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
@@ -239,7 +246,7 @@ View presentation stays deliberately simple.
 
 PR 2A implementation and validation are recorded in
 [WORKSPACE_INSPECTOR_VALIDATION.md](docs/WORKSPACE_INSPECTOR_VALIDATION.md);
-independent review and outstanding platform checks remain separate.
+outstanding platform checks remain separate from the completed milestone.
 
 **PR 2B — Visual graph editing (merged as #82)**
 
@@ -256,7 +263,7 @@ Selection-aware Add Processor is now separately approved under D051, superseding
 PR 2B's append-only deferral above. PR #85 implements that connection policy;
 PR 2C separately implements the approved visual placement below.
 
-**PR 2C — Graph node placement (approved; implemented for independent review)**
+**PR 2C — Graph node placement (merged as #87)**
 
 - Add Processor uses PR #85's selection-aware insertion workflow in both views.
   After successful insertion, place the new processor immediately right of its
