@@ -279,7 +279,8 @@ void RenderRuntime::runPreview() {
         if (const auto *image = std::get_if<ImageValue>(&result.value)) { w = (*image)->w; h = (*image)->h; }
         if (const auto *mask = std::get_if<MaskValue>(&result.value)) { w = (*mask)->w; h = (*mask)->h; }
         status = std::to_string(w) + "×" + std::to_string(h) + " preview";
-      } else status = result.state == EvaluationState::Unavailable ? "Preview unavailable" : "Render failed";
+      } else if (result.state == EvaluationState::Inactive) status = "Mask inactive (bypassed)";
+      else status = result.state == EvaluationState::Unavailable ? "Preview unavailable" : "Render failed";
       for (const auto &diagnostic : result.diagnostics) status += " — " + diagnostic.message;
       auto presentation = display_detail::preparePresentation(app_, result);
       if (beforePublication_) beforePublication_(publicationContext_, *endpoint);
@@ -287,7 +288,8 @@ void RenderRuntime::runPreview() {
       // publication. An older Image or Mask cannot publish after a new request.
       std::lock_guard<std::mutex> lock(mutex_);
       if (gen != epoch_.load() || endpoint != pendingEndpoint_ || stopping_) continue;
-      const bool reportStatus = !quiet || result.state != EvaluationState::Available;
+      const bool reportStatus = !quiet || (result.state != EvaluationState::Available &&
+                                           result.state != EvaluationState::Inactive);
       display_detail::publishPreview(app_, std::move(result), gen, endpoint, std::move(presentation));
       if (reportStatus) app_.setStatus(status);
     } catch (...) {

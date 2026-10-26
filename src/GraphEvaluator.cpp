@@ -88,6 +88,14 @@ class Evaluation {
       const auto *binding = findInput(graph_, {node.id, slot, port});
       if (binding && *binding) dependency(**binding);
     };
+    const auto *port = findOutput(graph_, output);
+    if (!node.enabled) {
+      if (port->bypassInput) {
+        connected(*port->bypassInput);
+        return;
+      }
+      if (port->type == ValueType::Mask) return;
+    }
     switch (node.operation) {
       case NodeOperation::ImageProcessor:
       case NodeOperation::TestImage:
@@ -182,6 +190,7 @@ class Evaluation {
 
   Outcome coverage(const OutputRef &consumer, ImageValue image, std::optional<SlotId> slot = std::nullopt) {
     auto value = input(consumer, ports::mask, slot);
+    if (value.state == EvaluationState::Inactive) return {};
     if (value.state == EvaluationState::Unavailable) {
       diagnose(DiagnosticLevel::Warning, consumer, "Optional Mask unavailable; using full coverage" +
                (slot ? " for Slot " + std::to_string(slot->value) : std::string()));
@@ -197,6 +206,11 @@ class Evaluation {
 
   Outcome executeNode(const Node &node, const OutputRef &output) {
     if (node.operation == NodeOperation::Source) return {EvaluationState::Available, source_};
+    const auto *port = findOutput(graph_, output);
+    if (!node.enabled) {
+      if (port->bypassInput) return input(output, *port->bypassInput);
+      if (port->type == ValueType::Mask) return {EvaluationState::Inactive, {}};
+    }
     graph_test::InputValues inputs;
     switch (node.operation) {
       case NodeOperation::ImageProcessor:
@@ -207,11 +221,6 @@ class Evaluation {
         auto upstream = input(output, ports::image);
         if (stopped(upstream)) return upstream;
         inputs.image = std::get<ImageValue>(upstream.value);
-        if (!node.enabled) {
-          if (findOutput(graph_, output)->type == ValueType::Image) return upstream;
-          if (node.operation == NodeOperation::TestImageToMask) return whiteMask(inputs.image);
-          return failure(output, "No Mask bypass defined for this multi-output test operation");
-        }
         if (node.operation == NodeOperation::ImageProcessor) return processor(node, output, inputs.image);
         if (node.operation == NodeOperation::TestMaskedImage) {
           auto mask = coverage(output, inputs.image);
@@ -222,7 +231,7 @@ class Evaluation {
       }
       case NodeOperation::TestMaskProcessor: {
         auto upstream = input(output, ports::mask);
-        if (stopped(upstream) || !node.enabled) return upstream;
+        if (stopped(upstream)) return upstream;
         inputs.mask = std::get<MaskValue>(upstream.value);
         break;
       }
@@ -232,7 +241,6 @@ class Evaluation {
         if (std::holds_alternative<std::monostate>(frame.value)) frame = dependency({graph_.primarySource, ports::image});
         if (stopped(frame)) return frame;
         inputs.reference = std::get<ImageValue>(frame.value);
-        if (!node.enabled) return whiteMask(inputs.reference);
         break;
       }
       case NodeOperation::TestSlotted: {
@@ -290,6 +298,8 @@ class Evaluation {
     if (cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
     auto result = executor_->execute(node, context_, inputs, cancellation_);
     if (cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
+    if (result.state == EvaluationState::Inactive)
+      return failure(output, "Executor must not return Inactive; only evaluator Mask bypass/propagation may do so");
     if (result.state == EvaluationState::Error)
       return failure(output, result.message.empty() ? "Test graph operation failed" : result.message);
     if (result.state == EvaluationState::Cancelled) return {EvaluationState::Cancelled, {}};
@@ -321,18 +331,12 @@ class Evaluation {
     return {EvaluationState::Available, std::move(requested->second)};
   }
 
-  static Outcome whiteMask(ImageValue frame) {
-    auto mask = std::make_shared<Mask>();
-    mask->w = frame->w;
-    mask->h = frame->h;
-    mask->px.assign(static_cast<size_t>(frame->w) * frame->h, 1.0f);
-    return {EvaluationState::Available, MaskValue(std::move(mask))};
-  }
-
   Outcome validate(const OutputRef &output, Outcome &result) {
-    if (stopped(result) || result.validated) return result;
     const auto *port = findOutput(graph_, output);
     if (!port) return result = failure(output, "Output endpoint does not exist");
+    if (result.state == EvaluationState::Inactive && port->type != ValueType::Mask)
+      return result = failure(output, "Image output must not be Inactive");
+    if (stopped(result) || result.validated) return result;
     if (port->type == ValueType::Image) {
       const auto *image = std::get_if<ImageValue>(&result.value);
       if (!image || !*image || !rasterShape((*image)->w, (*image)->h, 4, (*image)->px.size()))

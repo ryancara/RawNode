@@ -20,7 +20,7 @@ struct EvaluationContext {
   int evalSourceW = 0, evalSourceH = 0;
 };
 
-enum class EvaluationState { Available, Unavailable, Error, Cancelled };
+enum class EvaluationState { Available, Inactive, Unavailable, Error, Cancelled };
 enum class DiagnosticLevel { Warning, Error };
 struct EvaluationDiagnostic {
   DiagnosticLevel level;
@@ -29,6 +29,8 @@ struct EvaluationDiagnostic {
 };
 
 // Available results own an immutable value; all other states have no raster.
+// Inactive is Mask-only and is created by evaluator bypass/propagation, never
+// by processor execution. Optional coverage treats it as absent without warning.
 // Type is absent when structure/endpoint validation cannot resolve a request. Runtime
 // callers can pair this complete result with their publication/request identity.
 struct EvaluationResult {
@@ -44,7 +46,7 @@ namespace graph_test {
 struct SlotValues {
   SlotId id;
   ImageValue image;
-  MaskValue mask;  // Absent/unavailable optional coverage is null, with warnings.
+  MaskValue mask;  // Absent/inactive coverage is null; unavailable also warns.
 };
 struct InputValues {
   ImageValue image;

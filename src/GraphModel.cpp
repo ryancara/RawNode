@@ -11,7 +11,7 @@ const NodeInterface &nodeInterface(NodeOperation operation) {
   }, {}};
   static const NodeInterface processor{{
       {ports::image, Direction::Input, ValueType::Image, true},
-      {ports::image, Direction::Output, ValueType::Image},
+      {ports::image, Direction::Output, ValueType::Image, false, ports::image},
   }, {}};
   static const NodeInterface imageToMask{{
       {ports::image, Direction::Input, ValueType::Image, true},
@@ -19,12 +19,12 @@ const NodeInterface &nodeInterface(NodeOperation operation) {
   }, {}};
   static const NodeInterface maskProcessor{{
       {ports::mask, Direction::Input, ValueType::Mask, true},
-      {ports::mask, Direction::Output, ValueType::Mask},
+      {ports::mask, Direction::Output, ValueType::Mask, false, ports::mask},
   }, {}};
   static const NodeInterface multipleOutputs{{
       {ports::image, Direction::Input, ValueType::Image, true},
-      {ports::image, Direction::Output, ValueType::Image},
-      {PortId{"original"}, Direction::Output, ValueType::Image},
+      {ports::image, Direction::Output, ValueType::Image, false, ports::image},
+      {PortId{"original"}, Direction::Output, ValueType::Image, false, ports::image},
       {ports::mask, Direction::Output, ValueType::Mask},
   }, {}};
   static const NodeInterface slotted{{
@@ -37,7 +37,7 @@ const NodeInterface &nodeInterface(NodeOperation operation) {
   static const NodeInterface maskedImage{{
       {ports::image, Direction::Input, ValueType::Image, true},
       {ports::mask, Direction::Input, ValueType::Mask, false},
-      {ports::image, Direction::Output, ValueType::Image},
+      {ports::image, Direction::Output, ValueType::Image, false, ports::image},
   }, {}};
   static const NodeInterface referenceMask{{
       {ports::reference, Direction::Input, ValueType::Image, false},
