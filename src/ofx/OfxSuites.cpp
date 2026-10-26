@@ -304,6 +304,9 @@ static std::unordered_map<PropSet *, std::unique_ptr<PropSet>> gImages;
 
 static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, OfxPropertySetHandle *out) {
   Clip *c = C(ch);
+  *out = nullptr;
+  if (c->name != kOfxImageEffectSimpleSourceClipName && c->name != kOfxImageEffectOutputClipName)
+    return kOfxStatFailed;
   Effect *e = c->owner;
   const bool isOutput = c->name == kOfxImageEffectOutputClipName;
   OfxMetalBuffer *mbuf = e->metalEnabled ? (isOutput ? (OfxMetalBuffer *)e->dstMtl : (OfxMetalBuffer *)e->srcMtl) : nullptr;

@@ -68,6 +68,8 @@ bool describes(const Held &held, const Expected &want) {
   char *type = nullptr, *depth = nullptr, *components = nullptr;
   void *data = nullptr;
   int bounds[4] = {}, rod[4] = {}, rowBytes = 0;
+  double scale[2] = {};
+  if (ps.propGetDoubleN(held.handle, kOfxImageEffectPropRenderScale, 2, scale) || scale[0] != 1 || scale[1] != 1) return false;
   if (ps.propGetString(held.handle, kOfxPropType, 0, &type) ||
       ps.propGetString(held.handle, kOfxImageEffectPropPixelDepth, 0, &depth) ||
       ps.propGetString(held.handle, kOfxImageEffectPropComponents, 0, &components) ||
@@ -136,6 +138,9 @@ struct ImagePluginFixture {
     const auto descriptor = reinterpret_cast<OfxImageEffectHandle>(entry.descriptor.get());
     effects().clipDefine(descriptor, kOfxImageEffectOutputClipName, nullptr);
     effects().clipDefine(descriptor, kOfxImageEffectSimpleSourceClipName, nullptr);
+    OfxPropertySetHandle maskProps = nullptr;
+    effects().clipDefine(descriptor, "Mask", &maskProps);
+    props().propSetInt(maskProps, kOfxImageClipPropOptional, 0, 1);
     propSetPointer(H(&entry.descriptor->props), "selftest-probe", 0, this);
     instance = createInstance(entry);
   }
@@ -149,9 +154,13 @@ struct ImagePluginFixture {
     scenario = next;
     checks = {};
     checks.expect(instance != nullptr, "createInstance");
-    if (instance)
+    if (instance) {
+      int width = 0, height = 0;
+      queryOutputSize(&plugin, instance.get(), kSourceW, kSourceH, &width, &height);
+      checks.expect(width == kSourceW && height == kSourceH, "default RoD uses evaluated input dimensions");
       checks.expect(renderEffect(&plugin, instance.get(), src.data(), dst.data(), kSourceW, kSourceH,
                                  kOutputW, kOutputH) == kOfxStatOK, "render action");
+    }
     return checks.ok;
   }
 
@@ -193,6 +202,17 @@ void independentOutstandingHandles(const Render &r, Checks &c) {
            "out-of-order and repeated releases keep the others");
   c.expect(release(s2) == kOfxStatOK && describes(o1, r.outputImage), "release second Source");
   c.expect(release(o1) == kOfxStatOK, "release first Output last");
+}
+
+void optionalMaskIsDisconnected(const Render &r, Checks &c) {
+  const auto mask = clip(r.effect, "Mask");
+  OfxPropertySetHandle properties = nullptr, image = nullptr;
+  effects().clipGetPropertySet(mask, &properties);
+  int connected = 1;
+  c.expect(props().propGetInt(properties, kOfxImageClipPropConnected, 0, &connected) == kOfxStatOK && !connected,
+           "optional plugin Mask is disconnected");
+  c.expect(effects().clipGetImage(mask, 0, nullptr, &image) == kOfxStatFailed && !image,
+           "optional plugin Mask cannot fetch Source RGB");
 }
 
 // Many fetch/release cycles of the same images never reuse or disturb a handle
@@ -272,6 +292,7 @@ bool testOfxImageHandles() {
   // Every single-threaded case runs, so a failure lists each broken contract.
   bool ok = check(fixture.render(independentOutstandingHandles),
                   "simultaneous Source/Output handles, out-of-order and repeated release");
+  ok &= check(fixture.render(optionalMaskIsDisconnected), "optional Mask stays disconnected from Source RGB");
   ok &= check(fixture.render(repeatedRequests), "repeated requests keep a held handle; each release is final");
   ok &= check(fixture.render(invalidReleases), "invalid releases are rejected without side effects");
   ok &= check(fixture.fetchOutsideRender(), "fetch outside a render returns no handle");

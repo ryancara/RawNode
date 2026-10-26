@@ -89,7 +89,7 @@ class Evaluation {
       if (binding && *binding) dependency(**binding);
     };
     const auto *port = findOutput(graph_, output);
-    if (!node.enabled) {
+    if (!node.enabled || (node.operation == NodeOperation::ImageProcessor && node.strength == 0)) {
       if (port->bypassInput) {
         connected(*port->bypassInput);
         return;
@@ -98,6 +98,9 @@ class Evaluation {
     }
     switch (node.operation) {
       case NodeOperation::ImageProcessor:
+        connected(ports::image);
+        if (node.processor) connected(ports::mask);
+        break;
       case NodeOperation::TestImage:
       case NodeOperation::TestImageToMask:
       case NodeOperation::TestMultipleOutputs:
@@ -207,7 +210,7 @@ class Evaluation {
   Outcome executeNode(const Node &node, const OutputRef &output) {
     if (node.operation == NodeOperation::Source) return {EvaluationState::Available, source_};
     const auto *port = findOutput(graph_, output);
-    if (!node.enabled) {
+    if (!node.enabled || (node.operation == NodeOperation::ImageProcessor && node.strength == 0)) {
       if (port->bypassInput) return input(output, *port->bypassInput);
       if (port->type == ValueType::Mask) return {EvaluationState::Inactive, {}};
     }
@@ -221,7 +224,7 @@ class Evaluation {
         auto upstream = input(output, ports::image);
         if (stopped(upstream)) return upstream;
         inputs.image = std::get<ImageValue>(upstream.value);
-        if (node.operation == NodeOperation::ImageProcessor) return processor(node, output, inputs.image);
+        if (node.operation == NodeOperation::ImageProcessor) return maskedProcessor(node, output, inputs.image);
         if (node.operation == NodeOperation::TestMaskedImage) {
           auto mask = coverage(output, inputs.image);
           if (stopped(mask)) return mask;
@@ -274,6 +277,38 @@ class Evaluation {
         break;
     }
     return executeTest(node, output, inputs);
+  }
+
+  Outcome maskedProcessor(const Node &node, const OutputRef &output, ImageValue image) {
+    // Missing unary effects retain their defined pass-through fallback, with a
+    // warning. Their unused coverage must not turn that fallback into an edit.
+    if (!node.processor) return processor(node, output, std::move(image));
+    auto mask = coverage(output, image);
+    if (stopped(mask)) return mask;
+    auto processed = processor(node, output, image);
+    processed = validate(output, processed);
+    if (stopped(processed)) return processed;
+    const auto value = std::get<ImageValue>(processed.value);
+    const auto *coverageMask = std::get_if<MaskValue>(&mask.value);
+    const double strength = node.strength; // Stable through plan/execute under existing execution exclusion.
+    if (strength == 1 && !coverageMask) return processed;
+    if (value->w != image->w || value->h != image->h)
+      return failure(output, "Image input/processor output dimension mismatch for Mask/Strength mixing");
+    auto mixed = std::make_shared<Image>(*image);
+    for (size_t pixel = 0; pixel < image->px.size() / 4; ++pixel) {
+      if ((pixel % 4096) == 0 && cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
+      const double amount = strength * (coverageMask ? (*coverageMask)->px[pixel] : 1.0);
+      // Exact endpoints also avoid 0*Inf and preserve unchanged alpha samples.
+      if (amount == 0) continue;
+      for (size_t channel = 0; channel < 4; ++channel) {
+        const size_t sample = pixel * 4 + channel;
+        if (amount == 1) mixed->px[sample] = value->px[sample];
+        else if (image->px[sample] != value->px[sample])
+          mixed->px[sample] = float(double(image->px[sample]) +
+              (double(value->px[sample]) - image->px[sample]) * amount);
+      }
+    }
+    return {EvaluationState::Available, ImageValue(std::move(mixed))};
   }
 
   Outcome processor(const Node &node, const OutputRef &output, ImageValue image) {

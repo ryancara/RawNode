@@ -150,6 +150,7 @@ bool allStoredDependencies() {
   CHECK(rejected(detached));
   for (auto &node : detached.nodes) if (node.operation != NodeOperation::Source) {
     node.operation = NodeOperation::ImageProcessor; node.enabled = true;
+    node.fixedInputs.emplace(ports::mask, std::nullopt);
     node.storedIdentifier = "unavailable-depth-backend";
   }
   CHECK(rejected(detached)); // Missing processors cannot conceal stored edges.

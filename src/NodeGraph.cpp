@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <stdexcept>
 #include <cctype>
 #include <cstdlib>
@@ -137,6 +138,18 @@ bool resetNodeParameter(App &app, const NodeId &id, const std::string &parameter
 }
 bool activateNodeParameter(App &app, const NodeId &id, const std::string &parameter) {
   return editNodeParameter(app, id, [&](Processor &processor) { return processor.activateParameter(parameter); });
+}
+
+bool setNodeStrength(App &app, const NodeId &id, double strength) {
+  if (!requireEditableGraph(app) || !app.renderer.canEditParameters() ||
+      !std::isfinite(strength) || strength < 0 || strength > 1) return false;
+  Node *node = findNode(app, id);
+  if (!node || node->operation != NodeOperation::ImageProcessor || node->strength == strength) return false;
+  DocumentMutation mutation(app);
+  node->strength = strength;
+  app.history.noteUnrecordedEdit();
+  mutation.changed();
+  return true;
 }
 
 void clearNodes(App &app) {
@@ -273,9 +286,11 @@ static std::vector<NodeId> linearCaptureOrder(const App &app) {
   const auto error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
   if (!error.empty() || spine.size() + 1 != app.nodes.size())
     throw std::runtime_error("Current graph cannot be captured by linear V2");
-  for (const auto &id : spine)
-    if (findNode(app, id)->operation != NodeOperation::ImageProcessor)
-      throw std::runtime_error("Current graph contains an operation unsupported by linear V2");
+  for (const auto &id : spine) {
+    const auto *node = findNode(app, id);
+    if (node->operation != NodeOperation::ImageProcessor || node->strength != 1 || node->fixedInputs.at(ports::mask))
+      throw std::runtime_error("Current graph contains controls/topology unsupported by linear V2");
+  }
   return spine;
 }
 
@@ -294,7 +309,7 @@ bool appendPersistedNode(App &app, const PersistNode &persisted, std::optional<N
   auto node = persisted;
   // A single-node attachment has no internal incoming links. In particular,
   // foreign IDs must never resolve to nodes already in this document.
-  node.inputs = {{ports::image, std::nullopt}};
+  node.inputs = {{ports::image, std::nullopt}, {ports::mask, std::nullopt}};
   return pasteFragment(app, PersistFragment{{std::move(node)}, {}}, std::move(insertAfter));
 }
 
@@ -353,7 +368,8 @@ static std::vector<NodeId> linearFragmentOrder(const PersistFragment &fragment) 
   std::optional<NodeId> entry;
   std::vector<NodeId> tails;
   for (auto &node : record.nodes) {
-    if (node.operation != NodeOperation::ImageProcessor || !node.slots.empty() || node.inputs.size() != 1)
+    if (node.operation != NodeOperation::ImageProcessor || !node.slots.empty() ||
+        (node.inputs.count(ports::mask) && node.inputs.at(ports::mask)))
       throw std::runtime_error("Only ordinary linear fragments can be attached");
     auto &input = node.inputs.at(ports::image);
     if (!input) {
@@ -370,6 +386,7 @@ static std::vector<NodeId> linearFragmentOrder(const PersistFragment &fragment) 
   record.documentOutput = {tails.front(), ports::image};
   for (const auto &saved : record.nodes) {
     Node node(saved.operation); node.id = NodeId{saved.id}; node.fixedInputs = saved.inputs;
+    if (node.operation == NodeOperation::ImageProcessor) node.fixedInputs.emplace(ports::mask, std::nullopt);
     topology.push_back(std::move(node));
   }
   std::vector<NodeId> order;
@@ -410,7 +427,7 @@ static bool insertFragment(App &app, const PersistFragment &fragment, std::optio
     std::vector<Node> topology, pending;
     topology.reserve(app.nodes.size());
     for (const auto &live : app.nodes) {
-      Node node(live.operation); node.id = live.id; node.enabled = live.enabled;
+      Node node(live.operation); node.id = live.id; node.enabled = live.enabled; node.strength = live.strength;
       node.fixedInputs = live.fixedInputs; node.slots = live.slots;
       topology.push_back(std::move(node));
     }
@@ -432,6 +449,7 @@ static bool insertFragment(App &app, const PersistFragment &fragment, std::optio
         Node node = restoredNode(additions, *saved, true, true);
         node.id = ids.at(saved->id);
         node.fixedInputs = saved->inputs;
+        node.fixedInputs.emplace(ports::mask, std::nullopt);
         for (auto &binding : node.fixedInputs) if (binding.second) binding.second->nodeId = ids.at(binding.second->nodeId.value);
         additions.push_back(std::move(node));
       }
@@ -463,6 +481,7 @@ bool appendGrade(App &app, const PersistGrade &grade, std::optional<NodeId> afte
     std::vector<Node> topology;
     for (const auto &saved : grade.graph.nodes) {
       Node node(saved.operation); node.id = NodeId{saved.id}; node.fixedInputs = saved.inputs;
+      if (node.operation == NodeOperation::ImageProcessor) node.fixedInputs.emplace(ports::mask, std::nullopt);
       node.slots = saved.slots;
       topology.push_back(std::move(node));
     }
@@ -540,12 +559,14 @@ RestoredGraph restoreGraph(const PersistGraph &graph, const std::map<std::string
                                record.backend + ": " + record.identifier + ")");
     node.id = NodeId{record.id};
     node.enabled = record.enabled;
+    node.strength = record.strength;
     restored.nodes.push_back(std::move(node));
   }
   for (size_t i = 0; i < graph.nodes.size(); ++i) {
     auto &node = restored.nodes[i];
     const auto &record = graph.nodes[i];
     node.fixedInputs = record.inputs;
+    if (node.operation == NodeOperation::ImageProcessor) node.fixedInputs.emplace(ports::mask, std::nullopt);
     node.slots = record.slots;
     if (!nodeInterface(node.operation).slotInputs.empty() && !node.restoreNextSlotId(record.nextSlotId))
       throw std::runtime_error("Invalid Slot allocator state");
@@ -741,6 +762,7 @@ static PersistNode capturePersistedNode(const Node &node, bool graphNative) {
   PersistNode persisted;
   persisted.id = node.id.value;
   persisted.enabled = node.enabled;
+  persisted.strength = node.strength;
   if (!graphNative) persisted.groupOpen = node.groupOpen;
   if (graphNative) {
     persisted.operation = node.operation;
@@ -859,6 +881,7 @@ static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &pers
   if (graphNative && preserveId) node.id = NodeId{persisted.id};
   else if (preserveId) node.id = restoredNodeId(nodes, persisted.id);
   node.enabled = persisted.enabled;
+  node.strength = persisted.strength;
   if (!graphNative) node.groupOpen = persisted.groupOpen;
   node.storedBackend = backend;
   node.storedIdentifier = persisted.identifier;

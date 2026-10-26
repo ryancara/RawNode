@@ -120,6 +120,23 @@ static void observeParameterItem(App &app, const Node &node, const ProcessorPara
     finishParameterGesture(app, true);
 }
 
+void drawNodeOpacity(App &app, Node &node) {
+  ImGui::PushID("node-controls");
+  const bool editable = app.renderer.canEditParameters();
+  ImGui::BeginDisabled(!editable);
+  float opacity = float(node.strength * 100);
+  if (ImGui::SliderFloat("Opacity", &opacity, 0, 100, "%.1f%%", ImGuiSliderFlags_AlwaysClamp) && editable) {
+    if (app.parameterGesture && app.parameterGesture->item != ImGui::GetItemID() && ImGui::IsItemActive())
+      finishParameterGesture(app, true);
+    setNodeStrength(app, node.id, opacity / 100.0);
+  }
+  ProcessorParameter control;
+  control.id = "node-strength";
+  observeParameterItem(app, node, control, editable);
+  ImGui::EndDisabled();
+  ImGui::PopID();
+}
+
 // Numeric text retains its existing deferred-write behaviour. The single active
 // item owns the pending value, so disappearing controls can complete it too.
 static bool numericInput(App &app, Node &node, const ProcessorParameter &param, const char *label,

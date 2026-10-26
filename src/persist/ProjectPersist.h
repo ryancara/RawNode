@@ -21,6 +21,7 @@ struct PersistNode {
   std::string identifier;
   std::string label;
   bool enabled = true;
+  double strength = 1.0;
   // Legacy V2 only; the graph-native codec excludes UI state.
   std::map<std::string, bool> groupOpen;
 

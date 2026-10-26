@@ -196,6 +196,28 @@ struct WorkerGuard {
   ~WorkerGuard() { executor.unblock(); app.renderer.shutdown(); }
 };
 
+static bool testStrengthEditOwnership() {
+  App app; source(app); Gate gate;
+  const NodeId effect{"strength-exclusion"};
+  auto *processor = numeric(app, effect, 2); CHECK(processor);
+  gate.arm(); processor->renderGate = &gate;
+  GateWorkerGuard guard{app, gate};
+  app.renderer.start(); app.renderer.requestPreview(); CHECK(gate.wait(1));
+  RenderRuntimeTestAccess::observe(app.renderer, &gate, [](void *context, auto event) noexcept {
+    if (event == RenderRuntimeTestAccess::Event::MutationWaiting) static_cast<Gate *>(context)->unblock();
+  });
+  CHECK(setNodeStrength(app, effect, 0) && idle(app));
+  CHECK(processor->calls == 1 && findNode(app, effect)->strength == 0);
+  const auto frame = publication(app);
+  CHECK(frame.result.state == EvaluationState::Available && std::get<ImageValue>(frame.result.value) == app.preview);
+  {
+    auto exportLease = app.renderer.acquireExport(); CHECK(exportLease);
+    CHECK(!setNodeStrength(app, effect, .5) && findNode(app, effect)->strength == 0);
+  }
+  CHECK(idle(app));
+  return true;
+}
+
 static bool testTopologyAndV2() {
   App app; source(app);
   CHECK(addNativeExposureNode(app) && addNativeCstNode(app));
@@ -1216,6 +1238,7 @@ static bool testOfxParameterScheduling() {
 
 bool testGraphRuntime() {
   const struct { const char *name; bool (*test)(); } cases[] = {
+      {"Step 8 Strength edits reuse execution exclusion and zero skips the next processor render", testStrengthEditOwnership},
       {"Native/CTL/OFX Add Processor shares serial, Source and off-chain insertion policy", testBackendInsertion},
       {"Over-depth worker returns Error, then evaluates a repaired boundary graph", testOverDepthWorker},
       {"Shared parameter set/reset schedule numerical previews and preserve inspection", testParameterPreview},

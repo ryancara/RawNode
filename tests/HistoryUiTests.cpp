@@ -5,6 +5,7 @@
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActionsPriv.h"
 #include "ui/UiContext.h"
+#include "ui/ParamWidgets.h"
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -38,7 +39,7 @@ double exposure(const App &app, const NodeId &id) {
 struct Ui {
   ImGuiContext *previous = ImGui::GetCurrentContext(), *context = ImGui::CreateContext();
   ImRect item;
-  bool visible = true, full = false;
+  bool visible = true, full = false, opacityOnly = false;
   std::string log;
   char text[64] = {};
   ImVec2 textPoint;
@@ -57,7 +58,9 @@ struct Ui {
     else if (visible) {
       ImGui::SetNextWindowPos({20, 40}); ImGui::SetNextWindowSize({650, 720});
       ImGui::Begin("History Inspector", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
-      drawInspector(app); item = context->LastItemData.Rect;
+      if (opacityOnly) drawNodeOpacity(app, *selectedNode(app));
+      else drawInspector(app);
+      item = context->LastItemData.Rect;
       ImGui::Button("Focus outside parameter");
       ImGui::End();
     }
@@ -90,6 +93,45 @@ struct Ui {
     ImGui::GetIO().AddInputCharactersUTF8(value); tick(app);
   }
 };
+
+bool opacityGesturesAndPersistence() {
+  Files files; App app; Ui ui; ui.opacityOnly = true;
+  const auto photo = files.photo("opacity.png");
+  CHECK(openPath(app, photo) && addNativeExposureNode(app));
+  const auto id = *app.selectedNodeId();
+  ui.tick(app); ui.tick(app); const auto row = ui.item;
+  const auto before = app.history.size();
+  ui.hover(app, row.GetCenter()); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+  for (int i = 0; i < 5; ++i) {
+    ui.hover(app, {row.GetCenter().x + i * 5, row.GetCenter().y});
+    CHECK(app.history.size() == before && !canUndoGrade(app));
+  }
+  ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+  const double strength = findNode(app, id)->strength;
+  CHECK(strength > 0 && strength < 1 && app.history.size() == before + 1 && !app.parameterGesture);
+  CHECK(app.history.undo(app) && findNode(app, id)->strength == 1);
+  CHECK(app.history.redo(app) && findNode(app, id)->strength == strength);
+  {
+    auto exportLease = app.renderer.acquireExport();
+    CHECK(exportLease && !setNodeStrength(app, id, .1) && findNode(app, id)->strength == strength);
+  }
+  CHECK(!setNodeStrength(app, id, -1) && !setNodeStrength(app, id, 2));
+  CHECK(saveCurrentInputSidecar(app));
+  const auto preset = (files.dir / "opacity-preset.rawnode.json").string();
+  CHECK(savePreset(app, preset));
+  PersistGrade grade; std::string error;
+  CHECK(loadPresetFile(preset, grade, error));
+  App restored; CHECK(applyGrade(restored, grade));
+  CHECK(findNode(restored, id)->strength == strength);
+  PersistFragment fragment; std::vector<std::string> warnings;
+  CHECK(captureNodeFragment(app, {id}, fragment, warnings));
+  std::string payload; PersistTransfer transfer;
+  CHECK(encodeTransferPayload(fragment, payload, error) && decodeTransferPayload(payload, transfer, error));
+  CHECK(pasteFragment(restored, std::get<PersistFragment>(transfer)));
+  CHECK(selectedNode(restored)->strength == strength);
+  CHECK(openPath(app, photo) && findNode(app, id)->strength == strength);
+  return true;
+}
 
 bool nativeGestures() {
   Files files; App app; Ui ui;
@@ -309,7 +351,7 @@ bool shortcutsAndMenus() {
 }
 
 bool testHistoryUi() {
-  if (!nativeGestures() || !ctlDeferredInputAndFailure() || !droppedPhotoCompletesOutgoingGesture() || !shortcutsAndMenus()) return false;
+  if (!opacityGesturesAndPersistence() || !nativeGestures() || !ctlDeferredInputAndFailure() || !droppedPhotoCompletesOutgoingGesture() || !shortcutsAndMenus()) return false;
   std::puts("ok  History UI: native gestures, numeric commits/interruption, discrete buttons, shortcuts and eligibility");
   return true;
 }
