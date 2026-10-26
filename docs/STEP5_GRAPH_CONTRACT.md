@@ -1,8 +1,10 @@
 # Step 5 Graph / Mask Product Contract
 
-**Status:** Complete; accepted contract for Step 6.  
+**Status:** Complete; accepted contract for Step 6, with D054 Step 8 Mask bypass supersession.  
 **Purpose:** Product and architecture contract settled by Step 5 of the RawNode architecture migration.  
 **Final independent review head:** `43935dd2bd815e0eecfe43b9a3e418610fe62f70`
+
+**Later decision:** [D054](DECISIONS.md) and [the Step 8 masking contract](STEP8_MASKING_CONTRACT.md) supersede the numerical white-mask generator bypass rules below. This file preserves the original Step 5 decisions for historical review; do not implement the superseded portions as current behaviour.
 
 This document records the accepted product and architecture contract settled
 before Step 6. Steps 6 and 7 have since merged. Historical transition language
@@ -28,7 +30,7 @@ Items marked **Accepted** are the Step 5 contract. Items marked **Open** are del
 - [x] Independent Codex / Claude port-model review
 - [x] Settled fixed-port / repeated-slot representation
 - [x] Settled missing Mask / Reference full-coverage fallback + warning
-- [x] Settled Mask-generator bypass = full coverage
+- [x] Historically settled Mask-generator bypass = full coverage **(superseded by D054: Inactive)**
 - [x] Settled that old V2 compatibility is not a product requirement
 - [x] Final independent Step 5 implementation-readiness reviews by Codex and Claude
 - [x] Reconcile final availability / bypass / runtime ambiguities
@@ -289,14 +291,14 @@ If a node is evaluated as full-strength Normal processing with no Mask, its proc
 If the node requires pixelwise self-mixing because:
 
 - an **available Mask value** is present;
-- Strength is less than 1; or
+- Strength is less than 1 (historical; D054 exempts exactly 0% Strength); or
 - Blend Mode is non-Normal;
 
 then the processor output width and height must match the node's Image input width and height.
 
 If the dimensions do not match, the requested evaluation fails. Export refuses rather than silently omitting the edit. RawNode does not implicitly resize, resample, align or reproject the result.
 
-A connected Mask whose value is **unavailable** follows the fail-open rule below and counts as absent for this self-mixing trigger. A bypassed Mask generator that successfully produces a real full-coverage Mask is still an available Mask and participates normally in compatibility checks.
+A connected Mask whose value is **unavailable** follows the fail-open rule below and counts as absent for this self-mixing trigger. **The historical next sentence is superseded by D054:** a bypassed Mask generator formerly produced a real full-coverage Mask. Under D054 it instead yields Inactive, with no raster or pixelwise dimensions. At exactly 0% Strength the evaluator returns the declared pass-through without processor execution or a dimension-mixing check; positive fractional mixing still requires compatible dimensions.
 
 This is intentionally generic. Crop, OFX, native and future processor types are governed by the same rule.
 
@@ -446,6 +448,8 @@ Cancellation is also separate and must not be reinterpreted as unavailable data.
 
 A missing ordinary unary Image effect may continue to use RawNode's existing preserve + warn + pass-through philosophy where that fallback is defined. More complex unavailable graph operations should preserve their interface/state and use only explicitly defined fallbacks.
 
+> **Historical Step 5 bypass rules below are superseded for Mask generators by D054 (2026-10-26).** Current Step 8 contract: a bypassed generator without a same-type pass-through produces raster-free Inactive, skipping generation-only Reference inputs. Inactive optional coverage is unrestricted without warning; required Mask transforms propagate Inactive. Unavailable still warns and follows its separate accepted rules. See [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md).
+
 ## Bypass
 
 ### Accepted: ordinary graph operations
@@ -475,11 +479,11 @@ Therefore:
 - unary Image bypass needs only its pass-through Image input;
 - unary Mask bypass needs only its pass-through Mask input;
 - mixer bypass needs only its base/background input;
-- source-like Mask-generator bypass still needs its Reference frame.
+- source-like Mask-generator bypass still needs its Reference frame **(historical; superseded by D054: Inactive without Reference evaluation)**.
 
 Unused Mask/branch inputs of a bypassed operation are not evaluated merely because their connections exist. Structural cycle validation still includes all stored dependencies regardless of bypass.
 
-### Accepted: Mask-generator bypass = full coverage when its frame resolves
+### Historical Step 5 rule, superseded by D054: generator bypass = white when its frame resolves
 
 A source-like Mask generator such as Radial, Gradient or future Pen/Path has no Mask input to pass through.
 
@@ -510,7 +514,7 @@ Radial bypassed + connected unavailable Reference
 
 The Mask connection remains intact.
 
-A real white bypass Mask is ordinary Mask data. If it feeds Invert, the result is black; if it feeds a future combiner, white participates in that combiner's defined maths.
+**Historical Step 5 reasoning only (not current behaviour):** a real white bypass Mask would be ordinary Mask data. If it fed Invert, the result would be black; if it fed a combiner, white would participate in that combiner's maths.
 
 This is deliberately different from unavailable Mask propagation. Bypass is a defined numerical result when its required frame exists; unavailability means the Mask data does not exist.
 
@@ -1370,7 +1374,7 @@ Accepted decisions now include:
 - explicit Source/document output endpoints;
 - generic Image-node Mask / Strength / Blend ownership;
 - missing/unavailable Mask or Reference = full coverage + persistent warning;
-- Mask-generator bypass = full coverage;
+- Mask-generator bypass = full coverage **(Step 5 historical only; superseded by D054: Inactive)**;
 - valid-but-incompatible raster dimensions = hard evaluation error;
 - no backwards-compatibility requirement for Sidecar V2.
 

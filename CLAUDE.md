@@ -319,8 +319,11 @@ parallel branches, persistent caches or processor cloning.
 
 Unavailable Mask data propagates through required Mask-processing inputs and
 fail-opens to full coverage only at optional effect/layer coverage use, with a
-persistent warning. A bypassed source-like Mask generator produces real white
-coverage only when its Reference frame resolves.
+persistent warning. Under Step 8 D054, a bypassed Mask generator without a
+same-type pass-through returns raster-free Inactive (not white), and an
+Inactive optional Mask provides full coverage without a warning.
+See `docs/STEP8_MASKING_CONTRACT.md`; the old Step 5 white-bypass rule is
+superseded.
 
 Step 7 graph-native persistence and all four targeted post-Step-7 corrections
 are complete (see "Quality and verification roadmap" in

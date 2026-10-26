@@ -336,7 +336,7 @@ or inspection while normal preview/export requests `documentOutput`. Shared
 upstream work executes once per evaluation and intermediate values live only as
 long as required by that evaluation.
 
-## D042 — Fail-open Mask availability and numerical generator bypass
+## D042 — Fail-open Mask availability (generator bypass superseded by D054)
 
 **Status:** Accepted
 
@@ -348,10 +348,7 @@ At an optional Mask coverage input, an unavailable Mask is treated as absent:
 the effect/layer uses full coverage, the connection is preserved, and a
 persistent warning is reported.
 
-A bypassed source-like Mask generator produces a real full-coverage Mask when
-its Reference frame resolves. If a connected Reference is unavailable, the
-generator output remains unavailable and the downstream coverage consumer uses
-the fail-open rule.
+**Superseded for bypassed generators by D054 (Step 8, 2026-10-26):** Step 5 originally specified that a bypassed source-like Mask generator produced a real white/full-coverage Mask in its Reference frame. D054 replaces this with an intentional Inactive Mask outcome, without evaluating generation-only Reference inputs. The original numerical rule is retained here only as historical rationale. Unavailable enabled generators and fail-open optional coverage warnings remain distinct.
 
 Valid-but-incompatible raster dimensions remain a hard evaluation error and are
 never converted into fail-open behaviour.
@@ -366,8 +363,10 @@ features inside every processor backend.
 Normal is the first executable blend mode. Non-Normal maths remains feature work.
 
 Full-strength Normal processing with no available Mask may change dimensions.
-If pixelwise self-mixing is required by an available Mask, Strength < 1 or a
+If pixelwise self-mixing is required by an available Mask, 0 < Strength < 1 or a
 non-Normal blend, the participating rasters must have compatible dimensions.
+**D054 amends the historical Strength < 1 rule at exactly zero:** 0% returns
+the declared bypass raster without executing or dimension-mixing the processor.
 
 Step 6 builds the typed graph/evaluator and proves these contracts with test
 operations; the first concrete user-facing Mask application path remains Step 8.
@@ -752,6 +751,22 @@ The existing Edit menu displays Undo/Redo with platform shortcuts and shared
 history/document/export availability. Text-input shortcuts remain owned by ImGui;
 history actions refuse active/uncommitted gestures. No second restoration engine,
 gesture framework, toolbar or unrelated product change is approved (D052).
+
+## D054 — Step 8 inactive Mask bypass and scoped Opacity
+
+**Status:** Owner-approved product/architecture contract, 2026-10-26; implementation pending.
+
+Detailed authoritative implementation requirements: [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md). The historical Step 8 discussion draft is not authoritative.
+
+- Preserve existing Image -> Image bypass and unary Mask -> Mask pass-through.
+- A bypassed Mask generator with no same-type pass-through returns raster-free **Inactive**, never black/white. It skips generation-only inputs. Inactive is distinct from missing/unavailable, error and cancellation.
+- An Inactive optional adjustment Mask means unrestricted coverage without warning; Unavailable remains fail-open **with** diagnostics. Unary Mask processors propagate Inactive. Structural validation still considers bypassed connections.
+- Enabled binary Mask Combine first propagates Error/Cancelled and then **must** propagate Unavailable from required operands. Only for Available/Inactive operands: both Available apply selected Add/Intersect/Subtract; only one Available passes through unchanged (including B when A is Inactive under Subtract, an accepted user-controlled trade-off); both Inactive yield Inactive. **Bypassing Combine itself** passes through designated A regardless of B instead.
+- Generic Opacity mixes between an actual same-type pass-through raster and processed output on ordinary Image processors and unary Mask transforms. Standalone Mask generators and binary Combine have no generic Opacity initially; availability follows a declared operation contract, not whether an input wire happens to be connected.
+- Mask values stay scalar single-channel coverage with no extra alpha. Functional Mask inputs and generic Image-node Effect Mask inputs remain distinct. Combine is explicit; no automatic generator chaining or auto-growing Mask input ports initially.
+- The existing graph/runtime/persistence/history architecture owns this feature. No backend-specific Mask/Opacity/bypass framework or new scheduler.
+
+This deliberately supersedes D042's white-generator bypass rule and related historical Step 5 language. It preserves D042's unavailable coverage diagnostics and D043's compatible-raster requirement for actual mixing, while **explicitly amending D043 and Step 5 at exactly zero Strength**: 0% returns the bypass raster without executing the processor or performing a pixelwise dimension check; positive partial mixing requires compatible dimensions.
 
 ## Pending decisions
 
