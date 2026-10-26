@@ -103,7 +103,7 @@ bool strengthCompatibility() {
     n.inputs.at(ports::mask) = OutputRef{NodeId{"coverage"}, ports::mask};
   CHECK(GraphPersistenceTestAccess::encode(parsed, encoded, error) && GraphPersistenceTestAccess::decode(encoded, parsed, error));
   CHECK((record(parsed.grade->graph, "node-2")->inputs.at(ports::mask) == OutputRef{NodeId{"coverage"}, ports::mask}));
-  for (const auto &bad : {"-0.1", "1.1", "true", "\"half\""})
+  for (const auto &bad : {"-0.1", "1.1", "true", "\"half\"", "1e999", "1e-999"})
     CHECK(rejects(file(source + "," + changed(withStrength, "\"strength\":0.5", std::string("\"strength\":") + bad), "node-2")));
   return true;
 }

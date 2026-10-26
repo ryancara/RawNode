@@ -30,10 +30,7 @@ static void drawProcessorParameters(App &app) {
   // ImGui edit/focus state belongs to the logical node, even when two nodes
   // have the same processor and parameter names.
   ImGui::PushID(node->id.value.data(), node->id.value.data() + node->id.value.size());
-  // Temporary rollout gate: the OFX adapter still needs a canonical-frame /
-  // project-size policy. Evaluation and saved Strength remain backend-neutral.
-  const bool ofx = node->processor ? node->processor->backend() == ProcessorBackend::OFX : node->storedBackend == "ofx";
-  if (!ofx) drawNodeOpacity(app, *node);
+  drawNodeOpacity(app, *node);
   if (!node->processor) {
     ImGui::TextDisabled("Processor unavailable. Its saved state is preserved and the node is bypassed.");
     ImGui::PopID();

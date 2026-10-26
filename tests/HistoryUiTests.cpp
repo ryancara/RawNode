@@ -111,10 +111,6 @@ bool opacityGesturesAndPersistence() {
   CHECK(strength > 0 && strength < 1 && app.history.size() == before + 1 && !app.parameterGesture);
   CHECK(app.history.undo(app) && findNode(app, id)->strength == 1);
   CHECK(app.history.redo(app) && findNode(app, id)->strength == strength);
-  {
-    auto exportLease = app.renderer.acquireExport();
-    CHECK(exportLease && !setNodeStrength(app, id, .1) && findNode(app, id)->strength == strength);
-  }
   CHECK(!setNodeStrength(app, id, -1) && !setNodeStrength(app, id, 2));
   CHECK(saveCurrentInputSidecar(app));
   const auto preset = (files.dir / "opacity-preset.rawnode.json").string();
@@ -123,12 +119,6 @@ bool opacityGesturesAndPersistence() {
   CHECK(loadPresetFile(preset, grade, error));
   App restored; CHECK(applyGrade(restored, grade));
   CHECK(findNode(restored, id)->strength == strength);
-  PersistFragment fragment; std::vector<std::string> warnings;
-  CHECK(captureNodeFragment(app, {id}, fragment, warnings));
-  std::string payload; PersistTransfer transfer;
-  CHECK(encodeTransferPayload(fragment, payload, error) && decodeTransferPayload(payload, transfer, error));
-  CHECK(pasteFragment(restored, std::get<PersistFragment>(transfer)));
-  CHECK(selectedNode(restored)->strength == strength);
   CHECK(openPath(app, photo) && findNode(app, id)->strength == strength);
   return true;
 }

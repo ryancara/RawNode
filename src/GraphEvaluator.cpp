@@ -296,7 +296,6 @@ class Evaluation {
       return failure(output, "Image input/processor output dimension mismatch for Mask/Strength mixing");
     auto mixed = std::make_shared<Image>(*image);
     for (size_t pixel = 0; pixel < image->px.size() / 4; ++pixel) {
-      if ((pixel % 4096) == 0 && cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
       const double amount = strength * (coverageMask ? (*coverageMask)->px[pixel] : 1.0);
       // Exact endpoints also avoid 0*Inf and preserve unchanged alpha samples.
       if (amount == 0) continue;

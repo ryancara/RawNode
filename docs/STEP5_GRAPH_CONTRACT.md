@@ -1341,7 +1341,7 @@ Do not add:
 
 The spatial challenge found several existing OFX host issues. They are **adapter/backend correctness issues**, not reasons to enlarge the graph value model.
 
-Before generic RawNode Mask / Strength / Blend is shipped on OFX nodes, explicitly settle and test:
+The following OFX adapter policies remain separate follow-up work:
 
 - how OFX Region of Definition origin/bounds collapse into RawNode's raster-local frame;
 - per-evaluation render scale for preview versus full-resolution export;
@@ -1351,7 +1351,7 @@ Before generic RawNode Mask / Strength / Blend is shipped on OFX nodes, explicit
 
 A strong candidate policy for third-party OFX filters is a frame-preserving RawNode adapter: render/clip the effect into the input frame by default so ordinary effects remain maskable and strength-mixable. The existing bundled OFX Crop is a special size-changing operation and is a candidate for eventual native implementation rather than defining third-party OFX frame semantics.
 
-This OFX policy should be finalized before generic masking/strength on OFX ships. It does not need to block the generic Step 6 DAG if that feature is not yet exposed.
+Step 8 clarifies that these adapter follow-ups do not block generic Opacity on OFX Image processors. Mixing uses the existing raster buffers and dimension checks.
 
 ## Decisions still required before Step 6 coding
 
@@ -1389,7 +1389,7 @@ The final Step 5 review should now look for:
 The following still remain intentionally deferred until their corresponding feature:
 
 - exact geometric coordinate convention before the first persisted geometric generator;
-- OFX RoD→raster / render-scale / optional-mask-clip policy before generic OFX masking/strength ships;
+- OFX RoD→raster / render-scale / optional-mask-clip adapter policy;
 - full-resolution dimension-only preflight/warning;
 - Qualifier algorithm;
 - non-Normal blend maths;
@@ -1412,7 +1412,7 @@ Step 8; current milestone status lives in `docs/PROJECT_CONTEXT.md`.
 1. Merge the reconciled Step 5 contract and durable-document updates.
 2. Begin Step 6 with a focused implementation plan and regression-test matrix.
 3. Keep Step 6 scoped to one authoritative explicit graph plus sequential requested-endpoint evaluation.
-4. Preserve the OFX adapter findings as focused follow-up work before generic Mask / Strength / Blend is exposed on OFX nodes.
+4. Preserve the OFX adapter findings as separate focused follow-up work.
 5. Begin the first concrete production Mask path in Step 8 after graph persistence in Step 7.
 
 No additional broad architecture review is required before Step 6 unless implementation uncovers a concrete contradiction against this contract.

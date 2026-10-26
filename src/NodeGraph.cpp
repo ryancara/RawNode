@@ -286,11 +286,9 @@ static std::vector<NodeId> linearCaptureOrder(const App &app) {
   const auto error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
   if (!error.empty() || spine.size() + 1 != app.nodes.size())
     throw std::runtime_error("Current graph cannot be captured by linear V2");
-  for (const auto &id : spine) {
-    const auto *node = findNode(app, id);
-    if (node->operation != NodeOperation::ImageProcessor || node->strength != 1 || node->fixedInputs.at(ports::mask))
-      throw std::runtime_error("Current graph contains controls/topology unsupported by linear V2");
-  }
+  for (const auto &id : spine)
+    if (findNode(app, id)->operation != NodeOperation::ImageProcessor)
+      throw std::runtime_error("Current graph contains an operation unsupported by linear V2");
   return spine;
 }
 
@@ -368,8 +366,7 @@ static std::vector<NodeId> linearFragmentOrder(const PersistFragment &fragment) 
   std::optional<NodeId> entry;
   std::vector<NodeId> tails;
   for (auto &node : record.nodes) {
-    if (node.operation != NodeOperation::ImageProcessor || !node.slots.empty() ||
-        (node.inputs.count(ports::mask) && node.inputs.at(ports::mask)))
+    if (node.operation != NodeOperation::ImageProcessor || !node.slots.empty())
       throw std::runtime_error("Only ordinary linear fragments can be attached");
     auto &input = node.inputs.at(ports::image);
     if (!input) {
@@ -386,7 +383,6 @@ static std::vector<NodeId> linearFragmentOrder(const PersistFragment &fragment) 
   record.documentOutput = {tails.front(), ports::image};
   for (const auto &saved : record.nodes) {
     Node node(saved.operation); node.id = NodeId{saved.id}; node.fixedInputs = saved.inputs;
-    if (node.operation == NodeOperation::ImageProcessor) node.fixedInputs.emplace(ports::mask, std::nullopt);
     topology.push_back(std::move(node));
   }
   std::vector<NodeId> order;
@@ -427,7 +423,7 @@ static bool insertFragment(App &app, const PersistFragment &fragment, std::optio
     std::vector<Node> topology, pending;
     topology.reserve(app.nodes.size());
     for (const auto &live : app.nodes) {
-      Node node(live.operation); node.id = live.id; node.enabled = live.enabled; node.strength = live.strength;
+      Node node(live.operation); node.id = live.id; node.enabled = live.enabled;
       node.fixedInputs = live.fixedInputs; node.slots = live.slots;
       topology.push_back(std::move(node));
     }
@@ -449,7 +445,6 @@ static bool insertFragment(App &app, const PersistFragment &fragment, std::optio
         Node node = restoredNode(additions, *saved, true, true);
         node.id = ids.at(saved->id);
         node.fixedInputs = saved->inputs;
-        node.fixedInputs.emplace(ports::mask, std::nullopt);
         for (auto &binding : node.fixedInputs) if (binding.second) binding.second->nodeId = ids.at(binding.second->nodeId.value);
         additions.push_back(std::move(node));
       }
@@ -481,7 +476,6 @@ bool appendGrade(App &app, const PersistGrade &grade, std::optional<NodeId> afte
     std::vector<Node> topology;
     for (const auto &saved : grade.graph.nodes) {
       Node node(saved.operation); node.id = NodeId{saved.id}; node.fixedInputs = saved.inputs;
-      if (node.operation == NodeOperation::ImageProcessor) node.fixedInputs.emplace(ports::mask, std::nullopt);
       node.slots = saved.slots;
       topology.push_back(std::move(node));
     }
@@ -559,14 +553,12 @@ RestoredGraph restoreGraph(const PersistGraph &graph, const std::map<std::string
                                record.backend + ": " + record.identifier + ")");
     node.id = NodeId{record.id};
     node.enabled = record.enabled;
-    node.strength = record.strength;
     restored.nodes.push_back(std::move(node));
   }
   for (size_t i = 0; i < graph.nodes.size(); ++i) {
     auto &node = restored.nodes[i];
     const auto &record = graph.nodes[i];
     node.fixedInputs = record.inputs;
-    if (node.operation == NodeOperation::ImageProcessor) node.fixedInputs.emplace(ports::mask, std::nullopt);
     node.slots = record.slots;
     if (!nodeInterface(node.operation).slotInputs.empty() && !node.restoreNextSlotId(record.nextSlotId))
       throw std::runtime_error("Invalid Slot allocator state");

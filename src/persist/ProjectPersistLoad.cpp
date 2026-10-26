@@ -309,11 +309,8 @@ PersistNode nodeRecord(const Value &value, bool testOperations) {
   node.inputs = inputBindings(field(value, "inputs"), interface, false);
   if (node.operation == NodeOperation::ImageProcessor) {
     if (value.object.count("strength")) {
-      const auto &strength = field(value, "strength");
-      expect(strength, Type::Number, "strength");
-      node.strength = std::stod(strength.raw);
-      if (!std::isfinite(node.strength) || node.strength < 0 || node.strength > 1)
-        throw std::runtime_error("Invalid node Strength (expected 0..1)");
+      if (!persist_json::finiteNumber(field(value, "strength"), node.strength))
+        throw std::runtime_error("Invalid node Strength");
     }
     node.backend = textField(value, "backend", true);
     node.identifier = textField(value, "identifier", true);
@@ -429,7 +426,6 @@ std::string graphRecordError(const PersistGraph &graph, bool testOperations) {
     Node node(record.operation);
     node.id = NodeId{record.id}; node.enabled = record.enabled; node.strength = record.strength;
     node.fixedInputs = record.inputs; node.slots = record.slots;
-    if (node.operation == NodeOperation::ImageProcessor) node.fixedInputs.emplace(ports::mask, std::nullopt);
     const bool slotted = !nodeInterface(record.operation).slotInputs.empty();
     if (slotted && !node.restoreNextSlotId(record.nextSlotId)) return "Invalid Slot allocator state";
     if (!slotted && (!record.slots.empty() || record.nextSlotId != 1)) return "Unexpected Slot state";

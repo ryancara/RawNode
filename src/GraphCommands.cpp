@@ -136,7 +136,6 @@ class StagedEdit {
     Node copy(original.operation);
     copy.id = original.id;
     copy.enabled = original.enabled;
-    copy.strength = original.strength;
     copy.fixedInputs = original.fixedInputs;
     copy.slots = original.slots;
     copy.nextSlotId_ = original.nextSlotId_;
@@ -363,8 +362,7 @@ CommandResult insertImageChain(Document document, std::vector<Node> &nodes, std:
   additions.reserve(nodes.size());
   for (size_t i = 0; i < nodes.size(); ++i) {
     const auto &node = nodes[i];
-    if (node.operation != NodeOperation::ImageProcessor || !isUnaryImageNode(node) ||
-        (node.fixedInputs.count(ports::mask) && node.fixedInputs.at(ports::mask)))
+    if (node.operation != NodeOperation::ImageProcessor || !isUnaryImageNode(node))
       return {"Insertion requires an ordinary linear ImageProcessor chain", std::nullopt};
     const auto &input = node.fixedInputs.at(ports::image);
     if ((i == 0 && input) || (i && input != std::optional<OutputRef>{{nodes[i-1].id, ports::image}}))

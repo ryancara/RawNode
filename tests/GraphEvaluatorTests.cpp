@@ -7,11 +7,6 @@
 #include "RenderPipeline.h"
 #include "processors/NativeExposureProcessor.h"
 #include "processors/OfxProcessor.h"
-#include "processors/CtlProcessor.h"
-
-#include <filesystem>
-#include <fstream>
-#include <chrono>
 
 #include <algorithm>
 #include <atomic>
@@ -290,6 +285,28 @@ static bool testProductionMaskAndStrength() {
       f.context.purpose = EvaluationPurpose::Preview;
     }
   }
+  // Opposite infinities distinguish exact endpoint copies from interpolation.
+  // Partial Strength must also leave completely unmasked pixels untouched.
+  auto endpointSource = std::make_shared<Image>(*f.sourcePixels);
+  const float infinity = std::numeric_limits<float>::infinity();
+  endpointSource->px[0] = endpointSource->px[4] = infinity;
+  f.sourcePixels = endpointSource;
+  record->gain = -infinity;
+  exec.settings[generator.value].maskSamples = {0, 1, .5f, 0};
+  for (double strength : {.5, 1.0}) {
+    f.node(effect)->strength = strength;
+    const auto result = f.evaluate(image(effect), &exec);
+    CHECK(result.state == EvaluationState::Available);
+    const auto &samples = pixels(result)->px;
+    CHECK(std::equal(samples.begin(), samples.begin() + 4, endpointSource->px.begin()));
+    CHECK(std::equal(samples.begin() + 12, samples.end(), endpointSource->px.begin() + 12));
+    if (strength == 1) {
+      const std::vector<float> processed{-infinity, infinity, -infinity, .375f};
+      CHECK(std::equal(processed.begin(), processed.end(), samples.begin() + 4));
+    }
+  }
+  f.sourcePixels = raster(2, 2);
+  record->gain = 4;
   // An active Mask is still a mixing request, even when all samples are white.
   record->halfSize = true;
   CHECK(graph::disconnect(f.document(), input(effect, ports::mask)).ok());
@@ -324,25 +341,6 @@ static bool testProductionMaskAndStrength() {
   CHECK(pixels(missing) == f.sourcePixels && message(missing, "missing-production"));
   f.node(effect)->strength = 0;
   CHECK(f.evaluate(image(effect), &exec).diagnostics.empty());
-  return true;
-}
-
-static bool testCtlStrength() {
-  const auto script = std::filesystem::temp_directory_path() / ("rawnode-opacity-" +
-      std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".ctl");
-  std::ofstream(script) << "void main(input varying float rIn, input varying float gIn, input varying float bIn, "
-      "output varying float rOut, output varying float gOut, output varying float bOut) "
-      "{ rOut=3*rIn; gOut=3*gIn; bOut=3*bIn; }";
-  auto processor = CtlProcessor::create(script.string());
-  std::filesystem::remove(script);
-  CHECK(processor);
-  Fixture f; const NodeId effect{"ctl"};
-  CHECK(f.add(effect, NodeOperation::ImageProcessor) && f.connect(image(f.source), input(effect)));
-  f.node(effect)->processor = std::move(processor); f.node(effect)->strength = .5;
-  const auto result = f.evaluate(image(effect));
-  CHECK(result.state == EvaluationState::Available);
-  CHECK(pixels(result)->px[0] == .5f && pixels(result)->px[1] == -1 && pixels(result)->px[2] == 4 &&
-        pixels(result)->px[3] == .375f);
   return true;
 }
 
@@ -904,7 +902,6 @@ static bool testCancellationAndFailures() {
 bool testGraphEvaluator() {
   const struct { const char *name; bool (*test)(); } cases[] = {
       {"Step 8 production Image Mask times Strength, exact endpoints, HDR/alpha and dimensions", testProductionMaskAndStrength},
-      {"Step 8 real CTL uses the central Strength wrapper", testCtlStrength},
       {"Step 8 production mix fan-out executes once and releases intermediates", testProductionMixLifetime},
       {"6C Source sharing, requested endpoints and malformed graph rejection", testSourceAndValidation},
       {"6C linear evaluation, storage independence and reachable-only diagnostics", testLinearStorageAndReachability},

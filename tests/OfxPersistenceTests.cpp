@@ -489,6 +489,13 @@ bool cachedGainFiveReopen(Plugin &plugin) {
   const auto *image = std::get_if<ImageValue>(&result.value);
   // Exact binary fractions times integer gain 5 need no numerical tolerance.
   CHECK(image && *image && (*image)->px == (std::vector<float>{1.25f, -2.5f, 10.0f, 0.375f}));
+  CHECK(setNodeStrength(reopened, id, .5));
+  const auto mixed = evaluateGraph({reopened.nodes, reopened.primarySource, reopened.documentOutput}, reopened.documentOutput,
+                                  {EvaluationPurpose::Preview, 1, 1, 1, 1}, samples);
+  // 50% between I and 5I is 3I, through the ordinary OFX processor path.
+  CHECK(mixed.state == EvaluationState::Available && std::get<ImageValue>(mixed.value)->px ==
+        (std::vector<float>{.75f, -1.5f, 6.0f, .375f}));
+  CHECK(setNodeStrength(reopened, id, 1));
   // Replay performs one restoration mutation and no post-creation private sync.
   // A subsequent full capture may record the effective live parameters and
   // truncate redo; this is the accepted trade-off for avoiding a second capture.

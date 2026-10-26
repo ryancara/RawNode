@@ -50,16 +50,6 @@ When a node has a **defined same-type pass-through raster** and an applicable un
 
 No Mask Gain/density feature in the initial implementation. Blend Mode on Image processors is separate from Mask Combine's operation; Normal Image blend first. Do not silently expose no-op RGB blend controls on Mask generators, or invent extra generic Effect Mask connections on them. Future expanded generic Mask-node operation masking must be designed separately from functional Mask data inputs.
 
-### PR 2 implementation boundary
-
-Ordinary production ImageProcessor nodes now declare an optional `mask` and a node-owned `strength` (default 1). Normal mixing interpolates numeric RGBA; unchanged alpha samples and exact zero/full-coverage samples are preserved. Missing unary processors retain their warning/pass-through fallback without evaluating unused coverage. No advanced blend selector is added.
-
-Strength writes use the existing DocumentMutation exclusion and parameter-edit/export checks. The value is immutable throughout dependency planning and execution; no extra control snapshot, mutex, scheduler or cache is needed. A drag records one completed history edit through the existing Inspector gesture mechanism. This simple ownership choice can wait for active preview execution during a Strength edit.
-
-The generic evaluator supports native, CTL and OFX alike. **Temporary OFX Inspector rollout gate:** the Opacity slider is exposed for native/CTL nodes; it is omitted for OFX while its adapter's canonical-frame/project-size policy remains unresolved. Current OFX buffers use zero-origin local bounds and render scale 1; GetRegionOfDefinition contributes output dimensions but its nonzero origin is not propagated, and project-size metadata is not supplied. These are concrete adapter limitations, not a processor whitelist or graph evaluation restriction. Stored OFX Strength and valid graph Mask inputs still use the central evaluator. Internal optional plugin clips are disconnected and cannot fetch Source RGB as a fake Mask. The existing size-changing Crop remains governed by the same numerical dimension checks.
-
-The existing graph-native version-1 codec stores optional finite `strength` in [0,1]; older grades without it or the optional Mask binding default to full Strength/unconnected coverage. Sidecars, presets, clipboard and history share that field and the existing bindings. No separate persistence path or format is introduced.
-
 ## Mask generation, functional inputs and combination
 
 - Geometric generators output Mask coverage in a defined Reference raster; Qualifier and future adapted third-party producers may analyse Image data but output declared typed Mask coverage.
@@ -82,7 +72,7 @@ An Image-producing third-party DCTL can produce grayscale RGB without automatica
 ## First implementation and verification
 
 1. **PR 1: evaluator-only Inactive Mask bypass contract.** Extend existing evaluation outcome; update dependency planning and generator bypass test path; optional coverage, unary propagation and inspection/status handling. Reuse test-only Mask operations before producing UI-facing generators. No new persistence format, new renderer or production mask processor in this PR. Confirm existing Image-node bypass unchanged.
-2. **PR 2: ordinary Image-node optional Effect Mask + Opacity, Normal mixing.** Central evaluator wrapper; exact 0%/100% endpoints; deterministic Image dimensions/alpha/HDR behaviour; save, clipboard, history and preview/export equivalence. Settle OFX frame/render-scale/internal mask policy **before exposing these controls on OFX**. A temporary documented OFX UI rollout gate is acceptable if required for safety, but does not change the generic evaluator semantics or create per-backend masking/mixing implementations.
+2. **PR 2: ordinary Image-node optional Effect Mask + Opacity, Normal mixing.** Central evaluator wrapper; exact 0%/100% endpoints; deterministic Image dimensions/alpha/HDR behaviour; save, clipboard, history and preview/export equivalence. The same Opacity control applies to native, CTL and OFX Image processors. Existing raster-dimension checks govern mixing; separate OFX adapter follow-ups do not block Opacity exposure.
 3. **PR 3: first native Radial Mask -> Exposure vertical slice.** Pin resolution-independent coordinates before persisting. Test fan-out, preview/export, source/Reference, disabled generator, save/reopen and Undo/Redo.
 4. **Follow-up: Mask Only, Overlay, on-image handles** under existing runtime; inspect inactive outputs.
 5. **Follow-up: binary Combine, then Invert/Blur**, after fractional maths and unavailable-input details are reviewed. Later Linear, Qualifier, Image-to-Mask, DCTL and advanced selection tools.

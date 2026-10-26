@@ -228,8 +228,7 @@ std::unique_ptr<Effect> prepareInstance(PluginEntry &pe) {
     propSetDouble(cp, kOfxImageEffectPropFrameRate, 0, 24);
     propSetN<double, propSetDouble>(cp, kOfxImageEffectPropFrameRange, 2, range);
     propSetN<double, propSetDouble>(cp, kOfxImageEffectPropUnmappedFrameRange, 2, range);
-    propSetInt(cp, kOfxImageClipPropConnected, 0,
-               c->name == kOfxImageEffectSimpleSourceClipName || c->name == kOfxImageEffectOutputClipName);
+    propSetInt(cp, kOfxImageClipPropConnected, 0, 1);
     propSetInt(cp, kOfxImageClipPropContinuousSamples, 0, 0);
   }
   return e;

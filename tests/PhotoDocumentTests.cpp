@@ -564,6 +564,7 @@ bool rawControlsAndReplace() {
   PersistNode gain; gain.id = "incoming-gain"; gain.backend = "native";
   gain.identifier = "rawnode.native.exposure"; gain.paramsJson["exposure"] = "1";
   gain.inputs[ports::image] = OutputRef{incoming.graph.primarySource, ports::image};
+  gain.inputs[ports::mask] = std::nullopt;
   incoming.graph.nodes.push_back(gain);
   incoming.graph.documentOutput = {NodeId{gain.id}, ports::image};
   const PersistGradeColor colour{"rec2020", "srgb", "display-p3", "srgb"};
