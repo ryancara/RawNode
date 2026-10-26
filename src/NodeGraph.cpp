@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <stdexcept>
 #include <cctype>
 #include <cstdlib>
@@ -137,6 +138,18 @@ bool resetNodeParameter(App &app, const NodeId &id, const std::string &parameter
 }
 bool activateNodeParameter(App &app, const NodeId &id, const std::string &parameter) {
   return editNodeParameter(app, id, [&](Processor &processor) { return processor.activateParameter(parameter); });
+}
+
+bool setNodeStrength(App &app, const NodeId &id, double strength) {
+  if (!requireEditableGraph(app) || !app.renderer.canEditParameters() ||
+      !std::isfinite(strength) || strength < 0 || strength > 1) return false;
+  Node *node = findNode(app, id);
+  if (!node || node->operation != NodeOperation::ImageProcessor || node->strength == strength) return false;
+  DocumentMutation mutation(app);
+  node->strength = strength;
+  app.history.noteUnrecordedEdit();
+  mutation.changed();
+  return true;
 }
 
 void clearNodes(App &app) {
@@ -294,7 +307,7 @@ bool appendPersistedNode(App &app, const PersistNode &persisted, std::optional<N
   auto node = persisted;
   // A single-node attachment has no internal incoming links. In particular,
   // foreign IDs must never resolve to nodes already in this document.
-  node.inputs = {{ports::image, std::nullopt}};
+  node.inputs = {{ports::image, std::nullopt}, {ports::mask, std::nullopt}};
   return pasteFragment(app, PersistFragment{{std::move(node)}, {}}, std::move(insertAfter));
 }
 
@@ -353,7 +366,7 @@ static std::vector<NodeId> linearFragmentOrder(const PersistFragment &fragment) 
   std::optional<NodeId> entry;
   std::vector<NodeId> tails;
   for (auto &node : record.nodes) {
-    if (node.operation != NodeOperation::ImageProcessor || !node.slots.empty() || node.inputs.size() != 1)
+    if (node.operation != NodeOperation::ImageProcessor || !node.slots.empty())
       throw std::runtime_error("Only ordinary linear fragments can be attached");
     auto &input = node.inputs.at(ports::image);
     if (!input) {
@@ -741,6 +754,7 @@ static PersistNode capturePersistedNode(const Node &node, bool graphNative) {
   PersistNode persisted;
   persisted.id = node.id.value;
   persisted.enabled = node.enabled;
+  persisted.strength = node.strength;
   if (!graphNative) persisted.groupOpen = node.groupOpen;
   if (graphNative) {
     persisted.operation = node.operation;
@@ -859,6 +873,7 @@ static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &pers
   if (graphNative && preserveId) node.id = NodeId{persisted.id};
   else if (preserveId) node.id = restoredNodeId(nodes, persisted.id);
   node.enabled = persisted.enabled;
+  node.strength = persisted.strength;
   if (!graphNative) node.groupOpen = persisted.groupOpen;
   node.storedBackend = backend;
   node.storedIdentifier = persisted.identifier;

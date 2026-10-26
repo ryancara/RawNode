@@ -781,8 +781,8 @@ The following remain intentionally deferred until the corresponding feature:
 - detailed Layer Mixer compositing and alpha interaction;
 - arbitrary-DAG List View presentation;
 - global alpha association and transparent compositing policy;
-- OFX RoD/render-scale/project-size/internal-mask policy before generic
-  Mask/Strength/Blend is exposed on OFX;
+- OFX RoD/render-scale/project-size/internal-mask adapter policy (separate from
+  generic Image-node Opacity, which uses existing raster-dimension checks);
 - External Mask decoding/filtering/asset details;
 - ROI, tiling, caches and graph parallelism.
 

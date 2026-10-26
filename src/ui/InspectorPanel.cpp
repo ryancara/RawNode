@@ -27,13 +27,15 @@ static void drawProcessorParameters(App &app) {
     ImGui::TextDisabled("No parameter controls are available for this graph operation.");
     return;
   }
-  if (!node->processor) {
-    ImGui::TextDisabled("Processor unavailable. Its saved state is preserved and the node is bypassed.");
-    return;
-  }
   // ImGui edit/focus state belongs to the logical node, even when two nodes
   // have the same processor and parameter names.
   ImGui::PushID(node->id.value.data(), node->id.value.data() + node->id.value.size());
+  drawNodeOpacity(app, *node);
+  if (!node->processor) {
+    ImGui::TextDisabled("Processor unavailable. Its saved state is preserved and the node is bypassed.");
+    ImGui::PopID();
+    return;
+  }
   if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F))
     ImGui::SetKeyboardFocusHere();
   const bool hasFilter = app.paramFilter[0] != '\0';

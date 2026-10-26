@@ -1,6 +1,7 @@
 #include "GraphValidation.h"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <set>
 #include <stdexcept>
@@ -82,6 +83,9 @@ static std::string nodeStateError(const Node &node, const NodeId &primarySource)
   } else if (node.operation != NodeOperation::ImageProcessor && node.processor) {
     return "Graph-native node has an Image processor";
   }
+  if (node.operation == NodeOperation::ImageProcessor &&
+      (!std::isfinite(node.strength) || node.strength < 0 || node.strength > 1))
+    return "Invalid node Strength (expected 0..1)";
   const NodeInterface *interface = nullptr;
   try {
     interface = &nodeInterface(node.operation);

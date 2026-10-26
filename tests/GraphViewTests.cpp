@@ -424,9 +424,9 @@ bool frameShortcutFocus() {
   const ImVec2 blank{ui.canvasOrigin.x + 400, ui.canvasOrigin.y + 300};
   ui.click(app, blank); ui.pressF(app);
   // Known world bounds: Source (0,0), processor (300,90), Output ending
-  // at (760,170). This canvas fits them at 1x, centered about (380,85).
+  // at (760,170); the two-input processor ends at y=194. The 1x centre is (380,97).
   CHECK(app.graphCanvas.view.zoom == 1);
-  CHECK(same(app.graphCanvas.view.pan, {ui.canvasSize.x / 2 - 380, ui.canvasSize.y / 2 - 85}));
+  CHECK(same(app.graphCanvas.view.pan, {ui.canvasSize.x / 2 - 380, ui.canvasSize.y / 2 - 97}));
   app.graphCanvas.view = {{-140, 75}, 0.75}; ui.tick(app);
   const auto unframed = app.graphCanvas.view;
   ui.click(app, ui.textInput); ui.hover(app, blank);
@@ -444,7 +444,7 @@ bool frameShortcutFocus() {
   CHECK(app.nodesView == NodesView::Graph && same(app.graphCanvas.view.pan, unframed.pan));
   ui.click(app, blank); ui.pressF(app);
   CHECK(app.graphCanvas.view.zoom == 1);
-  CHECK(same(app.graphCanvas.view.pan, {ui.canvasSize.x / 2 - 380, ui.canvasSize.y / 2 - 85}));
+  CHECK(same(app.graphCanvas.view.pan, {ui.canvasSize.x / 2 - 380, ui.canvasSize.y / 2 - 97}));
   CHECK(samePositions(app.nodePositions, positions) && graphJson(app) == topology);
   const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
   CHECK(before.epoch == after.epoch && before.previewPending == after.previewPending);

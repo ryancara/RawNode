@@ -11,6 +11,11 @@ const NodeInterface &nodeInterface(NodeOperation operation) {
   }, {}};
   static const NodeInterface processor{{
       {ports::image, Direction::Input, ValueType::Image, true},
+      {ports::mask, Direction::Input, ValueType::Mask, false},
+      {ports::image, Direction::Output, ValueType::Image, false, ports::image},
+  }, {}};
+  static const NodeInterface testImage{{
+      {ports::image, Direction::Input, ValueType::Image, true},
       {ports::image, Direction::Output, ValueType::Image, false, ports::image},
   }, {}};
   static const NodeInterface imageToMask{{
@@ -55,7 +60,7 @@ const NodeInterface &nodeInterface(NodeOperation operation) {
     case NodeOperation::TestSlotted: return slotted;
     case NodeOperation::TestMaskedImage: return maskedImage;
     case NodeOperation::TestReferenceMask: return referenceMask;
-    case NodeOperation::TestImage: return processor;
+    case NodeOperation::TestImage: return testImage;
     case NodeOperation::TestUnavailableImage: return source;
     case NodeOperation::TestUnavailableMask: return unavailableMask;
   }

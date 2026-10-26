@@ -95,6 +95,18 @@ bool hasPosition(const App &app, const std::string &id, double x, double y) {
   return found != app.nodePositions.end() && found->second.x == x && found->second.y == y;
 }
 
+bool strengthClipboard() {
+  Clipboard clipboard; App app;
+  CHECK(addNativeExposureNode(app)); const auto id = *app.selectedNodeId();
+  CHECK(setNodeStrength(app, id, .375));
+  CHECK(copySelectedNode(app) && pasteFromClipboard(app));
+  CHECK(selectedNode(app)->id != id && selectedNode(app)->strength == .375);
+  CHECK(copyGrade(app));
+  CHECK(setNodeStrength(app, id, .25));
+  CHECK(pasteFromClipboard(app) && findNode(app, id)->strength == .375);
+  return true;
+}
+
 bool excessiveDepthTransfers() {
   Files files; Clipboard clipboard; App app;
   CHECK(addNativeExposureNode(app));
@@ -584,6 +596,7 @@ bool fragmentSlotsAndExternalLinks() {
 } // namespace
 
 bool testPresetsAndClipboard() {
+  CHECK(strengthClipboard());
   for (const auto &test : {
       std::make_pair("over-depth preset/direct grade/clipboard refusal preserves complete document and demand", excessiveDepthTransfers),
       std::make_pair("production Copy Node eligibility, detached capture, opaque data and failure atomicity", copyNodeEligibilityAndCapture),

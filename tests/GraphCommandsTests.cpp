@@ -118,7 +118,7 @@ static bool testConnections() {
   CHECK(graph::reconnect(f.document(), image(f.source), input(b)).ok());
   CHECK(bound(f, input(b), image(f.source)));
   CHECK(graph::disconnect(f.document(), input(b)).ok());
-  CHECK(disconnected(f, input(b)) && f.node(b)->fixedInputs.size() == 1);
+  CHECK(disconnected(f, input(b)) && disconnected(f, input(b, ports::mask)) && f.node(b)->fixedInputs.size() == 2);
   CHECK(graph::reconnect(f.document(), image(a), input(b)).ok()); // Reconnect may also fill a disconnected input.
   const auto added = graph::addSlot(f.document(), slots);
   CHECK(added.ok() && added.addedSlot);

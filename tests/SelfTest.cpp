@@ -1564,6 +1564,7 @@ static bool testFailedTransferApplication() {
   futureChoice.backend = "native"; futureChoice.identifier = NativeCstProcessor::kIdentifier;
   futureChoice.paramsJson["input_space"] = "\"future-gamut\"";
   futureChoice.inputs.emplace(ports::image, std::nullopt);
+  futureChoice.inputs.emplace(ports::mask, std::nullopt);
   if (!encodeTransferPayload(PersistFragment{{futureChoice}, {}}, clipboard.text, error)) return false;
   const auto unsupportedClipboard = clipboard.text;
   if (pasteFromClipboard(app) || !unchanged() || clipboard.text != unsupportedClipboard) return false;
@@ -1578,6 +1579,7 @@ static bool testFailedTransferApplication() {
   replacement.graph.nodes[1].paramsJson["exposure"] = "4";
   PersistNode throws; throws.id = "throws"; throws.backend = "ofx"; throws.identifier = fixture.plugin.pluginIdentifier;
   throws.inputs[ports::image] = OutputRef{NodeId{"replacement"}, ports::image};
+  throws.inputs[ports::mask] = std::nullopt;
   replacement.graph.nodes.push_back(throws);
   replacement.graph.documentOutput = {NodeId{"throws"}, ports::image};
   replacement.color.outputColorSpace = "aces-ap1";
@@ -3137,6 +3139,16 @@ static int runSelfTestsImpl() {
           return fail("ctl RGB result");
       if (ctlOut.px[i + 3] != src.px[i + 3]) return fail("ctl alpha result");
     }
+
+    // The same graph mix applies to CTL: 50% between I and 2I is 1.5I.
+    Image ctlMixInput; ctlMixInput.w = ctlMixInput.h = 1;
+    ctlMixInput.px = {.25f, -.5f, 2.0f, .375f};
+    Image ctlMixOutput;
+    if (!setNodeStrength(ctlApp, ctlApp.nodes[1].id, .5) ||
+        !renderChain(ctlApp, ctlMixInput, ctlMixOutput, {}).ok ||
+        ctlMixOutput.px != std::vector<float>({.375f, -.75f, 3.0f, .375f}) ||
+        !setNodeStrength(ctlApp, ctlApp.nodes[1].id, 1))
+      return fail("ctl generic Strength mix");
 
     const auto ctlParams = ctlApp.nodes[1].processor->parameters();
     const auto findCtlParam = [&](const char *id) -> const ProcessorParameter * {

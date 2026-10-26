@@ -96,6 +96,7 @@ struct Fixture {
 // owned, separate from the document vocabulary and evaluator policy.
 struct ToySettings {
   float gain = 1.0f, add = 0.0f, maskValue = 0.25f;
+  std::vector<float> maskSamples;
   bool halfSize = false, foldSlots = false, exportMismatch = false;
   bool fail = false, throwException = false, wrongType = false, badShape = false;
   bool omitOutput = false, extraOutput = false, returnInactive = false;
@@ -107,12 +108,13 @@ class ToyExecutor final : public graph_test::Executor {
   std::map<std::string, int> calls;
   std::map<std::string, std::vector<SlotId>> slotOrder;
   std::map<std::string, EvaluationContext> contexts;
-  std::vector<std::weak_ptr<const Image>> images;
+  std::vector<std::weak_ptr<const Image>> images, inputsSeen;
   std::vector<std::weak_ptr<const Mask>> masks;
 
   graph_test::OperationResult execute(const Node &node, const EvaluationContext &context,
                                      const graph_test::InputValues &inputs, const RenderCancellation &) override {
     ++calls[node.id.value];
+    if (inputs.image) inputsSeen.push_back(inputs.image);
     contexts[node.id.value] = context;
     auto &config = settings[node.id.value];
     if (config.duringExecution) config.duringExecution();
@@ -149,7 +151,7 @@ class ToyExecutor final : public graph_test::Executor {
           out->w = inputs.reference->w; out->h = inputs.reference->h;
           if (config.exportMismatch && context.purpose == EvaluationPurpose::Export)
             out->w = context.fullSourceW + 1;
-          out->px.assign(static_cast<size_t>(out->w) * out->h, config.maskValue);
+          out->px = config.maskSamples.empty() ? std::vector<float>(static_cast<size_t>(out->w) * out->h, config.maskValue) : config.maskSamples;
         } else {
           out->w = inputs.image->w; out->h = inputs.image->h;
           for (size_t i = 0; i < inputs.image->px.size(); i += 4) out->px.push_back(inputs.image->px[i]);
@@ -214,7 +216,9 @@ class RecordingProcessor final : public Processor {
  public:
   int renders = 0, sizes = 0, width = 0, height = 0, inputW = 0, inputH = 0;
   bool fail = false, throws = false, unknownException = false, sizeThrows = false, badRaster = false;
-  bool interactive = false;
+  bool interactive = false, halfSize = false;
+  float gain = 1;
+  const Image *lastOutput = nullptr;
   std::function<void()> duringRender;
   ProcessorBackend backend() const override { return ProcessorBackend::Native; }
   std::string identifier() const override { return "test-recording"; }
@@ -234,10 +238,130 @@ class RecordingProcessor final : public Processor {
     if (unknownException) throw 7;
     if (fail) return ProcessorResult::failure(23, "backend failure text");
     out = in;
+    lastOutput = &out;
+    if (halfSize) { out.w = std::max(1, in.w / 2); out.h = std::max(1, in.h / 2); out.px.resize(size_t(out.w) * out.h * 4); }
+    for (size_t i = 0; i < out.px.size(); ++i) if (i % 4 != 3) out.px[i] *= gain;
     if (badRaster) out.px.pop_back();
     return ProcessorResult::success();
   }
 };
+
+static bool testProductionMaskAndStrength() {
+  Fixture f; ToyExecutor exec;
+  const NodeId effect{"production"}, generator{"coverage"}, unavailable{"unavailable"};
+  CHECK(f.add(effect, NodeOperation::ImageProcessor) && f.add(generator, NodeOperation::TestReferenceMask) &&
+        f.add(unavailable, NodeOperation::TestUnavailableMask));
+  auto backend = std::make_unique<RecordingProcessor>(); auto *record = backend.get(); record->gain = 4;
+  f.node(effect)->processor = std::move(backend);
+  CHECK(f.connect(image(f.source), input(effect)));
+  for (int kind = 0; kind < 6; ++kind) {
+    CHECK(graph::disconnect(f.document(), input(effect, ports::mask)).ok());
+    f.node(generator)->enabled = kind != 1;
+    exec.settings[generator.value].maskSamples.clear();
+    exec.settings[generator.value].maskValue = kind == 3 ? 0 : 1;
+    if (kind == 5) exec.settings[generator.value].maskSamples = {0, .25f, .5f, 1};
+    if (kind) CHECK(f.connect(kind == 2 ? mask(unavailable) : mask(generator), input(effect, ports::mask)));
+    for (double strength : {0.0, .5, 1.0}) {
+      f.node(effect)->strength = strength;
+      const int renders = record->renders, generates = exec.calls[generator.value], missing = exec.calls[unavailable.value];
+      auto result = f.evaluate(image(effect), &exec);
+      CHECK(result.state == EvaluationState::Available && result.valueType == ValueType::Image);
+      CHECK(record->renders == renders + (strength != 0));
+      CHECK(result.diagnostics.empty() == !(kind == 2 && strength != 0));
+      if (strength == 0) {
+        CHECK(pixels(result) == f.sourcePixels && exec.calls[generator.value] == generates && exec.calls[unavailable.value] == missing);
+      } else if (strength == 1 && kind <= 2) CHECK(pixels(result).get() == record->lastOutput);
+      for (size_t pixel = 0; pixel < 4; ++pixel) {
+        const double coverage = kind == 3 ? 0 : kind == 5 ? exec.settings[generator.value].maskSamples[pixel] : 1;
+        for (size_t c = 0; c < 4; ++c) {
+          const float base = f.sourcePixels->px[pixel * 4 + c];
+          const float expected = c == 3 ? base : float(base * (1 + 3 * strength * coverage));
+          CHECK(pixels(result)->px[pixel * 4 + c] == expected);
+        }
+      }
+      f.context.purpose = EvaluationPurpose::Export;
+      const auto exported = f.evaluate(image(effect), &exec);
+      CHECK(exported.state == EvaluationState::Available && pixels(exported)->px == pixels(result)->px);
+      f.context.purpose = EvaluationPurpose::Preview;
+    }
+  }
+  // Opposite infinities distinguish exact endpoint copies from interpolation.
+  // Partial Strength must also leave completely unmasked pixels untouched.
+  auto endpointSource = std::make_shared<Image>(*f.sourcePixels);
+  const float infinity = std::numeric_limits<float>::infinity();
+  endpointSource->px[0] = endpointSource->px[4] = infinity;
+  f.sourcePixels = endpointSource;
+  record->gain = -infinity;
+  exec.settings[generator.value].maskSamples = {0, 1, .5f, 0};
+  for (double strength : {.5, 1.0}) {
+    f.node(effect)->strength = strength;
+    const auto result = f.evaluate(image(effect), &exec);
+    CHECK(result.state == EvaluationState::Available);
+    const auto &samples = pixels(result)->px;
+    CHECK(std::equal(samples.begin(), samples.begin() + 4, endpointSource->px.begin()));
+    CHECK(std::equal(samples.begin() + 12, samples.end(), endpointSource->px.begin() + 12));
+    if (strength == 1) {
+      const std::vector<float> processed{-infinity, infinity, -infinity, .375f};
+      CHECK(std::equal(processed.begin(), processed.end(), samples.begin() + 4));
+    }
+  }
+  f.sourcePixels = raster(2, 2);
+  record->gain = 4;
+  // An active Mask is still a mixing request, even when all samples are white.
+  record->halfSize = true;
+  CHECK(graph::disconnect(f.document(), input(effect, ports::mask)).ok());
+  f.node(effect)->strength = 1;
+  CHECK(pixels(f.evaluate(image(effect), &exec))->w == 1);
+  f.node(effect)->strength = 0;
+  CHECK(pixels(f.evaluate(image(effect), &exec)) == f.sourcePixels);
+  f.node(effect)->strength = .5;
+  CHECK(message(f.evaluate(image(effect), &exec), "dimension mismatch"));
+  f.node(effect)->strength = 1;
+  exec.settings[generator.value].maskSamples.clear(); exec.settings[generator.value].maskValue = 1;
+  CHECK(f.connect(mask(generator), input(effect, ports::mask)));
+  CHECK(message(f.evaluate(image(effect), &exec), "dimension mismatch"));
+  f.node(generator)->enabled = false;
+  CHECK(pixels(f.evaluate(image(effect), &exec))->w == 1);
+  f.node(generator)->enabled = true;
+  record->halfSize = false;
+  record->badRaster = true;
+  CHECK(message(f.evaluate(image(effect), &exec), "Invalid Image"));
+  record->badRaster = false;
+  record->fail = true;
+  CHECK(f.evaluate(image(effect), &exec).state == EvaluationState::Error);
+  f.node(effect)->strength = 0;
+  CHECK(pixels(f.evaluate(image(effect), &exec)) == f.sourcePixels);
+  f.node(effect)->strength = .5;
+  f.node(effect)->enabled = false;
+  CHECK(pixels(f.evaluate(image(effect), &exec)) == f.sourcePixels);
+  f.node(effect)->enabled = true;
+  f.node(effect)->processor.reset();
+  f.node(effect)->storedIdentifier = "missing-production";
+  const auto missing = f.evaluate(image(effect), &exec);
+  CHECK(pixels(missing) == f.sourcePixels && message(missing, "missing-production"));
+  f.node(effect)->strength = 0;
+  CHECK(f.evaluate(image(effect), &exec).diagnostics.empty());
+  return true;
+}
+
+static bool testProductionMixLifetime() {
+  Fixture f; ToyExecutor exec;
+  const NodeId shared{"shared-production-mix"}, a{"a"}, b{"b"}, join{"join"};
+  CHECK(f.add(shared, NodeOperation::ImageProcessor) && f.add(a) && f.add(b) && f.add(join, NodeOperation::TestSlotted));
+  auto processor = std::make_unique<RecordingProcessor>(); auto *record = processor.get(); record->gain = 2;
+  f.node(shared)->processor = std::move(processor); f.node(shared)->strength = .5;
+  CHECK(f.connect(image(f.source), input(shared)) && f.connect(image(shared), input(a)) && f.connect(image(shared), input(b)));
+  const auto one = graph::addSlot(f.document(), join).addedSlot, two = graph::addSlot(f.document(), join).addedSlot;
+  CHECK(one && two && f.connect(image(a), input(join, ports::image, one)) && f.connect(image(b), input(join, ports::image, two)));
+  bool aliveAtBoth = true, releasedAtJoin = false;
+  exec.settings[a.value].duringExecution = [&] { aliveAtBoth &= !exec.inputsSeen.front().expired(); };
+  exec.settings[b.value].duringExecution = [&] { aliveAtBoth &= !exec.inputsSeen.front().expired(); };
+  exec.settings[join.value].duringExecution = [&] { releasedAtJoin = exec.inputsSeen.front().expired(); };
+  const auto result = f.evaluate(image(join), &exec);
+  CHECK(result.state == EvaluationState::Available && pixels(result)->px[0] == .75f);
+  CHECK(record->renders == 1 && aliveAtBoth && releasedAtJoin);
+  return true;
+}
 
 static bool testSourceAndValidation() {
   Fixture f;
@@ -685,6 +809,10 @@ static bool testOfxOutputDimensions() {
   CHECK(record->width == pixels(result)->w && record->height == pixels(result)->h &&
         record->inputW == record->width && record->inputH == record->height);
   CHECK(pixels(result)->px[3] == 0.375f);
+  f.node(crop)->strength = 0;
+  CHECK(pixels(f.evaluate(image(crop))) == f.sourcePixels);
+  f.node(crop)->strength = .5;
+  CHECK(message(f.evaluate(image(crop)), "dimension mismatch"));
   return true;
 }
 
@@ -762,6 +890,7 @@ static bool testCancellationAndFailures() {
   record->sizeThrows = false; record->badRaster = true;
   CHECK(message(f.evaluate(image(p)), "Invalid Image"));
   record->badRaster = false; record->fail = true;
+  f.node(p)->strength = .5;
   epoch.store(1); record->duringRender = [&] { epoch.fetch_add(1); };
   result = f.evaluate(image(p), nullptr, token);
   CHECK(result.state == EvaluationState::Cancelled && result.diagnostics.empty() && record->interactive);
@@ -772,6 +901,8 @@ static bool testCancellationAndFailures() {
 
 bool testGraphEvaluator() {
   const struct { const char *name; bool (*test)(); } cases[] = {
+      {"Step 8 production Image Mask times Strength, exact endpoints, HDR/alpha and dimensions", testProductionMaskAndStrength},
+      {"Step 8 production mix fan-out executes once and releases intermediates", testProductionMixLifetime},
       {"6C Source sharing, requested endpoints and malformed graph rejection", testSourceAndValidation},
       {"6C linear evaluation, storage independence and reachable-only diagnostics", testLinearStorageAndReachability},
       {"6C fan-out memoization, distinct output bundles and intermediate lifetime", testFanoutBundleAndLifetime},

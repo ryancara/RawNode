@@ -80,6 +80,34 @@ ImageValue pixel() {
   return image;
 }
 
+bool strengthCompatibility() {
+  PersistFile parsed; std::string error, encoded;
+  CHECK(decodeGraphFile(file(source + "," + exposure, "node-2"), parsed, error));
+  CHECK(record(parsed.grade->graph, "node-2")->strength == 1);
+  CHECK(!record(parsed.grade->graph, "node-2")->inputs.at(ports::mask));
+  const auto withStrength = changed(exposure, "\"enabled\":true", "\"enabled\":true,\"strength\":0.5");
+  CHECK(decodeGraphFile(file(source + "," + withStrength, "node-2"), parsed, error));
+  auto restored = document_detail::restoreGraph(parsed.grade->graph);
+  CHECK(node(restored, "node-2")->strength == .5);
+  const EvaluationContext context{EvaluationPurpose::Export, 1, 1, 1, 1};
+  const auto result = evaluateGraph(view(restored), restored.output, context, pixel());
+  CHECK(result.state == EvaluationState::Available && std::get<ImageValue>(result.value)->px ==
+        std::vector<float>({.375f, -.75f, 3, .375f}));
+  parsed.grade->graph = captureGraph(view(restored));
+  CHECK(encodeGraphFile(parsed, encoded, error) && decodeGraphFile(encoded, parsed, error));
+  CHECK(record(parsed.grade->graph, "node-2")->strength == .5);
+  PersistNode maskNode; maskNode.id = "coverage"; maskNode.operation = NodeOperation::TestReferenceMask;
+  maskNode.inputs.emplace(ports::reference, std::nullopt);
+  parsed.grade->graph.nodes.push_back(maskNode);
+  for (auto &n : parsed.grade->graph.nodes) if (n.id == "node-2")
+    n.inputs.at(ports::mask) = OutputRef{NodeId{"coverage"}, ports::mask};
+  CHECK(GraphPersistenceTestAccess::encode(parsed, encoded, error) && GraphPersistenceTestAccess::decode(encoded, parsed, error));
+  CHECK((record(parsed.grade->graph, "node-2")->inputs.at(ports::mask) == OutputRef{NodeId{"coverage"}, ports::mask}));
+  for (const auto &bad : {"-0.1", "1.1", "true", "\"half\"", "1e999", "1e-999"})
+    CHECK(rejects(file(source + "," + changed(withStrength, "\"strength\":0.5", std::string("\"strength\":") + bad), "node-2")));
+  return true;
+}
+
 bool v2ByteStrings() {
   // Exercise today's application writers, not just the shared lexical reader.
   // These bytes are deliberately not UTF-8; V2 must retain them verbatim.
@@ -577,6 +605,7 @@ bool typedParameters() {
 }  // namespace
 
 bool testGraphPersistence() {
+  CHECK(strengthCompatibility());
   {
     PersistFile parsed;
     std::string error;

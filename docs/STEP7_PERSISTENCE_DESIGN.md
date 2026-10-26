@@ -127,6 +127,7 @@ Node records follow the existing model:
   OFX or CTL processors; an optional `label` is informational. Parameter-group
   expansion and selection are transient UI state and are never serialized,
   including in clipboard transfers. Group expansion gets no global preference.
+- Image-processor records have optional `strength`, a finite number in `[0,1]`, defaulting to `1` when absent. The optional `mask` binding uses the existing `inputs` map; older grades without it load disconnected. These additive fields use the same version-1 codec for sidecars, presets, clipboard and history. Older builds reject unsupported fields/ports safely rather than silently dropping the edit.
 - `params` maps parameter IDs to JSON values. Keep opaque unknown values in
   the existing `preservedParamsJson`; do not constrain them to today's scalar
   types. Known stable choices use IDs; backends without choice IDs keep their

@@ -118,6 +118,8 @@ struct Node {
   NodeId id;
   NodeOperation operation;
   bool enabled = true;
+  // Node-owned mix, read under evaluation ownership; writes use DocumentMutation.
+  double strength = 1.0;
   std::unique_ptr<Processor> processor;
   bool isMissingProcessor() const {
     return operation == NodeOperation::ImageProcessor && !processor;
