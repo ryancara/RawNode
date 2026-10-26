@@ -291,7 +291,7 @@ If a node is evaluated as full-strength Normal processing with no Mask, its proc
 If the node requires pixelwise self-mixing because:
 
 - an **available Mask value** is present;
-- Strength is less than 1; or  **(historical wording; D054 exempts exactly 0% Strength)**
+- Strength is less than 1 (historical; D054 exempts exactly 0% Strength); or
 - Blend Mode is non-Normal;
 
 then the processor output width and height must match the node's Image input width and height.
