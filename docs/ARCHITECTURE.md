@@ -462,6 +462,16 @@ Generic Mask/Strength/Blend ownership belongs to graph/node evaluation rather
 than individual backends. The first concrete user-facing mask path remains Step
 8.
 
+### Step 8 masking contract (D054, implementation pending)
+
+See [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) for the owner-approved semantics that supersede Step 5's former white-generator bypass rule.
+
+Ordinary Image processing bypass passes Image through; unary Mask processing bypass passes Mask through. Input-free and Image -> Mask generators produce a raster-free **Inactive Mask** when bypassed. This intentional absence is a distinct per-output evaluation outcome, not black/white coverage, Image alpha, or Unavailable. Optional adjustment coverage treats Inactive as no restriction without warning; required Mask-processing paths propagate it. Missing/unavailable data remains diagnostically distinct. A generator bypass does not evaluate generation-only Reference/Image inputs, though structural cycle/edge validation remains unchanged.
+
+Generic Opacity belongs to unary compatible pass-through processing and centrally interpolates between original and processed rasters. Standalone Mask generators and binary Mask Combine do not expose generic Opacity initially. The binary Combine processor combines active inputs; one active input passes through; no active inputs yields Inactive. Its own bypass returns designated A. Inactive/Unavailable combinations and Subtract's deliberately simple participation rule are specified in the Step 8 contract.
+
+Do not add a second Mask scheduler/graph, additional per-pixel mask alpha, automatic generator chaining, or backend-specific opacity logic. Preview Mask Only/Overlay must handle inactive endpoints without stale displays using the existing runtime.
+
 ## Colour semantics
 
 RawNode is intended for serious colour-managed photographic workflows.
