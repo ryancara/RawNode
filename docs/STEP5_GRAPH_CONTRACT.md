@@ -1,8 +1,10 @@
 # Step 5 Graph / Mask Product Contract
 
-**Status:** Complete; accepted contract for Step 6.  
+**Status:** Complete; accepted contract for Step 6, with D054 Step 8 Mask bypass supersession.  
 **Purpose:** Product and architecture contract settled by Step 5 of the RawNode architecture migration.  
 **Final independent review head:** `43935dd2bd815e0eecfe43b9a3e418610fe62f70`
+
+**Later decision:** [D054](DECISIONS.md) and [the Step 8 masking contract](STEP8_MASKING_CONTRACT.md) supersede the numerical white-mask generator bypass rules below. This file preserves the original Step 5 decisions for historical review; do not implement the superseded portions as current behaviour.
 
 This document records the accepted product and architecture contract settled
 before Step 6. Steps 6 and 7 have since merged. Historical transition language
@@ -445,6 +447,8 @@ A dangling endpoint, type mismatch, cycle or missing required connection is grap
 Cancellation is also separate and must not be reinterpreted as unavailable data.
 
 A missing ordinary unary Image effect may continue to use RawNode's existing preserve + warn + pass-through philosophy where that fallback is defined. More complex unavailable graph operations should preserve their interface/state and use only explicitly defined fallbacks.
+
+> **Historical Step 5 bypass rules below are superseded for Mask generators by D054 (2026-10-26).** Current Step 8 contract: a bypassed generator without a same-type pass-through produces raster-free Inactive, skipping generation-only Reference inputs. Inactive optional coverage is unrestricted without warning; required Mask transforms propagate Inactive. Unavailable still warns and follows its separate accepted rules. See [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md).
 
 ## Bypass
 
