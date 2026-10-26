@@ -322,16 +322,11 @@ Do not replace LibRaw without a measured benefit.
 
 **Step 8 approved contract:** [docs/STEP8_MASKING_CONTRACT.md](docs/STEP8_MASKING_CONTRACT.md), D054. Mask generators bypass to Inactive (not white/black), Image/Mask transforms bypass to same-type pass-through, and generic Opacity is available on unary transforms with a defined compatible pass-through. Standalone generators and Mask Combine have no generic Opacity initially. A dedicated binary Combine node ignores inactive operands when enabled, while its own bypass passes through A; keep unavailable distinct from intentionally inactive. Retain one typed scalar Mask graph and no separate scheduler/alpha channel. Implement in focused PRs: evaluator-only Inactive bypass, Image-node Mask/Opacity, Radial->Exposure, preview handles/modes, Combine and modifiers. The precise feathered-mask arithmetic is deferred until Combine implementation.
 
+Following the initial Radial/Exposure masking slice, further work includes:
 
-
-After the base architecture and editing workflow are mature, investigate:
-
-- node masks;
-- opacity;
-- brush / gradient / key masks;
-- shared / group masks;
-- local adjustments;
-- AI-generated masks.
+- brush and path masks, additional gradients and qualifiers;
+- reusable/grouped masks and local adjustments;
+- AI-generated masks, only when an explicit product need exists.
 
 ## Completed architecture milestones
 
