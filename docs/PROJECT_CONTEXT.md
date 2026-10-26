@@ -587,6 +587,10 @@ need.
 
 ## Current development phase
 
+**Step 8 next (2026-10-26):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) now record the owner-approved Inactive Mask bypass, unary-only generic Opacity, and explicit binary Mask Combine direction. This changes the historical white-generator bypass rule in Step 5 but preserves existing Image bypass and unavailable-mask warnings. Step 8 implementation has **not started**. First implementation PR: the evaluator/test-only Inactive Mask bypass seam, including inspection/status, without production Radial or Mask Combine UI. Then generic Image optional Mask/Opacity, Radial vertical slice and preview UI. Independent review and regression checks precede merge.
+
+
+
 Undo/Redo design and behaviour are approved in D053. Stage 1 was independently
 reviewed, approved and merged in PR #92 at
 `c2624989213bb656f9552b3c52c7146dbfd432c2`. Its staged reconstruction and
