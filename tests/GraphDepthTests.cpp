@@ -207,7 +207,9 @@ bool implicitSourceAndBundles() {
   CHECK(graphStructureError(masks.view()).empty() && requestedGraphError(masks.view(), masks.output).empty());
   CHECK(evaluate(masks, &executor).state == EvaluationState::Available);
   masks.nodes[1].enabled = false;
-  CHECK(evaluate(masks, &executor).state == EvaluationState::Available);
+  const auto inactive = evaluate(masks, &executor);
+  CHECK(inactive.state == EvaluationState::Inactive && inactive.valueType == ValueType::Mask &&
+        std::holds_alternative<std::monostate>(inactive.value) && inactive.diagnostics.empty());
 
   // Alternate optional coverage and Reference: this nests coverage()/input()
   // as well as visit(), with the extra implicit Source visit at the deepest leaf.

@@ -296,6 +296,46 @@ static bool testTypedPublicationAndDisplay() {
   return true;
 }
 
+static bool testInactiveInspectionAndRestoration() {
+  Files files; Executor executor; App app; source(app);
+  const NodeId effect{"inactive-export"}, generator{"inactive-inspection"};
+  CHECK(numeric(app, effect) && add(app, generator, NodeOperation::TestReferenceMask));
+  RenderRuntimeTestAccess::evaluation(app.renderer, &executor);
+  WorkerGuard guard{app, executor}; app.renderer.start();
+  app.renderer.requestInspection(mask(generator)); CHECK(idle(app));
+  CHECK(publication(app).result.state == EvaluationState::Available);
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(!app.displayRGBA.empty()); }
+  setNodeEnabled(app, generator, false); CHECK(idle(app));
+  auto frame = publication(app);
+  CHECK(frame.result.state == EvaluationState::Inactive && frame.result.valueType == ValueType::Mask &&
+        frame.result.requested == mask(generator) && frame.result.diagnostics.empty() &&
+        std::holds_alternative<std::monostate>(frame.result.value));
+  CHECK(app.getStatus() == "Mask inactive (bypassed)");
+  { std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.displayRGBA.empty() && app.display.w == 0 && app.display.h == 0);
+  }
+  app.renderer.requestDisplayRefresh(); CHECK(idle(app));
+  CHECK(publication(app).generation == frame.generation && app.getStatus() == "Mask inactive (bypassed)");
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA.empty()); }
+
+  for (bool success : {true, false}) {
+    const auto before = publication(app).generation;
+    CHECK(runExportJob(app, files.path(success ? "inactive.png" : "absent/failed.png")) == success);
+    CHECK(idle(app));
+    frame = publication(app);
+    CHECK(frame.result.state == EvaluationState::Inactive && frame.result.requested == mask(generator) &&
+          frame.generation > before && frame.result.diagnostics.empty());
+    CHECK(app.getStatus().find(success ? "Exported inactive.png" : "Export failed") == 0);
+    { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA.empty() && app.display.w == 0); }
+  }
+  app.renderer.requestInspection(mask(generator)); CHECK(idle(app));
+  CHECK(app.getStatus() == "Mask inactive (bypassed)");
+  setNodeEnabled(app, generator, true); CHECK(idle(app));
+  CHECK(publication(app).result.state == EvaluationState::Available);
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(!app.displayRGBA.empty()); }
+  return true;
+}
+
 static bool testEndpointSupersession() {
   Executor executor; App app; source(app);
   const NodeId a{"image-a"}, b{"mask-b"};
@@ -1184,6 +1224,7 @@ bool testGraphRuntime() {
       {"OFX shared set/reset/activate schedule once, preserve notifications and render button state", testOfxParameterScheduling},
       {"6D creation, move/delete, derived capture order and V2 topology restore", testTopologyAndV2},
       {"6D typed Image/Mask/Unavailable/Error publication and cached display conversion", testTypedPublicationAndDisplay},
+      {"Step 8 Inactive inspection clears stale pixels and quiet restoration preserves export status", testInactiveInspectionAndRestoration},
       {"6D Image-to-Mask and Mask-to-Image endpoint supersession", testEndpointSupersession},
       {"6D full-resolution graph export, reachable warnings, refusal and resolution context", testExportPolicyAndContext},
       {"6D allocation-style worker exception publishes Error and worker survives mutation", testWorkerExceptionBoundary},

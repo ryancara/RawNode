@@ -1,6 +1,6 @@
 # Step 8 Masking Contract
 
-**Status:** Owner-approved Step 8 product/architecture direction, 2026-10-26. **Not yet implemented.**
+**Status:** Owner-approved Step 8 product/architecture direction, 2026-10-26. **PR #97 implements the first evaluator-only Inactive Mask bypass slice; production Mask processors and controls remain follow-ups.**
 **Authority:** D054 in `docs/DECISIONS.md`. This narrows and explicitly supersedes the Step 5 numerical Mask-generator bypass rule in D042; other Step 5 graph and availability guarantees remain.
 **Source of discussion:** The historical, non-authoritative `docs/STEP8_MASKING_DISCUSSION_DRAFT.md` on branch `docs/step8-masking-design-notes-20261025`, followed by independent Claude/Codex reviews and owner reconciliation.
 

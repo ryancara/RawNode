@@ -98,7 +98,7 @@ struct ToySettings {
   float gain = 1.0f, add = 0.0f, maskValue = 0.25f;
   bool halfSize = false, foldSlots = false, exportMismatch = false;
   bool fail = false, throwException = false, wrongType = false, badShape = false;
-  bool omitOutput = false, extraOutput = false;
+  bool omitOutput = false, extraOutput = false, returnInactive = false;
   std::function<void()> duringExecution;
 };
 class ToyExecutor final : public graph_test::Executor {
@@ -118,6 +118,7 @@ class ToyExecutor final : public graph_test::Executor {
     if (config.duringExecution) config.duringExecution();
     if (config.throwException) throw std::runtime_error("toy exception text");
     if (config.fail) return {EvaluationState::Error, {}, "toy execution failure"};
+    if (config.returnInactive) return {EvaluationState::Inactive, {}, {}};
     graph_test::OperationResult result;
     switch (node.operation) {
       case NodeOperation::TestImage: {
@@ -424,7 +425,9 @@ static bool testMaskValidationAndBypass() {
   f.node(invert)->enabled = false;
   CHECK(coverage(f.evaluate(mask(invert), &exec))->px == coverage(result)->px);
   f.node(producer)->enabled = false;
-  CHECK(all(coverage(f.evaluate(mask(producer), &exec)), 1.0f));
+  const auto inactive = f.evaluate(mask(producer), &exec);
+  CHECK(inactive.state == EvaluationState::Inactive && inactive.valueType == ValueType::Mask &&
+        std::holds_alternative<std::monostate>(inactive.value) && inactive.diagnostics.empty());
   f.node(producer)->enabled = true;
   exec.settings[producer.value].wrongType = true;
   CHECK(message(f.evaluate(mask(producer), &exec), "Invalid Mask"));
@@ -496,24 +499,146 @@ static bool testReferenceAndGeneratorBypass() {
         f.add(resized) && f.add(unavailable, NodeOperation::TestUnavailableImage) && f.add(effect, NodeOperation::TestMaskedImage));
   CHECK(f.connect(mask(generator), input(invert, ports::mask)) && f.connect(image(f.source), input(resized)));
   CHECK(f.connect(image(f.source), input(effect)) && f.connect(mask(invert), input(effect, ports::mask)));
-  CHECK(all(coverage(f.evaluate(mask(generator), &exec)), 0.25f)); // Absent Reference uses this evaluation's Source frame.
+  CHECK(all(coverage(f.evaluate(mask(generator), &exec)), 0.25f)); // Absent Reference uses the evaluation's Source frame.
   f.node(generator)->enabled = false;
-  auto white = f.evaluate(mask(generator), &exec);
-  CHECK(all(coverage(white), 1.0f) && coverage(white)->w == 2 && exec.calls[generator.value] == 1);
-  CHECK(all(coverage(f.evaluate(mask(invert), &exec)), 0.0f));
+  auto inactive = f.evaluate(mask(generator), &exec);
+  CHECK(inactive.state == EvaluationState::Inactive && inactive.valueType == ValueType::Mask &&
+        std::holds_alternative<std::monostate>(inactive.value) && inactive.diagnostics.empty());
+  CHECK(exec.calls[generator.value] == 1);
+  CHECK(f.evaluate(mask(invert), &exec).state == EvaluationState::Inactive && exec.calls[invert.value] == 0);
   exec.settings[resized.value].halfSize = true;
   CHECK(f.connect(image(resized), input(generator, ports::reference)));
-  white = f.evaluate(mask(generator), &exec);
-  CHECK(all(coverage(white), 1.0f) && coverage(white)->w == 1 && coverage(white)->h == 1);
-  CHECK(message(f.evaluate(image(effect), &exec), "dimension mismatch")); // White is real data, never fail-open.
+  CHECK(f.evaluate(mask(generator), &exec).state == EvaluationState::Inactive && exec.calls[resized.value] == 0);
+  auto unrestricted = f.evaluate(image(effect), &exec);
+  CHECK(unrestricted.state == EvaluationState::Available && pixels(unrestricted)->px[0] == 1.25f &&
+        unrestricted.diagnostics.empty() && exec.calls[resized.value] == 0);
+  // Once enabled, a real wrong-sized Mask still fails rather than becoming inactive.
+  f.node(generator)->enabled = true;
+  CHECK(message(f.evaluate(image(effect), &exec), "dimension mismatch"));
+  CHECK(exec.calls[resized.value] == 1 && exec.calls[generator.value] == 2);
   CHECK(graph::reconnect(f.document(), image(unavailable), input(generator, ports::reference)).ok());
+  f.node(generator)->enabled = false;
+  CHECK(f.evaluate(mask(generator), &exec).state == EvaluationState::Inactive && exec.calls[unavailable.value] == 0);
+  unrestricted = f.evaluate(image(effect), &exec);
+  CHECK(pixels(unrestricted)->px[0] == 1.25f && unrestricted.diagnostics.empty());
+  f.node(generator)->enabled = true;
   auto unavailableMask = f.evaluate(mask(generator), &exec);
   CHECK(unavailableMask.state == EvaluationState::Unavailable && !coverage(unavailableMask));
   CHECK(f.evaluate(mask(invert), &exec).state == EvaluationState::Unavailable);
   auto failOpen = f.evaluate(image(effect), &exec);
   CHECK(failOpen.state == EvaluationState::Available && pixels(failOpen)->px[0] == 1.25f && message(failOpen, "using full coverage"));
+  CHECK(exec.calls[generator.value] == 2 && exec.calls[invert.value] == 1);
+  return true;
+}
+
+static bool testInactivePropagationAndFanout() {
+  Fixture f; ToyExecutor exec;
+  const NodeId generator{"generator"}, modifier{"modifier"}, a{"effect-a"}, b{"effect-b"}, join{"join"};
+  CHECK(f.add(generator, NodeOperation::TestReferenceMask) && f.add(modifier, NodeOperation::TestMaskProcessor) &&
+        f.add(a, NodeOperation::TestMaskedImage) && f.add(b, NodeOperation::TestMaskedImage) &&
+        f.add(join, NodeOperation::TestSlotted));
+  CHECK(f.connect(mask(generator), input(modifier, ports::mask)) &&
+        f.connect(image(f.source), input(a)) && f.connect(image(f.source), input(b)) &&
+        f.connect(mask(modifier), input(a, ports::mask)) && f.connect(mask(modifier), input(b, ports::mask)));
+  const auto one = graph::addSlot(f.document(), join).addedSlot, two = graph::addSlot(f.document(), join).addedSlot;
+  CHECK(one && two && f.connect(image(a), input(join, ports::image, one)) &&
+        f.connect(image(b), input(join, ports::image, two)) && f.connect(mask(modifier), input(join, ports::mask, one)));
+  f.node(generator)->enabled = false;
+  for (bool enabled : {true, false}) {
+    f.node(modifier)->enabled = enabled;
+    const auto inactive = f.evaluate(mask(modifier), &exec);
+    CHECK(inactive.state == EvaluationState::Inactive && inactive.valueType == ValueType::Mask &&
+          std::holds_alternative<std::monostate>(inactive.value) && inactive.diagnostics.empty());
+    const auto result = f.evaluate(image(join), &exec);
+    CHECK(result.state == EvaluationState::Available && pixels(result)->px[0] == 2.5f && result.diagnostics.empty());
+    CHECK(exec.calls[generator.value] == 0 && exec.calls[modifier.value] == 0);
+  }
+  // Real constant Masks remain data, including through Invert and optional coverage.
   f.node(generator)->enabled = true;
-  CHECK(f.evaluate(mask(generator), &exec).state == EvaluationState::Unavailable && exec.calls[generator.value] == 1);
+  f.node(modifier)->enabled = true;
+  for (float sample : {0.0f, 1.0f}) {
+    exec.settings[generator.value].maskValue = sample;
+    CHECK(all(coverage(f.evaluate(mask(generator), &exec)), sample));
+    CHECK(all(coverage(f.evaluate(mask(modifier), &exec)), 1.0f - sample));
+    const int calls = exec.calls[generator.value];
+    const auto result = f.evaluate(image(join), &exec);
+    CHECK(pixels(result)->px[0] == (sample == 0.0f ? 2.5f : 0.25f));
+    CHECK(exec.calls[generator.value] == calls + 1); // Shared producer still executes once.
+    CHECK(result.diagnostics.empty());
+  }
+  CHECK(graph::disconnect(f.document(), input(modifier, ports::mask)).ok());
+  CHECK(message(f.evaluate(mask(modifier), &exec), "Missing required input"));
+  return true;
+}
+
+static bool testPerOutputBypassAndMissingData() {
+  Fixture f; ToyExecutor exec;
+  const NodeId analysis{"analysis"}, missingImage{"missing-image"}, missingMask{"missing-mask"},
+      modifier{"modifier"}, bundle{"bundle"}, effect{"effect"}, join{"join"};
+  CHECK(f.add(analysis, NodeOperation::TestImageToMask) && f.add(missingImage, NodeOperation::ImageProcessor) &&
+        f.add(missingMask, NodeOperation::TestUnavailableMask) && f.add(modifier, NodeOperation::TestMaskProcessor) &&
+        f.add(bundle, NodeOperation::TestMultipleOutputs) && f.add(effect, NodeOperation::TestMaskedImage) &&
+        f.add(join, NodeOperation::TestSlotted));
+  CHECK(f.connect(image(f.source), input(missingImage)) && f.connect(image(missingImage), input(analysis)) &&
+        f.connect(mask(missingMask), input(modifier, ports::mask)) && f.connect(image(missingImage), input(bundle)) &&
+        f.connect(image(bundle), input(effect)) && f.connect(mask(bundle), input(effect, ports::mask)));
+  f.node(missingImage)->storedBackend = "ctl";
+  f.node(missingImage)->storedIdentifier = "missing-analysis.ctl";
+  CHECK(message(f.evaluate(mask(analysis), &exec), "missing-analysis.ctl"));
+  f.node(analysis)->enabled = false;
+  const auto inactive = f.evaluate(mask(analysis)); // No executor needed for bypass.
+  CHECK(inactive.state == EvaluationState::Inactive && inactive.diagnostics.empty());
+  CHECK(graph::disconnect(f.document(), input(analysis)).ok());
+  CHECK(f.evaluate(mask(analysis)).state == EvaluationState::Inactive);
+  f.node(analysis)->enabled = true;
+  CHECK(message(f.evaluate(mask(analysis), &exec), "Missing required input"));
+
+  // Missing Mask backend is represented by the existing unavailable test producer.
+  f.node(missingMask)->storedIdentifier = "missing-mask-backend";
+  CHECK(f.evaluate(mask(modifier), &exec).state == EvaluationState::Unavailable);
+  f.node(modifier)->enabled = false;
+  CHECK(f.evaluate(mask(modifier), &exec).state == EvaluationState::Unavailable);
+  f.node(missingMask)->enabled = false;
+  const auto bypassedMissing = f.evaluate(mask(modifier));
+  CHECK(bypassedMissing.state == EvaluationState::Inactive && bypassedMissing.diagnostics.empty() &&
+        std::holds_alternative<std::monostate>(bypassedMissing.value));
+  CHECK(f.node(missingMask)->storedIdentifier == "missing-mask-backend");
+  CHECK(f.node(missingImage)->isMissingProcessor() && f.node(missingImage)->storedIdentifier == "missing-analysis.ctl");
+
+  f.node(bundle)->enabled = false;
+  CHECK(f.evaluate(mask(bundle)).state == EvaluationState::Inactive);
+  for (const auto &endpoint : {image(bundle), OutputRef{bundle, PortId{"original"}}}) {
+    const auto passed = f.evaluate(endpoint);
+    CHECK(passed.state == EvaluationState::Available && pixels(passed) == f.sourcePixels &&
+          message(passed, "missing-analysis.ctl"));
+  }
+  const auto one = graph::addSlot(f.document(), join).addedSlot, two = graph::addSlot(f.document(), join).addedSlot;
+  CHECK(one && two && f.connect(image(effect), input(join, ports::image, one)) &&
+        f.connect({bundle, PortId{"original"}}, input(join, ports::image, two)));
+  const auto result = f.evaluate(image(join), &exec);
+  CHECK(result.state == EvaluationState::Available && pixels(result)->px[0] == 1.5f && result.diagnostics.size() == 1);
+  CHECK(exec.calls[bundle.value] == 0);
+  CHECK(graph::disconnect(f.document(), input(bundle)).ok());
+  CHECK(f.evaluate(mask(bundle)).state == EvaluationState::Inactive);
+  CHECK(message(f.evaluate(image(bundle)), "Missing required input"));
+  // Bypass does not excuse a stored cycle, even on a generation-only Image edge.
+  f.node(bundle)->fixedInputs.at(ports::image) = image(bundle);
+  CHECK(message(f.evaluate(mask(bundle)), "cycle"));
+  return true;
+}
+
+static bool testExecutorCannotReturnInactive() {
+  Fixture f; ToyExecutor exec;
+  const NodeId generator{"generator"}, effect{"effect"}, bundle{"bundle"};
+  CHECK(f.add(generator, NodeOperation::TestReferenceMask) && f.add(effect) &&
+        f.add(bundle, NodeOperation::TestMultipleOutputs));
+  CHECK(f.connect(image(f.source), input(effect)) && f.connect(image(f.source), input(bundle)));
+  for (const auto &endpoint : {mask(generator), image(effect), mask(bundle), image(bundle)}) {
+    exec.settings[endpoint.nodeId.value].returnInactive = true;
+    const auto result = f.evaluate(endpoint, &exec);
+    CHECK(result.state == EvaluationState::Error && message(result, "Executor must not return Inactive") &&
+          std::holds_alternative<std::monostate>(result.value));
+  }
   return true;
 }
 
@@ -655,7 +780,10 @@ bool testGraphEvaluator() {
       {"6C scalar Mask coverage, clamping, Invert, bypass and malformed values", testMaskValidationAndBypass},
       {"6C bypass-aware readiness skips unused incomplete dependencies", testBypassAwareDependencies},
       {"6C Unavailable propagation and optional coverage fail-open warnings", testUnavailableAndFailOpen},
-      {"6C Reference frames, generator white bypass and Unavailable distinction", testReferenceAndGeneratorBypass},
+      {"6C Reference frames, generator Inactive bypass and Unavailable distinction", testReferenceAndGeneratorBypass},
+      {"Step 8 Inactive unary propagation, optional coverage, fan-out and real black/white Masks", testInactivePropagationAndFanout},
+      {"Step 8 per-output bypass skips generation dependencies and preserves missing identities", testPerOutputBypassAndMissingData},
+      {"Step 8 executors cannot return Inactive for Image or Mask outputs", testExecutorCannotReturnInactive},
       {"6C actual intermediate dimensions and per-evaluation preview/export compatibility", testDimensionsAndContext},
       {"6C ordered Slot traversal, required inputs, optional coverage and bypass", testSlots},
       {"6C cooperative cancellation suppresses downstream work; backend failures remain errors", testCancellationAndFailures},

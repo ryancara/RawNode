@@ -64,6 +64,9 @@ struct PortDeclaration {
   PortDirection direction;
   ValueType type;
   bool required = false;  // Applies only to inputs.
+  // Output-only: the same-type fixed input returned on bypass. Mask outputs
+  // without a pass-through become Inactive; generation inputs are not needed.
+  std::optional<PortId> bypassInput;
 };
 
 struct NodeInterface {
