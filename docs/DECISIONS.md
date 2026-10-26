@@ -336,7 +336,7 @@ or inspection while normal preview/export requests `documentOutput`. Shared
 upstream work executes once per evaluation and intermediate values live only as
 long as required by that evaluation.
 
-## D042 — Fail-open Mask availability and numerical generator bypass
+## D042 — Fail-open Mask availability and historical generator bypass
 
 **Status:** Accepted
 
@@ -348,10 +348,7 @@ At an optional Mask coverage input, an unavailable Mask is treated as absent:
 the effect/layer uses full coverage, the connection is preserved, and a
 persistent warning is reported.
 
-A bypassed source-like Mask generator produces a real full-coverage Mask when
-its Reference frame resolves. If a connected Reference is unavailable, the
-generator output remains unavailable and the downstream coverage consumer uses
-the fail-open rule.
+**Superseded for bypassed generators by D054 (Step 8, 2026-10-26):** Step 5 originally specified that a bypassed source-like Mask generator produced a real white/full-coverage Mask in its Reference frame. D054 replaces this with an intentional Inactive Mask outcome, without evaluating generation-only Reference inputs. The original numerical rule is retained here only as historical rationale. Unavailable enabled generators and fail-open optional coverage warnings remain distinct.
 
 Valid-but-incompatible raster dimensions remain a hard evaluation error and are
 never converted into fail-open behaviour.
@@ -752,6 +749,22 @@ The existing Edit menu displays Undo/Redo with platform shortcuts and shared
 history/document/export availability. Text-input shortcuts remain owned by ImGui;
 history actions refuse active/uncommitted gestures. No second restoration engine,
 gesture framework, toolbar or unrelated product change is approved (D052).
+
+## D054 — Step 8 inactive Mask bypass and scoped Opacity
+
+**Status:** Owner-approved product/architecture contract, 2026-10-26; implementation pending.
+
+Detailed authoritative implementation requirements: [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md). The historical Step 8 discussion draft is not authoritative.
+
+- Preserve existing Image -> Image bypass and unary Mask -> Mask pass-through.
+- A bypassed Mask generator with no same-type pass-through returns raster-free **Inactive**, never black/white. It skips generation-only inputs. Inactive is distinct from missing/unavailable, error and cancellation.
+- An Inactive optional adjustment Mask means unrestricted coverage without warning; Unavailable remains fail-open **with** diagnostics. Unary Mask processors propagate Inactive. Structural validation still considers bypassed connections.
+- Enabled binary Mask Combine uses active operands only. Both active: apply its selected Add/Intersect/Subtract operation. Only one active: pass that operand unchanged (including B when A is inactive under Subtract, an accepted user-controlled trade-off). Neither active: Inactive. Unavailable required operands propagate. **Bypassing Combine itself** passes through its designated A input instead.
+- Generic Opacity mixes between an actual same-type pass-through raster and processed output on ordinary Image processors and unary Mask transforms. Standalone Mask generators and binary Combine have no generic Opacity initially; availability follows a declared operation contract, not whether an input wire happens to be connected.
+- Mask values stay scalar single-channel coverage with no extra alpha. Functional Mask inputs and generic Image-node Effect Mask inputs remain distinct. Combine is explicit; no automatic generator chaining or auto-growing Mask input ports initially.
+- The existing graph/runtime/persistence/history architecture owns this feature. No backend-specific Mask/Opacity/bypass framework or new scheduler.
+
+This deliberately supersedes D042's white-generator bypass rule and relevant historical Step 5 language. It does not replace D042's unavailable coverage diagnostics or D043's generic Image mixing and dimension-safety contracts. At exactly zero Image opacity, return the bypass raster; positive partial mixing requires compatible dimensions.
 
 ## Pending decisions
 
