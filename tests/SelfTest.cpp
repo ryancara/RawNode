@@ -448,7 +448,7 @@ static bool testSingleMutationCompletionDemand(bool changed) {
   {
     DocumentMutation mutation(app);
     const auto editing = renderState(app);
-    if (editing.mutationDepth != 1 || editing.previewPending != !changed || editing.quietPending != !changed) return false;
+    if (editing.mutationDepth != 1 || editing.previewPending || editing.quietPending) return false;
     if (changed) mutation.changed();
   }
   const auto index = static_cast<size_t>(RuntimeEvent::MutationCompleted);

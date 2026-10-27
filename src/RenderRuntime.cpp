@@ -30,7 +30,6 @@ void RenderRuntime::shutdown() noexcept {
       stopping_ = true;
       ++epoch_;
       previewPending_ = quietPending_ = displayPending_ = false;
-      statusPending_.reset();
       observe(Event::Stopping);
     }
   }
@@ -128,13 +127,9 @@ bool RenderRuntime::beginMutation() {
   std::unique_lock<std::mutex> lock(mutex_);
   ++mutationDepth_;                     // Close the gate before draining.
   if (previewBusy_ || exportBusy_) observe(Event::MutationWaiting);
-  const auto status = statusPending_ ? statusPending_ : statusBusy_;
-  const bool interrupted = cancelAndDrain(lock);
-  if (status) {
-    queuePreview(true);                 // Retain intent while the mutation gate stays closed.
-    statusPending_ = status;
-  }
-  return interrupted;
+  // Carry reporting intent; completeMutation alone schedules recovery.
+  if (!statusPending_) statusPending_ = statusBusy_;
+  return cancelAndDrain(lock);
 }
 
 void RenderRuntime::completeMutation(bool changed, bool interrupted) noexcept {
@@ -208,7 +203,6 @@ EvaluationResult RenderRuntime::evaluateOwned(const OutputRef &endpoint, const E
 void RenderRuntime::queuePreview(bool quiet) {
   if (stopping_) return;
   if (!quiet) statusPending_ = app_.getStatusRevision();
-  else if (!previewPending_) statusPending_.reset();
   // Both request kinds share one domain; recovery cannot downgrade a normal
   // request already queued by a later edit (including a nested edit).
   quietPending_ = quiet && (!previewPending_ || quietPending_);
@@ -219,13 +213,11 @@ bool RenderRuntime::cancelAndDrain(std::unique_lock<std::mutex> &lock) {
   bool interrupted = previewPending_ || previewBusy_ || displayPending_ || exportBusy_;
   ++epoch_;
   previewPending_ = quietPending_ = displayPending_ = false;
-  statusPending_.reset();
   idleCv_.wait(lock, [&] { return !previewBusy_ && !exportBusy_; });
   // The caller closes dispatch before draining, so export restoration cannot
   // race this barrier into another preview evaluation.
   interrupted = interrupted || previewPending_;
   previewPending_ = quietPending_ = false;
-  statusPending_.reset();
   return interrupted;
 }
 
@@ -250,7 +242,7 @@ void RenderRuntime::runPreview() {
       if (stopping_) break;
       recolorOnly = !previewPending_ && displayPending_;
       quiet = !recolorOnly && quietPending_;
-      inheritedStatus = recolorOnly ? std::nullopt : statusPending_;
+      inheritedStatus = statusPending_;
       statusBusy_ = inheritedStatus;
       statusPending_.reset();
       previewPending_ = quietPending_ = displayPending_ = false;
