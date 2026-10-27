@@ -96,7 +96,9 @@ bool finishParameterGesture(App &app, bool force) {
   app.parameterGesture.reset();
   if (gesture.pendingValue) {
     Node *node = findNode(app, gesture.node);
-    if (node && node->processor) {
+    if (node && gesture.nodeStrength) {
+      setNodeStrength(app, gesture.node, std::get<double>(*gesture.pendingValue) / 100.0);
+    } else if (node && node->processor) {
       const auto params = node->processor->parameters();
       for (const auto &param : params)
         if (param.id == gesture.parameter && param.enabled && !param.readOnly && param.value != *gesture.pendingValue)
@@ -120,28 +122,11 @@ static void observeParameterItem(App &app, const Node &node, const ProcessorPara
     finishParameterGesture(app, true);
 }
 
-void drawNodeOpacity(App &app, Node &node) {
-  ImGui::PushID("node-controls");
-  const bool editable = app.renderer.canEditParameters();
-  ImGui::BeginDisabled(!editable);
-  float opacity = float(node.strength * 100);
-  if (ImGui::SliderFloat("Opacity", &opacity, 0, 100, "%.1f%%", ImGuiSliderFlags_AlwaysClamp) && editable) {
-    if (app.parameterGesture && app.parameterGesture->item != ImGui::GetItemID() && ImGui::IsItemActive())
-      finishParameterGesture(app, true);
-    setNodeStrength(app, node.id, opacity / 100.0);
-  }
-  ProcessorParameter control;
-  control.id = "node-strength";
-  observeParameterItem(app, node, control, editable);
-  ImGui::EndDisabled();
-  ImGui::PopID();
-}
-
 // Numeric text retains its existing deferred-write behaviour. The single active
 // item owns the pending value, so disappearing controls can complete it too.
 static bool numericInput(App &app, Node &node, const ProcessorParameter &param, const char *label,
                          double &value, bool asInt, double lo, double hi, int component,
-                         ImGuiInputTextFlags flags) {
+                         ImGuiInputTextFlags flags, bool nodeStrength = false) {
   const auto item = ImGui::GetID(label);
   double edit = value;
   if (app.parameterGesture && app.parameterGesture->item == item && app.parameterGesture->pendingValue) {
@@ -158,7 +143,7 @@ static bool numericInput(App &app, Node &node, const ProcessorParameter &param, 
   const bool enabled = param.enabled && app.renderer.canEditParameters();
   if (enabled && ImGui::IsItemActive() && (!app.parameterGesture || app.parameterGesture->item != item)) {
     finishParameterGesture(app, true);
-    app.parameterGesture = ui::ParameterGesture{item, app.path, node.id, param.id, std::nullopt};
+    app.parameterGesture = ui::ParameterGesture{item, app.path, node.id, param.id, std::nullopt, nodeStrength};
   }
   if (enabled && app.parameterGesture && app.parameterGesture->item == item &&
       (edited || app.parameterGesture->pendingValue)) {
@@ -177,7 +162,8 @@ static bool numericInput(App &app, Node &node, const ProcessorParameter &param, 
 }
 
 static bool paramEditButton(App &app, Node &node, const ProcessorParameter &param,
-                            double &value, bool asInt, double lo, double hi, int component = -1) {
+                            double &value, bool asInt, double lo, double hi, int component = -1,
+                            bool nodeStrength = false) {
   const float h = ImGui::GetFrameHeight();
   if (ImGui::Button("##edit", ImVec2(h, h))) ImGui::OpenPopup("##type");
   drawPencilIcon(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
@@ -185,10 +171,32 @@ static bool paramEditButton(App &app, Node &node, const ProcessorParameter &para
   if (!ImGui::BeginPopup("##type")) return false;
   if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
   const bool completed = numericInput(app, node, param, "##v", value, asInt, lo, hi, component,
-                                      ImGuiInputTextFlags_AutoSelectAll);
+                                      ImGuiInputTextFlags_AutoSelectAll, nodeStrength);
   if (completed) ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
   return completed;
+}
+
+void drawNodeOpacity(App &app, Node &node) {
+  ImGui::PushID(0); // Processor parameter scopes use string IDs.
+  const bool editable = app.renderer.canEditParameters();
+  ImGui::BeginDisabled(!editable);
+  ProcessorParameter control;
+  control.id = "node-strength";
+  double typed = double(node.strength) * 100;
+  paramEditButton(app, node, control, typed, false, 0, 100, -1, /*nodeStrength=*/true);
+  const float gap = ImGui::GetStyle().ItemInnerSpacing.x;
+  ImGui::SameLine(0, gap);
+  ImGui::SetNextItemWidth(std::max(40.0f, ImGui::GetContentRegionAvail().x - gap - ImGui::CalcTextSize("Opacity").x));
+  float opacity = float(double(node.strength) * 100);
+  if (ImGui::SliderFloat("Opacity", &opacity, 0, 100, "%.6g%%", ImGuiSliderFlags_AlwaysClamp) && editable) {
+    if (app.parameterGesture && app.parameterGesture->item != ImGui::GetItemID() && ImGui::IsItemActive())
+      finishParameterGesture(app, true);
+    setNodeStrength(app, node.id, opacity / 100.0);
+  }
+  observeParameterItem(app, node, control, editable);
+  ImGui::EndDisabled();
+  ImGui::PopID();
 }
 
 static void drawParam(App &app, Node &node, ProcessorParameter param) {

@@ -145,10 +145,9 @@ bool setNodeStrength(App &app, const NodeId &id, double strength) {
       !std::isfinite(strength) || strength < 0 || strength > 1) return false;
   Node *node = findNode(app, id);
   if (!node || node->operation != NodeOperation::ImageProcessor || node->strength == strength) return false;
-  DocumentMutation mutation(app);
   node->strength = strength;
   app.history.noteUnrecordedEdit();
-  mutation.changed();
+  app.renderer.requestPreview();
   return true;
 }
 

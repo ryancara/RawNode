@@ -12,6 +12,7 @@ struct ParameterGesture {
   NodeId node;
   std::string parameter;
   std::optional<ParameterValue> pendingValue;
+  bool nodeStrength = false; // Node control, never a backend parameter with the same ID.
 };
 }
 
