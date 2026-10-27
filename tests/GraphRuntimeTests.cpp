@@ -234,6 +234,51 @@ static bool testStrengthEditOwnership() {
   return true;
 }
 
+static bool testInterruptedPreviewStatus() {
+  bool ok = true;
+  for (int kind = 0; kind < 4; ++kind) for (bool active : {true, false}) {
+    App app; source(app); Gate gate;
+    auto *processor = numeric(app, NodeId{"status-preview"}, 2); CHECK(processor);
+    processor->renderGate = &gate;
+    GateWorkerGuard guard{app, gate};
+    RenderRuntimeTestAccess::observe(app.renderer, &gate, [](void *context, auto event) noexcept {
+      if (event == RenderRuntimeTestAccess::Event::MutationWaiting) static_cast<Gate *>(context)->unblock();
+    });
+    if (kind == 1) {
+      auto lease = app.renderer.acquireExport(); CHECK(lease);
+      app.setStatus("Export complete"); // Lease release requests genuinely quiet restoration.
+    } else app.renderer.requestPreview();
+    if (active) {
+      gate.arm(); app.renderer.start(); CHECK(gate.wait(1));
+      CHECK(app.getStatus() == (kind == 1 ? "Export complete" : "Rendering..."));
+    }
+    if (kind == 2 || kind == 3) {
+      document_detail::DocumentMutation mutation(app);
+      if (kind == 2) app.setStatus("Unrelated operation message");
+      else gate.arm(); // Hold the replacement while a later operation posts a message.
+    } else {
+      PersistGrade captured; CHECK(captureGrade(app, captured)); // Same read-only boundary used by history capture.
+    }
+    if (!active) app.renderer.start();
+    if (kind == 3) {
+      CHECK(gate.wait(active ? 2 : 1));
+      app.setStatus("Unrelated operation message");
+      gate.unblock();
+    }
+    CHECK(idle(app));
+    const auto frame = publication(app);
+    CHECK(frame.result.state == EvaluationState::Available && std::get<ImageValue>(frame.result.value)->px[0] == .5f);
+    CHECK(frame.generation == RenderRuntimeTestAccess::snapshot(app.renderer).epoch);
+    const std::string expected = kind == 0 ? "1×1 preview" : kind == 1 ? "Export complete" : "Unrelated operation message";
+    if (app.getStatus() != expected) {
+      std::fprintf(stderr, "interrupted preview status: kind=%d active=%d expected=%s actual=%s\n",
+                   kind, active, expected.c_str(), app.getStatus().c_str());
+      ok = false;
+    }
+  }
+  return ok;
+}
+
 static bool testTopologyAndV2() {
   App app; source(app);
   CHECK(addNativeExposureNode(app) && addNativeCstNode(app));
@@ -659,7 +704,7 @@ static bool testFragmentCaptureOwnership(bool exporting, bool failing) {
   CHECK(capturedOk == !failing && waited && probe.completed && probe.quiet);
   CHECK(!processor->unsafeCapture && !processor->unsafeSync && processor->syncs == 2 && processor->captures == 2 && idle(app));
   CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).mutationDepth == 0);
-  CHECK(app.getStatus() == status); // Quiet recovery preserves export/capture status.
+  CHECK(app.getStatus() == (exporting || failing ? status : "1×1 preview"));
   CHECK(captured.nodes.size() == 1 && captured.nodes[0].id == id.value && captured.nodes[0].paramsJson.at("gain") == "2");
   CHECK(captured.positions.at(id.value).x == 7.5 && captured.positions.at(id.value).y == -3);
   CHECK(failing ? warnings == std::vector<std::string>{"untouched"} : warnings.empty());
@@ -1254,6 +1299,7 @@ static bool testOfxParameterScheduling() {
 
 bool testGraphRuntime() {
   const struct { const char *name; bool (*test)(); } cases[] = {
+      {"Interrupted normal preview retains status intent; quiet export restoration and newer messages remain protected", testInterruptedPreviewStatus},
       {"Strength edits supersede active preview without waiting; latest zero bypass publishes and export excludes edits", testStrengthEditOwnership},
       {"Native/CTL/OFX Add Processor shares serial, Source and off-chain insertion policy", testBackendInsertion},
       {"Over-depth worker returns Error, then evaluates a repaired boundary graph", testOverDepthWorker},

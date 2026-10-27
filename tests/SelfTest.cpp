@@ -1641,7 +1641,8 @@ static bool testRestorationUnwind() {
   try {
     applyChain(app, replacement);
     return false;
-  } catch (const std::runtime_error &) {
+  } catch (const std::runtime_error &error) {
+    app.setStatus(error.what()); // A caller's message after unwind must survive recovery.
     if (app.nodes.size() != 2 || app.nodes[1].id != originalId ||
         app.nodes[1].processor.get() != originalProcessor || app.selectedNodeId() != originalId) return false;
   }

@@ -3,8 +3,10 @@
 #include "GraphEvaluator.h"
 
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <type_traits>
 #include <utility>
@@ -104,6 +106,9 @@ class RenderRuntime {
   bool previewPending_ = false, quietPending_ = false;
   bool displayPending_ = false;
   bool previewBusy_ = false, exportBusy_ = false;
+  // A quiet recovery may finish interrupted normal status only while its
+  // message revision is current. Empty means genuinely quiet work.
+  std::optional<uint64_t> statusPending_, statusBusy_;
   std::shared_ptr<const OutputRef> inspection_, pendingEndpoint_;
   int mutationDepth_ = 0;
 
