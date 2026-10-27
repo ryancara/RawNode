@@ -2,6 +2,7 @@
 
 #include "processors/Processor.h"
 
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -111,6 +112,22 @@ struct Slot {
 
 namespace graph_detail { class StagedEdit; }
 
+// One atomic scalar, movable so Node remains a value in the document vector.
+// It publishes no other state; evaluation samples it once during planning.
+class NodeStrength {
+ public:
+  NodeStrength() = default;
+  NodeStrength(NodeStrength &&other) noexcept : value_(double(other)) {}
+  NodeStrength &operator=(NodeStrength &&other) noexcept { return *this = double(other); }
+  operator double() const noexcept { return value_.load(std::memory_order_relaxed); }
+  NodeStrength &operator=(double value) noexcept {
+    value_.store(value, std::memory_order_relaxed);
+    return *this;
+  }
+ private:
+  std::atomic<double> value_{1.0};
+};
+
 // The node owns its processor; DocumentMutation protects that lifetime.
 struct Node {
   explicit Node(NodeOperation operation = NodeOperation::ImageProcessor);
@@ -118,8 +135,7 @@ struct Node {
   NodeId id;
   NodeOperation operation;
   bool enabled = true;
-  // Node-owned mix, read under evaluation ownership; writes use DocumentMutation.
-  double strength = 1.0;
+  NodeStrength strength;
   std::unique_ptr<Processor> processor;
   bool isMissingProcessor() const {
     return operation == NodeOperation::ImageProcessor && !processor;

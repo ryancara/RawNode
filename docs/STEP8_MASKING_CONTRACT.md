@@ -50,6 +50,8 @@ When a node has a **defined same-type pass-through raster** and an applicable un
 
 No Mask Gain/density feature in the initial implementation. Blend Mode on Image processors is separate from Mask Combine's operation; Normal Image blend first. Do not silently expose no-op RGB blend controls on Mask generators, or invent extra generic Effect Mask connections on them. Future expanded generic Mask-node operation masking must be designed separately from functional Mask data inputs.
 
+Live Strength edits publish one atomic node-owned scalar and request a normal superseding preview, without draining active processing. The evaluator samples Strength once into its existing per-output planning table and uses that value for bypass, dependencies and mixing. Topology/processor lifetime still uses DocumentMutation, and export excludes edits. The Inspector uses the existing pencil-button numeric popup and gesture/history mechanism; completed history capture may still wait for rendering once per gesture. Numeric entry is a percentage in [0,100], separate from backend parameter IDs.
+
 ## Mask generation, functional inputs and combination
 
 - Geometric generators output Mask coverage in a defined Reference raster; Qualifier and future adapted third-party producers may analyse Image data but output declared typed Mask coverage.

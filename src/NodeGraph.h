@@ -20,7 +20,7 @@ bool requireEditableGraph(App &app);
 bool setNodeParameterValue(App &app, const NodeId &node, const std::string &parameter, const ParameterValue &value);
 bool resetNodeParameter(App &app, const NodeId &node, const std::string &parameter);
 bool activateNodeParameter(App &app, const NodeId &node, const std::string &parameter);
-// Node-owned Strength uses DocumentMutation so planning/execution see one value.
+// Node-owned Strength is atomic and sampled once by evaluation planning.
 // Like parameter edits, export/protection refuse it; history records gesture completion.
 bool setNodeStrength(App &app, const NodeId &node, double strength);
 

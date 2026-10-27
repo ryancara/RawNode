@@ -74,12 +74,15 @@ class Evaluation {
     return result;
   }
   void plan(const OutputRef &output) {
-    if (!planned_.insert(output).second) return;
+    const auto planned = planned_.emplace(output, 1.0);
+    if (!planned.second) return;
     const Node &node = *findNode(graph_, output.nodeId);
     // Enabled bundle execution consumes its inputs once, even when several
     // distinct outputs are requested. Bypass executes each pass-through output.
     if (node.operation == NodeOperation::TestMultipleOutputs && node.enabled &&
         !plannedBundles_.insert(node.id.value).second) return;
+    const double strength = node.operation == NodeOperation::ImageProcessor ? double(node.strength) : 1.0;
+    planned.first->second = strength;
     const auto dependency = [&](const OutputRef &producer) {
       ++remaining_[producer];
       plan(producer);
@@ -89,7 +92,7 @@ class Evaluation {
       if (binding && *binding) dependency(**binding);
     };
     const auto *port = findOutput(graph_, output);
-    if (!node.enabled || (node.operation == NodeOperation::ImageProcessor && node.strength == 0)) {
+    if (!node.enabled || (node.operation == NodeOperation::ImageProcessor && strength == 0)) {
       if (port->bypassInput) {
         connected(*port->bypassInput);
         return;
@@ -210,7 +213,8 @@ class Evaluation {
   Outcome executeNode(const Node &node, const OutputRef &output) {
     if (node.operation == NodeOperation::Source) return {EvaluationState::Available, source_};
     const auto *port = findOutput(graph_, output);
-    if (!node.enabled || (node.operation == NodeOperation::ImageProcessor && node.strength == 0)) {
+    const double strength = planned_.at(output);
+    if (!node.enabled || (node.operation == NodeOperation::ImageProcessor && strength == 0)) {
       if (port->bypassInput) return input(output, *port->bypassInput);
       if (port->type == ValueType::Mask) return {EvaluationState::Inactive, {}};
     }
@@ -224,7 +228,7 @@ class Evaluation {
         auto upstream = input(output, ports::image);
         if (stopped(upstream)) return upstream;
         inputs.image = std::get<ImageValue>(upstream.value);
-        if (node.operation == NodeOperation::ImageProcessor) return maskedProcessor(node, output, inputs.image);
+        if (node.operation == NodeOperation::ImageProcessor) return maskedProcessor(node, output, inputs.image, strength);
         if (node.operation == NodeOperation::TestMaskedImage) {
           auto mask = coverage(output, inputs.image);
           if (stopped(mask)) return mask;
@@ -279,7 +283,7 @@ class Evaluation {
     return executeTest(node, output, inputs);
   }
 
-  Outcome maskedProcessor(const Node &node, const OutputRef &output, ImageValue image) {
+  Outcome maskedProcessor(const Node &node, const OutputRef &output, ImageValue image, double strength) {
     // Missing unary effects retain their defined pass-through fallback, with a
     // warning. Their unused coverage must not turn that fallback into an edit.
     if (!node.processor) return processor(node, output, std::move(image));
@@ -290,7 +294,6 @@ class Evaluation {
     if (stopped(processed)) return processed;
     const auto value = std::get<ImageValue>(processed.value);
     const auto *coverageMask = std::get_if<MaskValue>(&mask.value);
-    const double strength = node.strength; // Stable through plan/execute under existing execution exclusion.
     if (strength == 1 && !coverageMask) return processed;
     if (value->w != image->w || value->h != image->h)
       return failure(output, "Image input/processor output dimension mismatch for Mask/Strength mixing");
@@ -402,7 +405,7 @@ class Evaluation {
   std::map<OutputRef, Outcome, OutputLess> memo_;
   std::optional<OutputRef> requested_;
   std::map<OutputRef, size_t, OutputLess> remaining_;
-  std::set<OutputRef, OutputLess> planned_;
+  std::map<OutputRef, double, OutputLess> planned_; // Strength sampled once, shared by bypass and mixing.
   std::set<std::string> plannedBundles_;
   std::set<OutputRef, OutputLess> visiting_;
   std::vector<EvaluationDiagnostic> diagnostics_;

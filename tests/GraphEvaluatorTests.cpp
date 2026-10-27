@@ -344,6 +344,34 @@ static bool testProductionMaskAndStrength() {
   return true;
 }
 
+static bool testPlannedStrength() {
+  Fixture f; ToyExecutor exec;
+  const NodeId upstream{"upstream"}, effect{"effect"}, generator{"coverage"}, join{"join"};
+  CHECK(f.add(upstream) && f.add(effect, NodeOperation::ImageProcessor) &&
+        f.add(generator, NodeOperation::TestReferenceMask) && f.add(join, NodeOperation::TestSlotted));
+  auto processor = std::make_unique<RecordingProcessor>(); auto *record = processor.get(); record->gain = 4;
+  f.node(effect)->processor = std::move(processor);
+  CHECK(f.connect(image(f.source), input(upstream)) && f.connect(image(upstream), input(effect)));
+  // Change the live control after planning but before the effect's mix.
+  exec.settings[upstream.value].duringExecution = [&] { f.node(effect)->strength = 0; };
+  const auto processed = f.evaluate(image(effect), &exec);
+  CHECK(processed.state == EvaluationState::Available && pixels(processed)->px[0] == 1 && record->renders == 1);
+  CHECK(f.node(effect)->strength == 0);
+
+  CHECK(graph::reconnect(f.document(), image(f.source), input(effect)).ok() &&
+        f.connect(mask(generator), input(effect, ports::mask)));
+  const auto a = graph::addSlot(f.document(), join).addedSlot, b = graph::addSlot(f.document(), join).addedSlot;
+  CHECK(a && b && f.connect(image(upstream), {join, a, ports::image}) && f.connect(image(effect), {join, b, ports::image}));
+  exec.settings[upstream.value].duringExecution = [&] { f.node(effect)->strength = 1; };
+  exec.settings[generator.value].fail = true;
+  // An earlier branch changes zero to one before this effect executes. Its
+  // planned zero must still skip both processor and connected Mask dependency.
+  const auto result = f.evaluate(image(join), &exec);
+  CHECK(result.state == EvaluationState::Available && pixels(result)->px[0] == .5f);
+  CHECK(record->renders == 1 && exec.calls[generator.value] == 0 && result.diagnostics.empty());
+  return true;
+}
+
 static bool testProductionMixLifetime() {
   Fixture f; ToyExecutor exec;
   const NodeId shared{"shared-production-mix"}, a{"a"}, b{"b"}, join{"join"};
@@ -902,6 +930,7 @@ static bool testCancellationAndFailures() {
 bool testGraphEvaluator() {
   const struct { const char *name; bool (*test)(); } cases[] = {
       {"Step 8 production Image Mask times Strength, exact endpoints, HDR/alpha and dimensions", testProductionMaskAndStrength},
+      {"Strength is sampled once for planning, zero dependencies and execution", testPlannedStrength},
       {"Step 8 production mix fan-out executes once and releases intermediates", testProductionMixLifetime},
       {"6C Source sharing, requested endpoints and malformed graph rejection", testSourceAndValidation},
       {"6C linear evaluation, storage independence and reachable-only diagnostics", testLinearStorageAndReachability},

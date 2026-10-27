@@ -58,7 +58,10 @@ struct Ui {
     else if (visible) {
       ImGui::SetNextWindowPos({20, 40}); ImGui::SetNextWindowSize({650, 720});
       ImGui::Begin("History Inspector", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
-      if (opacityOnly) drawNodeOpacity(app, *selectedNode(app));
+      if (opacityOnly) {
+        ImGui::LogToBuffer(0); drawNodeOpacity(app, *selectedNode(app));
+        log = context->LogBuffer.c_str(); ImGui::LogFinish();
+      }
       else drawInspector(app);
       item = context->LastItemData.Rect;
       ImGui::Button("Focus outside parameter");
@@ -107,10 +110,36 @@ bool opacityGesturesAndPersistence() {
     CHECK(app.history.size() == before && !canUndoGrade(app));
   }
   ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
-  const double strength = findNode(app, id)->strength;
+  double strength = findNode(app, id)->strength;
   CHECK(strength > 0 && strength < 1 && app.history.size() == before + 1 && !app.parameterGesture);
   CHECK(app.history.undo(app) && findNode(app, id)->strength == 1);
   CHECK(app.history.redo(app) && findNode(app, id)->strength == strength);
+  // Use the visible pencil, as for ordinary numeric processor parameters.
+  ui.tick(app);
+  const float h = ImGui::GetFrameHeight(), gap = ImGui::GetStyle().ItemInnerSpacing.x;
+  const ImVec2 pencil{ui.item.Min.x - gap - h / 2, ui.item.GetCenter().y};
+  const auto numericBefore = app.history.size();
+  ui.click(app, pencil); ui.tick(app); ui.type(app, "37.5");
+  CHECK(findNode(app, id)->strength == strength && app.history.size() == numericBefore);
+  ui.key(app, ImGuiKey_Enter);
+  CHECK(findNode(app, id)->strength == .375 && app.history.size() == numericBefore + 1 && !app.parameterGesture);
+  CHECK(ui.log.find("37.5%") != std::string::npos && exposure(app, id) == 0);
+  CHECK(app.history.undo(app) && findNode(app, id)->strength == strength);
+  CHECK(app.history.redo(app) && findNode(app, id)->strength == .375);
+  ui.click(app, pencil); ui.tick(app); ui.type(app, "150"); ui.key(app, ImGuiKey_Enter);
+  CHECK(findNode(app, id)->strength == 1);
+  ui.click(app, pencil); ui.tick(app); ui.type(app, "-10"); ui.key(app, ImGuiKey_Enter);
+  CHECK(findNode(app, id)->strength == 0);
+  ui.click(app, pencil); ui.tick(app); ui.type(app, "34.375"); ui.key(app, ImGuiKey_Enter);
+  strength = findNode(app, id)->strength;
+  CHECK(strength == .34375 && ui.log.find("34.375%") != std::string::npos);
+  const auto unchanged = app.history.size();
+  ui.click(app, pencil); ui.tick(app); ui.type(app, "80"); ui.key(app, ImGuiKey_Escape);
+  CHECK(findNode(app, id)->strength == strength && app.history.size() == unchanged);
+  ui.click(app, pencil); ui.tick(app); ui.type(app, "62.5");
+  ui.visible = false; ui.tick(app); // Disappearing numeric controls complete the same gesture.
+  strength = findNode(app, id)->strength;
+  CHECK(strength == .625 && app.history.size() == unchanged + 1 && !app.parameterGesture);
   CHECK(!setNodeStrength(app, id, -1) && !setNodeStrength(app, id, 2));
   CHECK(saveCurrentInputSidecar(app));
   const auto preset = (files.dir / "opacity-preset.rawnode.json").string();

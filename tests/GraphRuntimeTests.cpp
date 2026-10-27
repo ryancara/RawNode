@@ -201,18 +201,34 @@ static bool testStrengthEditOwnership() {
   const NodeId effect{"strength-exclusion"};
   auto *processor = numeric(app, effect, 2); CHECK(processor);
   gate.arm(); processor->renderGate = &gate;
+  struct Probe { Gate &gate; bool waited = false; } probe{gate};
   GateWorkerGuard guard{app, gate};
   app.renderer.start(); app.renderer.requestPreview(); CHECK(gate.wait(1));
-  RenderRuntimeTestAccess::observe(app.renderer, &gate, [](void *context, auto event) noexcept {
-    if (event == RenderRuntimeTestAccess::Event::MutationWaiting) static_cast<Gate *>(context)->unblock();
+  RenderRuntimeTestAccess::observe(app.renderer, &probe, [](void *context, auto event) noexcept {
+    if (event == RenderRuntimeTestAccess::Event::MutationWaiting) {
+      auto &probe = *static_cast<Probe *>(context);
+      probe.waited = true;
+      probe.gate.unblock(); // Independent release if the regression returns.
+    }
   });
-  CHECK(setNodeStrength(app, effect, 0) && idle(app));
+  for (int i = 0; i < 100; ++i) CHECK(setNodeStrength(app, effect, (i % 2) ? .75 : .25));
+  CHECK(setNodeStrength(app, effect, 0));
+  CHECK(!probe.waited && processor->rendering && processor->calls == 1);
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).previewPending);
+  gate.unblock();
+  CHECK(idle(app));
   CHECK(processor->calls == 1 && findNode(app, effect)->strength == 0);
   const auto frame = publication(app);
   CHECK(frame.result.state == EvaluationState::Available && std::get<ImageValue>(frame.result.value) == app.preview);
+  // Exercise actual planner reads concurrently with a stream of live edits.
+  for (int i = 0; i < 1000; ++i) CHECK(setNodeStrength(app, effect, (i % 2) ? .75 : .25));
+  CHECK(setNodeStrength(app, effect, .5) && idle(app));
+  const auto latest = publication(app);
+  CHECK(latest.result.state == EvaluationState::Available && processor->calls > 1 && !probe.waited);
+  CHECK(std::get<ImageValue>(latest.result.value)->px == std::vector<float>({.375f, .375f, .375f, .75f}));
   {
     auto exportLease = app.renderer.acquireExport(); CHECK(exportLease);
-    CHECK(!setNodeStrength(app, effect, .5) && findNode(app, effect)->strength == 0);
+    CHECK(!setNodeStrength(app, effect, .75) && findNode(app, effect)->strength == .5);
   }
   CHECK(idle(app));
   return true;
@@ -1238,7 +1254,7 @@ static bool testOfxParameterScheduling() {
 
 bool testGraphRuntime() {
   const struct { const char *name; bool (*test)(); } cases[] = {
-      {"Step 8 Strength edits reuse execution exclusion and zero skips the next processor render", testStrengthEditOwnership},
+      {"Strength edits supersede active preview without waiting; latest zero bypass publishes and export excludes edits", testStrengthEditOwnership},
       {"Native/CTL/OFX Add Processor shares serial, Source and off-chain insertion policy", testBackendInsertion},
       {"Over-depth worker returns Error, then evaluates a repaired boundary graph", testOverDepthWorker},
       {"Shared parameter set/reset schedule numerical previews and preserve inspection", testParameterPreview},
