@@ -182,13 +182,22 @@ struct App {
   bool displayDirty = false;
 
   std::mutex statusMutex;
-  void setStatus(const std::string &s) {
+  uint64_t statusRevision = 0; // Protected with the message; recovery must not replace a newer message.
+  uint64_t setStatus(const std::string &s, std::optional<uint64_t> expectedRevision = std::nullopt) {
     std::lock_guard<std::mutex> lock(statusMutex);
-    status = s;
+    if (!expectedRevision || *expectedRevision == statusRevision) {
+      status = s;
+      ++statusRevision;
+    }
+    return statusRevision;
   }
   std::string getStatus() {
     std::lock_guard<std::mutex> lock(statusMutex);
     return status;
+  }
+  uint64_t getStatusRevision() {
+    std::lock_guard<std::mutex> lock(statusMutex);
+    return statusRevision;
   }
   // Declared last as a second lifetime safeguard; explicit destruction above
   // remains authoritative if future App members are added after this one.

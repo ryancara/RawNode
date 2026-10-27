@@ -448,7 +448,7 @@ static bool testSingleMutationCompletionDemand(bool changed) {
   {
     DocumentMutation mutation(app);
     const auto editing = renderState(app);
-    if (editing.mutationDepth != 1 || editing.previewPending || editing.quietPending) return false;
+    if (editing.mutationDepth != 1 || editing.previewPending != !changed || editing.quietPending != !changed) return false;
     if (changed) mutation.changed();
   }
   const auto index = static_cast<size_t>(RuntimeEvent::MutationCompleted);
@@ -1641,7 +1641,8 @@ static bool testRestorationUnwind() {
   try {
     applyChain(app, replacement);
     return false;
-  } catch (const std::runtime_error &) {
+  } catch (const std::runtime_error &error) {
+    app.setStatus(error.what()); // A caller's message after unwind must survive recovery.
     if (app.nodes.size() != 2 || app.nodes[1].id != originalId ||
         app.nodes[1].processor.get() != originalProcessor || app.selectedNodeId() != originalId) return false;
   }

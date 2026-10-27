@@ -30,6 +30,7 @@ void RenderRuntime::shutdown() noexcept {
       stopping_ = true;
       ++epoch_;
       previewPending_ = quietPending_ = displayPending_ = false;
+      statusPending_.reset();
       observe(Event::Stopping);
     }
   }
@@ -127,7 +128,13 @@ bool RenderRuntime::beginMutation() {
   std::unique_lock<std::mutex> lock(mutex_);
   ++mutationDepth_;                     // Close the gate before draining.
   if (previewBusy_ || exportBusy_) observe(Event::MutationWaiting);
-  return cancelAndDrain(lock);
+  const auto status = statusPending_ ? statusPending_ : statusBusy_;
+  const bool interrupted = cancelAndDrain(lock);
+  if (status) {
+    queuePreview(true);                 // Retain intent while the mutation gate stays closed.
+    statusPending_ = status;
+  }
+  return interrupted;
 }
 
 void RenderRuntime::completeMutation(bool changed, bool interrupted) noexcept {
@@ -200,6 +207,8 @@ EvaluationResult RenderRuntime::evaluateOwned(const OutputRef &endpoint, const E
 
 void RenderRuntime::queuePreview(bool quiet) {
   if (stopping_) return;
+  if (!quiet) statusPending_ = app_.getStatusRevision();
+  else if (!previewPending_) statusPending_.reset();
   // Both request kinds share one domain; recovery cannot downgrade a normal
   // request already queued by a later edit (including a nested edit).
   quietPending_ = quiet && (!previewPending_ || quietPending_);
@@ -210,11 +219,13 @@ bool RenderRuntime::cancelAndDrain(std::unique_lock<std::mutex> &lock) {
   bool interrupted = previewPending_ || previewBusy_ || displayPending_ || exportBusy_;
   ++epoch_;
   previewPending_ = quietPending_ = displayPending_ = false;
+  statusPending_.reset();
   idleCv_.wait(lock, [&] { return !previewBusy_ && !exportBusy_; });
   // The caller closes dispatch before draining, so export restoration cannot
   // race this barrier into another preview evaluation.
   interrupted = interrupted || previewPending_;
   previewPending_ = quietPending_ = false;
+  statusPending_.reset();
   return interrupted;
 }
 
@@ -225,6 +236,7 @@ void RenderRuntime::runPreview() {
   };
   for (;;) {
     bool recolorOnly, quiet;
+    std::optional<uint64_t> inheritedStatus;
     int gen;
     std::shared_ptr<const OutputRef> endpoint;
     {
@@ -238,6 +250,9 @@ void RenderRuntime::runPreview() {
       if (stopping_) break;
       recolorOnly = !previewPending_ && displayPending_;
       quiet = !recolorOnly && quietPending_;
+      inheritedStatus = recolorOnly ? std::nullopt : statusPending_;
+      statusBusy_ = inheritedStatus;
+      statusPending_.reset();
       previewPending_ = quietPending_ = displayPending_ = false;
       previewBusy_ = true;
       gen = recolorOnly ? epoch_.load() : ++epoch_;
@@ -265,7 +280,11 @@ void RenderRuntime::runPreview() {
       // the initial guidance; the evaluator still validates every actual Source.
       if (!endpoint || !source || source->px.empty() || source->w <= 0 || source->h <= 0 ||
           app_.full.px.empty() || app_.full.w <= 0 || app_.full.h <= 0) continue;
-      if (!quiet) app_.setStatus("Rendering...");
+      if (!quiet) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (gen != epoch_.load() || stopping_) continue;
+        statusBusy_ = app_.setStatus("Rendering...");
+      }
       const RenderCancellation cancellation(epoch_, gen);
       // previewBusy_ owns this document until finishPreview; every Source
       // replacement drains that ownership through DocumentMutation.
@@ -291,7 +310,8 @@ void RenderRuntime::runPreview() {
       const bool reportStatus = !quiet || (result.state != EvaluationState::Available &&
                                            result.state != EvaluationState::Inactive);
       display_detail::publishPreview(app_, std::move(result), gen, endpoint, std::move(presentation));
-      if (reportStatus) app_.setStatus(status);
+      if (reportStatus || inheritedStatus)
+        app_.setStatus(status, reportStatus ? std::nullopt : inheritedStatus);
     } catch (...) {
       reportPreviewException(endpoint, gen);
     }
@@ -343,6 +363,7 @@ void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef
 void RenderRuntime::finishPreview() noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
   previewBusy_ = false;
+  statusBusy_.reset();
   idleCv_.notify_all();
 }
 
