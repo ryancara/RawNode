@@ -17,7 +17,8 @@ has its visual foundation (#79), workspace/Inspector (#80), focused graph
 editing (#82) and PR 2C contextual node placement (#87) merged (D051).
 These fixes do not add architecture migration steps. Step 8 masking is in
 progress; Step 9 (D055) is a separately numbered **code-quality** milestone
-after core non-AI masking, not an additional graph/renderer migration step.
+after the agreed Step 8 exit gate, not an additional graph/renderer
+migration step.
 
 Read this together with:
 
