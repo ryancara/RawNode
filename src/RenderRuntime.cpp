@@ -275,7 +275,9 @@ void RenderRuntime::runPreview() {
         auto presentation = display_detail::preparePresentation(app_, snapshot.result);
         if (beforePublication_) beforePublication_(publicationContext_, snapshot.result.requested);
         std::lock_guard<std::mutex> lock(mutex_);
-        if (gen == epoch_.load() && snapshot.request == pendingEndpoint_ && !stopping_)
+        // Before the first preview request, a retained presentation may still
+        // be refreshed. Once demand exists, its identity must match.
+        if (gen == epoch_.load() && (!pendingEndpoint_ || snapshot.request == pendingEndpoint_) && !stopping_)
           display_detail::commitDisplayRefresh(app_, snapshot, std::move(presentation));
         continue;
       }
