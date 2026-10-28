@@ -85,6 +85,8 @@ bool numerical() {
   CHECK(radial.setParameterValue("feather", .5) && radial.generateMask(32, 32, value, {}).ok);
   // Radius = 8 px. d=5/8 and 7/8 give t=3/4 and 1/4: exact cubic reference values.
   CHECK(at(value, 21, 16) == .84375f && at(value, 23, 16) == .15625f);
+  // Off-axis (3,4) px gives d=sqrt(3*3+4*4)/8=5/8, not Manhattan distance 7/8.
+  CHECK(at(value, 19, 20) == .84375f);
   CHECK(at(value, 22, 16) == .5f && at(value, 20, 16) == 1 && at(value, 24, 16) == 0);
   for (float v : value.px) CHECK(std::isfinite(v) && v >= 0 && v <= 1);
 
@@ -133,6 +135,86 @@ bool numerical() {
   CHECK(radial.setParameterValue("feather", std::numeric_limits<double>::denorm_min()));
   CHECK(radial.generateMask(3, 3, value, {}).ok);
   CHECK(at(value, 1, 1) == 1 && at(value, 0, 1) == 0);
+  return true;
+}
+
+bool zeroRadiusAtPixelCentre() {
+  App app;
+  CHECK(addNativeRadialMaskNode(app)); const auto radial = *app.selectedNodeId();
+  // Pixel (4,4) in an 8x8 raster is exactly (9/16,9/16). Each case has
+  // one zero radius and one positive radius, including at that sampled centre.
+  CHECK(setNodeParameterValue(app, radial, "centreX", .5625));
+  CHECK(setNodeParameterValue(app, radial, "centreY", .5625));
+  for (const auto &zero : {"radiusX", "radiusY"}) {
+    CHECK(resetNodeParameter(app, radial, "radiusX") && resetNodeParameter(app, radial, "radiusY"));
+    CHECK(setNodeParameterValue(app, radial, zero, 0.0));
+    const auto result = evaluate(app, mask(radial), 8, 8);
+    CHECK(result.state == EvaluationState::Available && result.diagnostics.empty());
+    const auto value = coverage(result);
+    CHECK(value && value->w == 8 && value->h == 8 && value->px.size() == 64);
+    CHECK(std::all_of(value->px.begin(), value->px.end(), [](float v) { return std::isfinite(v) && v == 0; }));
+  }
+  return true;
+}
+
+// Hand-authored production schema, independent of the graph writer. Only the
+// processor identity varies for malformed-record cases; ports follow the kind.
+std::string radialIdentityFile(const char *backend = "native",
+                               const char *identifier = NativeRadialMaskProcessor::kIdentifier) {
+  return R"({"format":"rawnode","version":1,"grade":{
+    "color":{"rawWorking":{"colorSpace":"rec2020","gamma":"linear"},
+             "output":{"colorSpace":"rec709","gamma":"srgb"}},
+    "graph":{"primarySource":"camera","documentOutput":{"node":"camera","port":"image"},
+      "nodes":[{"id":"camera","kind":"source"},
+        {"id":"radial","kind":"native-radial-mask","backend":)" + jsonStringValue(backend) +
+      R"(,"identifier":)" + jsonStringValue(identifier) + R"(,"enabled":true,
+         "params":{"centreX":0.5,"centreY":0.5,"radiusX":0.25,"radiusY":0.25,"feather":0.5},
+         "inputs":{"reference":{"node":"camera","port":"image"}}}]}}})";
+}
+
+bool persistedRadialIdentityValidation() {
+  App app; PersistFile valid; std::string error;
+  CHECK(decodeGraphFile(radialIdentityFile(), valid, error) && valid.grade);
+  CHECK(applyGrade(app, *valid.grade));
+  auto *original = findNode(app, NodeId{"radial"})->processor.get();
+  CHECK(original);
+  PersistGrade before; std::string beforeJson;
+  CHECK(captureGrade(app, before) && encodeTransferPayload(before, beforeJson, error));
+  for (bool wrongBackend : {true, false}) {
+    const char *backend = wrongBackend ? "ctl" : "native";
+    const char *identifier = wrongBackend ? NativeRadialMaskProcessor::kIdentifier : "rawnode.native.exposure";
+    PersistFile decoded; decoded.metadataJson = R"({"mark":"pick"})";
+    CHECK(!decodeGraphFile(radialIdentityFile(backend, identifier), decoded, error) && !error.empty());
+    CHECK(!decoded.grade && decoded.metadataJson == R"({"mark":"pick"})");
+    auto invalid = *valid.grade;
+    invalid.graph.nodes[1].backend = backend;
+    invalid.graph.nodes[1].identifier = identifier;
+    CHECK(!applyGrade(app, invalid));
+    PersistGrade after; std::string afterJson;
+    CHECK(captureGrade(app, after) && encodeTransferPayload(after, afterJson, error));
+    CHECK(afterJson == beforeJson && findNode(app, NodeId{"radial"})->processor.get() == original);
+  }
+  return true;
+}
+
+bool processorOperationIdentityPairing() {
+  auto json = radialIdentityFile();
+  const std::string kind = "native-radial-mask", reference = "\"reference\"";
+  json.replace(json.find(kind), kind.size(), "image-processor");
+  json.replace(json.find(reference), reference.size(), "\"image\"");
+  PersistFile file; std::string error; App app;
+  CHECK(decodeGraphFile(json, file, error) && file.grade && applyGrade(app, *file.grade));
+  const NodeId id{"radial"};
+  const auto *node = findNode(app, id);
+  CHECK(node && node->operation == NodeOperation::ImageProcessor && !node->processor && node->isMissingProcessor());
+  CHECK(node->storedBackend == "native" && node->storedIdentifier == NativeRadialMaskProcessor::kIdentifier);
+  CHECK(node->preservedParamsJson == file.grade->graph.nodes[1].paramsJson);
+  CHECK(findOutput(app, image(id)) && findOutput(app, image(id))->type == ValueType::Image);
+  CHECK(!findOutput(app, mask(id)));
+  const auto result = evaluate(app, image(id), 8, 8);
+  CHECK(result.state == EvaluationState::Available && result.valueType == ValueType::Image);
+  CHECK(pixels(result) && pixels(result)->px == raster(8, 8).px && warning(result, "Missing Image processor"));
+  CHECK(evaluate(app, mask(id), 8, 8).state == EvaluationState::Error);
   return true;
 }
 
@@ -357,7 +439,8 @@ bool editingAndPersistence() {
 }
 
 bool testNativeRadialMask() {
-  if (!numerical() || !graphSemantics() || !editingAndPersistence()) return false;
+  if (!numerical() || !zeroRadiusAtPixelCentre() || !persistedRadialIdentityValidation() ||
+      !processorOperationIdentityPairing() || !graphSemantics() || !editingAndPersistence()) return false;
   std::printf("ok  native Radial Mask geometry, typed evaluation, editing, persistence and preview/export\n");
   return true;
 }

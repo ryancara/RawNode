@@ -320,9 +320,7 @@ bool appendPersistedNode(App &app, const PersistNode &persisted, std::optional<N
   auto node = persisted;
   // A single-node attachment has no internal incoming links. In particular,
   // foreign IDs must never resolve to nodes already in this document.
-  node.inputs.clear();
-  for (const auto &port : nodeInterface(node.operation).fixedPorts)
-    if (port.direction == PortDirection::Input) node.inputs.emplace(port.id, std::nullopt);
+  node.inputs = {{ports::image, std::nullopt}, {ports::mask, std::nullopt}};
   return pasteFragment(app, PersistFragment{{std::move(node)}, {}}, std::move(insertAfter));
 }
 
@@ -415,7 +413,6 @@ static bool insertFragment(App &app, const PersistFragment &fragment, std::optio
     if (!encodeTransferPayload(fragment, json, error)) throw std::runtime_error(error);
     if (fragment.nodes.size() == 1 && fragment.nodes.front().operation == NodeOperation::NativeRadialMask) {
       const auto &saved = fragment.nodes.front();
-      if (saved.inputs.at(ports::reference)) throw std::runtime_error("A copied Radial Mask must have a detached Reference");
       DocumentMutation mutation(app);
       auto node = restoredNode(app.nodes, saved, false, true);
       while (node.id.value == saved.id) node.id = makeNodeId(app.nodes);

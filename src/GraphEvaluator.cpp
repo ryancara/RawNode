@@ -260,7 +260,6 @@ class Evaluation {
           if (!radial) return failure(output, "Invalid native Radial Mask processor");
           auto generated = std::make_shared<Mask>();
           const auto result = radial->generateMask(inputs.reference->w, inputs.reference->h, *generated, cancellation_);
-          if (cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
           if (!result.ok) return failure(output, "Radial Mask generation failed: " + result.message);
           return {EvaluationState::Available, MaskValue(std::move(generated))};
         }

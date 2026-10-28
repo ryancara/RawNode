@@ -128,6 +128,14 @@ Node records follow the existing model:
   expansion and selection are transient UI state and are never serialized,
   including in clipboard transfers. Group expansion gets no global preference.
 - Image-processor records have optional `strength`, a finite number in `[0,1]`, defaulting to `1` when absent. The optional `mask` binding uses the existing `inputs` map; older grades without it load disconnected. These additive fields use the same version-1 codec for sidecars, presets, clipboard and history. Older builds reject unsupported fields/ports safely rather than silently dropping the edit.
+- `native-radial-mask` is the stable native Radial operation kind. It requires
+  `backend: "native"`, `identifier: "rawnode.native.radial-mask"`, boolean
+  `enabled`, and the shared `params`/`inputs` objects. Its persisted numeric
+  parameters are `centreX`, `centreY`, `radiusX`, `radiusY` and `feather`;
+  geometry/defaults/limits are specified in [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md).
+  `inputs.reference` is an optional Image binding (null/unconnected uses Source).
+  The operation declares a typed Mask output; no raster is saved. Generic
+  `strength`/Opacity is absent and is not an accepted field on this record.
 - `params` maps parameter IDs to JSON values. Keep opaque unknown values in
   the existing `preservedParamsJson`; do not constrain them to today's scalar
   types. Known stable choices use IDs; backends without choice IDs keep their
