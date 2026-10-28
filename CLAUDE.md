@@ -8,9 +8,9 @@ from ofxrawhost.
 It supports one explicit processing graph containing native processors, OpenFX
 plugins and CTL processors, with a dockable Nodes panel and switchable List/Graph
 presentation. D051's workspace and graph editing stages are merged as PR #80
-and PR #82. PR 2C's approved contextual placement awaits independent review and
-native validation; future plans include DCTL, LUTs, masks, compositing and local
-adjustments.
+and PR #82. PR 2C's contextual placement was merged as PR #87; Step 8
+non-AI masking is in progress, with advanced DCTL, LUT and compositing work
+evaluated by priority.
 
 macOS is currently the primary development platform, but the architecture should
 remain cross-platform for macOS, Windows and Linux.
@@ -180,9 +180,16 @@ and merged in PR #58 (`6294a034d30168063e2aa92e984a51666f56ca22`): the explicit
 graph, sequential DAG evaluator and topology List View are implemented. Preview,
 inspection and export share the evaluator. Step 7 PRs 1–5 are merged (#63, #65,
 #66, #68, #69), replacing the temporary V2 boundary with graph-native persistence.
-Independent whole-Step-6 review is complete; no further broad architecture audit
-is required. The authoritative architecture is in `docs/ARCHITECTURE.md`;
-current milestone and validation status are in `docs/PROJECT_CONTEXT.md`.
+Independent whole-Step-6 review is complete; no further broad architecture
+audit was required **before Step 8**. The owner has separately approved
+Step 9 (D055): a whole-codebase readability, simplicity and architecture
+quality audit **after the agreed non-AI Step 8 exit gate**. Each subsystem
+receives separate Codex and Claude audits, reconciled by the owner; every
+implementation PR still follows focused scope, tests, independent review
+and owner approval for significant architectural/behavioural changes.
+The authoritative architecture is in `docs/ARCHITECTURE.md`; Step 9's
+canonical process is in `ROADMAP.md`; milestone and validation status are
+in `docs/PROJECT_CONTEXT.md`.
 
 The architectural north star is:
 
