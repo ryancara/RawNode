@@ -129,8 +129,9 @@ Document responsibilities are:
 - `SIDECAR.md` — current persistence overview and labelled historical formats.
 - `CLAUDE.md` — Claude Code's persistent review/development instructions.
 - `AGENTS.md` — Codex discovery/pointer to authoritative project documents.
-- `ROADMAP.md` — feature and product roadmap; detailed quality follow-ups live
-  in this document's "Quality and verification roadmap".
+- `ROADMAP.md` — feature/product roadmap and canonical Step 9 audit programme;
+  detailed open quality follow-ups live in this document's "Quality and
+  verification roadmap".
 - Git history and pull requests — implementation history and per-change detail.
 
 Do not turn `PROJECT_CONTEXT.md` into a chronological diary. Do not copy every
@@ -230,9 +231,10 @@ deletion editing (D051), all merged and independently reviewed. Owner-reported
 native macOS validation of PR #82 is in `docs/GRAPH_VIEW_VALIDATION.md`;
 corrupted-sidecar protection and export/edit overlap scenarios, as well
 as Windows GUI checks, remain separately tracked. PR 2C's approved contextual
-node placement is implemented for independent review/native validation (D051);
-the concrete production Mask path follows. PR 2A
-historical validation remains in `docs/WORKSPACE_INSPECTOR_VALIDATION.md`.
+node placement was merged as #87 (D051); any outstanding native validation
+is tracked separately. The first production Mask path and Mask Only preview
+were subsequently merged as #101–#102. PR 2A historical validation remains
+in `docs/WORKSPACE_INSPECTOR_VALIDATION.md`.
 The approved target is
 documented in `docs/ARCHITECTURE.md`; checkpoint
 evidence is in `docs/ARCHITECTURE_AUDIT.md`.
@@ -587,7 +589,7 @@ need.
 
 ## Current development phase
 
-**Step 8 in progress (2026-10-29):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#102 are merged, including native Radial Mask → Exposure and Mask Only preview, with owner-reported independent Claude review and native macOS GUI validation for #102. Photo remains the default; selection can retarget active Mask inspection or restore Photo, and photo/grade replacement resets the transient view. Viewer mode stays outside grades, history and export. Non-AI masking workflows remain the priority; Mask Overlay, on-image handles, other geometry and freeform generators, Combine/modifiers and basic qualifiers/conversion follow as independently scoped features. CTL/future DCTL remain Image-producing. Step 9's approved whole-codebase audit follows agreed core non-AI masking completion; SAM/AI masking is deferred without a scheduled milestone.
+**Step 8 in progress (2026-10-29):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#102 are merged, including native Radial Mask → Exposure and Mask Only preview, with owner-reported independent Claude review and native macOS GUI validation for #102. Photo remains the default; selection can retarget active Mask inspection or restore Photo, and photo/grade replacement resets the transient view. Viewer mode stays outside grades, history and export. Non-AI masking workflows remain the priority; Mask Overlay, on-image handles, other geometry and freeform generators, Combine/modifiers and basic qualifiers/conversion follow as independently scoped features. CTL/future DCTL remain Image-producing. Step 9's approved whole-codebase audit follows the agreed Step 8 exit gate; SAM/AI masking is deferred without a scheduled milestone.
 
 Undo/Redo design and behaviour are approved in D053. Stage 1 was independently
 reviewed, approved and merged in PR #92 at
@@ -755,9 +757,11 @@ In particular:
 - Image/Mask requested-endpoint inspection is part of Step 6;
 - Source/document-output and source-only behaviour are explicit.
 
-Step 8 implements the first concrete production Mask path and settles remaining
-feature details such as exact geometric coordinates, Mask combine equations,
-non-Normal blend maths and detailed Layer/Parallel Mixer arithmetic.
+Step 8 delivers practical non-AI masking workflows under the approved
+Mask contract. Concrete geometry, Mask combination and other feature details
+are settled when each feature is approved and implemented. Non-Normal blend
+and Layer/Parallel Mixer arithmetic remain deferred (see Pending decisions
+in `docs/DECISIONS.md`).
 
 Do not add masked-processor renderer state, a special mask scheduler, mask fields
 that bypass the graph or mandatory opacity inside every processor backend.
