@@ -997,7 +997,8 @@ This Project Context records milestone progress only, not an audit changelog.
 D055 authorises **proposals** for substantial rewrites or architectural
 reassessment. Every Step 9 implementation PR still needs an agreed focused
 scope, independent review, tests and normal safeguards; architecture,
-behavioural and persistence changes require explicit owner approval.
+behavioural or persistence changes of significant scope require explicit
+owner approval.
 Maintain correctness, user-data integrity, colour fidelity and concurrency
 guarantees. The open quality checklist above (including reference-image
 tests, warnings, performance baselines and human-developer onboarding)
