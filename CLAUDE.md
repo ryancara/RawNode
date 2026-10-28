@@ -9,8 +9,8 @@ It supports one explicit processing graph containing native processors, OpenFX
 plugins and CTL processors, with a dockable Nodes panel and switchable List/Graph
 presentation. D051's workspace and graph editing stages are merged as PR #80
 and PR #82. PR 2C's contextual placement was merged as PR #87; Step 8
-non-AI masking is in progress, with advanced DCTL, LUT and compositing work
-evaluated by priority.
+non-AI masking is in progress. Future plans include DCTL, LUTs, compositing
+and local adjustments.
 
 macOS is currently the primary development platform, but the architecture should
 remain cross-platform for macOS, Windows and Linux.
@@ -186,7 +186,8 @@ Step 9 (D055): a whole-codebase readability, simplicity and architecture
 quality audit **after the agreed non-AI Step 8 exit gate**. Each subsystem
 receives separate Codex and Claude audits, reconciled by the owner; every
 implementation PR still follows focused scope, tests, independent review
-and owner approval for significant architectural/behavioural changes.
+and explicit owner approval for significant architectural, behavioural or
+persistence changes.
 The authoritative architecture is in `docs/ARCHITECTURE.md`; Step 9's
 canonical process is in `ROADMAP.md`; milestone and validation status are
 in `docs/PROJECT_CONTEXT.md`.
@@ -336,8 +337,9 @@ Step 7 graph-native persistence and all four targeted post-Step-7 corrections
 are complete (see "Quality and verification roadmap" in
 `docs/PROJECT_CONTEXT.md`). The Graph/List visual foundation (PR #79),
 workspace/Inspector (PR #80) and graph editing (PR #82) are merged.
-PR 2C's approved contextual node placement is implemented for review before Step 8's
-first concrete production Mask path. See `docs/GRAPH_VIEW_VALIDATION.md`
+PR 2C's approved contextual node placement was merged as #87; the first
+production Mask path (#101) and Mask Only preview (#102) are also merged.
+See `docs/GRAPH_VIEW_VALIDATION.md`
 for focused tests, owner-reported macOS results and pending native edge-case
 and Windows GUI checks.
 Both editor views share the authoritative document graph and NodeId selection.
