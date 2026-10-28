@@ -918,14 +918,15 @@ static bool testPresentationGate(bool refresh) {
     std::mutex mutex;
     bool checkNext = false, stale = false;
     int generation = 0;
-    std::vector<unsigned char> bytes;
   } probe{app};
   RenderRuntimeTestAccess::evaluation(app.renderer, &executor, [](void *context) {
     auto &probe = *static_cast<Probe *>(context);
     std::lock_guard<std::mutex> lock(probe.mutex);
     if (!probe.checkNext) return;
     std::lock_guard<std::mutex> displayLock(probe.app.displayMutex);
-    probe.stale = probe.app.processed.generation != probe.generation || probe.app.displayRGBA != probe.bytes;
+    // Changing endpoints clears presentation immediately. Neither obsolete
+    // processor work nor a prepared recolour may refill it before replacement.
+    probe.stale = probe.app.processed.generation != probe.generation || !probe.app.displayRGBA.empty();
     probe.checkNext = false;
   }, &probe);
   RenderRuntimeTestAccess::publication(app.renderer, [](void *context, const OutputRef &) {
@@ -936,7 +937,7 @@ static bool testPresentationGate(bool refresh) {
   const auto calls = processor->calls.load();
   {
     std::lock_guard<std::mutex> lock(app.displayMutex);
-    probe.generation = app.processed.generation; probe.bytes = app.displayRGBA;
+    probe.generation = app.processed.generation;
   }
   { std::lock_guard<std::mutex> lock(app.colorMutex); app.outputEncoding.gamma = TransferFunction::Linear; }
   probe.gate.arm();
