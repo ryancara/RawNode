@@ -587,7 +587,7 @@ need.
 
 ## Current development phase
 
-**Step 8 in progress (2026-10-28):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#101 are merged, including native Radial Mask → Exposure; the owner confirmed all six macOS checks for #99/#100. Mask Only preview now exposes the existing typed Mask inspection/presentation path with Photo as the default. Selection changes retarget active Mask inspection or return to Photo; photo/grade replacement resets it. Viewer mode stays outside grades, history and export. Independent Claude review and native macOS validation remain pending for this slice. CTL/future DCTL remain Image-producing; a visible persisted Image → Mask converter, native on-image handles and Mask Overlay remain separate follow-ups. Independent Claude review precedes merge.
+**Step 8 in progress (2026-10-29):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#102 are merged, including native Radial Mask → Exposure and Mask Only preview, with independent review and native macOS validation for #102. Photo remains the default; selection can retarget active Mask inspection or restore Photo, and photo/grade replacement resets the transient view. Viewer mode stays outside grades, history and export. Non-AI masking workflows remain the priority; Mask Overlay, on-image handles, other geometry and freeform generators, Combine/modifiers and basic qualifiers/conversion follow as independently scoped features. CTL/future DCTL remain Image-producing. Step 9's approved whole-codebase audit follows agreed core non-AI masking completion; SAM/AI masking is deferred without a scheduled milestone.
 
 Undo/Redo design and behaviour are approved in D053. Stage 1 was independently
 reviewed, approved and merged in PR #92 at
@@ -703,7 +703,10 @@ The remaining sequence is:
     Switchable Graph/List editor                   [#79/#80/#82 merged; PR 2C in review, D047/D051]
           |
           v
-    Step 8: Concrete first mask path + remaining implementation details
+    Step 8: Practical non-AI masking workflows        [in progress]
+          |
+          v
+    Step 9: Whole-codebase readability/simplicity/architecture audit [planned]
 
 The completed gates are stabilisation/review work, not extra numbered
 architecture steps. The checkpoint validates the direction for the next stage,
@@ -968,9 +971,42 @@ unrelated features; tooling can proceed alongside the next milestone where pract
 - [ ] Improve human-developer onboarding and the inherited README when useful,
       using the authoritative documentation above rather than duplicating it.
 
-**After Step 8's first concrete production Mask path:** perform another focused
-readability/architecture checkpoint for the affected graph, processor and UI
-boundaries. Do not default to a whole-repository pass after every feature.
+**Step 9 — comprehensive readability, simplicity and architecture audit
+(owner-approved; D055):** Begin after the agreed core *non-AI* Step 8 masking
+workflow is complete and validated, not immediately after the first Mask node.
+Before Step 8 closes, confirm its exit scope and acceptance evidence. SAM and
+other AI masks are deferred and are not prerequisites. Step 9 is deliberately
+a full-codebase review, unlike the normal proportionate per-PR readability
+checks that continue during Step 8.
+
+Step 9 runs as a staged programme, with no arbitrary PR count or time limit:
+
+1. Establish test, colour/data-integrity, cross-platform, behaviour and useful
+   performance/memory baselines, including known coverage gaps.
+2. Audit each subsystem individually: decode, colour management, processors
+   and backends, graph/Mask evaluation, runtime/concurrency/display, document
+   edits/history, sidecars/persistence, export, UI and tests. Assess source
+   organisation, names, responsibilities, ownership, failure paths, duplication
+   and unnecessary conceptual complexity.
+3. Independently challenge existing architectural decisions with Codex and
+   Claude, using credible alternatives and actual ART/vkdt references where
+   they materially help. Prefer evidence over familiarity with current code.
+4. Address material findings through small, reviewable and dependency-ordered
+   implementation PRs. Full rewrites, subsystem replacement and architectural
+   changes are allowed when justified. Preserve or deliberately migrate
+   behaviour, existing grades/sidecars and correctness contracts; test any
+   intentional changes.
+5. Perform a final whole-application review, validate integrations/platform
+   behaviour and human-developer onboarding, and document each material
+   finding's resolution or explicitly justified deferral.
+
+The goal is code an experienced C++ developer can understand and maintain
+without Codex/Claude explanations, with the least justified *conceptual*
+complexity rather than the fewest lines. Do not rewrite for novelty or preserve
+a poor design solely to protect past investment. Step 9 completion requires
+evidence and independently reviewed resolutions, not simply an audit report.
+See `ROADMAP.md`, D055 and `docs/CODE_STYLE.md`; ordinary PR scope discipline
+and readability review remain in force outside explicitly approved Step 9 work.
 
 **Before a stable public release:** review cross-platform builds, input/file
 errors, recovery, dependency/licensing obligations, performance and remaining
