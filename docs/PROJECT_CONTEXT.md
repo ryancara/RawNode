@@ -587,7 +587,7 @@ need.
 
 ## Current development phase
 
-**Step 8 in progress (2026-10-29):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#102 are merged, including native Radial Mask → Exposure and Mask Only preview, with independent review and native macOS validation for #102. Photo remains the default; selection can retarget active Mask inspection or restore Photo, and photo/grade replacement resets the transient view. Viewer mode stays outside grades, history and export. Non-AI masking workflows remain the priority; Mask Overlay, on-image handles, other geometry and freeform generators, Combine/modifiers and basic qualifiers/conversion follow as independently scoped features. CTL/future DCTL remain Image-producing. Step 9's approved whole-codebase audit follows agreed core non-AI masking completion; SAM/AI masking is deferred without a scheduled milestone.
+**Step 8 in progress (2026-10-29):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#102 are merged, including native Radial Mask → Exposure and Mask Only preview, with owner-reported independent Claude review and native macOS GUI validation for #102. Photo remains the default; selection can retarget active Mask inspection or restore Photo, and photo/grade replacement resets the transient view. Viewer mode stays outside grades, history and export. Non-AI masking workflows remain the priority; Mask Overlay, on-image handles, other geometry and freeform generators, Combine/modifiers and basic qualifiers/conversion follow as independently scoped features. CTL/future DCTL remain Image-producing. Step 9's approved whole-codebase audit follows agreed core non-AI masking completion; SAM/AI masking is deferred without a scheduled milestone.
 
 Undo/Redo design and behaviour are approved in D053. Stage 1 was independently
 reviewed, approved and merged in PR #92 at
@@ -700,7 +700,7 @@ The remaining sequence is:
     Targeted graph safety + PNG colour corrections   [complete; independently reviewed]
           |
           v
-    Switchable Graph/List editor                   [#79/#80/#82 merged; PR 2C in review, D047/D051]
+    Switchable Graph/List editor                   [#79/#80/#82/#87 merged, D047/D051]
           |
           v
     Step 8: Practical non-AI masking workflows        [in progress]
@@ -709,8 +709,10 @@ The remaining sequence is:
     Step 9: Whole-codebase readability/simplicity/architecture audit [planned]
 
 The completed gates are stabilisation/review work, not extra numbered
-architecture steps. The checkpoint validates the direction for the next stage,
-not a permanent or finished architecture.
+architecture migration steps. Step 9 is an independently numbered **quality
+milestone**, not a change to the original graph/render migration sequence.
+The earlier checkpoint validated the direction at that time, not a permanent
+or finished architecture; D055 deliberately authorises a later full review.
 
 The architectural goal is to make future changes cleaner across the application:
 new features should plug into the graph, render runtime, display path, export
@@ -772,12 +774,12 @@ Next architecture/product work:
   review. Native macOS Graph View testing was reported successful; the
   corrupted-sidecar protection, export/edit overlap and Windows GUI checks
   remain separately tracked.
-- PR 2C implements approved contextual placement for independent review/native
-  validation, then continue toward Step 8's first concrete Mask path. New
-  processors appear right of their upstream Image predecessor with an 80-unit
-  gap in both views, even before Graph View has opened. Preserve existing
-  positions through graph edits; permit overlap without collision avoidance.
-  Source stays draggable; virtual Output stays automatic and non-draggable.
+- PR 2C's approved contextual placement was merged as #87 before Step 8.
+  New processors appear right of their upstream Image predecessor with an
+  80-unit gap in both views, even before Graph View has opened. Preserve
+  existing positions through graph edits; permit overlap without collision
+  avoidance. Source stays draggable; virtual Output stays automatic and
+  non-draggable. Any outstanding native validation remains tracked separately.
 - Add Processor now follows the shared selection in List and Graph View:
   Source/main-chain processors insert before their next main-chain consumer;
   off-chain Image processors start another downstream branch without changing
@@ -839,13 +841,13 @@ parameter-edit preview scheduling, graph traversal depth and PNG colour
 metadata/ICC placement are corrected and independently reviewed. PNG regression
 coverage independently checks chunks, CRCs, profiles and pixels.
 
-**In progress:** the switchable Graph/List editor (D047) has its visual
-foundation (#79), workspace/Inspector (#80) and Graph wiring/deletion (#82)
-merged and independently reviewed. PR 2C's approved contextual node placement is
-implemented for independent review/native validation. **Then Step 8** adds the
-first concrete Mask path.
-These completed corrections are a preparatory gate, not additional
-architecture steps or a reason for a new whole-system audit.
+**Completed Graph/List UI delivery (D047):** visual foundation (#79),
+workspace/Inspector (#80), wiring/deletion (#82) and contextual placement
+(#87, PR 2C) are merged; outstanding native/platform checks remain tracked
+separately. **Step 8 masking is in progress** (first production Mask path and
+Mask Only preview merged as #101–#102). Those earlier corrections were a
+preparatory gate, not extra architecture migration steps. The newly approved
+Step 9 whole-codebase quality audit (D055) is a distinct future milestone.
 
 **Tracked separately; not prerequisites for Graph View:** TIFF
 photometric/extra-channel handling, EXR chromaticities, and the existing JPEG
@@ -971,42 +973,32 @@ unrelated features; tooling can proceed alongside the next milestone where pract
 - [ ] Improve human-developer onboarding and the inherited README when useful,
       using the authoritative documentation above rather than duplicating it.
 
-**Step 9 — comprehensive readability, simplicity and architecture audit
-(owner-approved; D055):** Begin after the agreed core *non-AI* Step 8 masking
-workflow is complete and validated, not immediately after the first Mask node.
-Before Step 8 closes, confirm its exit scope and acceptance evidence. SAM and
-other AI masks are deferred and are not prerequisites. Step 9 is deliberately
-a full-codebase review, unlike the normal proportionate per-PR readability
-checks that continue during Step 8.
+**Step 9 — comprehensive whole-codebase quality audit (owner-approved; D055):**
+Begin when the agreed **Step 8 exit gate** for practical non-AI masking is met;
+record and approve that gate in `docs/STEP8_MASKING_CONTRACT.md` while planning
+the remaining work. SAM/AI masks are not prerequisites. Step 9 does **not**
+replace ongoing per-PR readability and correctness reviews during Step 8.
+The original narrower post-first-Mask checkpoint is superseded by Step 9;
+avoid a premature redesign, but review architectural risk in each masking PR
+so high-cost defects are not deferred unnoticed.
 
-Step 9 runs as a staged programme, with no arbitrary PR count or time limit:
+**Canonical phases, subsystem coverage and completion criteria are in the
+Step 9 section of `ROADMAP.md`.** Each subsystem receives separate Codex
+and Claude audits before findings are compared; the owner reconciles the
+recommendations. At Step 9 kickoff create `docs/STEP9_AUDIT.md` to record
+evidence, severity, viable alternatives, owner decisions and verified
+dispositions, following `docs/ARCHITECTURE_AUDIT.md` as a precedent.
+This Project Context records milestone progress only, not an audit changelog.
 
-1. Establish test, colour/data-integrity, cross-platform, behaviour and useful
-   performance/memory baselines, including known coverage gaps.
-2. Audit each subsystem individually: decode, colour management, processors
-   and backends, graph/Mask evaluation, runtime/concurrency/display, document
-   edits/history, sidecars/persistence, export, UI and tests. Assess source
-   organisation, names, responsibilities, ownership, failure paths, duplication
-   and unnecessary conceptual complexity.
-3. Independently challenge existing architectural decisions with Codex and
-   Claude, using credible alternatives and actual ART/vkdt references where
-   they materially help. Prefer evidence over familiarity with current code.
-4. Address material findings through small, reviewable and dependency-ordered
-   implementation PRs. Full rewrites, subsystem replacement and architectural
-   changes are allowed when justified. Preserve or deliberately migrate
-   behaviour, existing grades/sidecars and correctness contracts; test any
-   intentional changes.
-5. Perform a final whole-application review, validate integrations/platform
-   behaviour and human-developer onboarding, and document each material
-   finding's resolution or explicitly justified deferral.
-
-The goal is code an experienced C++ developer can understand and maintain
-without Codex/Claude explanations, with the least justified *conceptual*
-complexity rather than the fewest lines. Do not rewrite for novelty or preserve
-a poor design solely to protect past investment. Step 9 completion requires
-evidence and independently reviewed resolutions, not simply an audit report.
-See `ROADMAP.md`, D055 and `docs/CODE_STYLE.md`; ordinary PR scope discipline
-and readability review remain in force outside explicitly approved Step 9 work.
+D055 authorises **proposals** for substantial rewrites or architectural
+reassessment. Every Step 9 implementation PR still needs an agreed focused
+scope, independent review, tests and normal safeguards; architecture,
+behavioural and persistence changes require explicit owner approval.
+Maintain correctness, user-data integrity, colour fidelity and concurrency
+guarantees. The open quality checklist above (including reference-image
+tests, warnings, performance baselines and human-developer onboarding)
+informs Step 9 baseline and closure; it is not automatically completed
+or erased when the audit starts.
 
 **Before a stable public release:** review cross-platform builds, input/file
 errors, recovery, dependency/licensing obligations, performance and remaining
