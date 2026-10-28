@@ -30,7 +30,8 @@ The current codebase is a clean base for feature development. New work should re
 
 The original eight-step architecture migration is in progress at Step 8; Steps
 1–7 are complete. Step 9 (D055) is a separately numbered code-quality milestone,
-not a new renderer/graph architecture migration step. Step 4 (renderer ownership encapsulation) landed in PR #45 after
+not a new renderer/graph architecture migration step. Step 4 (renderer
+ownership encapsulation) landed in PR #45 after
 independent review, sanitizer/stress validation and routine macOS validation.
 
 The full post-Step-4 stabilisation gate is complete:
