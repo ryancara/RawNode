@@ -499,7 +499,7 @@ static bool testMaskOnlyNativePreview() {
   CHECK(graph::connect(app, image(exposure), input(radial, ports::reference)).ok() && idle(app));
   CHECK(publication(app).result.requested == mask(radial) && publication(app).result.state == EvaluationState::Available);
   CHECK(add(app, NodeId{"missing-reference"}, NodeOperation::TestUnavailableImage));
-  CHECK(graph::connect(app, image(NodeId{"missing-reference"}), input(radial, ports::reference)).ok() && idle(app));
+  CHECK(graph::reconnect(app, image(NodeId{"missing-reference"}), input(radial, ports::reference)).ok() && idle(app));
   CHECK(publication(app).result.state == EvaluationState::Unavailable && diagnostic(publication(app).result, "unavailable"));
   { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA.empty()); }
   CHECK(graph::disconnect(app, input(radial, ports::reference)).ok() && idle(app));
