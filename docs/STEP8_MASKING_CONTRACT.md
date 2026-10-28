@@ -1,6 +1,6 @@
 # Step 8 Masking Contract
 
-**Status:** Owner-approved Step 8 product/architecture direction, 2026-10-26. **PRs #97–#101 are merged: Inactive Mask bypass, production Image Effect Mask/Opacity, responsive Opacity gestures, preview status corrections and native Radial Mask → Exposure. Mask Only preview is implemented for independent review and native macOS validation.**
+**Status:** Owner-approved Step 8 product/architecture direction, 2026-10-26. **PRs #97–#102 are merged:** Inactive Mask bypass, production Image Effect Mask/Opacity, responsive Opacity gestures, preview status corrections, native Radial Mask → Exposure and Mask Only preview. Independent Claude review and native macOS GUI validation for #102 were reported by the owner.
 **Authority:** D054 in `docs/DECISIONS.md`. This narrows and explicitly supersedes the Step 5 numerical Mask-generator bypass rule in D042; other Step 5 graph and availability guarantees remain.
 **Source of discussion:** The historical, non-authoritative `docs/STEP8_MASKING_DISCUSSION_DRAFT.md` on branch `docs/step8-masking-design-notes-20261025`, followed by independent Claude/Codex reviews and owner reconciliation.
 
@@ -117,12 +117,25 @@ All generated samples are finite scalar coverage in `[0,1]`.
 1. **Merged #97: evaluator-only Inactive Mask bypass contract.** Extend existing evaluation outcome; update dependency planning and generator bypass test path; optional coverage, unary propagation and inspection/status handling. Reuse test-only Mask operations before producing UI-facing generators. No new persistence format, new renderer or production mask processor in this PR. Confirm existing Image-node bypass unchanged.
 2. **Merged #98–#100: ordinary Image-node optional Effect Mask + Opacity, Normal mixing and interaction/status corrections.** Central evaluator wrapper; exact 0%/100% endpoints; deterministic Image dimensions/alpha/HDR behaviour; save, clipboard, history and preview/export equivalence. The same Opacity control applies to native, CTL and OFX Image processors. Existing raster-dimension checks govern mixing; separate OFX adapter follow-ups do not block Opacity exposure.
 3. **Merged #101: first native Radial Mask → Exposure.** The geometry above is the persisted convention. Add from the existing Native picker, wire Mask to Exposure, edit Centre X/Y, horizontal/vertical radius and Feather in the Inspector, and use existing enable/bypass. Shared sidecar/preset/full-grade transfers and history preserve parameters and topology. Copy Node/Paste supports a detached single Radial Mask, omitting external Reference as usual. Branched grade Append and arbitrary fragment attachment retain existing limitations; Replace/full-grade copy preserve the complete graph.
-4. **Current slice: Mask Only preview.** Explicit Photo/Mask Only control beside Preview Resolution; eligibility follows declared typed Mask outputs. Reuse runtime inspection and scalar grayscale presentation, clear stale/inactive coverage, and return to Photo on ineligible selection or document replacement. Viewer mode is transient and does not change grades, history or export. Overlay and on-image handles remain separate follow-ups.
+4. **Merged #102: Mask Only preview.** Explicit Photo/Mask Only control beside Preview Resolution; eligibility follows declared typed Mask outputs. Reuse runtime inspection and scalar grayscale presentation, clear stale/inactive coverage, and return to Photo on ineligible selection or document replacement. Viewer mode is transient and does not change grades, history or export. Overlay and on-image handles remain separate follow-ups.
 5. **Follow-up: binary Combine, then Invert/Blur**, after fractional maths and unavailable-input details are reviewed. Later Linear, Qualifier, Image-to-Mask, DCTL and advanced selection tools.
 
 PR 1 acceptance should cover: disabled generator -> optional Image Effect Mask (global, no inactivity warning); disabled generator -> test-only unary Mask modifier -> Effect Mask (still Inactive); Inactive versus Available black/white and versus Unavailable (warning); bypassed generator ignores missing/unavailable Reference/analysis data and bypassed missing backend gives no evaluation warning, while invalid stored cycles still fail structural validation; shared fan-out; **test-only multiple-output nodes where Image outputs pass through and Mask outputs without pass-through become Inactive**; execution rejects producer/executor-supplied Inactive; Image results can never be Inactive; inactive inspection clears stale content and does not report failure; **quiet inactive preview restoration preserves Export complete / other meaningful status**; full self-tests and appropriate sanitizers. Tests must catch accidental restoration of the former white-bypass behaviour.
 
 The enabled Combine A/B participation matrix, Unavailable precedence and **bypassed Combine -> A** belong to the **later Combine implementation PR**, not PR 1. PR 1 may use existing test-only Mask operations but must not add a production Combine fixture solely to expand its scope.
+
+## Step 8 exit gate (to be agreed)
+
+Before scheduling the bulk of remaining Step 8 slices, the owner will agree
+and record the exact **Step 8 exit gate** here: required practical non-AI Mask
+workflows, acceptable limitations and test/native-validation evidence. The
+candidate follow-ups in `ROADMAP.md` (Overlay, on-image handles, geometric and
+freeform generators, Combine/modifiers, conversion/qualifiers) are priorities
+for discussion, **not** an automatically mandatory checklist. SAM/AI masking
+does not gate Step 8 or the subsequent D055 whole-codebase quality audit.
+Continue proportionate correctness, architecture and human-readability review
+with each Mask PR; investigate material architectural risks early rather than
+allowing high-cost problems to accumulate until Step 9.
 
 ## Deferred, not implicit approvals
 
