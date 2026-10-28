@@ -57,7 +57,7 @@ void finishUiEdits(App &app) {
 
 bool canCopySelectedNode(const App &app) {
   const Node *node = selectedNode(app);
-  return !app.isPhotoProtected() && node && node->operation == NodeOperation::ImageProcessor;
+  return !app.isPhotoProtected() && node && isProcessorOperation(node->operation);
 }
 
 bool copySelectedNode(App &app) {

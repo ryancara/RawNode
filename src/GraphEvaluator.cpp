@@ -1,6 +1,7 @@
 #include "GraphEvaluator.h"
 
 #include "GraphValidation.h"
+#include "processors/NativeRadialMaskProcessor.h"
 
 #include <algorithm>
 #include <cmath>
@@ -116,6 +117,7 @@ class Evaluation {
       case NodeOperation::TestMaskProcessor:
         connected(ports::mask);
         break;
+      case NodeOperation::NativeRadialMask:
       case NodeOperation::TestReferenceMask: {
         const auto *reference = findInput(graph_, {node.id, std::nullopt, ports::reference});
         if (*reference) dependency(**reference);
@@ -242,12 +244,25 @@ class Evaluation {
         inputs.mask = std::get<MaskValue>(upstream.value);
         break;
       }
+      case NodeOperation::NativeRadialMask:
       case NodeOperation::TestReferenceMask: {
         auto frame = input(output, ports::reference);
         if (stopped(frame)) return frame; // Connected unavailable Reference never defaults to Source.
         if (std::holds_alternative<std::monostate>(frame.value)) frame = dependency({graph_.primarySource, ports::image});
         if (stopped(frame)) return frame;
         inputs.reference = std::get<ImageValue>(frame.value);
+        if (node.operation == NodeOperation::NativeRadialMask) {
+          if (!node.processor) {
+            diagnose(DiagnosticLevel::Warning, output, "Native Radial Mask processor unavailable");
+            return {EvaluationState::Unavailable, {}};
+          }
+          const auto *radial = dynamic_cast<const NativeRadialMaskProcessor *>(node.processor.get());
+          if (!radial) return failure(output, "Invalid native Radial Mask processor");
+          auto generated = std::make_shared<Mask>();
+          const auto result = radial->generateMask(inputs.reference->w, inputs.reference->h, *generated, cancellation_);
+          if (!result.ok) return failure(output, "Radial Mask generation failed: " + result.message);
+          return {EvaluationState::Available, MaskValue(std::move(generated))};
+        }
         break;
       }
       case NodeOperation::TestSlotted: {

@@ -458,7 +458,7 @@ static bool testMalformedStateAndOwnership() {
   CHECK(rejectedUnchanged(f, [&] { return graph::addNode(f.document(), std::move(native)); }));
   CHECK(native.processor);
   f.node(s)->processor = std::make_unique<NativeExposureProcessor>();
-  CHECK(graphStructureError(f.view()) == "Graph-native node has an Image processor");
+  CHECK(graphStructureError(f.view()) == "Graph operation cannot own a processor");
   f.node(s)->processor.reset();
   Slot illegal{SlotId{1}, {}, {}};
   f.node(a)->slots.push_back(illegal);

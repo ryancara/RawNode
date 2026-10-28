@@ -8,6 +8,7 @@
 #include "processors/OfxProcessor.h"
 #include "processors/NativeExposureProcessor.h"
 #include "processors/NativeCstProcessor.h"
+#include "processors/NativeRadialMaskProcessor.h"
 #include "processors/CtlProcessor.h"
 #include "ui/GraphLayout.h"
 
@@ -39,9 +40,12 @@ struct ProcessorInsertion {
 };
 static std::optional<ProcessorInsertion> processorInsertion(App &app);
 static bool insertProcessorNode(App &app, std::unique_ptr<Processor> processor, const ProcessorInsertion &insertion);
+static bool addDetachedNodeWithinMutation(App &app, Node &&node,
+                                         std::optional<PersistPosition> position = std::nullopt);
 static bool addOfxWithinMutation(App &app, int pluginIndex, const ProcessorInsertion &insertion);
 static bool addCtlWithinMutation(App &app, const std::string &path, const ProcessorInsertion &insertion);
-static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor);
+static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor,
+                              NodeOperation operation = NodeOperation::ImageProcessor);
 static NodeId makeNodeId(const std::vector<Node> &nodes);
 
 static PersistNode capturePersistedNode(const Node &node, bool graphNative = false);
@@ -107,7 +111,7 @@ void selectOutput(App &app) {
 
 std::string nodeDisplayName(const Node &node) {
   if (node.operation == NodeOperation::Source) return "Source";
-  if (node.operation != NodeOperation::ImageProcessor) return "Test graph operation";
+  if (!isProcessorOperation(node.operation)) return "Test graph operation";
   if (node.processor) return node.processor->displayName();
   if (!node.storedLabel.empty()) return node.storedLabel + " (Missing)";
   if (!node.storedIdentifier.empty()) return node.storedIdentifier + " (Missing)";
@@ -213,6 +217,16 @@ bool addNativeCstNode(App &app) {
     }
   }
   return added;
+}
+
+bool addNativeRadialMaskNode(App &app) {
+  if (!requireEditableGraph(app)) return false;
+  DocumentMutation mutation(app);
+  auto node = makeProcessorNode(app.nodes, std::make_unique<NativeRadialMaskProcessor>(), NodeOperation::NativeRadialMask);
+  if (!addDetachedNodeWithinMutation(app, std::move(node))) return false;
+  mutation.changed();
+  app.history.recordCompletedEdit(app, &mutation);
+  return true;
 }
 
 bool addCtlNode(App &app, const std::string &path) {
@@ -397,6 +411,18 @@ static bool insertFragment(App &app, const PersistFragment &fragment, std::optio
   try {
     std::string json, error;
     if (!encodeTransferPayload(fragment, json, error)) throw std::runtime_error(error);
+    if (fragment.nodes.size() == 1 && fragment.nodes.front().operation == NodeOperation::NativeRadialMask) {
+      const auto &saved = fragment.nodes.front();
+      DocumentMutation mutation(app);
+      auto node = restoredNode(app.nodes, saved, false, true);
+      while (node.id.value == saved.id) node.id = makeNodeId(app.nodes);
+      const auto position = fragment.positions.find(saved.id);
+      if (!addDetachedNodeWithinMutation(app, std::move(node), position == fragment.positions.end()
+              ? std::nullopt : std::optional<PersistPosition>(position->second))) return false;
+      mutation.changed();
+      app.history.recordCompletedEdit(app, &mutation);
+      return true;
+    }
     const auto order = linearFragmentOrder(fragment);
     std::vector<NodeId> destinationSpine;
     error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, destinationSpine);
@@ -527,7 +553,7 @@ RestoredGraph restoreGraph(const PersistGraph &graph, const std::map<std::string
   if (!error.empty()) throw std::runtime_error(error);
   if (workingProcessors) {
     size_t processors = 0;
-    for (const auto &record : graph.nodes) if (record.operation == NodeOperation::ImageProcessor) {
+    for (const auto &record : graph.nodes) if (isProcessorOperation(record.operation)) {
       ++processors;
       if (workingProcessors->find(record.id) == workingProcessors->end())
         throw std::runtime_error("Missing history processor availability: " + record.id);
@@ -541,11 +567,11 @@ RestoredGraph restoreGraph(const PersistGraph &graph, const std::map<std::string
   // First restore identities and backend state. Bindings may refer forwards in
   // storage; no insertion/splice command may infer topology from this order.
   for (const auto &record : graph.nodes) {
-    const bool keepMissing = workingProcessors && record.operation == NodeOperation::ImageProcessor &&
+    const bool keepMissing = workingProcessors && isProcessorOperation(record.operation) &&
                              !workingProcessors->at(record.id);
-    Node node = record.operation == NodeOperation::ImageProcessor
+    Node node = isProcessorOperation(record.operation)
         ? restoredNode(restored.nodes, record, /*preserveId=*/true, /*graphNative=*/true, keepMissing) : Node(record.operation);
-    if (workingProcessors && record.operation == NodeOperation::ImageProcessor && !keepMissing &&
+    if (workingProcessors && isProcessorOperation(record.operation) && !keepMissing &&
         (!node.processor || processorBackendName(node.processor->backend()) != record.backend ||
          node.processor->identifier() != record.identifier))
       throw std::runtime_error("Could not reconstruct working processor: " + record.id + " (" +
@@ -660,8 +686,8 @@ static void clearNodesWithinMutation(App &app) {
   app.renderer.resetInspection();
 }
 
-static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor) {
-  Node node;
+static Node makeProcessorNode(const std::vector<Node> &nodes, std::unique_ptr<Processor> processor, NodeOperation operation) {
+  Node node(operation);
   node.id = makeNodeId(nodes);
   node.processor = std::move(processor);
   if (node.processor) {
@@ -730,6 +756,20 @@ static bool insertProcessorNode(App &app, std::unique_ptr<Processor> processor, 
   return true;
 }
 
+// Creation and single-generator Paste share one detached graph edit. The caller
+// owns mutation/history, and the document Image output is never spliced.
+static bool addDetachedNodeWithinMutation(App &app, Node &&node, std::optional<PersistPosition> position) {
+  std::optional<NodeId> selection = node.id;
+  auto positions = ui::positionsWithNewProcessor({app.nodes, app.primarySource, app.documentOutput},
+      app.nodePositions, node.id, app.selectedNodeId().value_or(app.primarySource));
+  if (position) positions.at(node.id.value) = *position;
+  const auto result = graph::addNode({app.nodes, app.primarySource, app.documentOutput}, std::move(node));
+  if (!result.ok()) { app.setStatus(result.error); return false; }
+  app.nodePositions.swap(positions);
+  selectNode(app, std::move(selection));
+  return true;
+}
+
 static bool addOfxWithinMutation(App &app, int pluginIndex, const ProcessorInsertion &insertion) {
   auto processor = OfxProcessor::create(pluginIndex);
   if (!processor) {
@@ -760,7 +800,7 @@ static PersistNode capturePersistedNode(const Node &node, bool graphNative) {
     persisted.inputs = node.fixedInputs;
     persisted.slots = node.slots;
     persisted.nextSlotId = node.nextSlotIdForPersistence();
-    if (node.operation != NodeOperation::ImageProcessor) return persisted;
+    if (!isProcessorOperation(node.operation)) return persisted;
   }
   persisted.paramsJson = node.preservedParamsJson;
 
@@ -863,12 +903,15 @@ static Node restoredNode(const std::vector<Node> &nodes, const PersistNode &pers
     if (processor && graphNative) validateRestoredChoices(*processor, persisted);
   } else if (backend == "native" && persisted.identifier == NativeExposureProcessor::kIdentifier) {
     processor = std::make_unique<NativeExposureProcessor>();
+  } else if (backend == "native" && persisted.identifier == NativeRadialMaskProcessor::kIdentifier &&
+             persisted.operation == NodeOperation::NativeRadialMask) {
+    processor = std::make_unique<NativeRadialMaskProcessor>();
   } else if (backend == "native" && persisted.identifier == NativeCstProcessor::kIdentifier) {
     processor = std::make_unique<NativeCstProcessor>();
   } else if (backend == "ctl") {
     processor = CtlProcessor::create(persisted.identifier);
   }
-  Node node = makeProcessorNode(nodes, std::move(processor));
+  Node node = makeProcessorNode(nodes, std::move(processor), persisted.operation);
   if (graphNative && preserveId) node.id = NodeId{persisted.id};
   else if (preserveId) node.id = restoredNodeId(nodes, persisted.id);
   node.enabled = persisted.enabled;

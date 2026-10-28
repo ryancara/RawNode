@@ -1,4 +1,5 @@
 #include "SelfTest.h"
+#include "NativeRadialMaskTests.h"
 #include "ExportSafetyTests.h"
 #include "PngColorTests.h"
 #include "OfxThreadPoolTests.h"
@@ -2095,6 +2096,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 static int runSelfTestsImpl() {
+  if (!testNativeRadialMask()) return fail("Native Radial Mask");
   if (!testPngColor()) return fail("PNG colour correctness");
   if (!testExportSafety()) return fail("export safety");
   if (!testPreferences()) return fail("Step 7 preferences");

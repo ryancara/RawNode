@@ -58,6 +58,16 @@ void drawProcessorPicker(App &app) {
       ++shown;
     }
 
+    if (q.empty() || icontains("Radial Mask", q) || icontains("Native", q)) {
+      nativeHeader();
+      if (ImGui::Selectable("Radial Mask")) {
+        addNativeRadialMaskNode(app);
+        app.pluginFilter[0] = '\0';
+        ImGui::CloseCurrentPopup();
+      }
+      ++shown;
+    }
+
     if (q.empty() || icontains("CTL", q) || icontains("script", q)) {
       ImGui::SeparatorText("CTL");
       if (ImGui::Selectable("Load CTL script…")) {

@@ -81,6 +81,7 @@ struct NodeInterface {
 enum class NodeOperation {
   Source,
   ImageProcessor,
+  NativeRadialMask,
   // Static test interfaces only; pixel implementations require the evaluator's
   // test executor. These are never production UI/persistence features.
   TestImageToMask,
@@ -93,6 +94,12 @@ enum class NodeOperation {
   TestUnavailableImage,
   TestUnavailableMask,
 };
+
+// Operations owning Processor parameters, identity and availability. This does
+// not imply Image output or generic Opacity.
+inline bool isProcessorOperation(NodeOperation operation) {
+  return operation == NodeOperation::ImageProcessor || operation == NodeOperation::NativeRadialMask;
+}
 
 const NodeInterface &nodeInterface(NodeOperation operation);
 
@@ -138,7 +145,7 @@ struct Node {
   NodeStrength strength;
   std::unique_ptr<Processor> processor;
   bool isMissingProcessor() const {
-    return operation == NodeOperation::ImageProcessor && !processor;
+    return isProcessorOperation(operation) && !processor;
   }
 
   InputBindings fixedInputs;

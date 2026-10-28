@@ -22,7 +22,7 @@ bool openDroppedPhoto(App &app, const std::string &path, const SaveFailurePrompt
 
 // Transfer actions capture before writing. An empty preset destination opens
 // the save dialog; callers with a destination use the same capture/write path.
-// Shared menu/shortcut eligibility includes unavailable ImageProcessors.
+// Shared menu/shortcut eligibility includes unavailable processor operations.
 bool canCopySelectedNode(const App &app);
 bool copySelectedNode(App &app);
 bool copyGrade(App &app);

@@ -204,8 +204,8 @@ void appendGraphNode(std::ostream &out, const PersistNode &node, bool testOperat
   out << "        {\n          \"id\": " << jsonStringValue(node.id)
       << ",\n          \"kind\": " << jsonStringValue(persist_detail::operationName(node.operation, testOperations));
   if (node.operation == NodeOperation::Source) { out << "\n        }"; return; }
-  if (node.operation == NodeOperation::ImageProcessor) {
-    out << ",\n          \"strength\": " << node.strength;
+  if (isProcessorOperation(node.operation)) {
+    if (node.operation == NodeOperation::ImageProcessor) out << ",\n          \"strength\": " << node.strength;
     out << ",\n          \"backend\": " << jsonStringValue(node.backend)
         << ",\n          \"identifier\": " << jsonStringValue(node.identifier);
     if (!node.label.empty()) out << ",\n          \"label\": " << jsonStringValue(node.label);

@@ -301,13 +301,15 @@ PersistNode nodeRecord(const Value &value, bool testOperations) {
   const bool slotted = !interface.slotInputs.empty();
   if (node.operation == NodeOperation::ImageProcessor)
     fields(value, {"id", "kind", "backend", "identifier", "label", "enabled", "strength", "params", "inputs"}, "processor");
+  else if (node.operation == NodeOperation::NativeRadialMask)
+    fields(value, {"id", "kind", "backend", "identifier", "label", "enabled", "params", "inputs"}, "native Radial Mask");
   else if (slotted)
     fields(value, {"id", "kind", "enabled", "inputs", "slots", "nextSlotId"}, "test operation");
   else
     fields(value, {"id", "kind", "enabled", "inputs"}, "test operation");
   node.enabled = boolField(value, "enabled");
   node.inputs = inputBindings(field(value, "inputs"), interface, false);
-  if (node.operation == NodeOperation::ImageProcessor) {
+  if (isProcessorOperation(node.operation)) {
     if (value.object.count("strength")) {
       if (!persist_json::finiteNumber(field(value, "strength"), node.strength))
         throw std::runtime_error("Invalid node Strength");
@@ -388,6 +390,7 @@ const char *operationName(NodeOperation operation, bool testOperations) {
   switch (operation) {
     case NodeOperation::Source: return "source";
     case NodeOperation::ImageProcessor: return "image-processor";
+    case NodeOperation::NativeRadialMask: return "native-radial-mask";
     default: break;
   }
   if (testOperations) {
@@ -408,11 +411,11 @@ const char *operationName(NodeOperation operation, bool testOperations) {
 }
 NodeOperation operationFromName(const std::string &name, bool testOperations) {
   // Existing enum vocabulary only, not a processor/operation registry.
-  for (auto op : {NodeOperation::Source, NodeOperation::ImageProcessor,
+  for (auto op : {NodeOperation::Source, NodeOperation::ImageProcessor, NodeOperation::NativeRadialMask,
        NodeOperation::TestImageToMask, NodeOperation::TestMaskProcessor, NodeOperation::TestMultipleOutputs,
        NodeOperation::TestSlotted, NodeOperation::TestMaskedImage, NodeOperation::TestReferenceMask,
        NodeOperation::TestImage, NodeOperation::TestUnavailableImage, NodeOperation::TestUnavailableMask}) {
-    if (!testOperations && op != NodeOperation::Source && op != NodeOperation::ImageProcessor) continue;
+    if (!testOperations && op != NodeOperation::Source && !isProcessorOperation(op)) continue;
     if (name == operationName(op, testOperations)) return op;
   }
   throw std::runtime_error("Unsupported graph operation: " + name);
@@ -429,8 +432,11 @@ std::string graphRecordError(const PersistGraph &graph, bool testOperations) {
     const bool slotted = !nodeInterface(record.operation).slotInputs.empty();
     if (slotted && !node.restoreNextSlotId(record.nextSlotId)) return "Invalid Slot allocator state";
     if (!slotted && (!record.slots.empty() || record.nextSlotId != 1)) return "Unexpected Slot state";
-    if (record.operation == NodeOperation::ImageProcessor && (record.backend.empty() || record.identifier.empty()))
+    if (isProcessorOperation(record.operation) && (record.backend.empty() || record.identifier.empty()))
       return "Empty processor identity";
+    if (record.operation == NodeOperation::NativeRadialMask &&
+        (record.backend != "native" || record.identifier != "rawnode.native.radial-mask" || record.strength != 1))
+      return "Invalid native Radial Mask identity or Strength";
     nodes.push_back(std::move(node));
   }
   return graphStructureError({nodes, graph.primarySource, graph.documentOutput});

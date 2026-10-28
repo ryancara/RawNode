@@ -39,6 +39,7 @@ void clearNodes(App &app);
 bool addNode(App &app, int pluginIndex);  // OFX plugin
 bool addNativeExposureNode(App &app);
 bool addNativeCstNode(App &app);
+bool addNativeRadialMaskNode(App &app);
 bool addCtlNode(App &app, const std::string &path);
 bool destroyNode(App &app, const NodeId &id);
 bool moveNode(App &app, const NodeId &from, const NodeId &to);
