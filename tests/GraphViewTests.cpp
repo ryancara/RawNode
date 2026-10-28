@@ -242,6 +242,62 @@ struct Ui {
   }
 };
 
+bool narrowPreviewToolbar() {
+  App app; Ui ui;
+  CHECK(addNativeRadialMaskNode(app));
+  app.previewZoom = 2.0f; app.previewPanX = 7.0f; app.previewPanY = -3.0f;
+  ImVec2 resolutionPoint, modePoint;
+  float toolbarHeight = 0;
+  const auto frame = [&](float width) {
+    auto &io = ImGui::GetIO(); io.DisplaySize = {800, 600}; io.DeltaTime = 1.0f / 60;
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({20, 20}); ImGui::SetNextWindowSize({width, 400});
+    ImGui::Begin("Preview toolbar test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    const auto start = ImGui::GetCursorScreenPos();
+    resolutionPoint = {start.x + 15, start.y + ImGui::GetFrameHeight() / 2};
+    // Headless frames have no upload/texture to consume; even a mode clear is
+    // empty and therefore makes no GL call through the unconditional pump.
+    CHECK(app.tex == 0 && app.displayRGBA.empty());
+    drawPreviewPanel(app);
+    const auto *window = ImGui::GetCurrentWindow();
+    const auto canvas = ImGui::GetCurrentContext()->LastItemData.Rect;
+    toolbarHeight = canvas.Min.y - start.y;
+    modePoint = {start.x + 15, canvas.Min.y - ImGui::GetStyle().ItemSpacing.y - ImGui::GetFrameHeight() / 2};
+    const bool fits = window->DC.CursorMaxPos.x <= window->WorkRect.Max.x + .5f;
+    ImGui::End(); ImGui::EndFrame();
+    return fits;
+  };
+  const auto click = [&](ImVec2 point, float width) {
+    auto &io = ImGui::GetIO(); io.AddMousePosEvent(point.x, point.y); CHECK(frame(width));
+    io.AddMouseButtonEvent(0, true); CHECK(frame(width));
+    io.AddMouseButtonEvent(0, false); CHECK(frame(width));
+    return true;
+  };
+  for (float width : {96.0f, 160.0f, 220.0f}) {
+    app.previewRes = 0;
+    CHECK(frame(width) && frame(width));
+    CHECK(toolbarHeight >= 2 * ImGui::GetFrameHeight());
+    CHECK(click(resolutionPoint, width) && frame(width)); // Settle the newly opened popup position.
+    auto *popup = ImGui::FindWindowByName("##Combo_00"); CHECK(popup && popup->Active);
+    CHECK(click({popup->DC.CursorStartPos.x + 8, popup->DC.CursorStartPos.y +
+        ImGui::GetTextLineHeightWithSpacing() + ImGui::GetTextLineHeight() / 2}, width));
+    CHECK(app.previewRes == 1);
+    CHECK(click(modePoint, width) && frame(width));
+    popup = ImGui::FindWindowByName("##Combo_00"); CHECK(popup && popup->Active);
+    CHECK(click({popup->DC.CursorStartPos.x + 8, popup->DC.CursorStartPos.y +
+        ImGui::GetTextLineHeightWithSpacing() + ImGui::GetTextLineHeight() / 2}, width));
+    CHECK(maskOnlyPreview(app));
+    CHECK(click(modePoint, width) && frame(width));
+    popup = ImGui::FindWindowByName("##Combo_00"); CHECK(popup && popup->Active);
+    CHECK(click({popup->DC.CursorStartPos.x + 8, popup->DC.CursorStartPos.y + ImGui::GetTextLineHeight() / 2}, width));
+    CHECK(!maskOnlyPreview(app));
+  }
+  CHECK(frame(400) && toolbarHeight < 2 * ImGui::GetFrameHeight());
+  CHECK(app.previewZoom == 2.0f && app.previewPanX == 7.0f && app.previewPanY == -3.0f);
+  return true;
+}
+
 std::string graphJson(const App &app) {
   PersistFile file; file.grade.emplace(); file.grade->graph = captureGraph(graph(app));
   file.grade->color = captureGradeColor(app);
@@ -1664,6 +1720,7 @@ bool failedMetadataSurvivesReturnToStart() {
 
 bool testGraphView() {
   for (const auto &test : {
+       std::make_pair("Preview toolbar fits narrow panels and both controls remain usable without changing zoom/pan", narrowPreviewToolbar),
        std::make_pair("return-to-start drag retains unrelated failed Output metadata", failedMetadataSurvivesReturnToStart),
        std::make_pair("grouped position-only history, return/no-op, interruptions and pending parameters", groupedPositionHistory),
        std::make_pair("automatic Graph positions preserve Redo after replay, including Source-only baseline", automaticPositionsPreserveRedo),

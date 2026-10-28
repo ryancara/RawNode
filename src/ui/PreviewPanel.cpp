@@ -19,19 +19,20 @@ void drawPreviewPanel(App &app) {
   ImGui::SetNextItemWidth(std::min(140.0f, ImGui::GetContentRegionAvail().x));
   if (ImGui::Combo("##previewResolution", &app.previewRes, items, kPreviewResCount)) rebuildPreview(app);
   if (ImGui::IsItemHovered()) ImGui::SetTooltip("Preview resolution");
-  ImGui::SameLine();
+  if (ImGui::GetContentRegionAvail().x >= 140.0f + 115.0f + ImGui::GetStyle().ItemSpacing.x)
+    ImGui::SameLine();
   const bool maskOnly = maskOnlyPreview(app);
-  bool modeChanged = false;
-  ImGui::SetNextItemWidth(115.0f);
-  if (ImGui::BeginCombo("Preview mode", maskOnly ? "Mask Only" : "Photo")) {
-    if (ImGui::Selectable("Photo", !maskOnly) && maskOnly) modeChanged = setMaskOnlyPreview(app, false);
+  ImGui::SetNextItemWidth(std::min(115.0f, ImGui::GetContentRegionAvail().x));
+  if (ImGui::BeginCombo("##previewMode", maskOnly ? "Mask Only" : "Photo")) {
+    if (ImGui::Selectable("Photo", !maskOnly) && maskOnly) setMaskOnlyPreview(app, false);
     ImGui::BeginDisabled(!selectedMaskOutput(app));
-    if (ImGui::Selectable("Mask Only", maskOnly) && !maskOnly) modeChanged = setMaskOnlyPreview(app, true);
+    if (ImGui::Selectable("Mask Only", maskOnly) && !maskOnly) setMaskOnlyPreview(app, true);
     ImGui::EndDisabled();
     ImGui::EndCombo();
   }
-  // A mode change can clear the CPU presentation during this frame.
-  if (modeChanged) pumpDisplayUpload(app);
+  if (ImGui::IsItemHovered()) ImGui::SetTooltip("Preview mode");
+  // Selection in Nodes can invalidate pixels after the main-loop upload.
+  pumpDisplayUpload(app);
   const ImVec2 canvasPos = ImGui::GetCursorScreenPos();
   const ImVec2 canvasSize = ImGui::GetContentRegionAvail();
   if (canvasSize.x < 1.0f || canvasSize.y < 1.0f) return;

@@ -593,6 +593,46 @@ static bool testMaskOnlySelectionAndSupersession() {
   return true;
 }
 
+static bool testMaskOnlyClearBoundaries() {
+  App app; source(app); Gate gate;
+  CHECK(addNativeExposureNode(app) && addNativeRadialMaskNode(app));
+  const auto radial = *app.selectedNodeId();
+  PersistGrade grade; CHECK(captureGrade(app, grade));
+  CHECK(selectNode(app, std::nullopt));
+  RenderRuntimeTestAccess::evaluation(app.renderer, nullptr, [](void *context) {
+    static_cast<Gate *>(context)->hold();
+  }, &gate);
+  GateWorkerGuard guard{app, gate}; app.renderer.start(); CHECK(idle(app));
+  for (int boundary = 0; boundary < 3; ++boundary) {
+    // No node selection: replacement cannot clear via selection fallback and
+    // conceal a missing resetInspection()/completeMutation() clear operation.
+    app.renderer.requestInspection(mask(radial)); CHECK(idle(app) && maskOnlyPreview(app));
+    { std::lock_guard<std::mutex> lock(app.displayMutex);
+      CHECK(!app.displayRGBA.empty() && app.display.w > 0 && app.display.h > 0);
+    }
+    gate.arm();
+    if (boundary == 0) CHECK(setMaskOnlyPreview(app, false)); // requestDocumentPreview()
+    else if (boundary == 1) CHECK(applyGrade(app, grade));   // resetInspection(), same saved IDs
+    else CHECK(destroyNode(app, radial));                  // completeMutation(), invalid endpoint
+    // The old Mask publication is retained, but its presentation must already
+    // be gone, before the delayed Image evaluation can publish a replacement.
+    CHECK(!app.renderer.inspectionEndpoint() && publication(app).result.requested == mask(radial));
+    { std::lock_guard<std::mutex> lock(app.displayMutex);
+      CHECK(app.displayRGBA.empty() && app.display.w == 0 && app.display.h == 0 && app.displayDirty);
+    }
+    CHECK(gate.wait(boundary + 1));
+    { std::lock_guard<std::mutex> lock(app.displayMutex);
+      CHECK(app.displayRGBA.empty() && app.display.w == 0 && app.display.h == 0);
+    }
+    gate.unblock(); CHECK(idle(app));
+    const auto frame = publication(app);
+    CHECK(frame.result.requested == app.documentOutput && frame.result.valueType == ValueType::Image &&
+          frame.result.state == EvaluationState::Available);
+    { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(!app.displayRGBA.empty()); }
+  }
+  return true;
+}
+
 static bool testEndpointSupersession() {
   Executor executor; App app; source(app);
   const NodeId a{"image-a"}, b{"mask-b"};
@@ -1487,6 +1527,7 @@ bool testGraphRuntime() {
       {"Step 8 Inactive inspection clears stale pixels and quiet restoration preserves export status", testInactiveInspectionAndRestoration},
       {"Mask Only native coverage, grayscale/orientation, edits, retained display and Image export", testMaskOnlyNativePreview},
       {"Mask Only typed eligibility, selection fallback, failure clearing and publication supersession", testMaskOnlySelectionAndSupersession},
+      {"Mask Only clears immediately on Photo, document replacement and inspected-node deletion before delayed Image publication", testMaskOnlyClearBoundaries},
       {"6D Image-to-Mask and Mask-to-Image endpoint supersession", testEndpointSupersession},
       {"6D full-resolution graph export, reachable warnings, refusal and resolution context", testExportPolicyAndContext},
       {"6D allocation-style worker exception publishes Error and worker survives mutation", testWorkerExceptionBoundary},
