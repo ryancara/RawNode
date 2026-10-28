@@ -320,15 +320,25 @@ Do not replace LibRaw without a measured benefit.
 
 ## Masks and local adjustments
 
-**Step 8 in progress:** PRs #97–#101 are merged, including Inactive bypass, Image Mask/Opacity and native Radial Mask → Exposure. Mask Only preview is implemented for independent review and native macOS validation: Photo remains the default; explicit Mask Only inspects the selected typed Mask output through the existing runtime.
+**Step 8 in progress:** PRs #97–#102 are merged, including Inactive bypass, Image Mask/Opacity, native Radial Mask → Exposure and Mask Only inspection. Photo remains the default, and explicit Mask Only inspects the selected typed Mask output through the existing runtime.
 
 **Step 8 approved contract:** [docs/STEP8_MASKING_CONTRACT.md](docs/STEP8_MASKING_CONTRACT.md), D054. Mask generators bypass to Inactive (not white/black), Image/Mask transforms bypass to same-type pass-through, and generic Opacity is available on unary transforms with a defined compatible pass-through. Standalone generators and Mask Combine have no generic Opacity initially. A dedicated binary Combine node ignores inactive operands when enabled, while its own bypass passes through A; keep unavailable distinct from intentionally inactive. Retain one typed scalar Mask graph and no separate scheduler/alpha channel. Implement in focused PRs: evaluator-only Inactive bypass, Image-node Mask/Opacity, Radial->Exposure, preview handles/modes, Combine and modifiers. The precise Combine arithmetic is deferred until Combine implementation. Radial coordinates and inward feather are specified in the contract. Native geometric generators produce typed Mask directly; CTL/future DCTL retain Image output. A future visible persisted Image → Mask node extracts explicit R/G/B/A, with optional later undoable automatic insertion. Mask Overlay and native handles remain separate follow-ups.
 
-Following the initial Radial/Exposure masking slice, further work includes:
+**Step 8 remaining direction:** Complete a practical non-AI masking workflow before Step 9. Priorities include Mask Overlay, on-image geometry controls, Linear Gradient and Rectangle masks, Pen/Bézier and Brush masks, Mask Combine, Invert/Blur, and basic Image-to-Mask/qualifier tools. Confirm the exact Step 8 exit scope and test/manual-validation criteria before closing the milestone; reusable/grouped masks, advanced compositing and more specialised tools are evaluated on their merits rather than silently made mandatory. Continue focused PRs and ordinary readability review throughout Step 8.
 
-- brush and path masks, additional gradients and qualifiers;
-- reusable/grouped masks and local adjustments;
-- AI-generated masks, only when an explicit product need exists.
+SAM and other AI-generated masks are explicitly **not** Step 8 completion gates or Step 9 prerequisites. Revisit them only when higher-priority usability work justifies the complexity; no future numbered step is reserved for SAM.
+
+## Step 9 — Comprehensive code-quality and architecture audit (planned)
+
+**Start after the agreed non-AI Step 8 masking scope is implemented and validated.** This is a deliberate **whole-codebase** milestone, superseding the earlier narrow post-first-Mask checkpoint, not another automatic audit after every feature. Human readability, simplicity, maintainability and robust correctness are equally important outcomes.
+
+1. **Baseline:** Capture existing behaviour, full self-tests, platform coverage, important user-data/colour invariants and representative performance/memory measurements where useful. Identify gaps before changing production architecture.
+2. **Subsystem audits:** Examine RAW decode, colour management, native/CTL/OFX processor integration, graph and Mask evaluation, render/concurrency, document/history, persistence, export, UI/workspace and tests. Review names, source organisation, failure/ownership paths, duplication, cognitive load and dependencies. An experienced C++ developer should be able to navigate and maintain RawNode without AI explanations.
+3. **Independent architectural challenge:** Have Codex and Claude assess proposed simplifications independently. Compare credible alternatives and relevant ART/vkdt implementations when useful. Judge existing approaches on evidence, not historical investment.
+4. **Improvements:** Prioritise findings and implement justified changes through focused, dependency-ordered and independently reviewed PRs. **Substantial rewrites and architectural changes are permitted** when they demonstrably improve readability, maintainability, correctness or justified performance. Do not refactor solely for novelty or line-count reduction.
+5. **Whole-application closure:** Re-review cross-subsystem boundaries after changes, retest functionality, data compatibility and platform behaviour, and assess human-developer onboarding. Each material finding must be resolved or explicitly justified and tracked; completion is evidence-based, not time-boxed.
+
+D055 in `docs/DECISIONS.md` records owner approval and `docs/PROJECT_CONTEXT.md` tracks the execution/checkpoints. Existing `docs/CODE_STYLE.md` guidance remains in effect before, during and after Step 9.
 
 ## Completed architecture milestones
 
