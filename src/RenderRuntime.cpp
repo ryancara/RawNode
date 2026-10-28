@@ -137,8 +137,10 @@ void RenderRuntime::completeMutation(bool changed, bool interrupted) noexcept {
   try {
     if (changed) {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (inspection_ && !findOutput(GraphView{app_.nodes, app_.primarySource, app_.documentOutput}, *inspection_))
+      if (inspection_ && !findOutput(GraphView{app_.nodes, app_.primarySource, app_.documentOutput}, *inspection_)) {
         inspection_.reset();
+        display_detail::clearPresentation(app_);
+      }
     }
     if (changed || interrupted) requestPreview(!changed);
   } catch (...) {
@@ -169,6 +171,7 @@ void RenderRuntime::requestInspection(const OutputRef &endpoint) {
   auto request = std::make_shared<OutputRef>(endpoint);
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_) return;
+  if (!pendingEndpoint_ || *pendingEndpoint_ != endpoint) display_detail::clearPresentation(app_);
   inspection_ = pendingEndpoint_ = std::move(request);
   ++epoch_;
   queuePreview(false);
@@ -180,6 +183,7 @@ void RenderRuntime::requestDocumentPreview() {
   auto request = std::make_shared<OutputRef>(app_.documentOutput);
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_) return;
+  if (inspection_) display_detail::clearPresentation(app_);
   inspection_.reset();
   pendingEndpoint_ = std::move(request);
   ++epoch_;
@@ -190,7 +194,15 @@ void RenderRuntime::requestDocumentPreview() {
 void RenderRuntime::resetInspection() {
   assertControlThread();
   std::lock_guard<std::mutex> lock(mutex_);
+  if (inspection_) display_detail::clearPresentation(app_);
   inspection_.reset();
+}
+
+std::optional<OutputRef> RenderRuntime::inspectionEndpoint() const {
+  assertControlThread();
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (inspection_) return *inspection_;
+  return std::nullopt;
 }
 
 EvaluationResult RenderRuntime::evaluateOwned(const OutputRef &endpoint, const EvaluationContext &context,
@@ -263,7 +275,7 @@ void RenderRuntime::runPreview() {
         auto presentation = display_detail::preparePresentation(app_, snapshot.result);
         if (beforePublication_) beforePublication_(publicationContext_, snapshot.result.requested);
         std::lock_guard<std::mutex> lock(mutex_);
-        if (gen == epoch_.load() && !stopping_)
+        if (gen == epoch_.load() && snapshot.request == pendingEndpoint_ && !stopping_)
           display_detail::commitDisplayRefresh(app_, snapshot, std::move(presentation));
         continue;
       }

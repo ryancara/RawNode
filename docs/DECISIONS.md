@@ -754,7 +754,7 @@ gesture framework, toolbar or unrelated product change is approved (D052).
 
 ## D054 — Step 8 inactive Mask bypass and scoped Opacity
 
-**Status:** Owner-approved product/architecture contract, 2026-10-26; bypass and Image Mask/Opacity merged in #97–#100. Native Radial Mask is the first production generator slice for independent review.
+**Status:** Owner-approved product/architecture contract, 2026-10-26; bypass, Image Mask/Opacity and native Radial Mask merged in #97–#101. Mask Only preview is implemented for independent review and native macOS validation.
 
 Detailed authoritative implementation requirements: [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md). The historical Step 8 discussion draft is not authoritative.
 

@@ -1,5 +1,7 @@
 #include "ui/UiContext.h"
 #include "DocumentMutation.h"
+#include "NodeGraph.h"
+#include "RenderPipeline.h"
 
 #include "imgui.h"
 
@@ -17,6 +19,19 @@ void drawPreviewPanel(App &app) {
   ImGui::SetNextItemWidth(std::min(140.0f, ImGui::GetContentRegionAvail().x));
   if (ImGui::Combo("##previewResolution", &app.previewRes, items, kPreviewResCount)) rebuildPreview(app);
   if (ImGui::IsItemHovered()) ImGui::SetTooltip("Preview resolution");
+  ImGui::SameLine();
+  const bool maskOnly = maskOnlyPreview(app);
+  bool modeChanged = false;
+  ImGui::SetNextItemWidth(115.0f);
+  if (ImGui::BeginCombo("Preview mode", maskOnly ? "Mask Only" : "Photo")) {
+    if (ImGui::Selectable("Photo", !maskOnly) && maskOnly) modeChanged = setMaskOnlyPreview(app, false);
+    ImGui::BeginDisabled(!selectedMaskOutput(app));
+    if (ImGui::Selectable("Mask Only", maskOnly) && !maskOnly) modeChanged = setMaskOnlyPreview(app, true);
+    ImGui::EndDisabled();
+    ImGui::EndCombo();
+  }
+  // A mode change can clear the CPU presentation during this frame.
+  if (modeChanged) pumpDisplayUpload(app);
   const ImVec2 canvasPos = ImGui::GetCursorScreenPos();
   const ImVec2 canvasSize = ImGui::GetContentRegionAvail();
   if (canvasSize.x < 1.0f || canvasSize.y < 1.0f) return;
@@ -33,7 +48,7 @@ void drawPreviewPanel(App &app) {
 
   if (!app.tex) {
     dl->AddText(ImVec2(canvasPos.x + 8.0f, canvasPos.y + 8.0f), ImGui::GetColorU32(ImGuiCol_Text),
-                "Open an image to preview.");
+                app.full.px.empty() ? "Open an image to preview." : "No preview image.");
     return;
   }
 

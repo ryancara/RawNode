@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -385,7 +386,7 @@ static bool testInactiveInspectionAndRestoration() {
   CHECK(numeric(app, effect) && add(app, generator, NodeOperation::TestReferenceMask));
   RenderRuntimeTestAccess::evaluation(app.renderer, &executor);
   WorkerGuard guard{app, executor}; app.renderer.start();
-  app.renderer.requestInspection(mask(generator)); CHECK(idle(app));
+  CHECK(selectNode(app, generator) && setMaskOnlyPreview(app, true) && idle(app));
   CHECK(publication(app).result.state == EvaluationState::Available);
   { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(!app.displayRGBA.empty()); }
   setNodeEnabled(app, generator, false); CHECK(idle(app));
@@ -416,6 +417,179 @@ static bool testInactiveInspectionAndRestoration() {
   setNodeEnabled(app, generator, true); CHECK(idle(app));
   CHECK(publication(app).result.state == EvaluationState::Available);
   { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(!app.displayRGBA.empty()); }
+  return true;
+}
+
+static bool testMaskOnlyNativePreview() {
+  Files files; Executor executor; App app; Gate gate;
+  app.full = raster(8, 4); app.preview = std::make_shared<Image>(raster(4, 2));
+  CHECK(addNativeExposureNode(app)); const auto exposure = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app, exposure, "exposure", 1.0));
+  CHECK(addNativeRadialMaskNode(app)); const auto radial = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app, radial, "centreX", .375));
+  CHECK(setNodeParameterValue(app, radial, "centreY", .25));
+  CHECK(setNodeParameterValue(app, radial, "radiusX", .5));
+  CHECK(setNodeParameterValue(app, radial, "radiusY", .5));
+  CHECK(setNodeParameterValue(app, radial, "feather", 1.0));
+  app.path = files.path("source.png");
+  CHECK(app.history.reset(app));
+  const auto historySize = app.history.size(), historyCursor = app.history.cursor();
+  PersistGrade grade; CHECK(captureGrade(app, grade));
+  std::atomic<int> evaluations{0};
+  RenderRuntimeTestAccess::evaluation(app.renderer, &executor, [](void *context) {
+    ++*static_cast<std::atomic<int> *>(context);
+  }, &evaluations);
+  GateWorkerGuard guard{app, gate}; app.renderer.start(); CHECK(idle(app));
+  // Selecting a generator leaves Photo at the fully processed document output.
+  CHECK(!maskOnlyPreview(app) && publication(app).result.requested == image(exposure));
+  CHECK(std::get<ImageValue>(publication(app).result.value)->px[0] == .5f);
+  CHECK(selectedMaskOutput(app) == mask(radial) && setMaskOnlyPreview(app, true) && idle(app));
+  auto frame = publication(app);
+  CHECK(maskOnlyPreview(app) && frame.result.requested == mask(radial) && frame.result.valueType == ValueType::Mask);
+  CHECK(frame.result.state == EvaluationState::Available);
+  // Pixel centres give d={.5,0,.5,1} on the bottom row and d>=1 on
+  // the top row. Smoothstep at t=.5 is exactly .5, quantised to 128.
+  // This asymmetric top-down oracle also catches a vertical flip or gamma.
+  const std::vector<unsigned char> expected{
+      0,0,0,255, 0,0,0,255, 0,0,0,255, 0,0,0,255,
+      128,128,128,255, 255,255,255,255, 128,128,128,255, 0,0,0,255};
+  { std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.display.w == 4 && app.display.h == 2 && app.displayRGBA == expected);
+  }
+  const auto calls = evaluations.load();
+  { std::lock_guard<std::mutex> lock(app.colorMutex); app.outputEncoding = {RgbGamut::Rec2020, TransferFunction::Linear}; }
+  app.renderer.requestDisplayRefresh(); CHECK(idle(app));
+  CHECK(evaluations == calls && publication(app).generation == frame.generation);
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA == expected); }
+  { std::lock_guard<std::mutex> lock(app.colorMutex); app.outputEncoding = {RgbGamut::Rec709, TransferFunction::SRGB}; }
+  app.renderer.requestDisplayRefresh(); CHECK(idle(app));
+  // Inspection is neither a grade edit nor an export endpoint change.
+  PersistGrade after; CHECK(captureGrade(app, after));
+  PersistFile beforeFile, afterFile; beforeFile.grade = grade; afterFile.grade = after;
+  std::string beforeJson, afterJson, error;
+  CHECK(encodeGraphFile(beforeFile, beforeJson, error) && encodeGraphFile(afterFile, afterJson, error));
+  CHECK(beforeJson == afterJson && app.history.size() == historySize && app.history.cursor() == historyCursor);
+  CHECK(runExportJob(app, files.path("mask-view.png")) && idle(app));
+  CHECK(maskOnlyPreview(app) && publication(app).result.requested == mask(radial));
+  CHECK(app.getStatus().find("Exported mask-view.png") == 0);
+  Image written; ColorEncoding encoding; bool raw;
+  CHECK(loadImage(files.path("mask-view.png"), written, encoding, raw) && written.w == 8 && written.h == 4);
+  // PNG stores the final +1 EV Image, quantised once; the loader then removes
+  // its sRGB tag with the standard transfer equation. Alpha stays unencoded.
+  const double loadedRgb = std::pow((128.0 / 255.0 + .055) / 1.055, 2.4);
+  for (size_t i = 0; i < written.px.size(); ++i)
+    CHECK(std::abs(written.px[i] - (i % 4 == 3 ? 191.0 / 255.0 : loadedRgb)) < 1e-6);
+  CHECK(setMaskOnlyPreview(app, false) && idle(app));
+  CHECK(publication(app).result.requested == app.documentOutput &&
+        std::get<ImageValue>(publication(app).result.value)->px[0] == .5f);
+  CHECK(setMaskOnlyPreview(app, true) && idle(app));
+  auto generation = publication(app).generation;
+  CHECK(setNodeParameterValue(app, radial, "radiusX", 0.0) && idle(app));
+  frame = publication(app);
+  CHECK(frame.generation > generation && frame.result.state == EvaluationState::Available);
+  { std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.displayRGBA.size() == expected.size());
+    for (size_t i = 0; i < app.displayRGBA.size(); ++i) CHECK(app.displayRGBA[i] == (i % 4 == 3 ? 255 : 0));
+  }
+  setNodeEnabled(app, radial, false); CHECK(idle(app));
+  CHECK(publication(app).result.state == EvaluationState::Inactive && app.getStatus() == "Mask inactive (bypassed)");
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA.empty() && app.display.w == 0); }
+  setNodeEnabled(app, radial, true); CHECK(resetNodeParameter(app, radial, "radiusX") && idle(app));
+  // Optional Reference edits use the same invalidation/evaluation path.
+  CHECK(graph::connect(app, image(exposure), input(radial, ports::reference)).ok() && idle(app));
+  CHECK(publication(app).result.requested == mask(radial) && publication(app).result.state == EvaluationState::Available);
+  CHECK(add(app, NodeId{"missing-reference"}, NodeOperation::TestUnavailableImage));
+  CHECK(graph::connect(app, image(NodeId{"missing-reference"}), input(radial, ports::reference)).ok() && idle(app));
+  CHECK(publication(app).result.state == EvaluationState::Unavailable && diagnostic(publication(app).result, "unavailable"));
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA.empty()); }
+  CHECK(graph::disconnect(app, input(radial, ports::reference)).ok() && idle(app));
+  CHECK(publication(app).result.state == EvaluationState::Available);
+  return true;
+}
+
+static bool testMaskOnlySelectionAndSupersession() {
+  Executor executor; App app; source(app);
+  const NodeId a{"mode-image"}, b{"mode-mask"}, c{"mode-other-mask"}, modifier{"mode-modifier"}, multi{"mode-multi"};
+  CHECK(add(app, a, NodeOperation::TestImage) && add(app, b, NodeOperation::TestImageToMask));
+  CHECK(add(app, c, NodeOperation::TestReferenceMask) && add(app, modifier, NodeOperation::TestMaskProcessor));
+  CHECK(add(app, multi, NodeOperation::TestMultipleOutputs));
+  CHECK(graph::connect(app, image(app.primarySource), input(a)).ok());
+  CHECK(graph::connect(app, image(app.primarySource), input(b)).ok());
+  CHECK(graph::setDocumentOutput(app, image(a)).ok());
+  // Eligibility follows output declarations for generators, modifiers and
+  // mixed-output interfaces, including disconnected/inactive operations.
+  for (const auto &id : {b, c, modifier, multi}) {
+    CHECK(selectNode(app, id) && selectedMaskOutput(app) == mask(id) && !maskOnlyPreview(app));
+  }
+  CHECK(selectNode(app, b));
+  struct Probe { App &app; std::atomic<int> expected{-1}; std::atomic<bool> stale{false}; } probe{app};
+  RenderRuntimeTestAccess::evaluation(app.renderer, &executor, [](void *context) {
+    auto &p = *static_cast<Probe *>(context);
+    if (p.expected >= 0 && publication(p.app).generation != p.expected) p.stale = true;
+  }, &probe);
+  RenderRuntimeTestAccess::publication(app.renderer, [](void *context, const OutputRef &endpoint) {
+    static_cast<Executor *>(context)->beforePublication(endpoint);
+  }, &executor);
+  WorkerGuard guard{app, executor}; app.renderer.start(); app.renderer.requestDocumentPreview(); CHECK(idle(app));
+  CHECK(publication(app).result.requested == image(a));
+  // Stop work after pixels/presentation have been prepared, so cooperative
+  // cancellation cannot substitute for the final publication identity gate.
+  probe.expected = publication(app).generation;
+  executor.block(a, true); app.renderer.requestPreview(); CHECK(executor.wait(1));
+  CHECK(setMaskOnlyPreview(app, true));
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA.empty()); }
+  executor.unblock(); CHECK(idle(app) && !probe.stale && publication(app).result.requested == mask(b));
+  probe.expected = publication(app).generation;
+  executor.block(b, true); app.renderer.requestPreview(); CHECK(executor.wait(2));
+  CHECK(selectNode(app, c));
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA.empty()); }
+  app.renderer.requestDisplayRefresh(); executor.unblock(); CHECK(idle(app));
+  CHECK(!probe.stale && maskOnlyPreview(app) && publication(app).result.requested == mask(c));
+  probe.expected = publication(app).generation;
+  executor.block(c, true); app.renderer.requestPreview(); CHECK(executor.wait(3));
+  CHECK(setMaskOnlyPreview(app, false));
+  executor.unblock(); CHECK(idle(app) && !probe.stale && publication(app).result.requested == image(a));
+  probe.expected = -1;
+  // All ineligible selections restore Photo. Selecting a Mask afterwards does
+  // not re-enter inspection, and a redundant selection must not reschedule.
+  for (int kind = 0; kind < 4; ++kind) {
+    CHECK(selectNode(app, b) && setMaskOnlyPreview(app, true) && idle(app));
+    const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+    CHECK(selectNode(app, b) && RenderRuntimeTestAccess::snapshot(app.renderer).epoch == epoch);
+    if (kind == 0) CHECK(selectNode(app, a));
+    if (kind == 1) CHECK(selectNode(app, app.primarySource));
+    if (kind == 2) selectOutput(app);
+    if (kind == 3) CHECK(selectNode(app, std::nullopt));
+    CHECK(!selectedMaskOutput(app) && !maskOnlyPreview(app) && idle(app));
+    CHECK(publication(app).result.requested == app.documentOutput && !setMaskOnlyPreview(app, true));
+    CHECK(selectNode(app, c) && !maskOnlyPreview(app));
+  }
+  // A cancelled replacement has no publication. Display-only demand must not
+  // resurrect the retained Photo raster under the new Mask request identity.
+  { std::lock_guard<std::mutex> lock(executor.mutex); executor.cancelled = true; }
+  CHECK(selectNode(app, b) && setMaskOnlyPreview(app, true) && idle(app));
+  app.renderer.requestDisplayRefresh(); CHECK(idle(app));
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA.empty()); }
+  { std::lock_guard<std::mutex> lock(executor.mutex); executor.cancelled = false; }
+  CHECK(selectNode(app, b) && setMaskOnlyPreview(app, true) && idle(app));
+  // Real evaluation failures retain typed identity/diagnostics, never pixels.
+  for (auto state : {EvaluationState::Unavailable, EvaluationState::Error}) {
+    { std::lock_guard<std::mutex> lock(executor.mutex); executor.state = state; }
+    app.renderer.requestPreview(); CHECK(idle(app));
+    CHECK(publication(app).result.state == state && publication(app).result.requested == mask(b));
+    CHECK(diagnostic(publication(app).result, "runtime inspection failure"));
+    { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA.empty()); }
+    { std::lock_guard<std::mutex> lock(executor.mutex); executor.state = EvaluationState::Available; }
+    app.renderer.requestPreview(); CHECK(idle(app));
+  }
+  probe.expected = publication(app).generation;
+  executor.block(b, true); app.renderer.requestPreview(); CHECK(executor.wait(4));
+  RenderRuntimeTestAccess::observe(app.renderer, &executor, [](void *context, auto event) noexcept {
+    if (event == RenderRuntimeTestAccess::Event::MutationWaiting) static_cast<Executor *>(context)->unblock();
+  });
+  CHECK(destroyNode(app, b) && idle(app) && !probe.stale);
+  RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+  CHECK(!maskOnlyPreview(app) && !app.renderer.inspectionEndpoint() && publication(app).result.requested == image(a));
   return true;
 }
 
@@ -1310,6 +1484,8 @@ bool testGraphRuntime() {
       {"6D creation, move/delete, derived capture order and V2 topology restore", testTopologyAndV2},
       {"6D typed Image/Mask/Unavailable/Error publication and cached display conversion", testTypedPublicationAndDisplay},
       {"Step 8 Inactive inspection clears stale pixels and quiet restoration preserves export status", testInactiveInspectionAndRestoration},
+      {"Mask Only native coverage, grayscale/orientation, edits, retained display and Image export", testMaskOnlyNativePreview},
+      {"Mask Only typed eligibility, selection fallback, failure clearing and publication supersession", testMaskOnlySelectionAndSupersession},
       {"6D Image-to-Mask and Mask-to-Image endpoint supersession", testEndpointSupersession},
       {"6D full-resolution graph export, reachable warnings, refusal and resolution context", testExportPolicyAndContext},
       {"6D allocation-style worker exception publishes Error and worker survives mutation", testWorkerExceptionBoundary},

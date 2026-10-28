@@ -32,6 +32,11 @@ const Node *selectedNode(const App &app);
 // Source is selectable; selectedNode() deliberately returns only non-Source nodes.
 bool selectNode(App &app, std::optional<NodeId> id);
 void selectOutput(App &app);
+// View-only typed inspection. The first declared Mask output is suitable;
+// availability is an evaluation result, not a condition for selecting the mode.
+std::optional<OutputRef> selectedMaskOutput(const App &app);
+bool maskOnlyPreview(const App &app);
+bool setMaskOnlyPreview(App &app, bool enabled);
 std::string nodeDisplayName(const Node &node);
 // Structural operations run on the single control thread. Each owns execution
 // safety and its final preview decision; callers need no renderer protocol.

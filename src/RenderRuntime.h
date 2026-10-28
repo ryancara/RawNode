@@ -30,6 +30,8 @@ class RenderRuntime {
   void requestPreview();
   void requestInspection(const OutputRef &endpoint);
   void requestDocumentPreview();
+  // Control-thread viewer query; the retained endpoint is the preview mode.
+  std::optional<OutputRef> inspectionEndpoint() const;
   // Control-thread view state only: forget inspection without cancelling or
   // replacing queued/in-flight demand. Document replacement calls this within
   // its mutation; that mutation supplies the completion preview.

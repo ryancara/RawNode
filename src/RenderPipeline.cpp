@@ -63,6 +63,13 @@ display_detail::Presentation display_detail::preparePresentation(const App &app,
   return presentation;
 }
 
+void display_detail::clearPresentation(App &app) {
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  app.displayRGBA.clear();
+  app.display = {};
+  app.displayDirty = true;
+}
+
 void display_detail::commitDisplayRefresh(App &app, const App::PreviewPublication &snapshot, Presentation presentation) {
   std::lock_guard<std::mutex> lock(app.displayMutex);
   if (app.processed.generation != snapshot.generation || app.processed.request != snapshot.request) return;

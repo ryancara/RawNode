@@ -20,6 +20,8 @@ struct Presentation {
   int w = 0, h = 0;
 };
 Presentation preparePresentation(const App &app, const EvaluationResult &result);
+// Drop obsolete pixels immediately while the replacement endpoint is pending.
+void clearPresentation(App &app);
 void commitDisplayRefresh(App &app, const App::PreviewPublication &snapshot, Presentation presentation);
 void publishPreview(App &app, EvaluationResult result, int generation,
                     std::shared_ptr<const OutputRef> request, Presentation presentation);

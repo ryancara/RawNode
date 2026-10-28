@@ -691,6 +691,47 @@ bool historyNativeCtlAndMissing() {
   return true;
 }
 
+bool maskOnlyDocumentBoundaries() {
+  Files files; App app;
+  const auto a = photo(files, "mask-mode-a.png"), b = photo(files, "mask-mode-b.png", .5f);
+  CHECK(openPath(app, a) && addNativeExposureNode(app) && addNativeRadialMaskNode(app));
+  const auto radial = *app.selectedNodeId();
+  PersistGrade grade; CHECK(captureGrade(app, grade));
+  CHECK(saveCurrentInputSidecar(app));
+  const auto savedBytes = bytes(inputSidecarPath(a));
+  const auto historySize = app.history.size(), historyCursor = app.history.cursor();
+  struct Guard { App &app; ~Guard() { app.renderer.shutdown(); } } guard{app};
+  app.renderer.start(); CHECK(idle(app));
+  const auto checkPhoto = [&] {
+    if (maskOnlyPreview(app) || app.renderer.inspectionEndpoint()) return false;
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    return app.processed.result.state == EvaluationState::Available &&
+        app.processed.result.requested == app.documentOutput && app.processed.result.valueType == ValueType::Image;
+  };
+  CHECK(setMaskOnlyPreview(app, true) && idle(app));
+  CHECK(saveCurrentInputSidecar(app) && bytes(inputSidecarPath(a)) == savedBytes);
+  CHECK(app.history.size() == historySize && app.history.cursor() == historyCursor);
+  // Replace with exactly the same IDs still resets transient inspection.
+  CHECK(applyGrade(app, grade) && idle(app) && checkPhoto());
+  CHECK(selectNode(app, radial) && setMaskOnlyPreview(app, true) && idle(app));
+  CHECK(openPath(app, b) && idle(app) && checkPhoto());
+  CHECK(openPath(app, a) && idle(app) && checkPhoto());
+  CHECK(findNode(app, radial) && selectNode(app, radial) && !maskOnlyPreview(app));
+  CHECK(setMaskOnlyPreview(app, true) && idle(app));
+  CHECK(openPath(app, a) && idle(app) && checkPhoto()); // Same-photo reopen too.
+  // Reused IDs with a changed output interface cannot retain Mask inspection.
+  CHECK(selectNode(app, radial) && setMaskOnlyPreview(app, true) && idle(app));
+  for (auto &node : grade.graph.nodes) if (node.id == radial.value) {
+    node.operation = NodeOperation::ImageProcessor; node.identifier = "rawnode.native.exposure";
+    node.paramsJson = {{"exposure", "0"}};
+    node.inputs.clear(); node.inputs[ports::image] = grade.graph.documentOutput;
+    node.inputs[ports::mask] = std::nullopt;
+  }
+  CHECK(applyGrade(app, grade) && idle(app) && checkPhoto());
+  CHECK(selectNode(app, radial) && !selectedMaskOutput(app) && !setMaskOnlyPreview(app, true));
+  return true;
+}
+
 bool historyReusedNodeIdentity() {
   Files files;
   const auto script = files.path("identity.ctl");
@@ -871,6 +912,7 @@ bool testPhotoDocuments() {
        std::make_pair("same-photo save-before-reload, atomic failures and strict backend UTF-8", samePhotoAndAtomicFailures),
        std::make_pair("history native/CTL reconstruction, topology, pixels and missing/working availability", historyNativeCtlAndMissing),
        std::make_pair("history NodeId reuse clears unrelated UI state and matching identities preserve it", historyReusedNodeIdentity),
+       std::make_pair("Mask Only is transient across save, photo switching/reopen and grade/identity replacement", maskOnlyDocumentBoundaries),
        std::make_pair("history RAW decode/preparation failure preserves ownership and UI state", historyRawFailureSafety),
        std::make_pair("two-photo synthetic RAW colour ownership and coherent full/preview pixels", twoPhotoColourOwnership),
        std::make_pair("failed decoding retains the full prior document and usable editor", failedDecodeRetainsDocument),
