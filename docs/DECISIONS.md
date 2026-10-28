@@ -771,15 +771,15 @@ This deliberately supersedes D042's white-generator bypass rule and related hist
 
 ## D055 — Step 9 whole-codebase readability, simplicity and architecture audit
 
-**Status:** Owner-approved, 2026-10-29; planned after the agreed core Step 8 non-AI masking workflow is complete and validated. This is a new numbered milestone, replacing the earlier narrow post-first-Mask readability checkpoint in `PROJECT_CONTEXT.md`. It does not declare Step 8 complete.
+**Status:** Owner-approved, 2026-10-29. Step 9 starts once the **Step 8 exit gate** for practical non-AI masking, to be agreed and recorded in `STEP8_MASKING_CONTRACT.md`, is met. It is a numbered quality milestone, **not** an additional architecture migration step. It replaces the earlier narrow post-first-Mask checkpoint; it does not declare Step 8 complete.
 
-- **Scope:** Assess all major subsystems, not just masking or recently changed files. The objective is source that an experienced C++ developer can navigate, understand and maintain without AI explanations, with straightforward, idiomatic C++ and the smallest justified conceptual complexity.
-- **Method:** Establish behavioural, test, platform, data-integrity and useful performance baselines; audit subsystems individually; compare genuinely viable architecture and code-organisation alternatives with independent Codex/Claude evaluations; implement justified changes in focused, dependency-ordered PRs; finish with a whole-application integration/readability review.
-- **Authority to reconsider:** Existing code and accepted architecture are not protected merely by history. Step 9 explicitly permits substantial refactoring, full rewrites or changed responsibility/ownership boundaries when evidence shows a better result. That permission does **not** imply a rewrite mandate or excuse speculative abstractions, gratuitous changes or regressions. Document intentional behavioural/compatibility changes, preserve user data, verify failure/concurrency invariants and apply independent review.
-- **Completion:** Document material findings, severities, tradeoffs and dispositions; verify resolved or deliberately justified/deferred items. No arbitrary deadline or number of PRs. Simply reading every file or passing a formatter is insufficient.
-- **Sequence:** Finish the agreed practical non-AI masking requirements in Step 8 first; confirm the exact exit gate before closing it. SAM and other AI masking are lower-priority, unscheduled work and not required for Step 8 or Step 9. Ordinary per-PR human-readability reviews continue in the meantime.
+- **Scope and purpose:** Review the **entire** codebase, not only masking. Optimise for conventional, human-readable C++ that an experienced developer can navigate and maintain without Codex/Claude explanations, and for the least justified conceptual complexity. Preserve non-negotiable correctness, colour, concurrency and user-data invariants.
+- **Independent method:** Codex and Claude audit **each subsystem independently** before reconciling findings; the owner resolves disagreements. They also compare viable architectural alternatives as needed, rather than treating the existing design as immutable. The canonical staged process and inclusive subsystem inventory live in `ROADMAP.md`.
+- **Architecture authority:** Step 9 permits **proposing** substantial refactors, rewrites and changed ownership/responsibility boundaries when evidence shows a better implementation. It is not a rewrite mandate or blanket approval of any design. Each implementation PR must retain focused scope, tests and independent review; substantial architecture, behavioural and persistence changes require explicit owner agreement, with deliberate data-compatibility/migration handling.
+- **Record and closure:** Create `STEP9_AUDIT.md` at Step 9 kickoff to track findings, severity, alternatives, evidence, owner decisions and disposition. Resolve or explicitly justify deferring each material finding before closing Step 9. Do not treat formatting or completion of a file-by-file reading as sufficient. No arbitrary time limit or PR count.
+- **Sequencing:** The non-AI Step 8 exit gate precedes Step 9; SAM/AI masks are unscheduled and revisited only when a concrete product need justifies their complexity. Per-PR readability, scope discipline and independent verification remain in force **throughout** Step 8 and Step 9.
 
-`ROADMAP.md` describes the milestone and `PROJECT_CONTEXT.md` tracks the programme. `CODE_STYLE.md` remains the durable, continuously applicable readability standard. Implementation-level architectural departures still require explicit scope and owner agreement within their Step 9 PRs; this decision is programme approval, not blanket approval of any particular redesign.
+`ROADMAP.md` is the canonical Step 9 programme; `PROJECT_CONTEXT.md` is the milestone/status tracker rather than a running audit log. `CODE_STYLE.md` remains the continuously applicable human-readability standard.
 
 ## Pending decisions
 
@@ -818,8 +818,9 @@ The D037 stabilisation gate and immediate checkpoint follow-ups are complete.
    switchable Graph/List editor UI milestone (D047), before Step 8.
 
 8. Settle practical non-AI masking workflows under the Step 5/8 contracts — in progress.
-9. Run the staged whole-codebase readability, simplicity and architecture audit
-   (D055) after the agreed Step 8 exit gate — planned.
+9. Run the staged whole-codebase readability, simplicity and architecture **quality**
+   audit (D055) after the agreed Step 8 exit gate — planned, not a new graph
+   architecture migration stage.
 
 If implementation evidence changes this direction, update this log rather than
 letting the architecture drift silently.
