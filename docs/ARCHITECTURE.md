@@ -317,7 +317,9 @@ and visual interactions never acquire DocumentMutation or request rendering.
 Inspector displays Source input/current-photo RAW controls, the existing processor
 parameters, or Output grade colours/application export preferences. Fixed Source
 and Output List entries sit outside the processor reorder list. Selection does
-not change the requested render endpoint or documentOutput. Photo/grade replacement
+not change Photo's requested endpoint or documentOutput. Explicit Mask Only
+uses the runtime's retained inspection endpoint as transient viewer mode; selection
+retargets it to a declared Mask output or restores document Image preview. Photo/grade replacement
 clears it; graph commits clear a removed real ID without discarding Source or
 virtual Output. Nothing persists this selection.
 

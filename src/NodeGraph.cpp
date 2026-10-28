@@ -96,17 +96,45 @@ bool selectNode(App &app, std::optional<NodeId> id) {
   InspectorSelection selection;
   if (id) selection = *id;
   if (app.selection != selection) {
+    const bool inspectMask = maskOnlyPreview(app);
     app.selection = std::move(selection);
     app.paramFilter[0] = '\0';
+    if (inspectMask && !setMaskOnlyPreview(app, true)) setMaskOnlyPreview(app, false);
   }
   return true;
 }
 
 void selectOutput(App &app) {
   if (!app.outputSelected()) {
+    const bool inspectMask = maskOnlyPreview(app);
     app.selection = InspectorEndpoint::Output;
     app.paramFilter[0] = '\0';
+    if (inspectMask) setMaskOnlyPreview(app, false);
   }
+}
+
+std::optional<OutputRef> selectedMaskOutput(const App &app) {
+  const Node *node = selectedNode(app);
+  if (!node) return std::nullopt;
+  for (const auto &port : nodeInterface(node->operation).fixedPorts)
+    if (port.direction == PortDirection::Output && port.type == ValueType::Mask)
+      return OutputRef{node->id, port.id};
+  return std::nullopt;
+}
+
+bool maskOnlyPreview(const App &app) {
+  const auto endpoint = app.renderer.inspectionEndpoint();
+  const auto *port = endpoint ? findOutput(app, *endpoint) : nullptr;
+  return port && port->type == ValueType::Mask;
+}
+
+bool setMaskOnlyPreview(App &app, bool enabled) {
+  if (enabled) {
+    const auto endpoint = selectedMaskOutput(app);
+    if (!endpoint) return false;
+    app.renderer.requestInspection(*endpoint);
+  } else app.renderer.requestDocumentPreview();
+  return true;
 }
 
 std::string nodeDisplayName(const Node &node) {

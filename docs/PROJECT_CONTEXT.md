@@ -587,7 +587,7 @@ need.
 
 ## Current development phase
 
-**Step 8 in progress (2026-10-28):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#100 are merged; the owner confirmed all six macOS checks for #99/#100. The first production native Radial Mask → Exposure slice now uses native geometry and typed Mask generation with the existing parameter, graph, persistence and history paths. CTL/future DCTL remain Image-producing; a visible persisted Image → Mask converter, native on-image handles and Mask Overlay remain separate follow-ups. Independent Claude review precedes merge.
+**Step 8 in progress (2026-10-28):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#101 are merged, including native Radial Mask → Exposure; the owner confirmed all six macOS checks for #99/#100. Mask Only preview now exposes the existing typed Mask inspection/presentation path with Photo as the default. Selection changes retarget active Mask inspection or return to Photo; photo/grade replacement resets it. Viewer mode stays outside grades, history and export. Independent Claude review and native macOS validation remain pending for this slice. CTL/future DCTL remain Image-producing; a visible persisted Image → Mask converter, native on-image handles and Mask Overlay remain separate follow-ups. Independent Claude review precedes merge.
 
 Undo/Redo design and behaviour are approved in D053. Stage 1 was independently
 reviewed, approved and merged in PR #92 at
