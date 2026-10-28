@@ -80,8 +80,8 @@ static std::string nodeStateError(const Node &node, const NodeId &primarySource)
     if (node.id != primarySource) return "Source is not the primary Source";
     if (!node.enabled || node.processor || !node.fixedInputs.empty() || !node.slots.empty())
       return "Invalid Source state";
-  } else if (node.operation != NodeOperation::ImageProcessor && node.processor) {
-    return "Graph-native node has an Image processor";
+  } else if (!isProcessorOperation(node.operation) && node.processor) {
+    return "Graph operation cannot own a processor";
   }
   const double strength = node.strength;
   if (node.operation == NodeOperation::ImageProcessor &&

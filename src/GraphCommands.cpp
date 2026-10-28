@@ -39,8 +39,8 @@ class StagedEdit {
     if (added.id.value.empty()) return "Empty NodeId";
     if (node(added.id)) return "Duplicate NodeId";
     if (added.operation == NodeOperation::Source) return "Cannot add a second Source";
-    if (added.operation != NodeOperation::ImageProcessor && added.processor)
-      return "Graph-native node has an Image processor";
+    if (!isProcessorOperation(added.operation) && added.processor)
+      return "Graph operation cannot own a processor";
     // A malformed operation is diagnosed without constructing a staging node.
     try {
       nodes_.push_back(copyTopology(added));

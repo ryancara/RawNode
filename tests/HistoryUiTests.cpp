@@ -207,6 +207,38 @@ bool nativeGestures() {
   return true;
 }
 
+bool radialInspectorGestures() {
+  Files files; App app; Ui ui;
+  CHECK(openPath(app, files.photo("radial.png")) && addNativeRadialMaskNode(app));
+  const auto id = *app.selectedNodeId();
+  const auto feather = [&] { return std::get<double>(findNode(app, id)->processor->parameters()[4].value); };
+  ui.tick(app); ui.tick(app); // The last Inspector row is Feather.
+  const auto row = ui.item;
+  const auto before = app.history.size();
+  ui.hover(app, row.GetCenter()); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
+  ui.hover(app, {row.GetCenter().x + 35, row.GetCenter().y});
+  CHECK(app.history.size() == before);
+  ImGui::GetIO().AddMouseButtonEvent(0, false); ui.tick(app);
+  const double dragged = feather();
+  CHECK(dragged != .5 && app.history.size() == before + 1 && !app.parameterGesture);
+  CHECK(app.history.undo(app) && feather() == .5);
+  CHECK(app.history.redo(app) && feather() == dragged);
+  ui.tick(app);
+  const float h = ImGui::GetFrameHeight(), gap = ImGui::GetStyle().ItemInnerSpacing.x;
+  const ImVec2 pencil{ui.item.Min.x - 2.5f * h - 3 * gap, ui.item.GetCenter().y};
+  ui.click(app, pencil); ui.tick(app); ui.type(app, "0.375");
+  CHECK(feather() == dragged);
+  ui.key(app, ImGuiKey_Enter);
+  CHECK(feather() == .375 && !app.parameterGesture);
+  CHECK(app.history.undo(app) && feather() == dragged);
+  CHECK(app.history.redo(app) && feather() == .375);
+  ui.full = true; ui.tick(app); ui.tick(app);
+  CHECK(ui.log.find("Radial Mask") != std::string::npos && ui.log.find("Centre X") != std::string::npos);
+  CHECK(ui.log.find("Horizontal radius") != std::string::npos && ui.log.find("Feather") != std::string::npos);
+  CHECK(ui.log.find("Opacity") == std::string::npos);
+  return true;
+}
+
 bool ctlDeferredInputAndFailure() {
   Files files; App app; Ui ui;
   const auto path = files.photo("ctl.png"), script = (files.dir / "gain.ctl").string();
@@ -370,7 +402,7 @@ bool shortcutsAndMenus() {
 }
 
 bool testHistoryUi() {
-  if (!opacityGesturesAndPersistence() || !nativeGestures() || !ctlDeferredInputAndFailure() || !droppedPhotoCompletesOutgoingGesture() || !shortcutsAndMenus()) return false;
+  if (!radialInspectorGestures() || !opacityGesturesAndPersistence() || !nativeGestures() || !ctlDeferredInputAndFailure() || !droppedPhotoCompletesOutgoingGesture() || !shortcutsAndMenus()) return false;
   std::puts("ok  History UI: native gestures, numeric commits/interruption, discrete buttons, shortcuts and eligibility");
   return true;
 }

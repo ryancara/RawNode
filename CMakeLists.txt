@@ -111,6 +111,7 @@ add_executable(OfxRawHost
   tests/HistoryUiTests.cpp
   tests/PresetClipboardTests.cpp
   tests/GraphCommandsTests.cpp
+  tests/NativeRadialMaskTests.cpp
   tests/GraphEvaluatorTests.cpp
   tests/GraphRuntimeTests.cpp
   tests/NodeListTests.cpp
@@ -130,6 +131,7 @@ add_executable(OfxRawHost
   src/GraphValidation.cpp
   src/GraphEvaluator.cpp
   src/processors/OfxProcessor.cpp
+  src/processors/NativeRadialMaskProcessor.cpp
   src/processors/NativeExposureProcessor.cpp
   src/processors/NativeCstProcessor.cpp
   src/processors/CtlProcessor.cpp

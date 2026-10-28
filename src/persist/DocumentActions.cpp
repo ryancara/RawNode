@@ -82,7 +82,7 @@ static bool captureGradeState(App &app, PersistGrade &grade, std::map<std::strin
     captured.positions = app.nodePositions;
     std::map<std::string, bool> availability;
     if (workingProcessors) for (const auto &node : app.nodes)
-      if (node.operation == NodeOperation::ImageProcessor)
+      if (isProcessorOperation(node.operation))
         availability.emplace(node.id.value, bool(node.processor));
     std::string json, error;
     PersistFile file; file.grade = captured;

@@ -23,16 +23,18 @@ static void drawProcessorParameters(App &app) {
   const std::string label = nodeDisplayName(*node);
   ImGui::TextUnformatted(label.c_str());
   ImGui::Separator();
-  if (node->operation != NodeOperation::ImageProcessor) {
+  if (!isProcessorOperation(node->operation)) {
     ImGui::TextDisabled("No parameter controls are available for this graph operation.");
     return;
   }
   // ImGui edit/focus state belongs to the logical node, even when two nodes
   // have the same processor and parameter names.
   ImGui::PushID(node->id.value.data(), node->id.value.data() + node->id.value.size());
-  drawNodeOpacity(app, *node);
+  if (node->operation == NodeOperation::ImageProcessor) drawNodeOpacity(app, *node);
   if (!node->processor) {
-    ImGui::TextDisabled("Processor unavailable. Its saved state is preserved and the node is bypassed.");
+    ImGui::TextDisabled(node->operation == NodeOperation::ImageProcessor
+        ? "Processor unavailable. Its saved state is preserved and the node is bypassed."
+        : "Radial Mask unavailable. Its saved state is preserved.");
     ImGui::PopID();
     return;
   }

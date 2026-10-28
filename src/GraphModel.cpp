@@ -59,6 +59,7 @@ const NodeInterface &nodeInterface(NodeOperation operation) {
     case NodeOperation::TestMultipleOutputs: return multipleOutputs;
     case NodeOperation::TestSlotted: return slotted;
     case NodeOperation::TestMaskedImage: return maskedImage;
+    case NodeOperation::NativeRadialMask:
     case NodeOperation::TestReferenceMask: return referenceMask;
     case NodeOperation::TestImage: return testImage;
     case NodeOperation::TestUnavailableImage: return source;

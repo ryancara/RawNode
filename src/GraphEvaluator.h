@@ -1,13 +1,9 @@
 #pragma once
 
 #include "GraphModel.h"
+#include "Mask.h"
 
 #include <variant>
-
-struct Mask {
-  std::vector<float> px;  // One scalar coverage sample per pixel, bottom-up.
-  int w = 0, h = 0;
-};
 
 using ImageValue = std::shared_ptr<const Image>;
 using MaskValue = std::shared_ptr<const Mask>;

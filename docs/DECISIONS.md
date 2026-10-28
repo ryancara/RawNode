@@ -754,7 +754,7 @@ gesture framework, toolbar or unrelated product change is approved (D052).
 
 ## D054 — Step 8 inactive Mask bypass and scoped Opacity
 
-**Status:** Owner-approved product/architecture contract, 2026-10-26; implementation pending.
+**Status:** Owner-approved product/architecture contract, 2026-10-26; bypass and Image Mask/Opacity merged in #97–#100. Native Radial Mask is the first production generator slice for independent review.
 
 Detailed authoritative implementation requirements: [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md). The historical Step 8 discussion draft is not authoritative.
 
@@ -765,6 +765,7 @@ Detailed authoritative implementation requirements: [STEP8_MASKING_CONTRACT.md](
 - Generic Opacity mixes between an actual same-type pass-through raster and processed output on ordinary Image processors and unary Mask transforms. Standalone Mask generators and binary Combine have no generic Opacity initially; availability follows a declared operation contract, not whether an input wire happens to be connected.
 - Mask values stay scalar single-channel coverage with no extra alpha. Functional Mask inputs and generic Image-node Effect Mask inputs remain distinct. Combine is explicit; no automatic generator chaining or auto-growing Mask input ports initially.
 - The existing graph/runtime/persistence/history architecture owns this feature. No backend-specific Mask/Opacity/bypass framework or new scheduler.
+- Native geometric processors produce typed Mask directly. CTL/future DCTL remain Image producers. Future Image → Mask is an explicit visible, persisted R/G/B/A converter; automatic insertion may later be one undoable graph edit, never implicit conversion. Native handles and Mask Overlay follow separately. See the contract for the Radial geometry and bounded initial slice.
 
 This deliberately supersedes D042's white-generator bypass rule and related historical Step 5 language. It preserves D042's unavailable coverage diagnostics and D043's compatible-raster requirement for actual mixing, while **explicitly amending D043 and Step 5 at exactly zero Strength**: 0% returns the bypass raster without executing the processor or performing a pixelwise dimension check; positive partial mixing requires compatible dimensions.
 
@@ -773,8 +774,8 @@ This deliberately supersedes D042's white-generator bypass rule and related hist
 The following remain intentionally deferred until the corresponding feature:
 
 - exact Qualifier algorithm;
-- exact geometric-mask coordinate convention before geometric parameters are
-  persisted;
+- geometric conventions beyond the first Radial Mask (its normalised pixel-centre
+  and inward feather contract is now specified in STEP8_MASKING_CONTRACT.md);
 - fractional Add / Intersect / Subtract Mask maths;
 - non-Normal blend formulas/domain;
 - Parallel Mixer arithmetic;

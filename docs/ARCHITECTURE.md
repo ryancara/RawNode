@@ -462,9 +462,11 @@ Generic Mask/Strength/Blend ownership belongs to graph/node evaluation rather
 than individual backends. The first concrete user-facing mask path remains Step
 8.
 
-### Step 8 masking contract (D054, implementation pending)
+### Step 8 masking contract (D054, implementation in progress)
 
 See [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) for the owner-approved semantics that supersede Step 5's former white-generator bypass rule.
+
+PRs #97–#100 provide bypass and Image Mask/Opacity. Native Radial Mask is the first production generator slice: a concrete graph operation with existing Processor parameters and a native typed Mask generation method. CTL/future DCTL remain Image-producing. Future explicit Image → Mask conversion and native graphical controls are separate features; their agreed boundaries and Radial geometry live in the contract.
 
 Ordinary Image processing bypass passes Image through; unary Mask processing bypass passes Mask through. Input-free and Image -> Mask generators produce a raster-free **Inactive Mask** when bypassed. This intentional absence is a distinct per-output evaluation outcome, not black/white coverage, Image alpha, or Unavailable. Optional adjustment coverage treats Inactive as no restriction without warning; required Mask-processing paths propagate it. Missing/unavailable data remains diagnostically distinct. A generator bypass does not evaluate generation-only Reference/Image inputs, though structural cycle/edge validation remains unchanged.
 
