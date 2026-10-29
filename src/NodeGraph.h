@@ -35,6 +35,9 @@ void selectOutput(App &app);
 // View-only typed inspection. The first declared Mask output is suitable;
 // availability is an evaluation result, not a condition for selecting the mode.
 std::optional<OutputRef> selectedMaskOutput(const App &app);
+enum class PreviewMode { Photo, MaskOnly, MaskOverlay };
+PreviewMode previewMode(const App &app);
+bool setPreviewMode(App &app, PreviewMode mode);
 bool maskOnlyPreview(const App &app);
 bool setMaskOnlyPreview(App &app, bool enabled);
 std::string nodeDisplayName(const Node &node);

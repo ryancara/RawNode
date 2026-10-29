@@ -176,6 +176,7 @@ struct App {
     int generation = 0;
     std::shared_ptr<const OutputRef> request;  // Retained even if error reporting cannot allocate.
     EvaluationResult result;
+    std::optional<EvaluationResult> overlayMask; // Same evaluation/request as the document Image.
   } processed{0, {}, EvaluationResult{{primarySource, ports::image}}};
   std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
   std::mutex displayMutex;

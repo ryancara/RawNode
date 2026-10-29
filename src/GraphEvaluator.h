@@ -3,6 +3,7 @@
 #include "GraphModel.h"
 #include "Mask.h"
 
+#include <utility>
 #include <variant>
 
 using ImageValue = std::shared_ptr<const Image>;
@@ -74,3 +75,10 @@ EvaluationResult evaluateGraph(GraphView graph, const OutputRef &requested,
                                const EvaluationContext &context, ImageValue source,
                                const RenderCancellation &cancellation = {},
                                graph_test::Executor *testExecutor = nullptr);
+
+// Bounded paired preview: one evaluation memo/plan, two retained endpoint values.
+// The caller publishes the pair under a single request/generation identity.
+std::pair<EvaluationResult, EvaluationResult> evaluateGraphPair(
+    GraphView graph, const OutputRef &image, const OutputRef &mask,
+    const EvaluationContext &context, ImageValue source,
+    const RenderCancellation &cancellation = {}, graph_test::Executor *testExecutor = nullptr);

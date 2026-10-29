@@ -40,6 +40,28 @@ class Evaluation {
       : graph_(graph), context_(context), source_(std::move(source)), cancellation_(cancellation), executor_(testExecutor) {}
 
   EvaluationResult run(const OutputRef &requested) {
+    structureError_ = graphStructureError(graph_);
+    roots_.insert(requested);
+    return evaluate(requested);
+  }
+
+  std::pair<EvaluationResult, EvaluationResult> runPair(const OutputRef &image, const OutputRef &mask) {
+    structureError_ = graphStructureError(graph_);
+    roots_.insert(image);
+    roots_.insert(mask);
+    // Plan both roots before visiting either so shared dependencies survive
+    // until their last consumer. Only the two final rasters are retained.
+    if (structureError_.empty() && findOutput(graph_, image) && findOutput(graph_, mask)) {
+      plan(image);
+      plan(mask);
+    }
+    auto first = evaluate(image);
+    auto second = evaluate(mask);
+    return {std::move(first), std::move(second)};
+  }
+
+ private:
+  EvaluationResult evaluate(const OutputRef &requested) {
     EvaluationResult result{requested, std::nullopt, EvaluationState::Error, {}, {}};
     if (cancellation_.cancelled()) {
       result.state = EvaluationState::Cancelled;
@@ -51,8 +73,7 @@ class Evaluation {
     // validator also bounds plan()/visit() recursion by kMaxGraphDependencyDepth.
     // Absent Reference adds only the input-free primary Source; bundles and
     // bypass never introduce a recursive dependency outside those bounds.
-    const auto structure = graphStructureError(graph_);
-    if (!structure.empty()) return finish(result, failure(requested, structure));
+    if (!structureError_.empty()) return finish(result, failure(requested, structureError_));
     const auto *port = findOutput(graph_, requested);
     if (!port) return finish(result, failure(requested, "Requested output does not exist"));
     result.valueType = port->type;
@@ -62,16 +83,14 @@ class Evaluation {
       return finish(result, failure({graph_.primarySource, ports::image}, "Invalid Source Image raster"));
     if (source_->w != context_.evalSourceW || source_->h != context_.evalSourceH)
       return finish(result, failure(requested, "Evaluation context does not match Source raster dimensions"));
-    requested_ = requested;
     plan(requested);
     return finish(result, visit(requested));
   }
 
- private:
   EvaluationResult finish(EvaluationResult result, Outcome outcome) {
     result.state = outcome.state;
     result.value = std::move(outcome.value);
-    if (result.state != EvaluationState::Cancelled) result.diagnostics = std::move(diagnostics_);
+    if (result.state != EvaluationState::Cancelled) result.diagnostics = diagnostics_;
     return result;
   }
   void plan(const OutputRef &output) {
@@ -140,7 +159,7 @@ class Evaluation {
     }
   }
   void releaseUnused(const OutputRef &output) {
-    if (output == *requested_) return;
+    if (roots_.count(output)) return;
     const auto uses = remaining_.find(output);
     if (uses != remaining_.end() && uses->second != 0) return;
     const auto cached = memo_.find(output);
@@ -412,13 +431,14 @@ class Evaluation {
     return result;
   }
 
+  std::string structureError_;
   GraphView graph_;
   EvaluationContext context_;
   ImageValue source_;
   RenderCancellation cancellation_;
   graph_test::Executor *executor_;
   std::map<OutputRef, Outcome, OutputLess> memo_;
-  std::optional<OutputRef> requested_;
+  std::set<OutputRef, OutputLess> roots_;
   std::map<OutputRef, size_t, OutputLess> remaining_;
   std::map<OutputRef, double, OutputLess> planned_; // Strength sampled once, shared by bypass and mixing.
   std::set<std::string> plannedBundles_;
@@ -432,4 +452,11 @@ EvaluationResult evaluateGraph(GraphView graph, const OutputRef &requested,
                                const EvaluationContext &context, ImageValue source,
                                const RenderCancellation &cancellation, graph_test::Executor *testExecutor) {
   return Evaluation(graph, context, std::move(source), cancellation, testExecutor).run(requested);
+}
+
+std::pair<EvaluationResult, EvaluationResult> evaluateGraphPair(
+    GraphView graph, const OutputRef &image, const OutputRef &mask,
+    const EvaluationContext &context, ImageValue source,
+    const RenderCancellation &cancellation, graph_test::Executor *testExecutor) {
+  return Evaluation(graph, context, std::move(source), cancellation, testExecutor).runPair(image, mask);
 }

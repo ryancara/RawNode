@@ -3,6 +3,7 @@
 #include "AppState.h"
 #include "RenderPipeline.h"
 
+#include <algorithm>
 #include <cassert>
 #include <utility>
 #include <exception>
@@ -139,6 +140,7 @@ void RenderRuntime::completeMutation(bool changed, bool interrupted) noexcept {
       std::lock_guard<std::mutex> lock(mutex_);
       if (inspection_ && !findOutput(GraphView{app_.nodes, app_.primarySource, app_.documentOutput}, *inspection_)) {
         inspection_.reset();
+        overlayInspection_ = false;
         display_detail::clearPresentation(app_);
       }
     }
@@ -166,13 +168,15 @@ void RenderRuntime::requestPreview(bool quiet) {
   if (mutationDepth_ == 0) workCv_.notify_one();
 }
 
-void RenderRuntime::requestInspection(const OutputRef &endpoint) {
+void RenderRuntime::requestInspection(const OutputRef &endpoint, bool overlay) {
   assertControlThread();
   auto request = std::make_shared<OutputRef>(endpoint);
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_) return;
-  if (!pendingEndpoint_ || *pendingEndpoint_ != endpoint) display_detail::clearPresentation(app_);
+  if (!pendingEndpoint_ || *pendingEndpoint_ != endpoint || overlay != overlayInspection_)
+    display_detail::clearPresentation(app_);
   inspection_ = pendingEndpoint_ = std::move(request);
+  overlayInspection_ = overlay;
   ++epoch_;
   queuePreview(false);
   if (mutationDepth_ == 0) workCv_.notify_one();
@@ -185,6 +189,7 @@ void RenderRuntime::requestDocumentPreview() {
   if (stopping_) return;
   if (inspection_) display_detail::clearPresentation(app_);
   inspection_.reset();
+  overlayInspection_ = false;
   pendingEndpoint_ = std::move(request);
   ++epoch_;
   queuePreview(false);
@@ -196,6 +201,7 @@ void RenderRuntime::resetInspection() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (inspection_) display_detail::clearPresentation(app_);
   inspection_.reset();
+  overlayInspection_ = false;
 }
 
 std::optional<OutputRef> RenderRuntime::inspectionEndpoint() const {
@@ -203,6 +209,12 @@ std::optional<OutputRef> RenderRuntime::inspectionEndpoint() const {
   std::lock_guard<std::mutex> lock(mutex_);
   if (inspection_) return *inspection_;
   return std::nullopt;
+}
+
+bool RenderRuntime::overlayInspection() const {
+  assertControlThread();
+  std::lock_guard<std::mutex> lock(mutex_);
+  return overlayInspection_;
 }
 
 EvaluationResult RenderRuntime::evaluateOwned(const OutputRef &endpoint, const EvaluationContext &context,
@@ -239,7 +251,7 @@ void RenderRuntime::runPreview() {
     ~BusyGuard() { runtime.finishPreview(); }
   };
   for (;;) {
-    bool recolorOnly, quiet;
+    bool recolorOnly, quiet, overlay;
     std::optional<uint64_t> inheritedStatus;
     int gen;
     std::shared_ptr<const OutputRef> endpoint;
@@ -261,6 +273,7 @@ void RenderRuntime::runPreview() {
       previewBusy_ = true;
       gen = recolorOnly ? epoch_.load() : ++epoch_;
       endpoint = pendingEndpoint_;
+      overlay = overlayInspection_;
     }
     BusyGuard busy{*this};
     // Includes evaluator bookkeeping, display allocations and unexpected
@@ -272,7 +285,7 @@ void RenderRuntime::runPreview() {
           return app_.processed; // Immutable shared value and publication identity.
         }();
         endpoint = snapshot.request;
-        auto presentation = display_detail::preparePresentation(app_, snapshot.result);
+        auto presentation = display_detail::preparePresentation(app_, snapshot.result, snapshot.overlayMask);
         if (beforePublication_) beforePublication_(publicationContext_, snapshot.result.requested);
         std::lock_guard<std::mutex> lock(mutex_);
         // Before the first preview request, a retained presentation may still
@@ -296,7 +309,25 @@ void RenderRuntime::runPreview() {
       // replacement drains that ownership through DocumentMutation.
       const EvaluationContext context{EvaluationPurpose::Preview, app_.full.w, app_.full.h,
                                        source->w, source->h};
-      auto result = evaluateOwned(*endpoint, context, source, cancellation);
+      EvaluationResult result{*endpoint};
+      std::optional<EvaluationResult> overlayMask;
+      if (overlay) {
+        if (beforeEvaluation_) beforeEvaluation_(evaluationContext_);
+        auto pair = evaluateGraphPair({app_.nodes, app_.primarySource, app_.documentOutput},
+                                     app_.documentOutput, *endpoint, context, source, cancellation, testExecutor_);
+        result = std::move(pair.first);
+        overlayMask = std::move(pair.second);
+        if (result.state == EvaluationState::Available && overlayMask->state == EvaluationState::Available) {
+          const auto &image = std::get<ImageValue>(result.value);
+          const auto &mask = std::get<MaskValue>(overlayMask->value);
+          if (image->w != mask->w || image->h != mask->h) {
+            overlayMask->state = EvaluationState::Error;
+            overlayMask->value = std::monostate{};
+            overlayMask->diagnostics.push_back({DiagnosticLevel::Error, *endpoint,
+                                               "Mask Overlay Image/Mask dimension mismatch; overlay hidden"});
+          }
+        }
+      } else result = evaluateOwned(*endpoint, context, source, cancellation);
       if (result.state == EvaluationState::Cancelled || cancellation.cancelled()) continue;
       std::string status;
       if (result.state == EvaluationState::Available) {
@@ -307,15 +338,29 @@ void RenderRuntime::runPreview() {
       } else if (result.state == EvaluationState::Inactive) status = "Mask inactive (bypassed)";
       else status = result.state == EvaluationState::Unavailable ? "Preview unavailable" : "Render failed";
       for (const auto &diagnostic : result.diagnostics) status += " — " + diagnostic.message;
-      auto presentation = display_detail::preparePresentation(app_, result);
+      if (overlayMask) {
+        if (overlayMask->state == EvaluationState::Cancelled) continue;
+        if (overlayMask->state == EvaluationState::Inactive) status += " — Mask inactive (bypassed)";
+        else if (overlayMask->state != EvaluationState::Available) status += " — Mask Overlay unavailable";
+        for (const auto &diagnostic : overlayMask->diagnostics) {
+          const bool alreadyReported = std::any_of(result.diagnostics.begin(), result.diagnostics.end(),
+              [&](const EvaluationDiagnostic &existing) {
+                return existing.endpoint == diagnostic.endpoint && existing.message == diagnostic.message;
+              });
+          if (!alreadyReported) status += " — " + diagnostic.message;
+        }
+      }
+      auto presentation = display_detail::preparePresentation(app_, result, overlayMask);
       if (beforePublication_) beforePublication_(publicationContext_, *endpoint);
       // This same gate records endpoint demand/generation and protects typed
       // publication. An older Image or Mask cannot publish after a new request.
       std::lock_guard<std::mutex> lock(mutex_);
       if (gen != epoch_.load() || endpoint != pendingEndpoint_ || stopping_) continue;
       const bool reportStatus = !quiet || (result.state != EvaluationState::Available &&
-                                           result.state != EvaluationState::Inactive);
-      display_detail::publishPreview(app_, std::move(result), gen, endpoint, std::move(presentation));
+                                           result.state != EvaluationState::Inactive) ||
+          (overlayMask && overlayMask->state != EvaluationState::Available &&
+                          overlayMask->state != EvaluationState::Inactive);
+      display_detail::publishPreview(app_, std::move(result), gen, endpoint, std::move(presentation), std::move(overlayMask));
       if (reportStatus || inheritedStatus)
         app_.setStatus(status, reportStatus ? std::nullopt : inheritedStatus);
     } catch (...) {
@@ -357,6 +402,7 @@ void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef
         app_.processed.result.requested.nodeId.value.clear();
         app_.processed.result.requested.outputPortId.value.clear();
         app_.processed.result.diagnostics.clear();
+        app_.processed.overlayMask.reset();
         app_.display = {};
         app_.displayRGBA.clear();
         app_.displayDirty = true;
