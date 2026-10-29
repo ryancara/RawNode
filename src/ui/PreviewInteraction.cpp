@@ -188,7 +188,7 @@ bool finishPreviewInteraction(App &app, bool force) {
   if (state.photoPath != app.path ||
       (app.isPhotoProtected() && (isHandle(state.drag) || state.editPending))) { state = {}; return false; }
   const auto *context = ImGui::GetCurrentContext();
-  if (force || !context || ImGui::GetIO().AppFocusLost ||
+  if (force || !context || ImGui::GetIO().AppFocusLost || !ImGui::IsMousePosValid() ||
       !ImGui::IsMouseDown(state.button < 0 ? 0 : state.button) ||
       context->ActiveId != state.canvas || context->ActiveIdIsAlive != state.canvas ||
       (isHandle(state.drag) && (state.node != app.selectedNodeId() ||

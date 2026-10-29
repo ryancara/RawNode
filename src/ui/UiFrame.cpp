@@ -43,7 +43,8 @@ void doExport(App &app) {
   std::string outPath = sel.result();
   if (outPath.empty()) return;
   if (fs::path(outPath).extension().empty()) outPath += exts[app.exportFormat];
-  finishUiEdits(app);
+  ui::finishPreviewInteraction(app, true);
+  finishParameterGesture(app, true);
   startExport(app, outPath);
 }
 

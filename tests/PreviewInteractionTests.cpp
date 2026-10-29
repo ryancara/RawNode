@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
@@ -240,7 +241,7 @@ bool ownershipAndZoom() {
 bool interruptionsAndAlignment() {
   App app; Ui ui; fixture(app); ui.tick(app); ui.tick(app);
   const auto id = *app.selectedNodeId();
-  for (int interruption = 0; interruption < 6; ++interruption) {
+  for (int interruption = 0; interruption < 7; ++interruption) {
     selectNode(app, id); ui.visible = ui.texture = true; ui.tick(app);
     const auto start = ui.grip(app, PreviewDrag::Centre); const auto before = app.history.size();
     ui.press(app, start); ui.hover(app, {start.x + 15, start.y - 10});
@@ -251,6 +252,7 @@ bool interruptionsAndAlignment() {
     if (interruption == 3) ui.key(app, ImGuiKey_Escape, true);
     if (interruption == 4) finishUiEdits(app);
     if (interruption == 5) ImGui::GetIO().AddFocusEvent(false);
+    if (interruption == 6) ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
     ui.tick(app); ui.hover(app, {start.x + 40, start.y - 30}); ui.release(app);
     CHECK(parameter(app, id, "centreX") == edited && app.history.size() == before + 1);
     CHECK(!app.previewInteraction.editPending && app.previewInteraction.drag == PreviewDrag::None);
