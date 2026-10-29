@@ -7,6 +7,7 @@
 #include "GraphDepthFixtures.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
+#include "RenderPipeline.h"
 #include "persist/DocumentActions.h"
 #include "ofx/OfxHost.h"
 #include "ofxParam.h"
@@ -594,42 +595,325 @@ static bool testMaskOnlySelectionAndSupersession() {
 }
 
 static bool testMaskOnlyClearBoundaries() {
+  for (bool overlay : {false, true}) {
+    App app; source(app); Gate gate;
+    CHECK(addNativeExposureNode(app) && addNativeRadialMaskNode(app));
+    const auto radial = *app.selectedNodeId();
+    PersistGrade grade; CHECK(captureGrade(app, grade));
+    CHECK(selectNode(app, std::nullopt));
+    RenderRuntimeTestAccess::evaluation(app.renderer, nullptr, [](void *context) {
+      static_cast<Gate *>(context)->hold();
+    }, &gate);
+    GateWorkerGuard guard{app, gate}; app.renderer.start(); CHECK(idle(app));
+    for (int boundary = 0; boundary < 3; ++boundary) {
+      // No node selection: replacement cannot clear via selection fallback and
+      // conceal a missing resetInspection()/completeMutation() clear operation.
+      app.renderer.requestInspection(mask(radial), overlay);
+      CHECK(idle(app) && previewMode(app) == (overlay ? PreviewMode::MaskOverlay : PreviewMode::MaskOnly));
+      { std::lock_guard<std::mutex> lock(app.displayMutex);
+        CHECK(!app.displayRGBA.empty() && app.display.w > 0 && app.display.h > 0);
+      }
+      gate.arm();
+      if (boundary == 0) CHECK(setMaskOnlyPreview(app, false)); // requestDocumentPreview()
+      else if (boundary == 1) CHECK(applyGrade(app, grade));   // resetInspection(), same saved IDs
+      else CHECK(destroyNode(app, radial));                  // completeMutation(), invalid endpoint
+      // The old Mask publication is retained, but its presentation must already
+      // be gone, before the delayed Image evaluation can publish a replacement.
+      CHECK(!app.renderer.inspectionEndpoint() && publication(app).request && *publication(app).request == mask(radial));
+      { std::lock_guard<std::mutex> lock(app.displayMutex);
+        CHECK(app.displayRGBA.empty() && app.display.w == 0 && app.display.h == 0 && app.displayDirty);
+      }
+      CHECK(gate.wait(boundary + 1));
+      { std::lock_guard<std::mutex> lock(app.displayMutex);
+        CHECK(app.displayRGBA.empty() && app.display.w == 0 && app.display.h == 0);
+      }
+      gate.unblock(); CHECK(idle(app));
+      const auto frame = publication(app);
+      CHECK(frame.result.requested == app.documentOutput && frame.result.valueType == ValueType::Image &&
+            frame.result.state == EvaluationState::Available);
+      { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(!app.displayRGBA.empty()); }
+    }
+  }
+  return true;
+}
+
+
+// The overlay oracle uses explicit display-byte values: red tint is an RGB
+// interpolation toward (255,0,0), with opacity .4 times scalar coverage.
+static bool testOverlayPresentation() {
+  App app;
+  app.outputEncoding = {RgbGamut::Rec709, TransferFunction::SRGB};
+  const NodeId output{"display-image"}, selected{"display-mask"};
+  auto photo = std::make_shared<Image>(); photo->w = 3; photo->h = 2;
+  // Bottom-up asymmetric rows include alpha 0, fractional alpha and alpha 1.
+  photo->px = {0,1,0,0, 0,1,0,.5f, 0,1,0,1,
+               0,0,1,1, 0,0,1,.5f, 0,0,1,0};
+  auto coverage = std::make_shared<Mask>(); coverage->w = 3; coverage->h = 2;
+  coverage->px = {1,.5f,0, 0,.5f,1};
+  EvaluationResult imageResult{image(output), ValueType::Image, EvaluationState::Available, ImageValue(photo), {}};
+  EvaluationResult maskResult{mask(selected), ValueType::Mask, EvaluationState::Available, MaskValue(coverage), {}};
+  const auto presentation = display_detail::preparePresentation(app, imageResult, maskResult);
+  // Top row is blue, bottom row green. Alpha is never tinted or used as coverage.
+  CHECK(presentation.w == 3 && presentation.h == 2);
+  CHECK(presentation.rgba == std::vector<unsigned char>({0,0,255,255, 51,0,204,128, 102,0,153,0,
+                                                        102,153,0,0, 51,204,0,128, 0,255,0,255}));
+  for (auto state : {EvaluationState::Inactive, EvaluationState::Unavailable, EvaluationState::Error}) {
+    maskResult.state = state; maskResult.value = std::monostate{};
+    CHECK(display_detail::preparePresentation(app, imageResult, maskResult).rgba ==
+          display_detail::preparePresentation(app, imageResult).rgba);
+  }
+  // Unmatched rasters never acquire a spatial mapping, even in display refresh.
+  coverage->w = 2; coverage->h = 3;
+  maskResult.state = EvaluationState::Available; maskResult.value = MaskValue(coverage);
+  CHECK(display_detail::preparePresentation(app, imageResult, maskResult).rgba ==
+        display_detail::preparePresentation(app, imageResult).rgba);
+  imageResult.state = EvaluationState::Error; imageResult.value = std::monostate{};
+  CHECK(display_detail::preparePresentation(app, imageResult, maskResult).rgba.empty());
+  return true;
+}
+
+class OverlayExecutor final : public graph_test::Executor {
+ public:
+  std::atomic<int> calls{0};
+  std::atomic<bool> mismatch{false};
+  std::atomic<EvaluationState> maskState{EvaluationState::Available};
+  graph_test::OperationResult execute(const Node &node, const EvaluationContext &,
+                                     const graph_test::InputValues &in, const RenderCancellation &) override {
+    ++calls;
+    if (node.operation == NodeOperation::TestImage)
+      return {EvaluationState::Available, {{ports::image, in.image}}, {}};
+    if (maskState != EvaluationState::Available) return {maskState.load(), {}, "overlay mask failure"};
+    auto value = std::make_shared<Mask>();
+    if (in.mask) {
+      *value = *in.mask;
+      for (auto &sample : value->px) sample = 1 - sample;
+    } else {
+      const auto frame = in.reference ? in.reference : in.image;
+      value->w = frame->w + (mismatch ? 1 : 0); value->h = frame->h;
+      value->px.assign(static_cast<size_t>(value->w) * value->h, .25f);
+    }
+    if (node.operation == NodeOperation::TestMultipleOutputs)
+      return {EvaluationState::Available, {{ports::image, in.image}, {PortId{"original"}, in.image}, {ports::mask, MaskValue(value)}}, {}};
+    return {EvaluationState::Available, {{ports::mask, MaskValue(value)}}, {}};
+  }
+};
+
+static bool testOverlayRuntime() {
+  OverlayExecutor executor; App app; source(app);
+  app.outputEncoding = {RgbGamut::Rec709, TransferFunction::SRGB};
+  const NodeId effect{"overlay-image"}, generator{"overlay-generator"}, modifier{"overlay-final"};
+  auto *processor = numeric(app, effect, 2); CHECK(processor);
+  CHECK(add(app, generator, NodeOperation::TestReferenceMask));
+  CHECK(add(app, modifier, NodeOperation::TestMaskProcessor));
+  CHECK(graph::connect(app, image(effect), input(generator, ports::reference)).ok());
+  CHECK(graph::connect(app, mask(generator), input(modifier, ports::mask)).ok());
+  RenderRuntimeTestAccess::evaluation(app.renderer, &executor);
+  CHECK(selectNode(app, modifier) && previewMode(app) == PreviewMode::Photo);
+  app.renderer.start(); app.renderer.requestDocumentPreview(); CHECK(idle(app));
+  struct Stop { App &app; ~Stop() { app.renderer.shutdown(); } } stop{app};
+  auto calls = processor->calls.load();
+  CHECK(setPreviewMode(app, PreviewMode::MaskOverlay) && idle(app));
+  auto frame = publication(app);
+  CHECK(processor->calls == calls + 1 && executor.calls == 2); // Shared Image Reference executes once.
+  CHECK(frame.result.requested == image(effect) && frame.overlayMask && frame.overlayMask->requested == mask(modifier));
+  CHECK(frame.overlayMask->state == EvaluationState::Available &&
+        std::get<MaskValue>(frame.overlayMask->value)->px[0] == .75f); // Final inverted coverage, not generator .25.
+  CHECK(std::get<ImageValue>(frame.result.value)->px == std::vector<float>({.5f,.5f,.5f,.75f}));
+  // lcms versions can round the colour-managed background one byte apart.
+  // Bound RGB variation only; alpha and the separate overlay maths oracle stay exact.
+  { std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.displayRGBA.size() == 4 && app.displayRGBA[3] == 191);
+    const int expected[] = {166,90,90};
+    for (size_t channel = 0; channel < 3; ++channel)
+      CHECK(std::abs(int(app.displayRGBA[channel]) - expected[channel]) <= 1);
+  }
+  calls = processor->calls.load(); const auto maskCalls = executor.calls.load();
+  { std::lock_guard<std::mutex> lock(app.colorMutex); app.outputEncoding.gamma = TransferFunction::Linear; }
+  app.renderer.requestDisplayRefresh(); CHECK(idle(app));
+  CHECK(processor->calls == calls && executor.calls == maskCalls && publication(app).request == frame.request &&
+        publication(app).generation == frame.generation);
+  // sRGB encode(.5) is approximately 188; .3 tint gives (208,132,132).
+  { std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.displayRGBA.size() == 4 && app.displayRGBA[3] == 191);
+    const int expected[] = {208,132,132};
+    for (size_t channel = 0; channel < 3; ++channel)
+      CHECK(std::abs(int(app.displayRGBA[channel]) - expected[channel]) <= 1);
+  }
+  CHECK(setPreviewMode(app, PreviewMode::MaskOnly) && idle(app) && !publication(app).overlayMask);
+  CHECK(publication(app).result.requested == mask(modifier));
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA == std::vector<unsigned char>({191,191,191,255})); }
+  CHECK(setPreviewMode(app, PreviewMode::Photo) && idle(app) && !publication(app).overlayMask);
+  CHECK(setPreviewMode(app, PreviewMode::MaskOverlay) && idle(app));
+  for (auto state : {EvaluationState::Unavailable, EvaluationState::Error}) {
+    executor.maskState = state; app.renderer.requestPreview(); CHECK(idle(app));
+    frame = publication(app);
+    CHECK(frame.result.state == EvaluationState::Available && frame.overlayMask->state == state);
+    CHECK(diagnostic(*frame.overlayMask, "overlay mask failure") && app.getStatus().find("overlay mask failure") != std::string::npos);
+    const auto expected = display_detail::preparePresentation(app, frame.result);
+    { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA == expected.rgba); }
+  }
+  executor.maskState = EvaluationState::Available;
+  setNodeEnabled(app, generator, false); CHECK(idle(app));
+  frame = publication(app); CHECK(frame.overlayMask->state == EvaluationState::Inactive);
+  CHECK(std::holds_alternative<std::monostate>(frame.overlayMask->value));
+  { std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.displayRGBA == display_detail::preparePresentation(app, frame.result).rgba); }
+  { auto lease = app.renderer.acquireExport(); CHECK(lease); app.setStatus("Export complete"); }
+  CHECK(idle(app) && app.getStatus() == "Export complete");
+  setNodeEnabled(app, generator, true); executor.mismatch = true; app.renderer.requestPreview(); CHECK(idle(app));
+  frame = publication(app);
+  CHECK(frame.overlayMask->state == EvaluationState::Error && diagnostic(*frame.overlayMask, "dimension mismatch"));
+  { std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.displayRGBA == display_detail::preparePresentation(app, frame.result).rgba); }
+  executor.mismatch = false; processor->fail = true; app.renderer.requestPreview(); CHECK(idle(app));
+  CHECK(publication(app).result.state == EvaluationState::Error);
+  { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA.empty()); }
+  processor->fail = false; app.renderer.requestPreview(); CHECK(idle(app));
+  CHECK(selectNode(app, generator) && idle(app) && previewMode(app) == PreviewMode::MaskOverlay);
+  CHECK(publication(app).overlayMask->requested == mask(generator));
+  for (int kind = 0; kind < 4; ++kind) {
+    CHECK(selectNode(app, modifier) && setPreviewMode(app, PreviewMode::MaskOverlay) && idle(app));
+    if (kind == 0) CHECK(selectNode(app, effect));
+    if (kind == 1) CHECK(selectNode(app, app.primarySource));
+    if (kind == 2) selectOutput(app);
+    if (kind == 3) CHECK(selectNode(app, std::nullopt));
+    CHECK(previewMode(app) == PreviewMode::Photo && !setPreviewMode(app, PreviewMode::MaskOverlay) && idle(app));
+    CHECK(!publication(app).overlayMask);
+  }
+  // A selected Mask consumed by the Image endpoint remains pinned for the
+  // second root; neither the modifier nor generator may execute twice.
+  CHECK(graph::reconnect(app, image(app.primarySource), input(generator, ports::reference)).ok());
+  CHECK(graph::connect(app, mask(modifier), input(effect, ports::mask)).ok());
+  CHECK(idle(app) && selectNode(app, modifier));
+  const auto sharedCalls = executor.calls.load();
+  CHECK(setPreviewMode(app, PreviewMode::MaskOverlay) && idle(app));
+  CHECK(executor.calls == sharedCalls + 2);
+  frame = publication(app);
+  CHECK(std::get<ImageValue>(frame.result.value)->px[0] == .4375f);
+  CHECK(std::get<MaskValue>(frame.overlayMask->value)->px[0] == .75f);
+  // One operation with Image+Mask outputs also shares execution and retains
+  // both typed outputs, even when each is consumed on the Image path.
+  const NodeId bundle{"overlay-bundle"};
+  CHECK(add(app, bundle, NodeOperation::TestMultipleOutputs));
+  CHECK(graph::connect(app, image(app.primarySource), input(bundle)).ok());
+  CHECK(graph::reconnect(app, image(bundle), input(effect)).ok());
+  CHECK(graph::reconnect(app, mask(bundle), input(effect, ports::mask)).ok());
+  CHECK(selectNode(app, bundle) && idle(app));
+  const auto bundleCalls = executor.calls.load();
+  app.renderer.requestPreview(); CHECK(idle(app));
+  CHECK(executor.calls == bundleCalls + 1);
+  frame = publication(app);
+  CHECK(frame.result.state == EvaluationState::Available && frame.overlayMask->state == EvaluationState::Available);
+  CHECK(std::get<ImageValue>(frame.result.value)->px[0] == .3125f);
+  CHECK(std::get<MaskValue>(frame.overlayMask->value)->px[0] == .25f);
+  return true;
+}
+
+static bool testOverlaySupersession() {
   App app; source(app); Gate gate;
-  CHECK(addNativeExposureNode(app) && addNativeRadialMaskNode(app));
-  const auto radial = *app.selectedNodeId();
+  CHECK(addNativeExposureNode(app)); const auto effect = *app.selectedNodeId();
+  CHECK(addNativeRadialMaskNode(app)); const auto a = *app.selectedNodeId();
+  CHECK(addNativeRadialMaskNode(app)); const auto b = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app, b, "radiusX", 0.0)); // Distinct paired pixel result.
   PersistGrade grade; CHECK(captureGrade(app, grade));
-  CHECK(selectNode(app, std::nullopt));
+  struct Probe { App &app; Gate &gate; std::atomic<int> expected{-1}; std::atomic<bool> stale{false}, expectClear{false}; } probe{app, gate};
   RenderRuntimeTestAccess::evaluation(app.renderer, nullptr, [](void *context) {
+    auto &p = *static_cast<Probe *>(context);
+    if (p.expected >= 0) {
+      std::lock_guard<std::mutex> lock(p.app.displayMutex);
+      if (p.app.processed.generation != p.expected || (p.expectClear && !p.app.displayRGBA.empty())) p.stale = true;
+    }
+  }, &probe);
+  RenderRuntimeTestAccess::publication(app.renderer, [](void *context, const OutputRef &) {
     static_cast<Gate *>(context)->hold();
   }, &gate);
   GateWorkerGuard guard{app, gate}; app.renderer.start(); CHECK(idle(app));
-  for (int boundary = 0; boundary < 3; ++boundary) {
-    // No node selection: replacement cannot clear via selection fallback and
-    // conceal a missing resetInspection()/completeMutation() clear operation.
-    app.renderer.requestInspection(mask(radial)); CHECK(idle(app) && maskOnlyPreview(app));
-    { std::lock_guard<std::mutex> lock(app.displayMutex);
-      CHECK(!app.displayRGBA.empty() && app.display.w > 0 && app.display.h > 0);
-    }
+  int entered = 0;
+  for (int change = 0; change < 6; ++change) {
+    probe.expected = -1; probe.expectClear = false;
+    CHECK(selectNode(app, a) && setPreviewMode(app, PreviewMode::MaskOverlay) && idle(app));
+    const auto baseline = publication(app); probe.expected = baseline.generation;
     gate.arm();
-    if (boundary == 0) CHECK(setMaskOnlyPreview(app, false)); // requestDocumentPreview()
-    else if (boundary == 1) CHECK(applyGrade(app, grade));   // resetInspection(), same saved IDs
-    else CHECK(destroyNode(app, radial));                  // completeMutation(), invalid endpoint
-    // The old Mask publication is retained, but its presentation must already
-    // be gone, before the delayed Image evaluation can publish a replacement.
-    CHECK(!app.renderer.inspectionEndpoint() && publication(app).result.requested == mask(radial));
-    { std::lock_guard<std::mutex> lock(app.displayMutex);
-      CHECK(app.displayRGBA.empty() && app.display.w == 0 && app.display.h == 0 && app.displayDirty);
+    if (change == 5) app.renderer.requestDisplayRefresh();
+    else app.renderer.requestPreview();
+    CHECK(gate.wait(++entered));
+    probe.expectClear = change != 3;
+    // Both endpoints and presentation are ready. Supersede before committing.
+    if (change == 0) CHECK(selectNode(app, b));
+    if (change == 1) CHECK(setPreviewMode(app, PreviewMode::MaskOnly)); // Same selected endpoint, different mode.
+    if (change == 2) CHECK(selectNode(app, effect));
+    if (change == 3) {
+      for (int i = 0; i < 100; ++i) CHECK(setNodeParameterValue(app, effect, "exposure", i % 2 ? 1.0 : 0.0));
+      CHECK(setNodeParameterValue(app, a, "radiusX", 0.0));
     }
-    CHECK(gate.wait(boundary + 1));
-    { std::lock_guard<std::mutex> lock(app.displayMutex);
-      CHECK(app.displayRGBA.empty() && app.display.w == 0 && app.display.h == 0);
+    if (change == 4 || change == 5) { // Pending and active display refresh both share the request gate.
+      CHECK(selectNode(app, b)); app.renderer.requestDisplayRefresh();
     }
-    gate.unblock(); CHECK(idle(app));
-    const auto frame = publication(app);
-    CHECK(frame.result.requested == app.documentOutput && frame.result.valueType == ValueType::Image &&
-          frame.result.state == EvaluationState::Available);
-    { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(!app.displayRGBA.empty()); }
+    gate.unblock(); CHECK(idle(app) && !probe.stale);
+    const auto current = publication(app);
+    CHECK(current.generation > baseline.generation && current.generation == RenderRuntimeTestAccess::snapshot(app.renderer).epoch);
+    if (change == 0 || change == 4 || change == 5) {
+      CHECK(current.overlayMask && current.overlayMask->requested == mask(b));
+      CHECK(std::get<MaskValue>(current.overlayMask->value)->px[0] == 0);
+    }
+    if (change == 1) CHECK(current.result.requested == mask(a) && !current.overlayMask);
+    if (change == 2) CHECK(current.result.requested == app.documentOutput && !current.overlayMask);
+    if (change == 3) {
+      CHECK(std::get<ImageValue>(current.result.value)->px[0] == .5f);
+      CHECK(std::get<MaskValue>(current.overlayMask->value)->px[0] == 0);
+    }
   }
+  probe.expected = -1;
+  // Grade replacement must reset mode even with reused Mask NodeIds.
+  CHECK(selectNode(app, a) && setPreviewMode(app, PreviewMode::MaskOverlay) && idle(app));
+  CHECK(applyGrade(app, grade) && idle(app));
+  CHECK(previewMode(app) == PreviewMode::Photo && !publication(app).overlayMask);
+  return true;
+}
+
+static bool testOverlayDocumentBoundaries() {
+  Files files; App app;
+  app.full = raster(8, 4); app.preview = std::make_shared<Image>(raster(4, 2));
+  app.outputEncoding = {RgbGamut::Rec709, TransferFunction::SRGB};
+  CHECK(addNativeExposureNode(app)); const auto effect = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app, effect, "exposure", 1.0));
+  CHECK(addNativeRadialMaskNode(app)); const auto radial = *app.selectedNodeId();
+  PersistGrade before; CHECK(captureGrade(app, before));
+  PersistFile beforeFile; beforeFile.grade = before;
+  std::string beforeJson, afterJson, error; CHECK(encodeGraphFile(beforeFile, beforeJson, error));
+  const auto historySize = app.history.size(), historyCursor = app.history.cursor();
+  app.previewZoom = 2; app.previewPanX = 17; app.previewPanY = -23;
+  app.renderer.start(); struct Stop { App &app; ~Stop() { app.renderer.shutdown(); } } stop{app};
+  CHECK(setPreviewMode(app, PreviewMode::MaskOverlay) && idle(app));
+  const auto frame = publication(app);
+  CHECK(frame.result.requested == image(effect) && frame.overlayMask->requested == mask(radial));
+  // Default Radial is symmetric, and zero outside the ellipse; nonzero
+  // coverage is sampled at the preview's own pixel centres.
+  CHECK(std::get<MaskValue>(frame.overlayMask->value)->w == 4);
+  PersistGrade after; CHECK(captureGrade(app, after));
+  PersistFile afterFile; afterFile.grade = after;
+  CHECK(encodeGraphFile(afterFile, afterJson, error) && beforeJson == afterJson);
+  CHECK(app.history.size() == historySize && app.history.cursor() == historyCursor);
+  CHECK(app.previewZoom == 2 && app.previewPanX == 17 && app.previewPanY == -23);
+  CHECK(runExportJob(app, files.path("overlay-export.png")) && idle(app));
+  CHECK(previewMode(app) == PreviewMode::MaskOverlay && publication(app).overlayMask->requested == mask(radial));
+  CHECK(app.getStatus().find("Exported overlay-export.png") == 0);
+  Image written; ColorEncoding encoding; bool raw;
+  CHECK(loadImage(files.path("overlay-export.png"), written, encoding, raw) && written.w == 8 && written.h == 4);
+  const double loadedRgb = std::pow((128.0 / 255.0 + .055) / 1.055, 2.4);
+  for (size_t i = 0; i < written.px.size(); ++i)
+    CHECK(std::abs(written.px[i] - (i % 4 == 3 ? 191.0 / 255.0 : loadedRgb)) < 1e-6);
+  CHECK(applyGrade(app, before) && idle(app));
+  CHECK(previewMode(app) == PreviewMode::Photo && !publication(app).overlayMask);
+  CHECK(selectNode(app, radial) && setPreviewMode(app, PreviewMode::MaskOverlay) && idle(app));
+  CHECK(destroyNode(app, radial) && idle(app));
+  CHECK(previewMode(app) == PreviewMode::Photo && !publication(app).overlayMask);
+  CHECK(addNativeRadialMaskNode(app) && setPreviewMode(app, PreviewMode::MaskOverlay) && idle(app));
+  const auto next = files.path("overlay-next.png");
+  CHECK(writeImage(raster(3, 5, .8f), next, app.outputEncoding, 92));
+  openPath(app, next); CHECK(idle(app));
+  CHECK(app.full.w == 3 && app.full.h == 5 && previewMode(app) == PreviewMode::Photo);
+  CHECK(!publication(app).overlayMask && publication(app).result.requested == app.documentOutput);
   return true;
 }
 
@@ -1514,6 +1798,10 @@ static bool testOfxParameterScheduling() {
 
 bool testGraphRuntime() {
   const struct { const char *name; bool (*test)(); } cases[] = {
+      {"Mask Overlay leaves grade/history/view/export unchanged and resets on replacement", testOverlayDocumentBoundaries},
+      {"Mask Overlay display byte maths, colour, orientation, alpha and mismatch", testOverlayPresentation},
+      {"Mask Overlay shared endpoints, final coverage, retained colour refresh and safe failures", testOverlayRuntime},
+      {"Mask Overlay paired publication rejects stale selection, mode, edits and display work", testOverlaySupersession},
       {"Interrupted normal preview retains status intent; quiet export restoration and newer messages remain protected", testInterruptedPreviewStatus},
       {"Strength edits supersede active preview without waiting; latest zero bypass publishes and export excludes edits", testStrengthEditOwnership},
       {"Native/CTL/OFX Add Processor shares serial, Source and off-chain insertion policy", testBackendInsertion},
@@ -1527,7 +1815,7 @@ bool testGraphRuntime() {
       {"Step 8 Inactive inspection clears stale pixels and quiet restoration preserves export status", testInactiveInspectionAndRestoration},
       {"Mask Only native coverage, grayscale/orientation, edits, retained display and Image export", testMaskOnlyNativePreview},
       {"Mask Only typed eligibility, selection fallback, failure clearing and publication supersession", testMaskOnlySelectionAndSupersession},
-      {"Mask Only clears immediately on Photo, document replacement and inspected-node deletion before delayed Image publication", testMaskOnlyClearBoundaries},
+      {"Mask Only/Overlay clear immediately on Photo, document replacement and deletion before delayed Image publication", testMaskOnlyClearBoundaries},
       {"6D Image-to-Mask and Mask-to-Image endpoint supersession", testEndpointSupersession},
       {"6D full-resolution graph export, reachable warnings, refusal and resolution context", testExportPolicyAndContext},
       {"6D allocation-style worker exception publishes Error and worker survives mutation", testWorkerExceptionBoundary},

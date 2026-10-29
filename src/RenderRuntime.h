@@ -28,10 +28,11 @@ class RenderRuntime {
   void start();                         // Optional; tests may evaluate without a worker.
   void shutdown() noexcept;            // Terminal and idempotent; drains both workers.
   void requestPreview();
-  void requestInspection(const OutputRef &endpoint);
+  void requestInspection(const OutputRef &endpoint, bool overlay = false);
   void requestDocumentPreview();
-  // Control-thread viewer query; the retained endpoint is the preview mode.
+  // Control-thread viewer queries: retained endpoint and presentation choice.
   std::optional<OutputRef> inspectionEndpoint() const;
+  bool overlayInspection() const;
   // Control-thread view state only: forget inspection without cancelling or
   // replacing queued/in-flight demand. Document replacement calls this within
   // its mutation; that mutation supplies the completion preview.
@@ -40,8 +41,8 @@ class RenderRuntime {
   // A new capture may drain preview, but must not nest mutation or wait on export.
   bool canCaptureSnapshot() const;
   bool canEditParameters() const;      // Same control thread as export acquisition.
-  // Caller already owns preview/export execution exclusion. This is the one
-  // evaluator invocation seam; test hooks are configured before execution only.
+  // Caller already owns preview/export execution exclusion. Single-endpoint
+  // evaluation shares its test hooks with paired preview; configure before execution.
   EvaluationResult evaluateOwned(const OutputRef &endpoint, const EvaluationContext &context,
                                  ImageValue source, const RenderCancellation &cancellation = {});
 
@@ -112,6 +113,7 @@ class RenderRuntime {
   // message revision is current. Empty means genuinely quiet work.
   std::optional<uint64_t> statusPending_, statusBusy_;
   std::shared_ptr<const OutputRef> inspection_, pendingEndpoint_;
+  bool overlayInspection_ = false; // Protected by mutex_, captured with each request.
   int mutationDepth_ = 0;
 
   // Evaluation reads cancellation without taking mutex_. Thread handles are

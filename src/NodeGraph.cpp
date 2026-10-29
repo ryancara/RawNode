@@ -96,20 +96,20 @@ bool selectNode(App &app, std::optional<NodeId> id) {
   InspectorSelection selection;
   if (id) selection = *id;
   if (app.selection != selection) {
-    const bool inspectMask = maskOnlyPreview(app);
+    const auto mode = previewMode(app);
     app.selection = std::move(selection);
     app.paramFilter[0] = '\0';
-    if (inspectMask && !setMaskOnlyPreview(app, true)) setMaskOnlyPreview(app, false);
+    if (mode != PreviewMode::Photo && !setPreviewMode(app, mode)) setPreviewMode(app, PreviewMode::Photo);
   }
   return true;
 }
 
 void selectOutput(App &app) {
   if (!app.outputSelected()) {
-    const bool inspectMask = maskOnlyPreview(app);
+    const auto mode = previewMode(app);
     app.selection = InspectorEndpoint::Output;
     app.paramFilter[0] = '\0';
-    if (inspectMask) setMaskOnlyPreview(app, false);
+    if (mode != PreviewMode::Photo) setPreviewMode(app, PreviewMode::Photo);
   }
 }
 
@@ -122,19 +122,25 @@ std::optional<OutputRef> selectedMaskOutput(const App &app) {
   return std::nullopt;
 }
 
-bool maskOnlyPreview(const App &app) {
+PreviewMode previewMode(const App &app) {
   const auto endpoint = app.renderer.inspectionEndpoint();
   const auto *port = endpoint ? findOutput(app, *endpoint) : nullptr;
-  return port && port->type == ValueType::Mask;
+  if (!port || port->type != ValueType::Mask) return PreviewMode::Photo;
+  return app.renderer.overlayInspection() ? PreviewMode::MaskOverlay : PreviewMode::MaskOnly;
 }
 
-bool setMaskOnlyPreview(App &app, bool enabled) {
-  if (enabled) {
+bool setPreviewMode(App &app, PreviewMode mode) {
+  if (mode != PreviewMode::Photo) {
     const auto endpoint = selectedMaskOutput(app);
     if (!endpoint) return false;
-    app.renderer.requestInspection(*endpoint);
+    app.renderer.requestInspection(*endpoint, mode == PreviewMode::MaskOverlay);
   } else app.renderer.requestDocumentPreview();
   return true;
+}
+
+bool maskOnlyPreview(const App &app) { return previewMode(app) == PreviewMode::MaskOnly; }
+bool setMaskOnlyPreview(App &app, bool enabled) {
+  return setPreviewMode(app, enabled ? PreviewMode::MaskOnly : PreviewMode::Photo);
 }
 
 std::string nodeDisplayName(const Node &node) {

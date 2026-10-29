@@ -286,8 +286,13 @@ See `docs/GRAPH_DEPTH_SAFETY.md` for the gate audit and stack-safety rationale.
 
 `GraphEvaluator` borrows that graph without depending on App, UI or scheduling.
 One sequential requested-endpoint evaluation owns its memo and consumer-counted
-intermediate lifetime. Preview, inspection and full-resolution export use this
-evaluator under the existing RenderRuntime execution ownership. Publication
+intermediate lifetime. Mask Overlay uses a bounded pair of roots (document Image
+and selected Mask), planned together in that same evaluation; shared upstream
+work runs once and both final rasters are retained. The existing runtime request
+identity/generation gate publishes the pair atomically. Display tinting uses the
+normal RGBA upload path and display-only refresh reuses the retained pair.
+Preview, inspection and full-resolution export use this evaluator under the
+existing RenderRuntime execution ownership. Publication
 retains endpoint, generation, value kind and diagnostics; display-only refresh
 converts the retained result without rerunning processors.
 
@@ -319,10 +324,10 @@ and visual interactions never acquire DocumentMutation or request rendering.
 Inspector displays Source input/current-photo RAW controls, the existing processor
 parameters, or Output grade colours/application export preferences. Fixed Source
 and Output List entries sit outside the processor reorder list. Selection does
-not change Photo's requested endpoint or documentOutput. Explicit Mask Only
-uses the runtime's retained inspection endpoint as transient viewer mode; selection
-retargets it to a declared Mask output or restores document Image preview. Photo/grade replacement
-clears it; graph commits clear a removed real ID without discarding Source or
+not change Photo's requested endpoint or documentOutput. Explicit Mask Only/Overlay
+uses the runtime's retained inspection endpoint and presentation choice as
+transient viewer mode; selection retargets it to a declared Mask output or
+restores document Image preview. Photo/grade replacement clears it; graph commits clear a removed real ID without discarding Source or
 virtual Output. Nothing persists this selection.
 
 The compact top toolbar owns file actions and status/persistence warnings. Preview

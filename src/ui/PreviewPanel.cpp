@@ -21,12 +21,18 @@ void drawPreviewPanel(App &app) {
   if (ImGui::IsItemHovered()) ImGui::SetTooltip("Preview resolution");
   if (ImGui::GetContentRegionAvail().x >= 140.0f + 115.0f + ImGui::GetStyle().ItemSpacing.x)
     ImGui::SameLine();
-  const bool maskOnly = maskOnlyPreview(app);
+  const auto mode = previewMode(app);
+  const char *modeLabel = mode == PreviewMode::Photo ? "Photo" :
+                          mode == PreviewMode::MaskOnly ? "Mask Only" : "Mask Overlay";
   ImGui::SetNextItemWidth(std::min(115.0f, ImGui::GetContentRegionAvail().x));
-  if (ImGui::BeginCombo("##previewMode", maskOnly ? "Mask Only" : "Photo")) {
-    if (ImGui::Selectable("Photo", !maskOnly) && maskOnly) setMaskOnlyPreview(app, false);
+  if (ImGui::BeginCombo("##previewMode", modeLabel)) {
+    if (ImGui::Selectable("Photo", mode == PreviewMode::Photo) && mode != PreviewMode::Photo)
+      setPreviewMode(app, PreviewMode::Photo);
     ImGui::BeginDisabled(!selectedMaskOutput(app));
-    if (ImGui::Selectable("Mask Only", maskOnly) && !maskOnly) setMaskOnlyPreview(app, true);
+    if (ImGui::Selectable("Mask Only", mode == PreviewMode::MaskOnly) && mode != PreviewMode::MaskOnly)
+      setPreviewMode(app, PreviewMode::MaskOnly);
+    if (ImGui::Selectable("Mask Overlay", mode == PreviewMode::MaskOverlay) && mode != PreviewMode::MaskOverlay)
+      setPreviewMode(app, PreviewMode::MaskOverlay);
     ImGui::EndDisabled();
     ImGui::EndCombo();
   }

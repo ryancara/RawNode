@@ -33,7 +33,8 @@ void pumpDisplayUpload(App &app) {
   app.displayDirty = false;
 }
 
-display_detail::Presentation display_detail::preparePresentation(const App &app, const EvaluationResult &result) {
+display_detail::Presentation display_detail::preparePresentation(
+    const App &app, const EvaluationResult &result, const std::optional<EvaluationResult> &overlayMask) {
   Presentation presentation;
   auto &rgba = presentation.rgba;
   auto &w = presentation.w;
@@ -60,6 +61,22 @@ display_detail::Presentation display_detail::preparePresentation(const App &app,
         rgba[i] = rgba[i + 1] = rgba[i + 2] = sample; rgba[i + 3] = 255;
       }
   }
+  if (overlayMask && overlayMask->state == EvaluationState::Available &&
+      std::holds_alternative<ImageValue>(result.value)) {
+    const auto *mask = std::get_if<MaskValue>(&overlayMask->value);
+    if (mask && *mask && (*mask)->w == w && (*mask)->h == h) {
+      for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x) {
+          const float amount = 0.4f * (*mask)->px[static_cast<size_t>(h - 1 - y) * w + x];
+          const size_t i = (static_cast<size_t>(y) * w + x) * 4;
+          for (size_t channel = 0; channel < 3; ++channel) {
+            const float target = channel == 0 ? 255.0f : 0.0f;
+            rgba[i + channel] = static_cast<unsigned char>(rgba[i + channel] +
+                (target - rgba[i + channel]) * amount + 0.5f);
+          }
+        }
+    }
+  }
   return presentation;
 }
 
@@ -79,9 +96,10 @@ void display_detail::commitDisplayRefresh(App &app, const App::PreviewPublicatio
 }
 
 void display_detail::publishPreview(App &app, EvaluationResult result, int generation,
-                                   std::shared_ptr<const OutputRef> request, Presentation presentation) {
+                                   std::shared_ptr<const OutputRef> request, Presentation presentation,
+                                   std::optional<EvaluationResult> overlayMask) {
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  app.processed = {generation, std::move(request), std::move(result)};
+  app.processed = {generation, std::move(request), std::move(result), std::move(overlayMask)};
   app.display = {presentation.w, presentation.h};
   app.displayRGBA = std::move(presentation.rgba);
   app.displayDirty = true;
