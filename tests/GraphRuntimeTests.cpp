@@ -719,16 +719,26 @@ static bool testOverlayRuntime() {
   CHECK(frame.overlayMask->state == EvaluationState::Available &&
         std::get<MaskValue>(frame.overlayMask->value)->px[0] == .75f); // Final inverted coverage, not generator .25.
   CHECK(std::get<ImageValue>(frame.result.value)->px == std::vector<float>({.5f,.5f,.5f,.75f}));
+  // lcms versions can round the colour-managed background one byte apart.
+  // Bound RGB variation only; alpha and the separate overlay maths oracle stay exact.
   { std::lock_guard<std::mutex> lock(app.displayMutex);
-    CHECK(app.displayRGBA == std::vector<unsigned char>({166,90,90,191})); }
+    CHECK(app.displayRGBA.size() == 4 && app.displayRGBA[3] == 191);
+    const int expected[] = {166,90,90};
+    for (size_t channel = 0; channel < 3; ++channel)
+      CHECK(std::abs(int(app.displayRGBA[channel]) - expected[channel]) <= 1);
+  }
   calls = processor->calls.load(); const auto maskCalls = executor.calls.load();
   { std::lock_guard<std::mutex> lock(app.colorMutex); app.outputEncoding.gamma = TransferFunction::Linear; }
   app.renderer.requestDisplayRefresh(); CHECK(idle(app));
   CHECK(processor->calls == calls && executor.calls == maskCalls && publication(app).request == frame.request &&
         publication(app).generation == frame.generation);
-  // sRGB encode(.5) -> 188; .3 tint -> (208,132,132). Same alpha.
+  // sRGB encode(.5) is approximately 188; .3 tint gives (208,132,132).
   { std::lock_guard<std::mutex> lock(app.displayMutex);
-    CHECK(app.displayRGBA == std::vector<unsigned char>({208,132,132,191})); }
+    CHECK(app.displayRGBA.size() == 4 && app.displayRGBA[3] == 191);
+    const int expected[] = {208,132,132};
+    for (size_t channel = 0; channel < 3; ++channel)
+      CHECK(std::abs(int(app.displayRGBA[channel]) - expected[channel]) <= 1);
+  }
   CHECK(setPreviewMode(app, PreviewMode::MaskOnly) && idle(app) && !publication(app).overlayMask);
   CHECK(publication(app).result.requested == mask(modifier));
   { std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA == std::vector<unsigned char>({191,191,191,255})); }

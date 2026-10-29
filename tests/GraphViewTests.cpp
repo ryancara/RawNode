@@ -245,6 +245,7 @@ struct Ui {
 bool narrowPreviewToolbar() {
   App app; Ui ui;
   CHECK(addNativeRadialMaskNode(app));
+  const auto radial = *app.selectedNodeId();
   app.previewZoom = 2.0f; app.previewPanX = 7.0f; app.previewPanY = -3.0f;
   ImVec2 resolutionPoint, modePoint;
   float toolbarHeight = 0;
@@ -290,8 +291,23 @@ bool narrowPreviewToolbar() {
     CHECK(maskOnlyPreview(app));
     CHECK(click(modePoint, width) && frame(width));
     popup = ImGui::FindWindowByName("##Combo_00"); CHECK(popup && popup->Active);
+    CHECK(click({popup->DC.CursorStartPos.x + 8, popup->DC.CursorStartPos.y +
+        2 * ImGui::GetTextLineHeightWithSpacing() + ImGui::GetTextLineHeight() / 2}, width));
+    CHECK(previewMode(app) == PreviewMode::MaskOverlay);
+    CHECK(click(modePoint, width) && frame(width));
+    popup = ImGui::FindWindowByName("##Combo_00"); CHECK(popup && popup->Active);
     CHECK(click({popup->DC.CursorStartPos.x + 8, popup->DC.CursorStartPos.y + ImGui::GetTextLineHeight() / 2}, width));
-    CHECK(!maskOnlyPreview(app));
+    CHECK(previewMode(app) == PreviewMode::Photo);
+    CHECK(selectNode(app, app.primarySource));
+    CHECK(click(modePoint, width) && frame(width));
+    popup = ImGui::FindWindowByName("##Combo_00"); CHECK(popup && popup->Active);
+    const ImVec2 overlayPoint{popup->DC.CursorStartPos.x + 8, popup->DC.CursorStartPos.y +
+        2 * ImGui::GetTextLineHeightWithSpacing() + ImGui::GetTextLineHeight() / 2};
+    ImGui::GetIO().AddMousePosEvent(overlayPoint.x, overlayPoint.y); CHECK(frame(width));
+    CHECK(ui.context->HoveredId == popup->GetID("Mask Overlay") && ui.context->HoveredIdIsDisabled);
+    CHECK(click(overlayPoint, width) && previewMode(app) == PreviewMode::Photo);
+    CHECK(click({popup->DC.CursorStartPos.x + 8, popup->DC.CursorStartPos.y + ImGui::GetTextLineHeight() / 2}, width));
+    CHECK(selectNode(app, radial));
   }
   CHECK(frame(400) && toolbarHeight < 2 * ImGui::GetFrameHeight());
   CHECK(app.previewZoom == 2.0f && app.previewPanX == 7.0f && app.previewPanY == -3.0f);
