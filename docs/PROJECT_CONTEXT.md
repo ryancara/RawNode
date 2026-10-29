@@ -129,8 +129,9 @@ Document responsibilities are:
 - `SIDECAR.md` — current persistence overview and labelled historical formats.
 - `CLAUDE.md` — Claude Code's persistent review/development instructions.
 - `AGENTS.md` — Codex discovery/pointer to authoritative project documents.
-- `ROADMAP.md` — feature and product roadmap; detailed quality follow-ups live
-  in this document's "Quality and verification roadmap".
+- `ROADMAP.md` — feature/product roadmap and canonical Step 9 audit programme;
+  detailed open quality follow-ups live in this document's "Quality and
+  verification roadmap".
 - Git history and pull requests — implementation history and per-change detail.
 
 Do not turn `PROJECT_CONTEXT.md` into a chronological diary. Do not copy every
@@ -230,9 +231,10 @@ deletion editing (D051), all merged and independently reviewed. Owner-reported
 native macOS validation of PR #82 is in `docs/GRAPH_VIEW_VALIDATION.md`;
 corrupted-sidecar protection and export/edit overlap scenarios, as well
 as Windows GUI checks, remain separately tracked. PR 2C's approved contextual
-node placement is implemented for independent review/native validation (D051);
-the concrete production Mask path follows. PR 2A
-historical validation remains in `docs/WORKSPACE_INSPECTOR_VALIDATION.md`.
+node placement was merged as #87 (D051); any outstanding native validation
+is tracked separately. The first production Mask path and Mask Only preview
+were subsequently merged as #101–#102. PR 2A historical validation remains
+in `docs/WORKSPACE_INSPECTOR_VALIDATION.md`.
 The approved target is
 documented in `docs/ARCHITECTURE.md`; checkpoint
 evidence is in `docs/ARCHITECTURE_AUDIT.md`.
@@ -587,7 +589,7 @@ need.
 
 ## Current development phase
 
-**Step 8 in progress (2026-10-28):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#101 are merged, including native Radial Mask → Exposure; the owner confirmed all six macOS checks for #99/#100. Mask Only preview now exposes the existing typed Mask inspection/presentation path with Photo as the default. Selection changes retarget active Mask inspection or return to Photo; photo/grade replacement resets it. Viewer mode stays outside grades, history and export. Independent Claude review and native macOS validation remain pending for this slice. CTL/future DCTL remain Image-producing; a visible persisted Image → Mask converter, native on-image handles and Mask Overlay remain separate follow-ups. Independent Claude review precedes merge.
+**Step 8 in progress (2026-10-29):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#102 are merged, including native Radial Mask → Exposure and Mask Only preview, with owner-reported independent Claude review and native macOS GUI validation for #102. Photo remains the default; selection can retarget active Mask inspection or restore Photo, and photo/grade replacement resets the transient view. Viewer mode stays outside grades, history and export. Non-AI masking workflows remain the priority; Mask Overlay, on-image handles, other geometry and freeform generators, Combine/modifiers and basic qualifiers/conversion follow as independently scoped features. CTL/future DCTL remain Image-producing. Step 9's approved whole-codebase audit follows the agreed Step 8 exit gate; SAM/AI masking is deferred without a scheduled milestone.
 
 Undo/Redo design and behaviour are approved in D053. Stage 1 was independently
 reviewed, approved and merged in PR #92 at
@@ -700,14 +702,19 @@ The remaining sequence is:
     Targeted graph safety + PNG colour corrections   [complete; independently reviewed]
           |
           v
-    Switchable Graph/List editor                   [#79/#80/#82 merged; PR 2C in review, D047/D051]
+    Switchable Graph/List editor                   [#79/#80/#82/#87 merged, D047/D051]
           |
           v
-    Step 8: Concrete first mask path + remaining implementation details
+    Step 8: Practical non-AI masking workflows        [in progress]
+          |
+          v
+    Step 9: Whole-codebase readability/simplicity/architecture audit [planned]
 
 The completed gates are stabilisation/review work, not extra numbered
-architecture steps. The checkpoint validates the direction for the next stage,
-not a permanent or finished architecture.
+architecture migration steps. Step 9 is an independently numbered **quality
+milestone**, not a change to the original graph/render migration sequence.
+The earlier checkpoint validated the direction at that time, not a permanent
+or finished architecture; D055 deliberately authorises a later full review.
 
 The architectural goal is to make future changes cleaner across the application:
 new features should plug into the graph, render runtime, display path, export
@@ -750,9 +757,11 @@ In particular:
 - Image/Mask requested-endpoint inspection is part of Step 6;
 - Source/document-output and source-only behaviour are explicit.
 
-Step 8 implements the first concrete production Mask path and settles remaining
-feature details such as exact geometric coordinates, Mask combine equations,
-non-Normal blend maths and detailed Layer/Parallel Mixer arithmetic.
+Step 8 delivers practical non-AI masking workflows under the approved
+Mask contract. Concrete geometry, Mask combination and other feature details
+are settled when each feature is approved and implemented. Non-Normal blend
+and Layer/Parallel Mixer arithmetic remain deferred (see Pending decisions
+in `docs/DECISIONS.md`).
 
 Do not add masked-processor renderer state, a special mask scheduler, mask fields
 that bypass the graph or mandatory opacity inside every processor backend.
@@ -769,12 +778,12 @@ Next architecture/product work:
   review. Native macOS Graph View testing was reported successful; the
   corrupted-sidecar protection, export/edit overlap and Windows GUI checks
   remain separately tracked.
-- PR 2C implements approved contextual placement for independent review/native
-  validation, then continue toward Step 8's first concrete Mask path. New
-  processors appear right of their upstream Image predecessor with an 80-unit
-  gap in both views, even before Graph View has opened. Preserve existing
-  positions through graph edits; permit overlap without collision avoidance.
-  Source stays draggable; virtual Output stays automatic and non-draggable.
+- PR 2C's approved contextual placement was merged as #87 before Step 8.
+  New processors appear right of their upstream Image predecessor with an
+  80-unit gap in both views, even before Graph View has opened. Preserve
+  existing positions through graph edits; permit overlap without collision
+  avoidance. Source stays draggable; virtual Output stays automatic and
+  non-draggable. Any outstanding native validation remains tracked separately.
 - Add Processor now follows the shared selection in List and Graph View:
   Source/main-chain processors insert before their next main-chain consumer;
   off-chain Image processors start another downstream branch without changing
@@ -836,13 +845,13 @@ parameter-edit preview scheduling, graph traversal depth and PNG colour
 metadata/ICC placement are corrected and independently reviewed. PNG regression
 coverage independently checks chunks, CRCs, profiles and pixels.
 
-**In progress:** the switchable Graph/List editor (D047) has its visual
-foundation (#79), workspace/Inspector (#80) and Graph wiring/deletion (#82)
-merged and independently reviewed. PR 2C's approved contextual node placement is
-implemented for independent review/native validation. **Then Step 8** adds the
-first concrete Mask path.
-These completed corrections are a preparatory gate, not additional
-architecture steps or a reason for a new whole-system audit.
+**Completed Graph/List UI delivery (D047):** visual foundation (#79),
+workspace/Inspector (#80), wiring/deletion (#82) and contextual placement
+(#87, PR 2C) are merged; outstanding native/platform checks remain tracked
+separately. **Step 8 masking is in progress** (first production Mask path and
+Mask Only preview merged as #101–#102). Those earlier corrections were a
+preparatory gate, not extra architecture migration steps. The newly approved
+Step 9 whole-codebase quality audit (D055) is a distinct future milestone.
 
 **Tracked separately; not prerequisites for Graph View:** TIFF
 photometric/extra-channel handling, EXR chromaticities, and the existing JPEG
@@ -968,9 +977,33 @@ unrelated features; tooling can proceed alongside the next milestone where pract
 - [ ] Improve human-developer onboarding and the inherited README when useful,
       using the authoritative documentation above rather than duplicating it.
 
-**After Step 8's first concrete production Mask path:** perform another focused
-readability/architecture checkpoint for the affected graph, processor and UI
-boundaries. Do not default to a whole-repository pass after every feature.
+**Step 9 — comprehensive whole-codebase quality audit (owner-approved; D055):**
+Begin when the agreed **Step 8 exit gate** for practical non-AI masking is met;
+record and approve that gate in `docs/STEP8_MASKING_CONTRACT.md` while planning
+the remaining work. SAM/AI masks are not prerequisites. Step 9 does **not**
+replace ongoing per-PR readability and correctness reviews during Step 8.
+The original narrower post-first-Mask checkpoint is superseded by Step 9;
+avoid a premature redesign, but review architectural risk in each masking PR
+so high-cost defects are not deferred unnoticed.
+
+**Canonical phases, subsystem coverage and completion criteria are in the
+Step 9 section of `ROADMAP.md`.** Each subsystem receives separate Codex
+and Claude audits before findings are compared; the owner reconciles the
+recommendations. At Step 9 kickoff create `docs/STEP9_AUDIT.md` to record
+evidence, severity, viable alternatives, owner decisions and verified
+dispositions, following `docs/ARCHITECTURE_AUDIT.md` as a precedent.
+This Project Context records milestone progress only, not an audit changelog.
+
+D055 authorises **proposals** for substantial rewrites or architectural
+reassessment. Every Step 9 implementation PR still needs an agreed focused
+scope, independent review, tests and normal safeguards; architecture,
+behavioural or persistence changes of significant scope require explicit
+owner approval.
+Maintain correctness, user-data integrity, colour fidelity and concurrency
+guarantees. The open quality checklist above (including reference-image
+tests, warnings, performance baselines and human-developer onboarding)
+informs Step 9 baseline and closure; it is not automatically completed
+or erased when the audit starts.
 
 **Before a stable public release:** review cross-platform builds, input/file
 errors, recovery, dependency/licensing obligations, performance and remaining

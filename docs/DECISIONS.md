@@ -754,7 +754,7 @@ gesture framework, toolbar or unrelated product change is approved (D052).
 
 ## D054 — Step 8 inactive Mask bypass and scoped Opacity
 
-**Status:** Owner-approved product/architecture contract, 2026-10-26; bypass, Image Mask/Opacity and native Radial Mask merged in #97–#101. Mask Only preview is implemented for independent review and native macOS validation.
+**Status:** Owner-approved product/architecture contract, 2026-10-26; bypass, Image Mask/Opacity, native Radial Mask and Mask Only preview merged in #97–#102.
 
 Detailed authoritative implementation requirements: [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md). The historical Step 8 discussion draft is not authoritative.
 
@@ -768,6 +768,18 @@ Detailed authoritative implementation requirements: [STEP8_MASKING_CONTRACT.md](
 - Native geometric processors produce typed Mask directly. CTL/future DCTL remain Image producers. Future Image → Mask is an explicit visible, persisted R/G/B/A converter; automatic insertion may later be one undoable graph edit, never implicit conversion. Native handles and Mask Overlay follow separately. See the contract for the Radial geometry and bounded initial slice.
 
 This deliberately supersedes D042's white-generator bypass rule and related historical Step 5 language. It preserves D042's unavailable coverage diagnostics and D043's compatible-raster requirement for actual mixing, while **explicitly amending D043 and Step 5 at exactly zero Strength**: 0% returns the bypass raster without executing the processor or performing a pixelwise dimension check; positive partial mixing requires compatible dimensions.
+
+## D055 — Step 9 whole-codebase readability, simplicity and architecture audit
+
+**Status:** Owner-approved, 2026-10-29. Step 9 starts once the **Step 8 exit gate** for practical non-AI masking, to be agreed and recorded in `STEP8_MASKING_CONTRACT.md`, is met. It is a numbered quality milestone, **not** an additional architecture migration step. It replaces the earlier narrow post-first-Mask checkpoint; it does not declare Step 8 complete.
+
+- **Scope and purpose:** Review the **entire** codebase, not only masking. Optimise for conventional, human-readable C++ that an experienced developer can navigate and maintain without Codex/Claude explanations, and for the least justified conceptual complexity. Preserve non-negotiable correctness, colour, concurrency and user-data invariants.
+- **Independent method:** Codex and Claude audit **each subsystem independently** before reconciling findings; the owner resolves disagreements. They also compare viable architectural alternatives as needed, rather than treating the existing design as immutable. The canonical staged process and inclusive subsystem inventory live in `ROADMAP.md`.
+- **Architecture authority:** Step 9 permits **proposing** substantial refactors, rewrites and changed ownership/responsibility boundaries when evidence shows a better implementation. It is not a rewrite mandate or blanket approval of any design. Each implementation PR must retain focused scope, tests and independent review; significant architectural, behavioural or persistence changes require explicit owner agreement, with deliberate data-compatibility/migration handling.
+- **Record and closure:** Create `STEP9_AUDIT.md` at Step 9 kickoff to track findings, severity, alternatives, evidence, owner decisions and disposition. Resolve or explicitly justify deferring each material finding before closing Step 9. Do not treat formatting or completion of a file-by-file reading as sufficient. No arbitrary time limit or PR count.
+- **Sequencing:** The non-AI Step 8 exit gate precedes Step 9; SAM/AI masks are unscheduled and revisited only when a concrete product need justifies their complexity. Per-PR readability, scope discipline and independent verification remain in force **throughout** Step 8 and Step 9.
+
+`ROADMAP.md` is the canonical Step 9 programme; `PROJECT_CONTEXT.md` is the milestone/status tracker rather than a running audit log. `CODE_STYLE.md` remains the continuously applicable human-readability standard.
 
 ## Pending decisions
 
@@ -805,8 +817,10 @@ The D037 stabilisation gate and immediate checkpoint follow-ups are complete.
    After the focused corrections tracked in `docs/PROJECT_CONTEXT.md`, add the
    switchable Graph/List editor UI milestone (D047), before Step 8.
 
-8. Settle remaining concrete mask details and add the first mask path under the
-   Step 5 contract.
+8. Settle practical non-AI masking workflows under the Step 5/8 contracts — in progress.
+9. Run the staged whole-codebase readability, simplicity and architecture **quality**
+   audit (D055) after the agreed Step 8 exit gate — planned, not a new graph
+   architecture migration stage.
 
 If implementation evidence changes this direction, update this log rather than
 letting the architecture drift silently.

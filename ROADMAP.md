@@ -28,8 +28,10 @@ The current codebase is a clean base for feature development. New work should re
 
 ## Current architecture/stabilisation sequence
 
-The approved eight-step architecture migration is in progress. Steps 1–7 are
-complete. Step 4 (renderer ownership encapsulation) landed in PR #45 after
+The original eight-step architecture migration is in progress at Step 8; Steps
+1–7 are complete. Step 9 (D055) is a separately numbered code-quality milestone,
+not a new renderer/graph architecture migration step. Step 4 (renderer
+ownership encapsulation) landed in PR #45 after
 independent review, sanitizer/stress validation and routine macOS validation.
 
 The full post-Step-4 stabilisation gate is complete:
@@ -59,12 +61,12 @@ are non-blocking follow-ups.
 - **Post-Step-7 correction gate — complete:** Copy Node ownership/capture,
   parameter-edit preview scheduling, graph traversal depth and PNG colour
   metadata/ICC placement are corrected and independently reviewed.
-- **Graph View UI milestone (between Steps 7 and 8; D047), in progress:**
+- **Graph View UI milestone (between Steps 7 and 8; D047), merged:**
   PR #79 added the dockable List/Graph foundation, PR #80 the contextual
-  Inspector/workspace, and PR #82 the focused wiring/deletion interactions.
-  All three are merged. PR 2C's contextual Add Processor placement is approved
-  and implemented for independent review; native validation remains pending.
-- **Step 8:** first concrete mask path and remaining implementation details
+  Inspector/workspace, PR #82 the focused wiring/deletion interactions, and
+  PR #87 (PR 2C) contextual Add Processor placement. Any unrecorded native
+  validation remains tracked separately.
+- **Step 8 — in progress:** practical non-AI masking workflows
   under the Step 5 product/architectural contract. TIFF and EXR format
   correctness and JPEG encoder UB remain independently tracked follow-ups,
   not prerequisites for Graph View, nor for masks unless the first Mask path
@@ -192,11 +194,11 @@ required.
 
 ## Graph / List interface
 
-**UI delivery milestone in progress (D047):** the dockable Nodes panel switches
+**UI delivery milestone merged (D047):** the dockable Nodes panel switches
 between List and Graph over the same authoritative graph. The visual foundation
-(PR #79), contextual workspace (PR #80) and connection/deletion UI (PR #82)
-are merged. PR 2C adds the approved contextual processor placement described
-below, before Step 8 introduces masks. Independent review/native validation remain.
+(PR #79), contextual workspace (PR #80), connection/deletion UI (PR #82)
+and PR 2C contextual placement (#87) are merged. Outstanding platform-specific
+validation remains tracked separately.
 This is a UI/product milestone, not an additional numbered architecture refactor.
 The completed correction gate and deferred image-format issues are tracked in
 `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
@@ -256,7 +258,7 @@ Selection-aware Add Processor is now separately approved under D051, superseding
 PR 2B's append-only deferral above. PR #85 implements that connection policy;
 PR 2C separately implements the approved visual placement below.
 
-**PR 2C — Graph node placement (approved; implemented for independent review)**
+**PR 2C — Graph node placement (merged as #87)**
 
 - Add Processor uses PR #85's selection-aware insertion workflow in both views.
   After successful insertion, place the new processor immediately right of its
@@ -282,9 +284,11 @@ later, define their identity, operation, interface, persistence and
 assign/replace semantics independently from unavailable processors; preserve
 compatible connections without adding another graph or storage system by default.
 
-Step 8 remains the first concrete Mask implementation under the accepted Step 5
-contract, followed by compositing and local adjustments. This sequence adds no
-architecture migration steps and does not reopen completed graph decisions.
+Step 8 delivers the practical non-AI masking workflows under the accepted Step 5
+contract. Further compositing and local-adjustment work is evaluated by product
+need; the planned Step 9 quality milestone is not another graph migration step.
+Completed graph decisions remain binding until explicitly changed with owner
+approval, including during Step 9.
 
 Add number-key node selection as a separate small interaction improvement.
 
@@ -320,15 +324,29 @@ Do not replace LibRaw without a measured benefit.
 
 ## Masks and local adjustments
 
-**Step 8 in progress:** PRs #97–#101 are merged, including Inactive bypass, Image Mask/Opacity and native Radial Mask → Exposure. Mask Only preview is implemented for independent review and native macOS validation: Photo remains the default; explicit Mask Only inspects the selected typed Mask output through the existing runtime.
+**Step 8 in progress:** PRs #97–#102 are merged, including Inactive bypass, Image Mask/Opacity, native Radial Mask → Exposure and Mask Only inspection. Photo remains the default, and explicit Mask Only inspects the selected typed Mask output through the existing runtime.
 
 **Step 8 approved contract:** [docs/STEP8_MASKING_CONTRACT.md](docs/STEP8_MASKING_CONTRACT.md), D054. Mask generators bypass to Inactive (not white/black), Image/Mask transforms bypass to same-type pass-through, and generic Opacity is available on unary transforms with a defined compatible pass-through. Standalone generators and Mask Combine have no generic Opacity initially. A dedicated binary Combine node ignores inactive operands when enabled, while its own bypass passes through A; keep unavailable distinct from intentionally inactive. Retain one typed scalar Mask graph and no separate scheduler/alpha channel. Implement in focused PRs: evaluator-only Inactive bypass, Image-node Mask/Opacity, Radial->Exposure, preview handles/modes, Combine and modifiers. The precise Combine arithmetic is deferred until Combine implementation. Radial coordinates and inward feather are specified in the contract. Native geometric generators produce typed Mask directly; CTL/future DCTL retain Image output. A future visible persisted Image → Mask node extracts explicit R/G/B/A, with optional later undoable automatic insertion. Mask Overlay and native handles remain separate follow-ups.
 
-Following the initial Radial/Exposure masking slice, further work includes:
+**Step 8 candidate follow-ups (not yet a mandatory checklist):** Mask Overlay, on-image geometry controls, Linear Gradient and Rectangle masks, Pen/Bézier and Brush masks, Mask Combine, Invert/Blur, and basic Image-to-Mask/qualifier tools. Reusable/grouped masks, advanced compositing and specialised tools remain separately evaluated. **Agree the exact "Step 8 exit gate"**, including required functionality and test/native-validation evidence, and record it in `docs/STEP8_MASKING_CONTRACT.md` before scheduling the bulk of remaining slices. Continue focused PRs and proportionate readability reviews in the meantime.
 
-- brush and path masks, additional gradients and qualifiers;
-- reusable/grouped masks and local adjustments;
-- AI-generated masks, only when an explicit product need exists.
+SAM and other AI-generated masks are explicitly **not** Step 8 or Step 9 prerequisites, and no numbered step is reserved for them. Revisit only when a concrete product need justifies their complexity.
+
+## Step 9 — Comprehensive readability, simplicity and architecture audit (planned)
+
+**Entry:** Begin after the agreed **Step 8 exit gate** for practical non-AI masking is met. This is an intentionally **whole-codebase**, separately numbered quality milestone (D055), replacing the narrow post-first-Mask checkpoint, not a routine audit after every feature. Human readability and maintainability are goals; correctness, colour accuracy, user-data integrity and safe concurrency are non-negotiable constraints, not trade-offs for simpler-looking code.
+
+**Canonical Step 9 programme:**
+
+1. **Baseline:** Identify behavioural contracts and record full self-tests, colour/reference-image and persistence coverage, existing platform/build/CI results, warnings, known gaps, and useful representative performance/memory measurements. Incorporate relevant open items from the quality checklist in `docs/PROJECT_CONTEXT.md` instead of duplicating or silently closing them.
+2. **Independent subsystem audits:** For **each** subsystem, Codex and Claude independently inspect source and existing tests **before comparing findings**; the owner reconciles disagreements. Coverage includes at least App/AppState composition and startup/shutdown/lifetime; RAW decode and image I/O; colour management; native, CTL and OFX processors and platform/Metal adapters; graph and Mask evaluation; render runtime, scheduling, concurrency and display; document state/history, sidecars/persistence and export; filmstrip/thumbnails and UI/workspace; build/CI/dependencies and test infrastructure. Assess clarity, naming, boundaries, ownership, error paths, duplication and cognitive load.
+3. **Architectural alternatives:** Independently assess the implications of each material finding and viable simpler designs, then compare with owner involvement. Consult real ART/vkdt implementations where relevant, not as templates. Preserve existing choices when evidence favours them; do not reject improvements merely because the current architecture is established.
+4. **Agreed implementation:** Record and prioritise material findings. Step 9 authorises **proposing** substantial rewrites and architectural changes, not implementing them without agreement. **Every** change still requires a focused PR, independent review and tests; significant architectural, behavioural or persistence changes require explicit owner approval of their scope and intended effects (D055). Protect existing user data, correctness and concurrency invariants; intentional departures need documented migration/validation. Do not introduce speculative caches, ROI, parallelism or new abstractions as incidental cleanups.
+5. **Whole-application closure:** Re-review cross-subsystem integration, tests, platform behaviour, documentation and human-developer onboarding. Close each material finding through a verified fix or an explicitly justified deferral. Completion requires evidence, not merely reading files, running a formatter or meeting an arbitrary deadline.
+
+**Findings record:** At Step 9 kickoff, create a dedicated `docs/STEP9_AUDIT.md` (modelled on `docs/ARCHITECTURE_AUDIT.md`) for per-subsystem observations, evidence, severity, alternatives, owner decisions, PR links and dispositions. Keep `docs/PROJECT_CONTEXT.md` as the brief milestone/status tracker, not a running audit changelog. The existing quality checklist remains authoritative for independent outstanding work, including items deferred beyond Step 9.
+
+`docs/DECISIONS.md` D055 records owner approval; `docs/CODE_STYLE.md`, `AGENTS.md` and `CLAUDE.md` remain continuously applicable, including **during** Step 9.
 
 ## Completed architecture milestones
 

@@ -13,10 +13,12 @@ Step 7 PRs 1–5 are merged (#63, #65, #66, #68, #69), completing graph-native
 photo/preset/clipboard persistence and global preferences/workspace retirement.
 The targeted post-Step-7 graph safety and PNG colour correction gate is complete
 (see `docs/PROJECT_CONTEXT.md`). The switchable Graph/List editor (D047)
-has its visual foundation (#79), workspace/Inspector (#80) and focused graph
-editing (#82) merged. PR 2C's approved contextual node placement is implemented
-for independent review/native validation before Step 8 masking (D051).
-These fixes do not add architecture steps.
+has its visual foundation (#79), workspace/Inspector (#80), focused graph
+editing (#82) and PR 2C contextual node placement (#87) merged (D051).
+These fixes do not add architecture migration steps. Step 8 masking is in
+progress; Step 9 (D055) is a separately numbered **code-quality** milestone
+after the agreed Step 8 exit gate, not an additional graph/renderer
+migration step.
 
 Read this together with:
 
@@ -695,19 +697,27 @@ validation evidence is tracked separately in `docs/PROJECT_CONTEXT.md`.
 7. **Add versioned graph persistence — complete; PRs #63, #65, #66, #68, #69.**
 
    The post-Step-7 correction gate is complete. Graph/List visual foundation
-   (#79), workspace (#80) and editing (#82) are merged; PR 2C's approved contextual
-   placement is implemented for independent review/native validation before Step 8.
-   This is a UI milestone (D047), not another numbered architecture step. Both views edit the
-   same authoritative document graph and share NodeId selection; no additional renderer or
-   execution model is introduced.
+   (#79), workspace (#80), editing (#82) and PR 2C's contextual placement
+   (#87) are merged. This is a UI milestone (D047), not another numbered
+   architecture migration step. Both views edit the same authoritative
+   document graph and share NodeId selection; no additional renderer or
+   execution model is introduced. Outstanding platform validation is tracked
+   separately.
 
-8. **Settle remaining concrete mask details and add the first mask path.**
-   Implement the Step 5 contract; settle remaining representation, range,
-   filtering/sampling and concrete blend encoding where not already needed in
-   Step 5. Global alpha association remains separate until the corresponding
-   transparent-compositing or alpha-carrying feature requires it.
+8. **Implement practical non-AI masking workflows — in progress.**
+   Under the Step 5 contract and D054, implement the remaining approved
+   concrete geometry, preview and Mask operation slices. Record and approve
+   the exact Step 8 exit gate in `docs/STEP8_MASKING_CONTRACT.md`.
+   Global alpha association remains separate until transparent compositing
+   or alpha-carrying I/O requires it.
 
-Each step should remain independently reviewable.
+**Following Step 8:** Step 9 (D055) is a dedicated, owner-approved,
+whole-codebase readability/simplicity and architecture **quality** audit.
+Its canonical process is in `ROADMAP.md`. It is not another graph/renderer
+migration step; accepted existing contracts remain binding until explicit
+owner-approved changes.
+
+Each implementation step should remain independently reviewable.
 
 ## Source organisation and human readability
 
