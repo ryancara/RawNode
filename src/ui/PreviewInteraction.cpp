@@ -142,16 +142,17 @@ RadialHandles radialHandles(const PreviewTransform &view, const RadialGeometry &
       {PreviewDrag::Bottom, view.toScreen(g.centreX, g.centreY - g.radiusY), {}},
       {PreviewDrag::Feather, view.toScreen(g.centreX + g.radiusX * (1 - g.feather) * diagonal,
                                         g.centreY + g.radiusY * (1 - g.feather) * diagonal), {}}}};
-  // Screen-sized grips remain individually reachable when geometry collapses.
+  // Displace overlapping grips outward along their own axes/spoke, so even a
+  // collapsed ellipse keeps intuitive drag directions. Centre stays anchored.
   // Leader lines retain the exact parameter positions; offsets never edit it.
+  constexpr ImVec2 outward[] = {{0, 0}, {-1, 0}, {1, 0}, {0, -1}, {0, 1},
+                               {float(diagonal), -float(diagonal)}};
   for (size_t i = 0; i < handles.size(); ++i) {
     auto &handle = handles[i];
     handle.grip = handle.anchor;
     for (int candidate = 0; candidate < 49; ++candidate) {
-      const int ring = (candidate + 7) / 8, direction = (candidate - 1) % 8;
-      constexpr ImVec2 offsets[] = {{1, 0}, {0, -1}, {-1, 0}, {0, 1}, {1, -1}, {-1, -1}, {-1, 1}, {1, 1}};
-      const ImVec2 offset = candidate == 0 ? ImVec2{} : offsets[direction];
-      const ImVec2 point{handle.anchor.x + offset.x * ring * 18, handle.anchor.y + offset.y * ring * 18};
+      const ImVec2 point{handle.anchor.x + outward[i].x * candidate * 18,
+                          handle.anchor.y + outward[i].y * candidate * 18};
       bool free = true;
       for (size_t previous = 0; previous < i; ++previous)
         if (std::hypot(point.x - handles[previous].grip.x, point.y - handles[previous].grip.y) < 16) free = false;

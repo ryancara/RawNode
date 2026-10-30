@@ -54,7 +54,7 @@ struct Ui {
   char text[32] = {};
   Ui() {
     auto &io = ImGui::GetIO(); io.IniFilename = nullptr; io.ConfigInputTrickleEventQueue = false;
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable; // Production leaves keyboard navigation disabled.
     unsigned char *pixels; int w, h; io.Fonts->GetTexDataAsRGBA32(&pixels, &w, &h);
   }
   ~Ui() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
@@ -125,12 +125,58 @@ bool mappingsAndOverlap() {
     const auto p = scaled.toScreen(.125, .875);
     const auto normal = scaled.toImage(p);
     CHECK(near(normal[0], .125) && near(normal[1], .875));
-    for (double radius : {0.0, .001, .25}) for (double feather : {0.0, .5, 1.0}) {
-      const auto handles = ui::radialHandles(scaled, {.5, .5, radius, radius, feather});
+    for (double rx : {0.0, .001, .25}) for (double ry : {0.0, .001, .25})
+        for (double feather : {0.0, .5, 1.0}) {
+      const auto handles = ui::radialHandles(scaled, {.5, .5, rx, ry, feather});
       for (const auto &h : handles) CHECK(ui::hitRadialHandle(handles, h.grip) == h.kind);
-      CHECK(handles[0].anchor.x == 100 + size.x / 2 && handles[0].anchor.y == 200 + size.y / 2);
-      CHECK(std::abs(handles[5].anchor.x - (100 + size.x * (.5 + radius * (1 - feather) / std::sqrt(2.0)))) < 1e-4);
+      const ImVec2 centre{100 + size.x / 2, 200 + size.y / 2};
+      CHECK(handles[0].anchor.x == centre.x && handles[0].anchor.y == centre.y);
+      CHECK(handles[0].grip.x == centre.x && handles[0].grip.y == centre.y);
+      CHECK(handles[1].grip.x < centre.x && handles[1].grip.y == centre.y);
+      CHECK(handles[2].grip.x > centre.x && handles[2].grip.y == centre.y);
+      CHECK(handles[3].grip.y < centre.y && handles[3].grip.x == centre.x);
+      CHECK(handles[4].grip.y > centre.y && handles[4].grip.x == centre.x);
+      CHECK(handles[5].grip.x >= centre.x && handles[5].grip.y <= centre.y);
+      // Exact geometry stays on its original ellipse, including zero axes.
+      CHECK(std::abs(handles[1].anchor.x - (centre.x - rx * size.x)) < 1e-4 && handles[1].anchor.y == centre.y);
+      CHECK(std::abs(handles[2].anchor.x - (centre.x + rx * size.x)) < 1e-4 && handles[2].anchor.y == centre.y);
+      CHECK(std::abs(handles[3].anchor.y - (centre.y - ry * size.y)) < 1e-4 && handles[3].anchor.x == centre.x);
+      CHECK(std::abs(handles[4].anchor.y - (centre.y + ry * size.y)) < 1e-4 && handles[4].anchor.x == centre.x);
+      const auto &featherHandle = handles[5];
+      CHECK(std::abs(featherHandle.anchor.x - (centre.x + size.x * rx * (1 - feather) / std::sqrt(2.0))) < 1e-4);
+      CHECK(std::abs(featherHandle.anchor.y - (centre.y - size.y * ry * (1 - feather) / std::sqrt(2.0))) < 1e-4);
+      if (featherHandle.grip.x != featherHandle.anchor.x || featherHandle.grip.y != featherHandle.anchor.y) {
+        CHECK(featherHandle.grip.x > featherHandle.anchor.x && featherHandle.grip.y < featherHandle.anchor.y);
+        CHECK(std::abs((featherHandle.grip.x - featherHandle.anchor.x) -
+                       (featherHandle.anchor.y - featherHandle.grip.y)) < 1e-4);
+      }
     }
+  }
+  return true;
+}
+
+bool collapsedRadiusRecovery() {
+  for (auto kind : {PreviewDrag::Left, PreviewDrag::Right, PreviewDrag::Top, PreviewDrag::Bottom}) {
+    App app; Ui ui; fixture(app);
+    const auto id = *app.selectedNodeId();
+    CHECK(setNodeParameterValue(app, id, "radiusX", 0.0) && setNodeParameterValue(app, id, "radiusY", 0.0));
+    CHECK(app.history.recordCompletedEdit(app));
+    ui.tick(app); ui.tick(app);
+    const auto before = app.history.size(), cursor = app.history.cursor();
+    const auto start = ui.grip(app, kind), size = ui.view.size;
+    const bool horizontal = kind == PreviewDrag::Left || kind == PreviewDrag::Right;
+    const ImVec2 delta = kind == PreviewDrag::Left ? ImVec2{-32, 0} :
+                         kind == PreviewDrag::Right ? ImVec2{32, 0} :
+                         kind == PreviewDrag::Top ? ImVec2{0, -32} : ImVec2{0, 32};
+    ui.press(app, start);
+    CHECK(app.previewInteraction.drag == kind);
+    CHECK(parameter(app, id, "radiusX") == 0 && parameter(app, id, "radiusY") == 0);
+    ui.hover(app, {start.x + delta.x, start.y + delta.y});
+    CHECK(near(parameter(app, id, horizontal ? "radiusX" : "radiusY"), 32 / (horizontal ? size.x : size.y)));
+    CHECK(parameter(app, id, horizontal ? "radiusY" : "radiusX") == 0 && app.history.size() == before);
+    ui.release(app);
+    CHECK(app.history.size() == before + 1 && app.history.cursor() == cursor + 1);
+    CHECK(parameter(app, id, "centreX") == .5 && parameter(app, id, "centreY") == .5);
   }
   return true;
 }
@@ -158,6 +204,13 @@ bool editsAndHistory() {
   ui.tick(app);
   auto count = app.history.size(); ui.press(app, ui.grip(app, PreviewDrag::Centre)); ui.release(app);
   CHECK(app.history.size() == count);
+  const auto returnedStart = ui.grip(app, PreviewDrag::Centre);
+  const auto cursor = app.history.cursor();
+  ui.press(app, returnedStart); ui.hover(app, {returnedStart.x + 32, returnedStart.y - 24});
+  CHECK(parameter(app, id, "centreX") != final.centreX && parameter(app, id, "centreY") != final.centreY);
+  ui.hover(app, returnedStart); ui.release(app);
+  CHECK(parameter(app, id, "centreX") == final.centreX && parameter(app, id, "centreY") == final.centreY);
+  CHECK(app.history.size() == count && app.history.cursor() == cursor && !app.history.hasUnrecordedEdit());
   for (const auto kind : {PreviewDrag::Right, PreviewDrag::Left, PreviewDrag::Top, PreviewDrag::Bottom}) {
     const bool horizontal = kind == PreviewDrag::Right || kind == PreviewDrag::Left;
     const char *name = horizontal ? "radiusX" : "radiusY";
@@ -215,7 +268,7 @@ bool ownershipAndZoom() {
   const auto id = *app.selectedNodeId(); const auto x = parameter(app, id, "centreX");
   ui.drag(app, PreviewDrag::Centre, {40, -20});
   CHECK(near(parameter(app, id, "centreX"), x + 40 / size.x));
-  CHECK(app.previewZoom > 2); // Double clicks on handles never reset zoom.
+  CHECK(app.previewZoom > 2);
   auto dragStart = ui.grip(app, PreviewDrag::Centre); ui.press(app, dragStart);
   ui.hover(app, {dragStart.x + 30, dragStart.y - 20});
   const auto beforeZoom = parameter(app, id, "centreX");
@@ -238,8 +291,31 @@ bool ownershipAndZoom() {
   return true;
 }
 
+bool doubleClicks() {
+  App app; Ui ui; fixture(app); ui.tick(app); ui.tick(app);
+  const auto before = app.history.size();
+  for (auto kind : {PreviewDrag::Centre, PreviewDrag::Left, PreviewDrag::Right,
+                    PreviewDrag::Top, PreviewDrag::Bottom, PreviewDrag::Feather}) {
+    app.previewZoom = 1.5f; app.previewPanX = 37; app.previewPanY = -19; ui.tick(app);
+    const auto point = ui.grip(app, kind);
+    ui.press(app, point); ui.release(app); ui.press(app, point);
+    CHECK(ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left));
+    CHECK(app.previewInteraction.drag == kind);
+    CHECK(app.previewZoom == 1.5f && app.previewPanX == 37 && app.previewPanY == -19);
+    ui.release(app);
+  }
+  CHECK(app.history.size() == before);
+  const ImVec2 background{ui.canvas.Min.x + 30, ui.canvas.Min.y + 30};
+  ui.press(app, background); ui.release(app); ui.press(app, background);
+  CHECK(ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left));
+  CHECK(app.previewZoom == 1 && app.previewPanX == 0 && app.previewPanY == 0);
+  ui.release(app);
+  return true;
+}
+
 bool interruptionsAndAlignment() {
   App app; Ui ui; fixture(app); ui.tick(app); ui.tick(app);
+  CHECK(!(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NavEnableKeyboard));
   const auto id = *app.selectedNodeId();
   for (int interruption = 0; interruption < 7; ++interruption) {
     selectNode(app, id); ui.visible = ui.texture = true; ui.tick(app);
@@ -249,7 +325,13 @@ bool interruptionsAndAlignment() {
     if (interruption == 0) selectNode(app, app.primarySource);
     if (interruption == 1) ui.visible = false;
     if (interruption == 2) ui.texture = false;
-    if (interruption == 3) ui.key(app, ImGuiKey_Escape, true);
+    if (interruption == 3) {
+      const auto editedY = parameter(app, id, "centreY");
+      ui.key(app, ImGuiKey_Escape, true);
+      CHECK(ImGui::IsMouseDown(ImGuiMouseButton_Left));
+      CHECK(app.previewInteraction.drag == PreviewDrag::None && app.history.size() == before + 1);
+      CHECK(parameter(app, id, "centreX") == edited && parameter(app, id, "centreY") == editedY);
+    }
     if (interruption == 4) finishUiEdits(app);
     if (interruption == 5) ImGui::GetIO().AddFocusEvent(false);
     if (interruption == 6) ImGui::GetIO().AddMousePosEvent(-FLT_MAX, -FLT_MAX);
@@ -398,7 +480,8 @@ bool savedGeometryAndPixels() {
 }
 
 bool testPreviewInteraction() {
-  if (!mappingsAndOverlap() || !editsAndHistory() || !ownershipAndZoom() || !interruptionsAndAlignment() ||
+  if (!mappingsAndOverlap() || !collapsedRadiusRecovery() || !editsAndHistory() || !doubleClicks() ||
+      !ownershipAndZoom() || !interruptionsAndAlignment() ||
       !savedGeometryAndPixels()) return false;
   std::printf("ok  Preview mappings, Radial handles, mouse ownership, history and interruptions\n");
   return true;
