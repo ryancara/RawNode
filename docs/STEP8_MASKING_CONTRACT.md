@@ -112,6 +112,38 @@ All generated samples are finite scalar coverage in `[0,1]`.
 - Reuse the existing requested-endpoint evaluator/runtime. An overlay requiring both final Image and Mask may require a bounded multi-endpoint publication extension, **not** another rendering system.
 - No silent automatic remapping through Crop, warp, or other geometry. Equal-sized raster coordinates remain the default; hide/qualify handles when they cannot accurately correspond to the displayed photograph.
 
+### Radial handles (implementation for independent review)
+
+Preview uses middle-drag or Space + left-drag to pan; ordinary left-drag is
+reserved for handles. Ownership is chosen on press and lasts until release or
+interruption. Space does not claim drags from active text or other controls.
+Wheel/pinch zoom and anchoring are unchanged; a background double click still
+resets the view, while a handle or pan gesture owns its double click.
+
+Selected native Radial Masks show an outer ellipse, inward feather
+boundary, centre circle, four radius squares and a diagonal feather diamond.
+The grips keep a fixed screen size; overlapping grips separate with leader
+lines to their exact geometry positions. Dragging edits the existing parameters
+live, including through zero radii. With both radii zero, feather has no spatial
+extent and its drag leaves the parameter unchanged. Inspector controls remain
+the alternative for off-canvas geometry.
+
+Photo and Overlay handles require matching Reference/photo raster frames.
+The UI crosses only known native Exposure/CST operations and exact declared
+bypasses; it never infers a transform through arbitrary active processors.
+An identical Reference/photo endpoint is itself a shared frame. Unproved
+alignment hides handles. Mask Only uses the selected Radial output's own frame.
+Missing Radials and protected/export-owned documents have no editable
+handles.
+
+One completed or interrupted drag retains its live edits as one GradeHistory
+step, including both centre parameters. Escape, focus loss, selection changes
+and a disappearing widget end the gesture. Export defers any outstanding
+capture until execution is released; ordinary UI export completes edits first.
+Successful photo/grade replacement clears outgoing interaction state, including
+same-path/ID reuse. No handle state is saved, and the geometry, evaluator and
+export numerical contracts above are unchanged.
+
 ## First implementation and verification
 
 1. **Merged #97: evaluator-only Inactive Mask bypass contract.** Extend existing evaluation outcome; update dependency planning and generator bypass test path; optional coverage, unary propagation and inspection/status handling. Reuse test-only Mask operations before producing UI-facing generators. No new persistence format, new renderer or production mask processor in this PR. Confirm existing Image-node bypass unchanged.

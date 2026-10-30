@@ -8,6 +8,7 @@
 #include "persist/Preferences.h"
 #include "ui/GraphCanvas.h"
 #include "ui/ParamWidgets.h"
+#include "ui/PreviewInteraction.h"
 
 #include <GLFW/glfw3.h>
 
@@ -92,6 +93,7 @@ struct App {
   PersistPositions nodePositions;
   GradeHistory history;
   std::optional<ui::ParameterGesture> parameterGesture;
+  ui::PreviewInteraction previewInteraction;
   // Colour state is read by the render worker and written by the UI/document
   // thread. Guard snapshots/updates so gamut+gamma pairs remain coherent.
   mutable std::mutex colorMutex;

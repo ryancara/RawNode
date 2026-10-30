@@ -4,6 +4,7 @@
 #include "RenderPipeline.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 
 #if defined(__APPLE__)
 #include "ui/MacPinch.h"
@@ -47,6 +48,9 @@ void drawPreviewPanel(App &app) {
   const ImVec2 canvasMax(canvasPos.x + canvasSize.x, canvasPos.y + canvasSize.y);
   dl->AddRectFilled(canvasPos, canvasMax, ImGui::GetColorU32(ImGuiCol_WindowBg));
 
+  const bool textInputWasActive = ImGui::GetIO().WantTextInput ||
+      ImGui::GetInputTextState(ImGui::GetActiveID()) ||
+      (ImGui::GetActiveID() && ImGui::GetActiveID() != ImGui::GetID("##previewCanvas"));
   ImGui::InvisibleButton(
       "##previewCanvas", canvasSize,
       ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonMiddle);
@@ -67,6 +71,8 @@ void drawPreviewPanel(App &app) {
   const ImVec2 p1(p0.x + dispW, p0.y + dispH);
   dl->PushClipRect(canvasPos, canvasMax, true);
   dl->AddImage((ImTextureID)(intptr_t)app.tex, p0, p1);
+  const bool gestureOwnsDoubleClick = ui::drawPreviewInteraction(
+      app, {p0, {dispW, dispH}}, canvasHovered, active, textInputWasActive);
   dl->PopClipRect();
   char zoomLbl[32];
   std::snprintf(zoomLbl, sizeof zoomLbl, "%.0f%%", app.previewZoom * 100.0f);
@@ -98,16 +104,10 @@ void drawPreviewPanel(App &app) {
       app.previewPanX += (u - 0.5f) * (oldW - newW);
       app.previewPanY += (v - 0.5f) * (oldH - newH);
     }
-    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+    if (!gestureOwnsDoubleClick && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
       app.previewZoom = 1.0f;
       app.previewPanX = 0.0f;
       app.previewPanY = 0.0f;
     }
-  }
-  if (active &&
-      (ImGui::IsMouseDragging(ImGuiMouseButton_Left) ||
-       ImGui::IsMouseDragging(ImGuiMouseButton_Middle))) {
-    app.previewPanX += ImGui::GetIO().MouseDelta.x;
-    app.previewPanY += ImGui::GetIO().MouseDelta.y;
   }
 }
