@@ -95,6 +95,7 @@ struct GateWorkerGuard {
 class NumericProcessor final : public Processor {
  public:
   float gain = 1.0f, offset = 0.0f;
+  std::optional<CoordinateMapping> mapping;
   std::atomic<int> calls{0}, width{0}, height{0};
   std::atomic<bool> fail{false};
   Gate *renderGate = nullptr;
@@ -139,7 +140,7 @@ class NumericProcessor final : public Processor {
     if (fail) return ProcessorResult::failure(91, "runtime backend failure");
     out = in;
     for (size_t i = 0; i < out.px.size(); ++i) if (i % 4 != 3) out.px[i] = out.px[i] * gain + offset;
-    return ProcessorResult::success();
+    return ProcessorResult::success(mapping);
   }
 };
 static NumericProcessor *numeric(App &app, const NodeId &id, float gain = 1.0f, float offset = 0.0f) {
@@ -697,6 +698,44 @@ class OverlayExecutor final : public graph_test::Executor {
     return {EvaluationState::Available, {{ports::mask, MaskValue(value)}}, {}};
   }
 };
+
+static bool testCoordinatePublication() {
+  App app; source(app); Gate gate;
+  const NodeId effect{"coordinate-effect"}, move{"coordinate-move"};
+  CHECK(numeric(app, effect, 2));
+  CHECK(addNativeRadialMaskNode(app)); const auto radial = *app.selectedNodeId();
+  CHECK(graph::connect(app, mask(radial), input(effect, ports::mask)).ok());
+  CHECK(selectNode(app, effect));
+  auto *transform = numeric(app, move, 2); CHECK(transform);
+  transform->mapping = CoordinateMapping::affine(1, 0, .1, 0, 1, .2);
+  RenderRuntimeTestAccess::publication(app.renderer, [](void *context, const OutputRef &) {
+    static_cast<Gate *>(context)->hold();
+  }, &gate);
+  GateWorkerGuard guard{app, gate}; app.renderer.start(); app.renderer.requestPreview(); CHECK(idle(app));
+  const auto retained = publication(app);
+  CHECK(retained.result.maskPlacements.size() == 1);
+  const auto &placement = retained.result.maskPlacements[0];
+  CHECK(placement.mask == mask(radial) && placement.consumer.nodeId == effect);
+  const auto mapped = placement.maskToImage.map(.2, .3);
+  CHECK(mapped && std::abs(mapped->first - .3) < 1e-12 && std::abs(mapped->second - .5) < 1e-12);
+  CHECK(std::get<ImageValue>(retained.result.value)->px[0] == 1);
+  const auto calls = transform->calls.load();
+  app.renderer.requestDisplayRefresh(); CHECK(idle(app));
+  CHECK(transform->calls == calls && publication(app).generation == retained.generation);
+  CHECK(publication(app).result.maskPlacements[0].maskToImage.kind() == CoordinateMapping::Kind::Affine);
+  // Supersede after both pixels and mapping are ready, before publication.
+  gate.arm(); app.renderer.requestPreview(); CHECK(gate.wait(1));
+  CHECK(setNodeStrength(app, move, 0));
+  gate.unblock(); CHECK(idle(app));
+  const auto current = publication(app);
+  CHECK(current.generation > retained.generation && current.result.maskPlacements.size() == 1);
+  CHECK(current.generation == RenderRuntimeTestAccess::snapshot(app.renderer).epoch);
+  CHECK(current.result.maskPlacements[0].maskToImage.kind() == CoordinateMapping::Kind::Identity);
+  CHECK(std::get<ImageValue>(current.result.value)->px[0] == .5f);
+  CHECK(placement.maskToImage.kind() == CoordinateMapping::Kind::Affine);
+  CHECK(std::get<ImageValue>(retained.result.value)->px[0] == 1);
+  return true;
+}
 
 static bool testOverlayRuntime() {
   OverlayExecutor executor; App app; source(app);
@@ -1798,6 +1837,7 @@ static bool testOfxParameterScheduling() {
 
 bool testGraphRuntime() {
   const struct { const char *name; bool (*test)(); } cases[] = {
+      {"Coordinate metadata follows image generations, retained display refresh and supersession", testCoordinatePublication},
       {"Mask Overlay leaves grade/history/view/export unchanged and resets on replacement", testOverlayDocumentBoundaries},
       {"Mask Overlay display byte maths, colour, orientation, alpha and mismatch", testOverlayPresentation},
       {"Mask Overlay shared endpoints, final coverage, retained colour refresh and safe failures", testOverlayRuntime},

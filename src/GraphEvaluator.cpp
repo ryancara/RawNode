@@ -21,6 +21,7 @@ struct Outcome {
   EvaluationState state = EvaluationState::Available;
   GraphValue value;
   bool validated = false;
+  std::vector<MaskPlacement> placements;
 };
 static bool stopped(const Outcome &outcome) { return outcome.state != EvaluationState::Available; }
 static bool rasterShape(int w, int h, size_t channels, size_t samples) {
@@ -90,6 +91,8 @@ class Evaluation {
   EvaluationResult finish(EvaluationResult result, Outcome outcome) {
     result.state = outcome.state;
     result.value = std::move(outcome.value);
+    if (result.state == EvaluationState::Available && result.valueType == ValueType::Image)
+      result.maskPlacements = std::move(outcome.placements);
     if (result.state != EvaluationState::Cancelled) result.diagnostics = diagnostics_;
     return result;
   }
@@ -240,6 +243,7 @@ class Evaluation {
       if (port->type == ValueType::Mask) return {EvaluationState::Inactive, {}};
     }
     graph_test::InputValues inputs;
+    std::vector<MaskPlacement> placements;
     switch (node.operation) {
       case NodeOperation::ImageProcessor:
       case NodeOperation::TestImage:
@@ -249,7 +253,8 @@ class Evaluation {
         auto upstream = input(output, ports::image);
         if (stopped(upstream)) return upstream;
         inputs.image = std::get<ImageValue>(upstream.value);
-        if (node.operation == NodeOperation::ImageProcessor) return maskedProcessor(node, output, inputs.image, strength);
+        if (node.operation == NodeOperation::ImageProcessor) return maskedProcessor(node, output, std::move(upstream), strength);
+        placements = std::move(upstream.placements);
         if (node.operation == NodeOperation::TestMaskedImage) {
           auto mask = coverage(output, inputs.image);
           if (stopped(mask)) return mask;
@@ -300,10 +305,17 @@ class Evaluation {
           auto layer = input(output, ports::image, slot.id);
           if (stopped(layer)) return layer;
           auto image = std::get<ImageValue>(layer.value);
+          // A multi-Image join has no declared single geometric correspondence.
+          // Retain all uses, conservatively Unknown, rather than choose a branch.
+          for (auto &placement : layer.placements) {
+            placement.maskToImage = CoordinateMapping::unknown();
+            placements.push_back(std::move(placement));
+          }
           auto mask = coverage(output, image, slot.id);
           if (stopped(mask)) return mask;
           MaskValue maskValue;
           if (const auto *value = std::get_if<MaskValue>(&mask.value)) maskValue = *value;
+          if (maskValue) addPlacement(placements, node, slot.id);
           inputs.slots.push_back({slot.id, std::move(image), std::move(maskValue)});
         }
         break;
@@ -314,21 +326,49 @@ class Evaluation {
       case NodeOperation::Source:
         break;
     }
-    return executeTest(node, output, inputs);
+    return executeTest(node, output, inputs, placements);
   }
 
-  Outcome maskedProcessor(const Node &node, const OutputRef &output, ImageValue image, double strength) {
+  void addPlacement(std::vector<MaskPlacement> &placements, const Node &node,
+                    std::optional<SlotId> slot = std::nullopt) {
+    const InputAddress consumer{node.id, slot, ports::mask};
+    const auto *binding = findInput(graph_, consumer);
+    if (binding && *binding) placements.push_back({**binding, consumer, CoordinateMapping::identity()});
+  }
+
+  Outcome mappedImage(ImageValue image, std::vector<MaskPlacement> placements,
+                      const CoordinateMapping &mapping) {
+    for (auto &placement : placements) placement.maskToImage = placement.maskToImage.then(mapping);
+    return {EvaluationState::Available, std::move(image), false, std::move(placements)};
+  }
+
+  Outcome maskedProcessor(const Node &node, const OutputRef &output, Outcome upstream, double strength) {
+    const auto image = std::get<ImageValue>(upstream.value);
     // Missing unary effects retain their defined pass-through fallback, with a
     // warning. Their unused coverage must not turn that fallback into an edit.
-    if (!node.processor) return processor(node, output, std::move(image));
+    if (!node.processor) {
+      diagnose(DiagnosticLevel::Warning, output, "Missing Image processor; passing input through" +
+               (node.storedIdentifier.empty() ? std::string() : ": " + node.storedIdentifier));
+      return upstream;
+    }
     auto mask = coverage(output, image);
     if (stopped(mask)) return mask;
-    auto processed = processor(node, output, image);
+    if (cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
+    node.processor->setRenderSize(image->w, image->h);
+    if (cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
+    auto rendered = std::make_shared<Image>();
+    const auto result = node.processor->render(*image, *rendered, cancellation_);
+    if (cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
+    if (!result.ok)
+      return failure(output, "Processor render failed (" + std::to_string(result.backendCode) + "): " + result.message);
+    Outcome processed{EvaluationState::Available, ImageValue(std::move(rendered))};
     processed = validate(output, processed);
     if (stopped(processed)) return processed;
     const auto value = std::get<ImageValue>(processed.value);
     const auto *coverageMask = std::get_if<MaskValue>(&mask.value);
-    if (strength == 1 && !coverageMask) return processed;
+    auto mapping = result.resolvedMapping(image->w, image->h, value->w, value->h);
+    if (strength == 1 && !coverageMask)
+      return mappedImage(value, std::move(upstream.placements), mapping);
     if (value->w != image->w || value->h != image->h)
       return failure(output, "Image input/processor output dimension mismatch for Mask/Strength mixing");
     auto mixed = std::make_shared<Image>(*image);
@@ -344,27 +384,16 @@ class Evaluation {
               (double(value->px[sample]) - image->px[sample]) * amount);
       }
     }
-    return {EvaluationState::Available, ImageValue(std::move(mixed))};
+    // Mixing original and transformed pixels does not describe one geometry.
+    // Even with a uniform Mask, do not infer correspondence from raster samples.
+    if (mapping.kind() != CoordinateMapping::Kind::Identity) mapping = CoordinateMapping::unknown();
+    auto outcome = mappedImage(ImageValue(std::move(mixed)), std::move(upstream.placements), mapping);
+    if (coverageMask) addPlacement(outcome.placements, node);
+    return outcome;
   }
 
-  Outcome processor(const Node &node, const OutputRef &output, ImageValue image) {
-    if (!node.processor) {
-      diagnose(DiagnosticLevel::Warning, output, "Missing Image processor; passing input through" +
-               (node.storedIdentifier.empty() ? std::string() : ": " + node.storedIdentifier));
-      return {EvaluationState::Available, std::move(image)};
-    }
-    if (cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
-    node.processor->setRenderSize(image->w, image->h);
-    if (cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
-    auto rendered = std::make_shared<Image>();
-    const auto result = node.processor->render(*image, *rendered, cancellation_);
-    if (cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
-    if (!result.ok)
-      return failure(output, "Processor render failed (" + std::to_string(result.backendCode) + "): " + result.message);
-    return {EvaluationState::Available, ImageValue(std::move(rendered))};
-  }
-
-  Outcome executeTest(const Node &node, const OutputRef &output, const graph_test::InputValues &inputs) {
+  Outcome executeTest(const Node &node, const OutputRef &output, const graph_test::InputValues &inputs,
+                      const std::vector<MaskPlacement> &placements) {
     if (!executor_) return failure(output, "Test graph operation has no executor");
     if (cancellation_.cancelled()) return {EvaluationState::Cancelled, {}};
     auto result = executor_->execute(node, context_, inputs, cancellation_);
@@ -391,15 +420,26 @@ class Evaluation {
         return failure(output, "Test operation did not produce all declared outputs");
     const auto requested = result.outputs.find(output.outputPortId);
     if (requested == result.outputs.end()) return failure(output, "Test operation did not produce the requested output");
+    const auto outcome = [&](GraphValue value) {
+      if (const auto *image = std::get_if<ImageValue>(&value); image && *image) {
+        const auto mapping = inputs.image
+            ? ProcessorResult::success().resolvedMapping(inputs.image->w, inputs.image->h, (*image)->w, (*image)->h)
+            : CoordinateMapping::unknown();
+        auto mapped = mappedImage(*image, placements, mapping);
+        if (inputs.mask) addPlacement(mapped.placements, node);
+        return mapped;
+      }
+      return Outcome{EvaluationState::Available, std::move(value)};
+    };
     // Public and memo identity remain OutputRef even when one execution naturally
     // produces several outputs. Secondary values are checked when requested.
     for (auto &entry : result.outputs)
       if (entry.first != output.outputPortId) {
         const OutputRef secondary{node.id, entry.first};
-        memo_.emplace(secondary, Outcome{EvaluationState::Available, std::move(entry.second)});
+        memo_.emplace(secondary, outcome(std::move(entry.second)));
         releaseUnused(secondary);
       }
-    return {EvaluationState::Available, std::move(requested->second)};
+    return outcome(std::move(requested->second));
   }
 
   Outcome validate(const OutputRef &output, Outcome &result) {

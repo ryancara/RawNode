@@ -217,6 +217,8 @@ class RecordingProcessor final : public Processor {
   int renders = 0, sizes = 0, width = 0, height = 0, inputW = 0, inputH = 0;
   bool fail = false, throws = false, unknownException = false, sizeThrows = false, badRaster = false;
   bool interactive = false, halfSize = false;
+  std::optional<CoordinateMapping> mapping;
+  int cropX = 0, cropY = 0, cropW = 0, cropH = 0;
   float gain = 1;
   const Image *lastOutput = nullptr;
   std::function<void()> duringRender;
@@ -240,11 +242,208 @@ class RecordingProcessor final : public Processor {
     out = in;
     lastOutput = &out;
     if (halfSize) { out.w = std::max(1, in.w / 2); out.h = std::max(1, in.h / 2); out.px.resize(size_t(out.w) * out.h * 4); }
+    if (cropW > 0 && cropH > 0) {
+      out.w = cropW; out.h = cropH;
+      out.px.resize(size_t(out.w) * out.h * 4);
+      for (int y = 0; y < cropH; ++y)
+        std::copy_n(in.px.begin() + (size_t(y + cropY) * in.w + cropX) * 4, size_t(cropW) * 4,
+                    out.px.begin() + size_t(y) * cropW * 4);
+    }
     for (size_t i = 0; i < out.px.size(); ++i) if (i % 4 != 3) out.px[i] *= gain;
     if (badRaster) out.px.pop_back();
-    return ProcessorResult::success();
+    return ProcessorResult::success(mapping);
   }
 };
+
+// Tight double tolerance: these are short affine calculations in normalized
+// coordinates, with analytical decimal/rational expectations (not image floats).
+static bool mapsTo(const CoordinateMapping &mapping, double x, double y, double expectedX, double expectedY) {
+  const auto mapped = mapping.map(x, y);
+  return mapped && std::abs(mapped->first - expectedX) < 1e-12 && std::abs(mapped->second - expectedY) < 1e-12;
+}
+
+static bool testCoordinateMappingMath() {
+  using Kind = CoordinateMapping::Kind;
+  const auto identity = ProcessorResult::success().resolvedMapping(10, 8, 10, 8);
+  CHECK(identity.kind() == Kind::Identity && mapsTo(identity, -.2, 1.3, -.2, 1.3));
+  CHECK(ProcessorResult::success().resolvedMapping(10, 8, 5, 4).kind() == Kind::Unknown);
+  const auto turn = CoordinateMapping::affine(0, -1, 1, 1, 0, .1);
+  CHECK(ProcessorResult::success(turn).resolvedMapping(10, 8, 10, 8).kind() == Kind::Affine);
+  CHECK(ProcessorResult::success(CoordinateMapping::unknown()).resolvedMapping(10, 8, 10, 8).kind() == Kind::Unknown);
+  CHECK(ProcessorResult::success(identity).resolvedMapping(10, 8, 5, 4).kind() == Kind::Identity);
+  // 10x8 cropped at pixel edge (2,1) to 5x4: x'=(10x-2)/5,
+  // y'=(8y-1)/4. Then x''=1-y', y''=x'+.1. Order matters.
+  const auto crop = CoordinateMapping::affine(2, 0, -.4, 0, 2, -.25);
+  CHECK(mapsTo(crop, .35, .5, .3, .75));
+  CHECK(mapsTo(crop.then(turn), .35, .5, .25, .4));
+  CHECK(mapsTo(crop.then(turn).inverse(), .25, .4, .35, .5));
+  CHECK(mapsTo(turn.then(crop), .35, .5, .6, .65));
+  // Shear/off-diagonal terms, reflection, translation and a negative determinant.
+  const auto shear = CoordinateMapping::affine(1, 2, .25, 3, -1, -.5);
+  CHECK(mapsTo(shear, .2, .3, 1.05, -.2));
+  CHECK(mapsTo(shear.inverse(), 1.05, -.2, .2, .3));
+  CHECK(CoordinateMapping::affine(1, 2, 0, 2, 4, 0).inverse().kind() == Kind::Unknown);
+  CHECK(CoordinateMapping::affine(1, 0, INFINITY, 0, 1, 0).kind() == Kind::Unknown);
+  CHECK(!identity.map(NAN, 0) && !CoordinateMapping::unknown().map(0, 0));
+  CHECK(crop.then(CoordinateMapping::unknown()).kind() == Kind::Unknown);
+  CHECK(CoordinateMapping::unknown().then(crop).kind() == Kind::Unknown);
+  CHECK(!CoordinateMapping::affine(1e308, 0, 0, 0, 1, 0).map(10, 0));
+  CHECK(CoordinateMapping::affine(1e308, 0, 0, 0, 1, 0).then(crop).kind() == Kind::Unknown);
+  return true;
+}
+
+static RecordingProcessor *recording(Fixture &f, const NodeId &id) {
+  auto processor = std::make_unique<RecordingProcessor>();
+  auto *record = processor.get();
+  f.node(id)->processor = std::move(processor);
+  return record;
+}
+
+static bool testCoordinatePlacementChain() {
+  Fixture f; ToyExecutor exec;
+  auto source = std::make_shared<Image>(*raster(10, 8));
+  for (size_t i = 0; i < source->px.size(); ++i) source->px[i] = float(i);
+  f.sourcePixels = source;
+  f.context = {EvaluationPurpose::Inspection, 10, 8, 10, 8};
+  const NodeId before{"before"}, effect{"effect"}, generator{"coverage"}, crop{"crop"}, turn{"turn"};
+  for (const auto &id : {before, effect, crop, turn}) CHECK(f.add(id, NodeOperation::ImageProcessor));
+  CHECK(f.add(generator, NodeOperation::TestReferenceMask));
+  auto *pre = recording(f, before);
+  pre->mapping = CoordinateMapping::affine(1, 0, .2, 0, 1, -.1);
+  auto *adjustment = recording(f, effect);
+  auto *cropping = recording(f, crop);
+  auto *turning = recording(f, turn);
+  CHECK(f.connect(image(f.source), input(before)) && f.connect(image(before), input(effect)) &&
+        f.connect(mask(generator), input(effect, ports::mask)) && f.connect(image(effect), input(crop)) &&
+        f.connect(image(crop), input(turn)));
+  auto result = f.evaluate(image(crop), &exec);
+  CHECK(result.state == EvaluationState::Available && result.maskPlacements.size() == 1);
+  CHECK(result.maskPlacements[0].maskToImage.kind() == CoordinateMapping::Kind::Identity);
+  CHECK(result.maskPlacements[0].mask == mask(generator) && result.maskPlacements[0].consumer.nodeId == effect);
+  CHECK(result.maskPlacements[0].consumer.inputPortId == ports::mask && !result.maskPlacements[0].consumer.slotId);
+  CHECK(pixels(result)->px == source->px); // Metadata did not change Mask mixing or photograph samples.
+  cropping->cropX = 2; cropping->cropY = 1; cropping->cropW = 5; cropping->cropH = 4;
+  result = f.evaluate(image(crop), &exec);
+  CHECK(result.state == EvaluationState::Available && result.diagnostics.empty());
+  CHECK(result.maskPlacements[0].maskToImage.kind() == CoordinateMapping::Kind::Unknown);
+  // Real copied crop pixels, independently indexed into the original raster.
+  CHECK(pixels(result)->w == 5 && pixels(result)->h == 4);
+  CHECK(pixels(result)->px[0] == source->px[(1 * 10 + 2) * 4]);
+  CHECK(pixels(result)->px[(3 * 5 + 4) * 4] == source->px[(4 * 10 + 6) * 4]);
+  cropping->mapping = CoordinateMapping::affine(2, 0, -.4, 0, 2, -.25);
+  turning->mapping = CoordinateMapping::affine(0, -1, 1, 1, 0, .1);
+  // Both explicit Reference choices have the same raster shape but different
+  // upstream geometry. Neither changes placement at the consuming adjustment.
+  for (const auto &reference : {f.source, before}) {
+    CHECK(graph::disconnect(f.document(), input(generator, ports::reference)).ok());
+    CHECK(f.connect(image(reference), input(generator, ports::reference)));
+    result = f.evaluate(image(turn), &exec);
+    CHECK(result.state == EvaluationState::Available && result.maskPlacements.size() == 1);
+    const auto mapping = result.maskPlacements[0].maskToImage;
+    CHECK(mapsTo(mapping, .35, .5, .25, .4));
+    CHECK(mapsTo(mapping.inverse(), .25, .4, .35, .5));
+  }
+  // An earlier result owns its own mapping, independent of subsequent renders.
+  const auto retained = result;
+  cropping->mapping = CoordinateMapping::unknown();
+  result = f.evaluate(image(turn), &exec);
+  CHECK(result.state == EvaluationState::Available && result.diagnostics.empty());
+  CHECK(result.maskPlacements[0].maskToImage.kind() == CoordinateMapping::Kind::Unknown);
+  CHECK(mapsTo(retained.maskPlacements[0].maskToImage, .35, .5, .25, .4));
+  // Bypass, exact zero and missing processor preserve upstream placement and
+  // do not consume their own connected coverage (or validate its dimensions).
+  CHECK(f.connect(mask(generator), input(crop, ports::mask)));
+  for (int pass = 0; pass < 3; ++pass) {
+    f.node(crop)->enabled = pass != 0;
+    f.node(crop)->strength = pass == 1 ? 0 : 1;
+    if (pass == 2) f.node(crop)->processor.reset();
+    result = f.evaluate(image(crop), &exec);
+    CHECK(result.state == EvaluationState::Available && result.maskPlacements.size() == 1);
+    CHECK(result.maskPlacements[0].consumer.nodeId == effect);
+    CHECK(result.maskPlacements[0].maskToImage.kind() == CoordinateMapping::Kind::Identity);
+    CHECK(pixels(result)->w == 10 && pixels(result)->h == 8);
+  }
+  f.node(effect)->enabled = false;
+  CHECK(f.evaluate(image(effect), &exec).maskPlacements.empty());
+  f.node(effect)->enabled = true; f.node(effect)->strength = 0;
+  CHECK(f.evaluate(image(effect), &exec).maskPlacements.empty());
+  f.node(effect)->strength = 1; f.node(generator)->enabled = false;
+  CHECK(f.evaluate(image(effect), &exec).maskPlacements.empty());
+  f.node(generator)->enabled = true;
+  CHECK(f.add(NodeId{"unavailable"}, NodeOperation::TestUnavailableMask));
+  CHECK(graph::reconnect(f.document(), mask(NodeId{"unavailable"}), input(effect, ports::mask)).ok());
+  result = f.evaluate(image(effect), &exec);
+  CHECK(result.state == EvaluationState::Available && result.maskPlacements.empty());
+  CHECK(message(result, "full coverage") && adjustment->renders > 0);
+  return true;
+}
+
+static bool testSharedCoordinatePlacementsAndMixing() {
+  Fixture f; ToyExecutor exec;
+  const NodeId a{"a"}, b{"b"}, move{"move"}, generator{"shared"};
+  for (const auto &id : {a, b, move}) CHECK(f.add(id, NodeOperation::ImageProcessor));
+  CHECK(f.add(generator, NodeOperation::TestReferenceMask));
+  recording(f, a); recording(f, b); auto *transform = recording(f, move);
+  transform->mapping = CoordinateMapping::affine(1, 0, .1, 0, 1, .2);
+  CHECK(f.connect(image(f.source), input(a)) && f.connect(mask(generator), input(a, ports::mask)) &&
+        f.connect(image(a), input(move)) && f.connect(image(move), input(b)) &&
+        f.connect(mask(generator), input(b, ports::mask)));
+  auto result = f.evaluate(image(b), &exec);
+  CHECK(result.state == EvaluationState::Available && result.maskPlacements.size() == 2);
+  CHECK(exec.calls[generator.value] == 1);
+  CHECK(result.maskPlacements[0].mask == result.maskPlacements[1].mask);
+  CHECK(result.maskPlacements[0].consumer.nodeId == a && result.maskPlacements[1].consumer.nodeId == b);
+  CHECK(mapsTo(result.maskPlacements[0].maskToImage, .2, .3, .3, .5));
+  CHECK(mapsTo(result.maskPlacements[1].maskToImage, .2, .3, .2, .3));
+  // Partial Strength with moved pixels cannot supply one upstream geometry.
+  f.node(move)->strength = .5;
+  result = f.evaluate(image(b), &exec);
+  CHECK(result.state == EvaluationState::Available && result.maskPlacements.size() == 2);
+  CHECK(result.maskPlacements[0].maskToImage.kind() == CoordinateMapping::Kind::Unknown);
+  CHECK(result.maskPlacements[1].maskToImage.kind() == CoordinateMapping::Kind::Identity);
+  f.node(move)->strength = 1;
+  CHECK(f.connect(mask(generator), input(move, ports::mask)));
+  result = f.evaluate(image(move), &exec);
+  CHECK(result.state == EvaluationState::Available && result.maskPlacements.size() == 2);
+  CHECK(result.maskPlacements[0].maskToImage.kind() == CoordinateMapping::Kind::Unknown);
+  CHECK(result.maskPlacements[1].consumer.nodeId == move);
+  CHECK(result.maskPlacements[1].maskToImage.kind() == CoordinateMapping::Kind::Identity);
+  transform->mapping = CoordinateMapping::identity();
+  result = f.evaluate(image(move), &exec);
+  CHECK(result.maskPlacements[0].maskToImage.kind() == CoordinateMapping::Kind::Identity);
+  // Two roots retain their own correspondence even when evaluated in one memo.
+  const auto pair = evaluateGraphPair(f.view(), image(a), image(b), f.context, f.sourcePixels, {}, &exec);
+  CHECK(pair.first.maskPlacements.size() == 1 && pair.second.maskPlacements.size() == 3);
+  CHECK(pair.first.maskPlacements[0].consumer.nodeId == a);
+  // Divergent branches merge without choosing one consumer's placement. Even
+  // the same Mask on two ordered Slots retains the consuming Slot identities.
+  const NodeId join{"coordinate-join"};
+  CHECK(f.add(join, NodeOperation::TestSlotted));
+  const auto first = graph::addSlot(f.document(), join).addedSlot;
+  const auto second = graph::addSlot(f.document(), join).addedSlot;
+  CHECK(first && second && graph::reconnect(f.document(), image(f.source), input(b)).ok());
+  CHECK(f.connect(image(a), input(join, ports::image, first)) &&
+        f.connect(image(b), input(join, ports::image, second)) &&
+        f.connect(mask(generator), input(join, ports::mask, first)) &&
+        f.connect(mask(generator), input(join, ports::mask, second)));
+  result = f.evaluate(image(join), &exec);
+  CHECK(result.state == EvaluationState::Available && result.maskPlacements.size() == 4);
+  for (const auto &placement : result.maskPlacements) {
+    CHECK(placement.mask == mask(generator));
+    CHECK(placement.maskToImage.kind() == CoordinateMapping::Kind::Unknown);
+  }
+  CHECK(result.maskPlacements[1].consumer.slotId == first && result.maskPlacements[3].consumer.slotId == second);
+  f.node(join)->enabled = false;
+  result = f.evaluate(image(join), &exec);
+  CHECK(result.state == EvaluationState::Available && result.maskPlacements.size() == 1);
+  CHECK(result.maskPlacements[0].consumer.nodeId == a);
+  CHECK(result.maskPlacements[0].maskToImage.kind() == CoordinateMapping::Kind::Identity);
+  // Existing hard raster rules still apply; coordinate metadata cannot relax them.
+  transform->halfSize = true;
+  CHECK(f.evaluate(image(move), &exec).state == EvaluationState::Error);
+  CHECK(f.evaluate(mask(generator), &exec).maskPlacements.empty());
+  return true;
+}
 
 static bool testProductionMaskAndStrength() {
   Fixture f; ToyExecutor exec;
@@ -929,6 +1128,9 @@ static bool testCancellationAndFailures() {
 
 bool testGraphEvaluator() {
   const struct { const char *name; bool (*test)(); } cases[] = {
+      {"Coordinate mapping defaults, explicit overrides, analytical composition and inverse", testCoordinateMappingMath},
+      {"Mask placements start at consumer output, compose crop geometry and preserve pass-through", testCoordinatePlacementChain},
+      {"Shared Mask consumers and geometric mixing retain distinct/unknown placements", testSharedCoordinatePlacementsAndMixing},
       {"Step 8 production Image Mask times Strength, exact endpoints, HDR/alpha and dimensions", testProductionMaskAndStrength},
       {"Strength is sampled once for planning, zero dependencies and execution", testPlannedStrength},
       {"Step 8 production mix fan-out executes once and releases intermediates", testProductionMixLifetime},

@@ -3,6 +3,7 @@
 #include "imgio/ImageIO.h"
 #include "processors/Parameter.h"
 #include "RenderCancellation.h"
+#include "CoordinateMapping.h"
 
 #include <string>
 #include <utility>
@@ -28,8 +29,20 @@ struct ProcessorResult {
   bool ok = true;
   int backendCode = 0;
   std::string message;
+  // Optional declaration for this render's input -> output geometry. An explicit
+  // Unknown overrides the equal-dimension compatibility assumption too.
+  std::optional<CoordinateMapping> inputToOutput;
 
-  static ProcessorResult success() { return {}; }
+  static ProcessorResult success(std::optional<CoordinateMapping> mapping = std::nullopt) {
+    ProcessorResult r;
+    r.inputToOutput = std::move(mapping);
+    return r;
+  }
+  CoordinateMapping resolvedMapping(int inputW, int inputH, int outputW, int outputH) const {
+    if (inputToOutput) return *inputToOutput;
+    return inputW == outputW && inputH == outputH
+        ? CoordinateMapping::identity() : CoordinateMapping::unknown();
+  }
   static ProcessorResult failure(int code, std::string message) {
     ProcessorResult r;
     r.ok = false;
@@ -67,6 +80,8 @@ class Processor {
 
   // Input/output are bottom-up float RGBA in whatever colour space the chain
   // has reached at this node. Input and output must be distinct Images.
+  // Report any explicit coordinate mapping in this call's ProcessorResult;
+  // never expose geometry through a separate query against mutable state.
   //
   // The borrowed token allows cooperative cancellation of obsolete previews.
   // An empty token (export) never cancels; no scheduler state belongs here.
