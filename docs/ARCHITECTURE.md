@@ -296,6 +296,9 @@ existing RenderRuntime execution ownership. Publication
 retains endpoint, generation, value kind and diagnostics; display-only refresh
 converts the retained result without rerunning processors.
 
+Coordinate metadata follows the transient contract below; it does not change
+Image/Mask raster values or their persisted parameters.
+
 Graph commands stage and validate before acquiring DocumentMutation for an
 actual commit. Rejected/unchanged commands preserve active preview/export work.
 Source replacement drains the same ownership before replacing full/preview
@@ -382,6 +385,42 @@ Accepted transition limitations:
   dependencies. The current List View exposes nodes without guessing repairs.
 - Photograph sidecars, presets and global preferences use checked atomic replacement.
   ImGui retains its native ini persistence.
+
+## Transient coordinate correspondence (D056)
+
+`CoordinateMapping` describes Identity, a six-coefficient Affine, or Unknown
+correspondence between two raster-local frames. Coordinates are fractions of
+width/height from the lower-left raster edge, matching native Mask parameters;
+pixel centres are `(i+0.5)/W, (j+0.5)/H`. Mappings compose and invert without
+clipping or moving pixels. Singular inverses and non-finite maths yield Unknown.
+
+`ProcessorResult::inputToOutput` optionally declares input-to-output geometry
+for that same render. Without a declaration, equal input/output dimensions imply
+Identity and changed dimensions imply Unknown. Any explicit declaration overrides
+this default, including explicit Unknown or a same-sized Affine. The identity
+default is a practical compatibility assumption for opaque plugins. No separate
+query against mutable backend state supplies geometry.
+
+The evaluator retains `MaskPlacement` records alongside each evaluated Image,
+identifying the exact Mask output, consuming input (and Slot if present), and
+mapping to that Image. Placement starts at the consuming adjustment's **output**
+raster, where existing mixing samples coverage. Mask Reference supplies generation
+dimensions only; it is never traced backwards to infer placement. Downstream
+unary mappings compose from that anchor. Original/processed self-mixing preserves
+upstream correspondence only for Identity geometry; other geometry becomes
+Unknown. The Mask applied at that mix still starts in its output raster.
+Bypass, zero Strength and missing processors pass upstream records through and
+add no unused coverage. Inactive/Unavailable coverage adds no placement.
+
+Multiple consumers retain separate records. Future Preview integration must
+consider all matching records: equal known mappings can establish unambiguous
+placement, differing known mappings are ambiguous, and Unknown prevents claiming
+known placement. No consumer is chosen implicitly. Test-only multi-Image joins
+conservatively retain incoming uses with Unknown correspondence. Metadata owns no
+intermediate rasters and lives in the existing `EvaluationResult`, so normal
+generation-gated publication and display refresh retain it with the correct Image.
+Image/Mask values and saved parameters remain raster-local and unchanged. This
+foundation changes no handle/Overlay alignment, OFX bounds handling or Crop adapter.
 
 ## Control-thread contract
 
