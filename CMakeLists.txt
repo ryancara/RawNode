@@ -130,6 +130,7 @@ add_executable(OfxRawHost
   src/GraphCommands.cpp
   src/GraphValidation.cpp
   src/GraphEvaluator.cpp
+  src/CoordinateMapping.cpp
   src/processors/OfxProcessor.cpp
   src/processors/NativeRadialMaskProcessor.cpp
   src/processors/NativeExposureProcessor.cpp

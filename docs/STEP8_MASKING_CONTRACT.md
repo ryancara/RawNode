@@ -110,7 +110,7 @@ All generated samples are finite scalar coverage in `[0,1]`.
 - Preview toolbar offers optional coloured **Mask Overlay** and grayscale **Mask Only**, inspecting the selected Mask endpoint's actual final output; inactive shows no stale mask raster.
 - Inspector and handles edit the same parameters; a completed drag is one Undo step.
 - Reuse the existing requested-endpoint evaluator/runtime. An overlay requiring both final Image and Mask may require a bounded multi-endpoint publication extension, **not** another rendering system.
-- No silent automatic remapping through Crop, warp, or other geometry. Equal-sized raster coordinates remain the default; hide/qualify handles when they cannot accurately correspond to the displayed photograph.
+- No silent automatic raster remapping through Crop, warp, or other geometry. D056 adds backend-neutral transient coordinate metadata: undeclared equal-sized processing preserves coordinates, explicit declarations override it, and undeclared size changes are Unknown. Mask placement starts where the Image adjustment applies coverage, not at its Reference. This foundation changes no Mask samples, saved geometry, handle UI or Overlay alignment; future handles must hide/qualify unknown or ambiguous placement.
 
 ## First implementation and verification
 

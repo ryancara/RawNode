@@ -402,6 +402,7 @@ void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef
         app_.processed.result.requested.nodeId.value.clear();
         app_.processed.result.requested.outputPortId.value.clear();
         app_.processed.result.diagnostics.clear();
+        app_.processed.result.maskPlacements.clear();
         app_.processed.overlayMask.reset();
         app_.display = {};
         app_.displayRGBA.clear();

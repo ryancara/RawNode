@@ -211,6 +211,12 @@ publication retains request generation,
 endpoint, value kind, state and diagnostics. Preview Source frames use shared
 ownership; per-evaluation consumer counts bound intermediate raster lifetime.
 Presentation buffers remain in the display path and file production in export.
+Transient coordinate correspondence travels with each evaluated Image result
+under that same publication identity (D056). Processors may declare geometry in
+their render result; undeclared equal-sized processing defaults to Identity.
+Per-consumer Mask placements start where coverage is applied and compose through
+downstream processing. Unknown/ambiguous geometry does not change raster rendering
+or saved Mask values. Preview handle/Overlay integration remains separate.
 The runtime owns **when** evaluation may execute safely, not what the document
 or export means. List View was included in the completed independent Step 6
 review; Step 7 has replaced its temporary V2 persistence boundary with the
