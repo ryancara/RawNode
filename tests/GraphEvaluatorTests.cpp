@@ -311,6 +311,7 @@ static bool testCoordinatePlacementChain() {
   auto *pre = recording(f, before);
   pre->mapping = CoordinateMapping::affine(1, 0, .2, 0, 1, -.1);
   auto *adjustment = recording(f, effect);
+  adjustment->gain = 3;
   auto *cropping = recording(f, crop);
   auto *turning = recording(f, turn);
   CHECK(f.connect(image(f.source), input(before)) && f.connect(image(before), input(effect)) &&
@@ -321,7 +322,11 @@ static bool testCoordinatePlacementChain() {
   CHECK(result.maskPlacements[0].maskToImage.kind() == CoordinateMapping::Kind::Identity);
   CHECK(result.maskPlacements[0].mask == mask(generator) && result.maskPlacements[0].consumer.nodeId == effect);
   CHECK(result.maskPlacements[0].consumer.inputPortId == ports::mask && !result.maskPlacements[0].consumer.slotId);
-  CHECK(pixels(result)->px == source->px); // Metadata did not change Mask mixing or photograph samples.
+  // Coverage .25 mixes original and 3*original: (.75 + .25*3)*original
+  // = 1.5*original for RGB. Alpha is unchanged by the test processor.
+  for (size_t i = 0; i < source->px.size(); ++i)
+    CHECK(pixels(result)->px[i] == source->px[i] * (i % 4 == 3 ? 1 : 1.5f));
+  adjustment->gain = 1;
   cropping->cropX = 2; cropping->cropY = 1; cropping->cropW = 5; cropping->cropH = 4;
   result = f.evaluate(image(crop), &exec);
   CHECK(result.state == EvaluationState::Available && result.diagnostics.empty());
@@ -442,6 +447,63 @@ static bool testSharedCoordinatePlacementsAndMixing() {
   transform->halfSize = true;
   CHECK(f.evaluate(image(move), &exec).state == EvaluationState::Error);
   CHECK(f.evaluate(mask(generator), &exec).maskPlacements.empty());
+  return true;
+}
+
+static bool testOperationCoordinatePropagation() {
+  Fixture f; ToyExecutor exec;
+  using Kind = CoordinateMapping::Kind;
+  const NodeId effect{"effect"}, generator{"coverage"}, transform{"transform"};
+  const NodeId unary{"unary"}, bundle{"bundle"}, masked{"masked"}, resized{"resized"};
+  CHECK(f.add(effect, NodeOperation::ImageProcessor) && f.add(transform, NodeOperation::ImageProcessor));
+  CHECK(f.add(generator, NodeOperation::TestReferenceMask) && f.add(unary) &&
+        f.add(bundle, NodeOperation::TestMultipleOutputs) && f.add(masked, NodeOperation::TestMaskedImage) && f.add(resized));
+  recording(f, effect)->gain = 3;
+  auto *spatial = recording(f, transform);
+  CHECK(f.connect(image(f.source), input(effect)) && f.connect(mask(generator), input(effect, ports::mask)) &&
+        f.connect(image(effect), input(transform)) && f.connect(image(transform), input(unary)) &&
+        f.connect(image(unary), input(bundle)) && f.connect(image(bundle), input(masked)) &&
+        f.connect(mask(generator), input(masked, ports::mask)) && f.connect(image(masked), input(resized)));
+  exec.settings[resized.value].halfSize = true;
+  for (const auto &mapping : {CoordinateMapping::identity(), CoordinateMapping::affine(1, 0, .1, 0, 1, .2),
+                              CoordinateMapping::unknown()}) {
+    spatial->mapping = mapping;
+    const auto result = f.evaluate(image(unary), &exec);
+    CHECK(result.state == EvaluationState::Available && result.maskPlacements.size() == 1);
+    CHECK(result.maskPlacements[0].consumer.nodeId == effect);
+    CHECK(result.maskPlacements[0].maskToImage.kind() == mapping.kind());
+    if (mapping.kind() != Kind::Unknown)
+      CHECK(mapsTo(result.maskPlacements[0].maskToImage, .2, .3,
+                   mapping.kind() == Kind::Identity ? .2 : .3, mapping.kind() == Kind::Identity ? .3 : .5));
+    // Exercise each bundle output as both requested and memoized secondary.
+    // Roots retain their metadata even after shared inputs reach their last use.
+    const OutputRef original{bundle, PortId{"original"}};
+    for (bool imageFirst : {true, false}) {
+      const int calls = exec.calls[bundle.value];
+      const auto pair = evaluateGraphPair(f.view(), imageFirst ? image(bundle) : original,
+          imageFirst ? original : image(bundle), f.context, f.sourcePixels, {}, &exec);
+      CHECK(exec.calls[bundle.value] == calls + 1);
+      for (const auto *output : {&pair.first, &pair.second}) {
+        CHECK(output->state == EvaluationState::Available && output->maskPlacements.size() == 1);
+        CHECK(output->maskPlacements[0].consumer.nodeId == effect);
+        CHECK(output->maskPlacements[0].maskToImage.kind() == mapping.kind());
+        // .25 mixed with .75 at .25 coverage is .375; the bundle's
+        // Image doubles it to .75, while Original keeps .375.
+        CHECK(pixels(*output)->px[0] == (output->requested == original ? .375f : .75f));
+      }
+    }
+    const auto covered = f.evaluate(image(masked), &exec);
+    CHECK(covered.state == EvaluationState::Available && covered.maskPlacements.size() == 2);
+    CHECK(covered.maskPlacements[0].maskToImage.kind() == mapping.kind());
+    CHECK(covered.maskPlacements[1].mask == mask(generator) && covered.maskPlacements[1].consumer.nodeId == masked);
+    CHECK(covered.maskPlacements[1].maskToImage.kind() == Kind::Identity);
+    CHECK(pixels(covered)->px[0] == 1); // TestMaskedImage adds .25 coverage to .75.
+    const auto smaller = f.evaluate(image(resized), &exec);
+    CHECK(smaller.state == EvaluationState::Available && pixels(smaller)->w == 1 && pixels(smaller)->h == 1);
+    CHECK(smaller.maskPlacements.size() == 2);
+    for (const auto &placement : smaller.maskPlacements) CHECK(placement.maskToImage.kind() == Kind::Unknown);
+  }
+  CHECK(f.evaluate(mask(bundle), &exec).maskPlacements.empty());
   return true;
 }
 
@@ -1131,6 +1193,7 @@ bool testGraphEvaluator() {
       {"Coordinate mapping defaults, explicit overrides, analytical composition and inverse", testCoordinateMappingMath},
       {"Mask placements start at consumer output, compose crop geometry and preserve pass-through", testCoordinatePlacementChain},
       {"Shared Mask consumers and geometric mixing retain distinct/unknown placements", testSharedCoordinatePlacementsAndMixing},
+      {"Test-operation Image/bundle/coverage placements preserve known and Unknown correspondence", testOperationCoordinatePropagation},
       {"Step 8 production Image Mask times Strength, exact endpoints, HDR/alpha and dimensions", testProductionMaskAndStrength},
       {"Strength is sampled once for planning, zero dependencies and execution", testPlannedStrength},
       {"Step 8 production mix fan-out executes once and releases intermediates", testProductionMixLifetime},

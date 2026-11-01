@@ -20,6 +20,10 @@ CoordinateMapping CoordinateMapping::affine(double xx, double xy, double tx,
   return result;
 }
 
+CoordinateMapping CoordinateMapping::defaultForDimensions(int inputW, int inputH, int outputW, int outputH) {
+  return inputW == outputW && inputH == outputH ? identity() : unknown();
+}
+
 CoordinateMapping CoordinateMapping::then(const CoordinateMapping &next) const {
   if (kind_ == Kind::Unknown || next.kind_ == Kind::Unknown) return unknown();
   return affine(next.xx_ * xx_ + next.xy_ * yx_,

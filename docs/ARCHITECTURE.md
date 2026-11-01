@@ -416,8 +416,9 @@ Multiple consumers retain separate records. Future Preview integration must
 consider all matching records: equal known mappings can establish unambiguous
 placement, differing known mappings are ambiguous, and Unknown prevents claiming
 known placement. No consumer is chosen implicitly. Test-only multi-Image joins
-conservatively retain incoming uses with Unknown correspondence. Metadata owns no
-intermediate rasters and lives in the existing `EvaluationResult`, so normal
+conservatively retain all uses, including their own Slot coverage, with Unknown
+correspondence. Metadata owns no intermediate rasters and lives in the existing
+`EvaluationResult`, so normal
 generation-gated publication and display refresh retain it with the correct Image.
 Image/Mask values and saved parameters remain raster-local and unchanged. This
 foundation changes no handle/Overlay alignment, OFX bounds handling or Crop adapter.

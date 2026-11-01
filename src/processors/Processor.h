@@ -40,8 +40,7 @@ struct ProcessorResult {
   }
   CoordinateMapping resolvedMapping(int inputW, int inputH, int outputW, int outputH) const {
     if (inputToOutput) return *inputToOutput;
-    return inputW == outputW && inputH == outputH
-        ? CoordinateMapping::identity() : CoordinateMapping::unknown();
+    return CoordinateMapping::defaultForDimensions(inputW, inputH, outputW, outputH);
   }
   static ProcessorResult failure(int code, std::string message) {
     ProcessorResult r;

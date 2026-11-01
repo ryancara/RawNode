@@ -16,6 +16,8 @@ class CoordinateMapping {
   static CoordinateMapping affine(double xx, double xy, double tx,
                                   double yx, double yy, double ty);
   static CoordinateMapping unknown() { return {}; }
+  // Compatibility default for valid rasters without an explicit declaration.
+  static CoordinateMapping defaultForDimensions(int inputW, int inputH, int outputW, int outputH);
 
   Kind kind() const { return kind_; }
   // Apply this mapping first, then next. Unknown correspondence propagates.

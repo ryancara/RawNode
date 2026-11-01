@@ -166,7 +166,10 @@ class Evaluation {
     const auto uses = remaining_.find(output);
     if (uses != remaining_.end() && uses->second != 0) return;
     const auto cached = memo_.find(output);
-    if (cached != memo_.end()) cached->second.value = std::monostate{};
+    if (cached != memo_.end()) {
+      cached->second.value = std::monostate{};
+      cached->second.placements.clear();
+    }
   }
   Outcome dependency(const OutputRef &output) {
     auto result = visit(output);
@@ -305,12 +308,7 @@ class Evaluation {
           auto layer = input(output, ports::image, slot.id);
           if (stopped(layer)) return layer;
           auto image = std::get<ImageValue>(layer.value);
-          // A multi-Image join has no declared single geometric correspondence.
-          // Retain all uses, conservatively Unknown, rather than choose a branch.
-          for (auto &placement : layer.placements) {
-            placement.maskToImage = CoordinateMapping::unknown();
-            placements.push_back(std::move(placement));
-          }
+          for (auto &placement : layer.placements) placements.push_back(std::move(placement));
           auto mask = coverage(output, image, slot.id);
           if (stopped(mask)) return mask;
           MaskValue maskValue;
@@ -422,8 +420,10 @@ class Evaluation {
     if (requested == result.outputs.end()) return failure(output, "Test operation did not produce the requested output");
     const auto outcome = [&](GraphValue value) {
       if (const auto *image = std::get_if<ImageValue>(&value); image && *image) {
+        // Without a unary Image input, no single correspondence is declared.
+        // This invalidates all join uses, including its own Slot coverage.
         const auto mapping = inputs.image
-            ? ProcessorResult::success().resolvedMapping(inputs.image->w, inputs.image->h, (*image)->w, (*image)->h)
+            ? CoordinateMapping::defaultForDimensions(inputs.image->w, inputs.image->h, (*image)->w, (*image)->h)
             : CoordinateMapping::unknown();
         auto mapped = mappedImage(*image, placements, mapping);
         if (inputs.mask) addPlacement(mapped.placements, node);
