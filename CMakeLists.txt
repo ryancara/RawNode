@@ -100,6 +100,7 @@ add_executable(OfxRawHost
   tests/PngColorTests.cpp
   tests/OfxThreadPoolTests.cpp
   tests/OfxImageHandleTests.cpp
+  tests/OfxCoordinateTests.cpp
   tests/GraphModelTests.cpp
   tests/GraphDepthTests.cpp
   tests/GraphPersistenceTests.cpp
@@ -275,6 +276,7 @@ set_target_properties(OfxSupport PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # Binary must be named OfxRawHost.ofx: the host derives it from the bundle
 # stem (OfxRawHost.ofx.bundle -> Contents/<arch>/OfxRawHost.ofx).
 add_library(OfxRawHostCrop MODULE plugins/Crop.cpp)
+target_include_directories(OfxRawHostCrop PRIVATE src)
 set_target_properties(OfxRawHostCrop PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
 target_link_libraries(OfxRawHostCrop PRIVATE OfxSupport)
 if(APPLE)

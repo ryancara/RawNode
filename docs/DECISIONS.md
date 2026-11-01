@@ -802,8 +802,9 @@ an otherwise valid photograph render. See `ARCHITECTURE.md` for frame convention
 and the result/publication lifetime contract.
 
 No saved raster-local graph values, Mask application, topology, scheduling or
-handle UI change. OFX bounds/Crop adaptation, Preview handles, Overlay alignment
-and outward feathering remain separately scoped work.
+handle UI change. OFX bounds/Crop adaptation now follows this contract via a
+minimal optional Render suite; see `OFX_COORDINATES.md`. Preview handles,
+Overlay alignment and outward feathering remain separately scoped work.
 
 ## Pending decisions
 

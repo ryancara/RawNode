@@ -1,4 +1,5 @@
 #include "ofx/OfxHost.h"
+#include "ofx/OfxCoordinateMapping.h"
 #include "ofx/OfxHostPriv.h"
 #include "ofx/OfxThreadPool.h"
 #include "ofx/OfxMetal.h"
@@ -321,10 +322,12 @@ static OfxStatus clipGetImage(OfxImageClipHandle ch, OfxTime, const OfxRectD *, 
   propSetN<double, propSetDouble>(h, kOfxImageEffectPropRenderScale, 2, scale);
   propSetDouble(h, kOfxImagePropPixelAspectRatio, 0, 1);
   propSetPointer(h, kOfxImagePropData, 0, data);
-  const int bounds[4] = {0, 0, isOutput ? e->outW : e->w, isOutput ? e->outH : e->h};
+  const auto &region = e->outputRegion;
+  const int bounds[4] = {isOutput ? region.bounds.x1 : 0, isOutput ? region.bounds.y1 : 0,
+                         isOutput ? region.bounds.x2 : e->w, isOutput ? region.bounds.y2 : e->h};
   propSetN<int, propSetInt>(h, kOfxImagePropBounds, 4, bounds);
   propSetN<int, propSetInt>(h, kOfxImagePropRegionOfDefinition, 4, bounds);
-  propSetInt(h, kOfxImagePropRowBytes, 0, bounds[2] * 4 * (int)sizeof(float));
+  propSetInt(h, kOfxImagePropRowBytes, 0, (bounds[2] - bounds[0]) * 4 * (int)sizeof(float));
   {
     std::lock_guard<std::mutex> lock(gImagesMutex);
     gImages.emplace(P(h), std::move(image));
@@ -341,7 +344,7 @@ static OfxStatus clipGetRegionOfDefinition(OfxImageClipHandle c, OfxTime, OfxRec
   Clip *clip = C(c);
   const bool isOutput = clip->name == kOfxImageEffectOutputClipName;
   Effect *e = clip->owner;
-  *rod = {0, 0, (double)(isOutput ? e->outW : e->w), (double)(isOutput ? e->outH : e->h)};
+  *rod = isOutput ? e->outputRegion.rod : OfxRectD{0, 0, double(e->w), double(e->h)};
   return kOfxStatOK;
 }
 static int effectAbort(OfxImageEffectHandle e) { return E(e)->cancellation.cancelled(); }
@@ -554,6 +557,15 @@ static OfxStatus mutexTryLock(const OfxMutexHandle m) { return MX(m)->try_lock()
 
 // Suite tables and host
 
+static OfxStatus setInputToOutput(OfxImageEffectHandle handle, const double *v) {
+  Effect *effect = E(handle);
+  if (!effect || !effect->renderMapping) return kOfxStatErrBadHandle;
+  *effect->renderMapping = v ? CoordinateMapping::affine(v[0], v[1], v[2], v[3], v[4], v[5])
+                             : CoordinateMapping::unknown();
+  return kOfxStatOK;
+}
+static const RawNodeOfxCoordinateMappingSuiteV1 gCoordinateMappingSuite{setInputToOutput};
+
 static const OfxPropertySuiteV1 gPropSuite = [] {
   OfxPropertySuiteV1 s{};
   s.propSetPointer = propSetPointer;
@@ -642,6 +654,7 @@ static const OfxMultiThreadSuiteV1 gThreadSuite = [] {
 
 static const void *fetchSuite(OfxPropertySetHandle, const char *name, int version) {
   if (version != 1) return nullptr;
+  if (!strcmp(name, kRawNodeOfxCoordinateMappingSuite)) return &gCoordinateMappingSuite;
   if (!strcmp(name, kOfxPropertySuite)) return &gPropSuite;
   if (!strcmp(name, kOfxParameterSuite)) return &gParamSuite;
   if (!strcmp(name, kOfxImageEffectSuite)) return &gEffectSuite;

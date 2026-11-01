@@ -3,6 +3,7 @@
 
 #include "ofxImageEffect.h"
 #include "RenderCancellation.h"
+#include "CoordinateMapping.h"
 
 #include <algorithm>
 #include <functional>
@@ -46,6 +47,14 @@ struct Param {
   std::string s;
 };
 struct Effect;
+// At this host's PAR=1, renderScale=(1,1), canonical RoD is enclosed by pixel
+// bounds. Storage starts at bounds.x1/y1, while graph Images remain raster-local.
+struct OfxOutputRegion {
+  OfxRectD rod{};
+  OfxRectI bounds{};
+  int width() const { return bounds.x2 - bounds.x1; }
+  int height() const { return bounds.y2 - bounds.y1; }
+};
 struct Clip {
   std::string name;
   PropSet props;
@@ -60,7 +69,9 @@ struct Effect {
   bool metalEnabled = false;                  // this render passes MTLBuffer images
   bool metalCapable = false;                  // plugin declared kOfxImageEffectPropMetalRenderSupported
   int w = 0, h = 0;                           // input/source clip dims
-  int outW = 0, outH = 0;                     // output clip dims (== w,h unless the plugin changes its RoD)
+  OfxOutputRegion outputRegion;
+  // Borrowed render-local declaration slot. Parameter/UI actions never read it.
+  std::optional<CoordinateMapping> *renderMapping = nullptr;
   RenderCancellation cancellation;  // borrowed only during renderEffect()
 };
 
@@ -87,9 +98,11 @@ void loadPlugins();
 // Host-side clips, parameters and defaults only; no plugin lifecycle action.
 std::unique_ptr<Effect> prepareInstance(PluginEntry &pe);
 std::unique_ptr<Effect> createInstance(PluginEntry &pe);
-// Output size the plugin declares for input size inW×inH (kOfxImageEffectActionGetRegionOfDefinition).
-// Falls back to inW×inH when the plugin does not override its RoD.
-void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *outH);
-// src: bottom-up float RGBA w*h pixels. dst receives outW*outH pixels (capacity >= outW*outH).
+// Default is the Source RoD. Invalid declared regions fail rather than silently
+// substituting Source geometry. Bounds enclose the canonical region outwards.
+OfxStatus queryOutputRegion(OfxPlugin *p, Effect *e, int inW, int inH, OfxOutputRegion &region);
+// src: bottom-up float RGBA w*h pixels; dst capacity >= region.width()*height().
 // Empty cancellation token = never aborted.
-OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, const RenderCancellation &cancellation = {});
+OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h,
+                       const OfxOutputRegion &region, const RenderCancellation &cancellation = {},
+                       std::optional<CoordinateMapping> *mapping = nullptr);

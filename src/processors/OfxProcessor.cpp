@@ -276,19 +276,19 @@ ProcessorResult OfxProcessor::render(const Image &input, Image &output, const Re
     return ProcessorResult::failure(-1, "Invalid OFX processor");
 
   OfxPlugin *plugin = gPlugins[pluginIndex_].plugin;
-  int outW = input.w;
-  int outH = input.h;
-  queryOutputSize(plugin, instance_.get(), input.w, input.h, &outW, &outH);
-
-  output.w = outW;
-  output.h = outH;
-  output.px.resize((size_t)outW * outH * 4);
-
+  OfxOutputRegion region;
+  const auto queried = queryOutputRegion(plugin, instance_.get(), input.w, input.h, region);
+  if (queried != kOfxStatOK)
+    return ProcessorResult::failure(queried, "Invalid OFX output region (status " + std::to_string(queried) + ")");
+  output.w = region.width();
+  output.h = region.height();
+  output.px.resize(size_t(output.w) * output.h * 4);
+  std::optional<CoordinateMapping> mapping;
   const OfxStatus status =
       renderEffect(plugin, instance_.get(), const_cast<float *>(input.px.data()), output.px.data(),
-                   input.w, input.h, outW, outH, cancellation);
+                   input.w, input.h, region, cancellation, &mapping);
   if (status != kOfxStatOK)
     return ProcessorResult::failure((int)status, "OFX status " + std::to_string((int)status));
 
-  return ProcessorResult::success();
+  return ProcessorResult::success(mapping);
 }

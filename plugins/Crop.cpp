@@ -4,6 +4,7 @@
 #endif
 
 #include "ofxsImageEffect.h"
+#include "ofx/OfxCoordinateMapping.h"
 
 #include <algorithm>
 #include <cmath>
@@ -84,8 +85,13 @@ void CropPlugin::computeCropWindow(double time, double srcW, double srcH,
   const double scale = std::max(1.0 - cropVal / 100.0, 0.02);
 
   // Largest rectangle with the target aspect ratio that fits the source, scaled by the crop slider.
-  const double fitW = (ar >= srcW / srcH) ? srcW : srcH * ar;
-  const double fitH = fitW / ar;
+  // Keep the fitted source edge exact: a ratio round-trip must not add a
+  // spurious pixel when the host encloses a fractional RoD outwards.
+  double fitW = srcW, fitH = srcH;
+  if (kAspects[choice].ratio > 0) {
+    if (ar >= srcW / srcH) fitH = srcW / ar;
+    else fitW = srcH * ar;
+  }
   w = fitW * scale;
   h = fitH * scale;
 
@@ -128,6 +134,15 @@ void CropPlugin::render(const OFX::RenderArguments &args) {
 
   double x0, y0, w, h;
   computeCropWindow(args.time, srcW, srcH, x0, y0, w, h);
+
+  // The optional RawNode declaration describes the very same sampling window,
+  // in normalized raster coordinates. Other hosts need not offer this suite.
+  const double mapping[6] = {srcW / w, 0, -x0 / w, 0, srcH / h, -y0 / h};
+  const auto *coordinates = static_cast<const RawNodeOfxCoordinateMappingSuiteV1 *>(
+      OFX::fetchSuite(kRawNodeOfxCoordinateMappingSuite, 1, true));
+  if (coordinates) coordinates->setInputToOutput(getHandle(), mapping);
+  x0 += sb.x1 / rsx;
+  y0 += sb.y1 / rsy;
 
   const double outW = static_cast<double>(rw.x2 - rw.x1);
   const double outH = static_cast<double>(rw.y2 - rw.y1);
@@ -197,7 +212,7 @@ bool CropPlugin::getRegionOfDefinition(const OFX::RegionOfDefinitionArguments &a
 
   double x0, y0, w, h;
   computeCropWindow(args.time, srcW, srcH, x0, y0, w, h);
-  rod = {x0, y0, x0 + w, y0 + h};
+  rod = {srcRod.x1 + x0, srcRod.y1 + y0, srcRod.x1 + x0 + w, srcRod.y1 + y0 + h};
   return true;
 }
 
