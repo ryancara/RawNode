@@ -4,7 +4,7 @@
 #endif
 
 #include "ofxsImageEffect.h"
-#include "ofx/OfxCoordinateMapping.h"
+#include "rawnode/OfxCoordinateMapping.h"
 
 #include <algorithm>
 #include <cmath>
@@ -85,13 +85,8 @@ void CropPlugin::computeCropWindow(double time, double srcW, double srcH,
   const double scale = std::max(1.0 - cropVal / 100.0, 0.02);
 
   // Largest rectangle with the target aspect ratio that fits the source, scaled by the crop slider.
-  // Keep the fitted source edge exact: a ratio round-trip must not add a
-  // spurious pixel when the host encloses a fractional RoD outwards.
-  double fitW = srcW, fitH = srcH;
-  if (kAspects[choice].ratio > 0) {
-    if (ar >= srcW / srcH) fitH = srcW / ar;
-    else fitW = srcH * ar;
-  }
+  const double fitW = (ar >= srcW / srcH) ? srcW : srcH * ar;
+  const double fitH = fitW / ar;
   w = fitW * scale;
   h = fitH * scale;
 
@@ -197,8 +192,7 @@ void CropPlugin::render(const OFX::RenderArguments &args) {
 }
 
 bool CropPlugin::getRegionOfDefinition(const OFX::RegionOfDefinitionArguments &args, OfxRectD &rod) {
-  // Source clip RoD is in canonical coordinates; with this host's renderScale {1,1}
-  // canonical equals pixel, so the crop window maps directly to output dimensions.
+  // Source clip RoD is in canonical coordinates. RawNode uses unit scale/PAR.
   OfxRectD srcRod;
   try {
     srcRod = srcClip_->getRegionOfDefinition(args.time);
@@ -212,7 +206,18 @@ bool CropPlugin::getRegionOfDefinition(const OFX::RegionOfDefinitionArguments &a
 
   double x0, y0, w, h;
   computeCropWindow(args.time, srcW, srcH, x0, y0, w, h);
-  rod = {srcRod.x1 + x0, srcRod.y1 + y0, srcRod.x1 + x0 + w, srcRod.y1 + y0 + h};
+  // Preserve legacy rounded raster dimensions without changing the continuous
+  // sampling window. Pixel-align the reported region so outward enclosure does
+  // not add a row/column. Legacy subpixel crops used Source dimensions whenever
+  // either continuous extent was below one; keep that behaviour in the plugin.
+  // Measure the same edge differences that the legacy host rounded, including
+  // their floating-point behaviour at half-integer sizes; do not snap the window.
+  const double legacyW = (x0 + w) - x0, legacyH = (y0 + h) - y0;
+  double outW = std::round(legacyW), outH = std::round(legacyH);
+  if (legacyW < 1 || legacyH < 1) { outW = srcW; outH = srcH; }
+  const double left = std::floor(srcRod.x1 + x0);
+  const double bottom = std::floor(srcRod.y1 + y0);
+  rod = {left, bottom, left + outW, bottom + outH};
   return true;
 }
 

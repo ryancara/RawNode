@@ -7,6 +7,8 @@
 // xx,xy,tx,yx,yy,ty in normalized lower-left input/output raster coordinates.
 // nullptr means explicit Unknown; no call means undeclared. No effect properties
 // are mutated; callback access ends with the Render action.
+// Thread affinity is a caller requirement, not enforced by the host. Only the
+// active Render lifetime is checked; worker-thread calls are unsupported.
 inline constexpr const char *kRawNodeOfxCoordinateMappingSuite = "RawNodeOfxCoordinateMappingSuite";
 struct RawNodeOfxCoordinateMappingSuiteV1 {
   OfxStatus (*setInputToOutput)(OfxImageEffectHandle effect, const double *affine);

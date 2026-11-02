@@ -1,7 +1,7 @@
 #include "OfxCoordinateTests.h"
 
 #include "GraphEvaluator.h"
-#include "ofx/OfxCoordinateMapping.h"
+#include "rawnode/OfxCoordinateMapping.h"
 #include "ofx/OfxHostPriv.h"
 #include "ofxProperty.h"
 #include "processors/NativeExposureProcessor.h"
@@ -28,6 +28,7 @@ const OfxImageEffectSuiteV1 &effects() {
 }
 Image pattern(int w = 8, int h = 6) {
   Image image; image.w = w; image.h = h;
+  image.px.reserve(size_t(w) * h * 4);
   for (int y = 0; y < h; ++y) for (int x = 0; x < w; ++x)
     image.px.insert(image.px.end(), {x + .5f, y + .5f, (x + .5f) * (y + .5f), .375f});
   return image;
@@ -45,6 +46,7 @@ struct RegionPlugin {
   OfxPlugin plugin{};
   int index = int(gPlugins.size());
   OfxRectD rod{0, 0, 8, 6};
+  std::optional<OfxRectD> resolvedRod;
   OfxRectI expected{0, 0, 8, 6};
   OfxStatus queryStatus = kOfxStatOK;
   enum class Declaration { None, Affine, Unknown, Invalid } declaration = Declaration::None;
@@ -91,7 +93,7 @@ struct RegionPlugin {
     CHECK(effects().clipGetHandle(effect, kOfxImageEffectSimpleSourceClipName, &source, nullptr) == kOfxStatOK);
     CHECK(effects().clipGetHandle(effect, kOfxImageEffectOutputClipName, &output, nullptr) == kOfxStatOK);
     OfxRectD actualRod{};
-    CHECK(effects().clipGetRegionOfDefinition(output, 0, &actualRod) == kOfxStatOK && same(actualRod, rod));
+    CHECK(effects().clipGetRegionOfDefinition(output, 0, &actualRod) == kOfxStatOK && same(actualRod, resolvedRod.value_or(rod)));
     CHECK(effects().clipGetRegionOfDefinition(source, 0, &actualRod) == kOfxStatOK && same(actualRod, {0, 0, 8, 6}));
     OfxPropertySetHandle src = nullptr, dst = nullptr;
     CHECK(effects().clipGetImage(source, 0, nullptr, &src) == kOfxStatOK);
@@ -124,14 +126,18 @@ bool testRegions() {
       gOfxHost.fetchSuite(gOfxHost.host, kRawNodeOfxCoordinateMappingSuite, 1));
   CHECK(coordinates && !gOfxHost.fetchSuite(gOfxHost.host, kRawNodeOfxCoordinateMappingSuite, 2));
   CHECK(coordinates->setInputToOutput(reinterpret_cast<OfxImageEffectHandle>(processor->effect()), nullptr) == kOfxStatErrBadHandle);
-  const struct { OfxRectD rod; OfxRectI bounds; } cases[] = {
+  const struct { OfxRectD rod; OfxRectI bounds; std::optional<OfxRectD> resolved = {}; } cases[] = {
       {{0,0,8,6}, {0,0,8,6}}, {{2,1,5,3}, {2,1,5,3}},
       {{-3,-2,1,1}, {-3,-2,1,1}}, {{-2.25,1.5,1.25,3.125}, {-3,1,2,4}},
       {{2,-1,10,5}, {2,-1,10,5}}, // Same dimensions do not prove a transform.
       {{.2,-.8,.3,-.7}, {0,-1,1,0}},
+      {{kOfxFlagInfiniteMin,kOfxFlagInfiniteMin,kOfxFlagInfiniteMax,kOfxFlagInfiniteMax}, {0,0,8,6}, OfxRectD{0,0,8,6}},
+      {{kOfxFlagInfiniteMin,1,5,kOfxFlagInfiniteMax}, {0,1,5,6}, OfxRectD{0,1,5,6}},
+      {{-2,kOfxFlagInfiniteMin,kOfxFlagInfiniteMax,3}, {-2,0,8,3}, OfxRectD{-2,0,8,3}},
   };
   for (const auto &test : cases) {
     plugin.rod = test.rod; plugin.expected = test.bounds;
+    plugin.resolvedRod = test.resolved;
     const auto result = processor->render(source, output, {});
     CHECK(result.ok && plugin.valid && !result.inputToOutput);
     CHECK(output.w == test.bounds.x2 - test.bounds.x1 && output.h == test.bounds.y2 - test.bounds.y1);
@@ -143,14 +149,23 @@ bool testRegions() {
     CHECK(result.resolvedMapping(8,6,output.w,output.h).kind() ==
           (output.w == 8 && output.h == 6 ? CoordinateMapping::Kind::Identity : CoordinateMapping::Kind::Unknown));
   }
+  plugin.resolvedRod.reset();
   plugin.rod = {2,1,5,3}; plugin.expected = {2,1,5,3}; plugin.identity = true;
   CHECK(processor->render(source, output, {}).ok);
   for (int y = 0; y < 2; ++y) for (int x = 0; x < 3; ++x)
     for (int c = 0; c < 4; ++c) CHECK(output.px[(y * 3 + x) * 4 + c] == source.px[((y + 1) * 8 + x + 2) * 4 + c]);
   plugin.identity = false;
   for (const auto &bad : {OfxRectD{0,0,0,1}, OfxRectD{1,0,0,1}, OfxRectD{0,0,INFINITY,1},
-                          OfxRectD{0,0,NAN,1}, OfxRectD{0,0,32769,1}, OfxRectD{1e20,0,1e20+1e6,1}}) {
-    plugin.rod = bad; CHECK(!processor->render(source, output, {}).ok);
+                          OfxRectD{0,0,NAN,1}, OfxRectD{0,0,32769,1}, OfxRectD{1e20,0,1e20+1e6,1},
+                          // Small extents isolate coordinate range from the allocation limit.
+                          OfxRectD{3e9,0,3e9+4,1}, OfxRectD{-3e9,0,-3e9+4,1},
+                          // Only exact, correctly positioned OFX sentinels get resolved.
+                          OfxRectD{double(kOfxFlagInfiniteMin)+1,0,4,6},
+                          OfxRectD{0,0,double(kOfxFlagInfiniteMax)-1,6},
+                          OfxRectD{kOfxFlagInfiniteMin,7,kOfxFlagInfiniteMax,kOfxFlagInfiniteMax}}) {
+    plugin.rod = bad;
+    const auto result = processor->render(source, output, {});
+    CHECK(!result.ok && result.backendCode == kOfxStatErrValue && result.message.find("Invalid OFX output region") != std::string::npos);
   }
   plugin.rod = {0,0,8,6}; plugin.expected = {0,0,8,6};
   for (auto status : {kOfxStatReplyDefault, kOfxStatErrUnsupported}) {
@@ -222,15 +237,18 @@ bool testCropPixels() {
   const struct { int aspect; double amount, x, y; std::vector<double> xs, ys; } cases[] = {
     // Square window [1,0,7,6].
     {1,0,0,0, {1.5,2.5,3.5,4.5,5.5,6.5}, {.5,1.5,2.5,3.5,4.5,5.5}},
-    // [2.5,2.25,6.5,5.25] encloses 5x4, rather than old round(size)=4x3.
-    {0,50,25,50, {2.9,3.7,4.5,5.3,6.1}, {2.625,3.375,4.125,4.875}},
+    // Continuous [2.5,2.25,6.5,5.25], reported [2,2,6,5], legacy raster 4x3.
+    {0,50,25,50, {3,4,5,6}, {2.75,3.75,4.75}},
     {0,0,-100,0, {-3.5,-2.5,-1.5,-.5,.5,1.5,2.5,3.5}, {.5,1.5,2.5,3.5,4.5,5.5}},
     {0,0,100,0, {4.5,5.5,6.5,7.5,8.5,9.5,10.5,11.5}, {.5,1.5,2.5,3.5,4.5,5.5}},
-    // Subpixel RoD [3.92,2.94,4.08,3.06] encloses 2x2.
-    {0,100,0,0, {3.96,4.04}, {2.97,3.03}},
-    // Infinitesimal pan across integer edges changes enclosing width 4 -> 5.
-    {0,50,0,0, {2.5,3.5,4.5,5.5}, {1.875,2.625,3.375,4.125}},
-    {0,50,.00001,0, {2.4000002,3.2000002,4.0000002,4.8000002,5.6000002}, {1.875,2.625,3.375,4.125}},
+    // Subpixel sampling window retains legacy Source-sized raster (round -> 0).
+    {0,100,0,0, {3.93,3.95,3.97,3.99,4.01,4.03,4.05,4.07}, {2.95,2.97,2.99,3.01,3.03,3.05}},
+    // The legacy fallback used continuous extent < 1, even when round -> 1.
+    {0,90,0,0, {3.65,3.75,3.85,3.95,4.05,4.15,4.25,4.35}, {2.75,2.85,2.95,3.05,3.15,3.25}},
+    {0,85,0,0, {3.475,3.625,3.775,3.925,4.075,4.225,4.375,4.525}, {2.625,2.775,2.925,3.075,3.225,3.375}},
+    // Infinitesimal pan across integer edges must not add a column or row.
+    {0,50,0,0, {2.5,3.5,4.5,5.5}, {2,3,4}},
+    {0,50,.00001,0, {2.5000002,3.5000002,4.5000002,5.5000002}, {2,3,4}},
   };
   for (const auto &test : cases) {
     CHECK(configure(*crop,test.aspect,test.amount,test.x,test.y));
@@ -243,6 +261,41 @@ bool testCropPixels() {
     CHECK(result.ok && output.w == odd.w && output.h == odd.h && output.px == odd.px);
     CHECK(result.inputToOutput && result.inputToOutput->kind() == CoordinateMapping::Kind::Identity);
   }
+  // 9:16 at 30% has exact window [44.25,12,75.75,68]. Legacy edge
+  // subtraction rounds its 31.5 width to 32, despite w being just below 31.5.
+  // Preserve that behaviour without altering the continuous sampling calculation.
+  CHECK(configure(*crop,4,30,0,0));
+  result = crop->render(pattern(120,80),output,{}); CHECK(result.ok && result.inputToOutput);
+  std::vector<double> xs, ys;
+  for (int x = 0; x < 32; ++x) xs.push_back(44.25 + (x+.5) * 63/64);
+  for (int y = 0; y < 56; ++y) ys.push_back(12.5 + y);
+  CHECK(samples(output,xs,ys,*result.inputToOutput,120,80));
+  return true;
+}
+
+bool testLegacyCropSizes() {
+  auto crop = OfxProcessor::create(cropIndex()); CHECK(crop);
+  // These integer windows have unit sample spacing in the legacy raster.
+  // Literal offsets/dimensions are independent expectations, including the
+  // photographic sizes that floating-point enclosure previously enlarged.
+  const struct { int w, h; double amount; int outW, outH, left, bottom; } cases[] = {
+      {120,80,95,6,4,57,38}, {6000,4000,18,4920,3280,540,360},
+      {6000,4000,41,3540,2360,1230,820},
+  };
+  for (const auto &test : cases) {
+    const Image source = pattern(test.w,test.h); Image output;
+    CHECK(configure(*crop,0,test.amount,0,0));
+    const auto result = crop->render(source,output,{});
+    CHECK(result.ok && result.inputToOutput && output.w == test.outW && output.h == test.outH);
+    for (int y = 0; y < output.h; ++y) for (int x = 0; x < output.w; ++x) {
+      const auto dst = (size_t(y) * output.w + x) * 4;
+      const auto src = (size_t(y + test.bottom) * source.w + x + test.left) * 4;
+      // Exact original samples, including alpha and the independent B field.
+      for (int c = 0; c < 4; ++c) CHECK(output.px[dst+c] == source.px[src+c]);
+      const auto mapped = result.inputToOutput->map(output.px[dst]/double(source.w), output.px[dst+1]/double(source.h));
+      CHECK(mapped && near(mapped->first,(x+.5)/output.w) && near(mapped->second,(y+.5)/output.h));
+    }
+  }
   return true;
 }
 
@@ -251,8 +304,18 @@ bool testSequentialCropGraph() {
   const NodeId source{"source"}, effect{"effect"}, mask{"mask"}, a{"crop-a"}, b{"crop-b"};
   Node root(NodeOperation::Source); root.id = source; nodes.push_back(std::move(root));
   Node radial(NodeOperation::NativeRadialMask); radial.id = mask;
-  radial.processor = std::make_unique<NativeRadialMaskProcessor>(); nodes.push_back(std::move(radial));
+  radial.processor = std::make_unique<NativeRadialMaskProcessor>();
+  // Hard ellipse centred on original pixel (4,1). On this 8x6 frame it covers
+  // exactly (3,1), (4,0), (4,1), (4,2), (5,1). The two Crops retain varying
+  // coverage, so a missing mask, missing Exposure or wrong sampling all fail.
+  CHECK(radial.processor->setParameterValue("centreX",.5625));
+  CHECK(radial.processor->setParameterValue("centreY",.25));
+  CHECK(radial.processor->setParameterValue("radiusX",.15625));
+  CHECK(radial.processor->setParameterValue("radiusY",.2));
+  CHECK(radial.processor->setParameterValue("feather",0.0));
+  nodes.push_back(std::move(radial));
   Node adjustment; adjustment.id = effect; adjustment.processor = std::make_unique<NativeExposureProcessor>();
+  CHECK(adjustment.processor->setParameterValue("exposure",1.0));
   adjustment.fixedInputs[ports::image] = OutputRef{source,ports::image};
   adjustment.fixedInputs[ports::mask] = OutputRef{mask,ports::mask}; nodes.push_back(std::move(adjustment));
   for (const auto &id : {a,b}) {
@@ -264,17 +327,33 @@ bool testSequentialCropGraph() {
   const auto result = evaluateGraph({nodes,source,output}, output, {EvaluationPurpose::Inspection,8,6,8,6}, std::make_shared<Image>(pattern()));
   CHECK(result.state == EvaluationState::Available && result.maskPlacements.size() == 1);
   CHECK(result.maskPlacements[0].mask.nodeId == mask && result.maskPlacements[0].consumer.nodeId == effect);
-  // First [3,0,7,3] -> 4x3, then local [0,.75,2,2.25] -> 2x3.
-  // Composed x'=4x-1.5, y'=4y-.5, verified against original image fields.
+  // First [3,0,7,3] -> 4x3, then local [0,.75,2,2.25] -> legacy 2x2.
+  // Sample original X [3.5,4.5], Y [1.125,1.875]. Linear interpolation of
+  // the explicitly enumerated masked +1 EV source pixels yields this table.
+  // Rows: coverage [.625,1] at both rows; R, G and B also include interpolation
+  // of the image multiplied by coverage (not a new analytic mask at the sample).
+  const float expected[] = {5.6875f,2.0625f,7.21875f,.375f, 9,2.25f,10.125f,.375f,
+                            5.6875f,2.8125f,9.84375f,.375f, 9,3.75f,16.875f,.375f};
+  const auto *image = std::get_if<ImageValue>(&result.value); CHECK(image && *image);
+  CHECK((*image)->w == 2 && (*image)->h == 2 && (*image)->px.size() == 16);
+  for (size_t i = 0; i < 16; ++i) CHECK(near((*image)->px[i],expected[i],2e-5));
   const auto mapping = result.maskPlacements[0].maskToImage;
-  CHECK(samples(**std::get_if<ImageValue>(&result.value), {3.5,4.5}, {1,1.5,2}, mapping));
+  // Independent sample locations establish composed placement even though
+  // Exposure has changed RGB and those channels no longer encode coordinates.
+  const double xs[] = {3.5,4.5}, ys[] = {1.125,1.875};
+  for (int y = 0; y < 2; ++y) for (int x = 0; x < 2; ++x) {
+    const auto mapped = mapping.map(xs[x]/8,ys[y]/6);
+    CHECK(mapped && near(mapped->first,(x+.5)/2) && near(mapped->second,(y+.5)/2));
+    const auto original = mapping.inverse().map((x+.5)/2,(y+.5)/2);
+    CHECK(original && near(original->first,xs[x]/8) && near(original->second,ys[y]/6));
+  }
   const auto mapped = mapping.map(.5,.25); CHECK(mapped && near(mapped->first,.5) && near(mapped->second,.5));
   return true;
 }
 }
 
 bool testOfxCoordinates() {
-  if (!testRegions() || !testCropPixels() || !testSequentialCropGraph()) return false;
+  if (!testRegions() || !testCropPixels() || !testLegacyCropSizes() || !testSequentialCropGraph()) return false;
   std::printf("ok  OFX canonical/pixel bounds, declarations and independent Crop pixel/mapping correspondence\n");
   return true;
 }

@@ -263,6 +263,13 @@ OfxStatus queryOutputRegion(OfxPlugin *p, Effect *e, int inW, int inH, OfxOutput
     edges[i] = found->second[i].d;
     if (!std::isfinite(edges[i])) return kOfxStatErrValue;
   }
+  // OFX uses these exact finite sentinels for unbounded edges. This still-image
+  // host resolves only those edges to the available Source frame before normal
+  // validation; arbitrary huge finite regions must not silently fall back.
+  if (edges[0] == kOfxFlagInfiniteMin) edges[0] = 0;
+  if (edges[1] == kOfxFlagInfiniteMin) edges[1] = 0;
+  if (edges[2] == kOfxFlagInfiniteMax) edges[2] = inW;
+  if (edges[3] == kOfxFlagInfiniteMax) edges[3] = inH;
   const OfxRectD rod{edges[0], edges[1], edges[2], edges[3]};
   if (rod.x2 <= rod.x1 || rod.y2 <= rod.y1) return kOfxStatErrValue;
   const double x1 = std::floor(rod.x1), y1 = std::floor(rod.y1);

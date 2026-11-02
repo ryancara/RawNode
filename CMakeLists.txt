@@ -199,6 +199,7 @@ if(OFX_NATIVE_ARCH)
 endif()
 
 target_include_directories(OfxRawHost PRIVATE
+  include
   src
   tests
   third_party/openfx/include
@@ -276,7 +277,7 @@ set_target_properties(OfxSupport PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # Binary must be named OfxRawHost.ofx: the host derives it from the bundle
 # stem (OfxRawHost.ofx.bundle -> Contents/<arch>/OfxRawHost.ofx).
 add_library(OfxRawHostCrop MODULE plugins/Crop.cpp)
-target_include_directories(OfxRawHostCrop PRIVATE src)
+target_include_directories(OfxRawHostCrop PRIVATE include)
 set_target_properties(OfxRawHostCrop PROPERTIES PREFIX "" OUTPUT_NAME "OfxRawHost" SUFFIX ".ofx")
 target_link_libraries(OfxRawHostCrop PRIVATE OfxSupport)
 if(APPLE)

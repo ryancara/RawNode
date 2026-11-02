@@ -1,5 +1,5 @@
 #include "ofx/OfxHost.h"
-#include "ofx/OfxCoordinateMapping.h"
+#include "rawnode/OfxCoordinateMapping.h"
 #include "ofx/OfxHostPriv.h"
 #include "ofx/OfxThreadPool.h"
 #include "ofx/OfxMetal.h"
