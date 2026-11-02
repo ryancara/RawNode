@@ -61,8 +61,9 @@ Mask application, persistence and publication contract.
    and differing shared placements. In transformed Overlay, verify the deferral
    message; Photo/Mask Only remain available and Overlay pixels stay unchanged.
 
-Synthetic affine/shared-placement cases are automated because the current unary
-production graph has no general spatial join/rotation processor. Native tests of
-third-party spatial effects depend on those plugins declaring the private mapping
-suite; opaque same-sized effects retain the approved Identity compatibility default.
+Affine and shared-placement edge cases also use explicit synthetic publications,
+keeping their geometry expectations independent of backend rendering. Crop and
+CTL integration cases use actual evaluator results. Native third-party spatial
+effects depend on those plugins declaring the private mapping suite; opaque
+same-sized effects retain the approved Identity compatibility default.
 Outward feathering and the pre-existing Crop black-edge issue remain separate work.

@@ -603,6 +603,30 @@ bool sharedPlacementAndPublication() {
   CHECK(ui::radialPlacement(app).state == ui::PlacementState::Pending);
   publishFrame(app); CHECK(ui::radialPlacement(app).mapping == identity);
   CHECK(setPreviewMode(app,PreviewMode::Photo)); publishFrame(app);
+  // Escape must finish accepted edits even while a newly published CPU result
+  // has not reached the texture. A pending frame pauses edits, not Escape.
+  ui.autoPublish = true; ui.tick(app); ui.tick(app);
+  auto escapeStart = ui.grip(app,PreviewDrag::Centre);
+  const auto beforeEscape = app.history.size();
+  ui.press(app,escapeStart); ui.hover(app,{escapeStart.x+20,escapeStart.y});
+  const auto accepted = parameter(app,mask,"centreX");
+  ui.autoPublish = false;
+  display_detail::publishPreview(app,app.processed.result,app.renderer.previewGeneration(),
+      std::make_shared<OutputRef>(app.documentOutput),{{},32,16});
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Pending);
+  ui.key(app,ImGuiKey_Escape,true);
+  CHECK(app.previewInteraction.drag == PreviewDrag::None && app.history.size() == beforeEscape+1);
+  CHECK(parameter(app,mask,"centreX") == accepted);
+  ui.release(app); ui.key(app,ImGuiKey_Escape,false);
+  // Completing a deferred Inspector value on this press changes demand. The
+  // same press must not also begin a drag against the older displayed frame.
+  ui.autoPublish = true; ui.tick(app); ui.tick(app);
+  const auto inspectorStart = ui.grip(app,PreviewDrag::Centre);
+  const auto beforeInspector = app.history.size();
+  app.parameterGesture = ui::ParameterGesture{0x1234,app.path,mask,"centreX",ParameterValue{.6}};
+  ui.press(app,inspectorStart); ui.hover(app,{inspectorStart.x+20,inspectorStart.y}); ui.release(app);
+  CHECK(parameter(app,mask,"centreX") == .6 && app.history.size() == beforeInspector+1);
+  CHECK(!app.parameterGesture);
   // Pending own edits retain one gesture; a resolution/image generation from
   // elsewhere interrupts it, even when the eventual mapping would be equal.
   ui.autoPublish = true; ui.tick(app); ui.tick(app);

@@ -276,7 +276,11 @@ bool drawPreviewInteraction(App &app, const PreviewTransform &view, bool hovered
     state.photoPath = app.path;
     state.canvas = ImGui::GetItemID();
     state.button = middle ? ImGuiMouseButton_Middle : ImGuiMouseButton_Left;
-    state.drag = middle || space ? PreviewDrag::Pan : hit == PreviewDrag::None ? PreviewDrag::Ignore : hit;
+    // Completing an Inspector gesture can advance demand before this press.
+    // Do not start a handle against that older texture in the same frame.
+    const bool current = app.textureGeneration == app.renderer.previewGeneration();
+    state.drag = middle || space ? PreviewDrag::Pan :
+        !current || hit == PreviewDrag::None ? PreviewDrag::Ignore : hit;
     state.node = app.selectedNodeId();
     state.startPointer = view.toImage(io.MousePos);
     if (isHandle(state.drag)) {
@@ -288,9 +292,9 @@ bool drawPreviewInteraction(App &app, const PreviewTransform &view, bool hovered
   }
   if (state.drag == PreviewDrag::Pan && ImGui::IsMouseDragging(state.button)) {
     app.previewPanX += io.MouseDelta.x; app.previewPanY += io.MouseDelta.y;
-  } else if (isHandle(state.drag) && eligible && active && ImGui::IsMouseDown(state.button)) {
+  } else if (isHandle(state.drag) && active && ImGui::IsMouseDown(state.button)) {
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) finishPreviewInteraction(app, true);
-    else editGeometry(app, view);
+    else if (eligible) editGeometry(app, view);
   }
   if (eligible) {
     drawGeometry(view, geometry(*selectedNode(app)), radialHandles(view, geometry(*selectedNode(app)), placement.mapping),
