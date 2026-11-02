@@ -273,6 +273,41 @@ bool testCropPixels() {
   return true;
 }
 
+bool testCropIdentityDeclaration() {
+  auto crop = OfxProcessor::create(cropIndex()); CHECK(crop);
+  // These default full-frame windows acquire a near-Identity affine from legacy
+  // floating-point arithmetic. Metadata must be exact Identity, independently
+  // of any pre-existing boundary sampling errors (pixels must not be repaired).
+  for (const auto &size : {std::pair<int,int>{40,53}, {6048,4024}}) {
+    const Image source = pattern(size.first,size.second); Image output;
+    CHECK(configure(*crop,0,0,0,0));
+    const auto result = crop->render(source,output,{});
+    CHECK(result.ok && output.w == source.w && output.h == source.h);
+    CHECK(result.inputToOutput && result.inputToOutput->kind() == CoordinateMapping::Kind::Identity);
+    const auto p = result.inputToOutput->map(.25,.75);
+    CHECK(p && p->first == .25 && p->second == .75);
+    // Interior default samples still come from the original pixel centres.
+    const size_t centre = (size_t(source.h/2) * source.w + source.w/2) * 4;
+    for (int c = 0; c < 4; ++c) CHECK(output.px[centre+c] == source.px[centre+c]);
+  }
+  const Image source = pattern(); Image output;
+  // Same raster size is insufficient: tiny real pans and a lower-left-anchored
+  // resize must retain their affine, even though all dimensions round unchanged.
+  const struct { double amount, x, y, u, v, expectedU, expectedV; } cases[] = {
+      {0,1e-8,0,0,0,-5e-11,0}, {0,0,1e-8,0,0,0,-5e-11},
+      {1e-8,-100,-100,1,1,1.0000000001,1.0000000001},
+  };
+  for (const auto &test : cases) {
+    CHECK(configure(*crop,0,test.amount,test.x,test.y));
+    const auto result = crop->render(source,output,{});
+    CHECK(result.ok && output.w == source.w && output.h == source.h);
+    CHECK(result.inputToOutput && result.inputToOutput->kind() == CoordinateMapping::Kind::Affine);
+    const auto p = result.inputToOutput->map(test.u,test.v);
+    CHECK(p && near(p->first,test.expectedU) && near(p->second,test.expectedV));
+  }
+  return true;
+}
+
 bool testLegacyCropSizes() {
   auto crop = OfxProcessor::create(cropIndex()); CHECK(crop);
   // These integer windows have unit sample spacing in the legacy raster.
@@ -296,6 +331,35 @@ bool testLegacyCropSizes() {
       CHECK(mapped && near(mapped->first,(x+.5)/output.w) && near(mapped->second,(y+.5)/output.h));
     }
   }
+  return true;
+}
+
+bool testPartialStrengthIdentityCropGraph() {
+  std::vector<Node> nodes;
+  const NodeId source{"source"}, effect{"effect"}, mask{"mask"}, cropId{"crop"};
+  Node root(NodeOperation::Source); root.id = source; nodes.push_back(std::move(root));
+  Node radial(NodeOperation::NativeRadialMask); radial.id = mask;
+  radial.processor = std::make_unique<NativeRadialMaskProcessor>(); nodes.push_back(std::move(radial));
+  Node adjustment; adjustment.id = effect; adjustment.processor = std::make_unique<NativeExposureProcessor>();
+  CHECK(adjustment.processor->setParameterValue("exposure",1.0));
+  adjustment.fixedInputs[ports::image] = OutputRef{source,ports::image};
+  adjustment.fixedInputs[ports::mask] = OutputRef{mask,ports::mask}; nodes.push_back(std::move(adjustment));
+  Node crop; crop.id = cropId; crop.processor = OfxProcessor::create(cropIndex()); CHECK(crop.processor);
+  crop.strength = .5;
+  crop.fixedInputs[ports::image] = OutputRef{effect,ports::image}; nodes.push_back(std::move(crop));
+  const OutputRef output{cropId,ports::image};
+  const auto result = evaluateGraph({nodes,source,output},output,{EvaluationPurpose::Inspection,40,53,40,53},
+                                    std::make_shared<Image>(pattern(40,53)));
+  CHECK(result.state == EvaluationState::Available && result.maskPlacements.size() == 1);
+  const auto &placement = result.maskPlacements[0];
+  CHECK(placement.mask.nodeId == mask && placement.consumer.nodeId == effect);
+  CHECK(placement.maskToImage.kind() == CoordinateMapping::Kind::Identity);
+  const auto *image = std::get_if<ImageValue>(&result.value); CHECK(image && *image);
+  CHECK((*image)->w == 40 && (*image)->h == 53);
+  // Centre lies wholly inside the default Mask. +1 EV doubles RGB; the default
+  // Crop at half Strength preserves this interior sample and its original alpha.
+  const auto *p = &(*image)->px[(26 * 40 + 20) * 4];
+  CHECK(p[0] == 41 && p[1] == 53 && p[2] == 1086.5f && p[3] == .375f);
   return true;
 }
 
@@ -353,7 +417,8 @@ bool testSequentialCropGraph() {
 }
 
 bool testOfxCoordinates() {
-  if (!testRegions() || !testCropPixels() || !testLegacyCropSizes() || !testSequentialCropGraph()) return false;
+  if (!testRegions() || !testCropPixels() || !testCropIdentityDeclaration() ||
+      !testLegacyCropSizes() || !testPartialStrengthIdentityCropGraph() || !testSequentialCropGraph()) return false;
   std::printf("ok  OFX canonical/pixel bounds, declarations and independent Crop pixel/mapping correspondence\n");
   return true;
 }

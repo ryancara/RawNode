@@ -785,7 +785,8 @@ This deliberately supersedes D042's white-generator bypass rule and related hist
 
 ## D056 — Transient backend-neutral coordinate correspondence
 
-**Status:** Owner-approved PR 1 foundation, 2026-10-31.
+**Status:** Owner-approved; PR 1 foundation merged as #106, with the approved
+PR 2 OFX bounds/Crop declaration extension in draft #107 under final correction/review.
 
 Image and Mask remain raster-local (D039). Processors may explicitly report
 Identity, Affine or Unknown input-to-output correspondence in the result of the

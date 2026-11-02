@@ -132,7 +132,20 @@ void CropPlugin::render(const OFX::RenderArguments &args) {
 
   // The optional RawNode declaration describes the very same sampling window,
   // in normalized raster coordinates. Other hosts need not offer this suite.
-  const double mapping[6] = {srcW / w, 0, -x0 / w, 0, srcH / h, -y0 / h};
+  double mapping[6] = {srcW / w, 0, -x0 / w, 0, srcH / h, -y0 / h};
+  // Legacy full-frame arithmetic can drift by a few ulps. Canonicalize only
+  // this declaration, so partial Strength retains known placement. At the
+  // host's 32768-axis limit, 1e-12 relative is less than 3.3e-8 pixel.
+  constexpr double identityTolerance = 1e-12;
+  const OfxRectI &db = dst->getBounds();
+  if (db.x2 - db.x1 == sw && db.y2 - db.y1 == sh &&
+      std::abs(x0) <= identityTolerance * srcW &&
+      std::abs(y0) <= identityTolerance * srcH &&
+      std::abs(x0 + w - srcW) <= identityTolerance * srcW &&
+      std::abs(y0 + h - srcH) <= identityTolerance * srcH) {
+    mapping[0] = mapping[4] = 1;
+    mapping[2] = mapping[5] = 0;
+  }
   const auto *coordinates = static_cast<const RawNodeOfxCoordinateMappingSuiteV1 *>(
       OFX::fetchSuite(kRawNodeOfxCoordinateMappingSuite, 1, true));
   if (coordinates) coordinates->setInputToOutput(getHandle(), mapping);

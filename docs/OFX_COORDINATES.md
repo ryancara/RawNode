@@ -95,6 +95,15 @@ pixel centres across that window using the existing bilinear/black-outside-Sourc
 sampling. Aspect, percentage, centering and offsets are unchanged; no floating-point
 snapping correction is applied.
 
+Only the optional declaration canonicalizes numerical full-frame windows to exact
+Identity: output and Source raster dimensions must match, and all four sampling
+window edges must match the Source frame within `1e-12` relative per axis. This is
+less than `3.3e-8` pixel at the host's maximum axis size. Windows outside those
+edge tolerances retain Affine declarations, including changes too small to alter
+rounded dimensions. No shared approximate-equality or evaluator mixing rule
+changes. Legacy default
+Crop black-edge sampling remains a separately deferred pixel-rendering issue.
+
 The output RoD is a separate, pixel-aligned region: its lower edges are the floors
 of the Source origin plus the continuous window's lower edges, and its extents
 are the legacy rounded window edge differences, including the same floating-point
