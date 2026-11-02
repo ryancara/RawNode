@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -240,50 +241,72 @@ std::unique_ptr<Effect> createInstance(PluginEntry &pe) {
   return e;
 }
 
-void queryOutputSize(OfxPlugin *p, Effect *e, int inW, int inH, int *outW, int *outH) {
-  *outW = inW;
-  *outH = inH;
-  if (!p || !e || inW <= 0 || inH <= 0) return;
-  // The plugin may query clip RoDs while answering; give it the input size.
-  e->w = inW;
-  e->h = inH;
-  e->outW = inW;
-  e->outH = inH;
+OfxStatus queryOutputRegion(OfxPlugin *p, Effect *e, int inW, int inH, OfxOutputRegion &region) {
+  if (!p || !e || inW <= 0 || inH <= 0) return kOfxStatErrValue;
+  // Clips queried during the action see the current raster-local input frame.
+  e->w = inW; e->h = inH;
+  region = {{0, 0, double(inW), double(inH)}, {0, 0, inW, inH}};
+  e->outputRegion = region;
   PropSet in, out;
-  OfxPropertySetHandle a = H(&in);
-  propSetDouble(a, kOfxPropTime, 0, 0);
   const double scale[2] = {1, 1};
-  propSetN<double, propSetDouble>(a, kOfxImageEffectPropRenderScale, 2, scale);
-  const OfxStatus st = callAction(p, kOfxImageEffectActionGetRegionOfDefinition, e, &in, &out);
-  if (st != kOfxStatOK) return;
-  auto it = out.m.find(kOfxImageEffectPropRegionOfDefinition);
-  if (it == out.m.end() || it->second.size() < 4) return;
-  const double x1 = it->second[0].d, y1 = it->second[1].d;
-  const double x2 = it->second[2].d, y2 = it->second[3].d;
-  if (!std::isfinite(x1) || !std::isfinite(y1) || !std::isfinite(x2) || !std::isfinite(y2)) return;
-  const double dw = x2 - x1, dh = y2 - y1;
-  if (dw < 1 || dh < 1 || dw > 32768 || dh > 32768) return;
-  *outW = (int)std::lround(dw);
-  *outH = (int)std::lround(dh);
+  const double initial[4] = {0, 0, double(inW), double(inH)};
+  propSetDouble(H(&in), kOfxPropTime, 0, 0);
+  propSetN<double, propSetDouble>(H(&in), kOfxImageEffectPropRenderScale, 2, scale);
+  propSetN<double, propSetDouble>(H(&out), kOfxImageEffectPropRegionOfDefinition, 4, initial);
+  const auto status = callAction(p, kOfxImageEffectActionGetRegionOfDefinition, e, &in, &out);
+  if (status == kOfxStatReplyDefault || status == kOfxStatErrUnsupported) return kOfxStatOK;
+  if (status != kOfxStatOK) return status;
+  const auto found = out.m.find(kOfxImageEffectPropRegionOfDefinition);
+  if (found == out.m.end() || found->second.size() != 4) return kOfxStatErrValue;
+  double edges[4];
+  for (int i = 0; i < 4; ++i) {
+    edges[i] = found->second[i].d;
+    if (!std::isfinite(edges[i])) return kOfxStatErrValue;
+  }
+  // OFX uses these exact finite sentinels for unbounded edges. This still-image
+  // host resolves only those edges to the available Source frame before normal
+  // validation; arbitrary huge finite regions must not silently fall back.
+  if (edges[0] == kOfxFlagInfiniteMin) edges[0] = 0;
+  if (edges[1] == kOfxFlagInfiniteMin) edges[1] = 0;
+  if (edges[2] == kOfxFlagInfiniteMax) edges[2] = inW;
+  if (edges[3] == kOfxFlagInfiniteMax) edges[3] = inH;
+  const OfxRectD rod{edges[0], edges[1], edges[2], edges[3]};
+  if (rod.x2 <= rod.x1 || rod.y2 <= rod.y1) return kOfxStatErrValue;
+  const double x1 = std::floor(rod.x1), y1 = std::floor(rod.y1);
+  const double x2 = std::ceil(rod.x2), y2 = std::ceil(rod.y2);
+  if (x1 < std::numeric_limits<int>::min() || y1 < std::numeric_limits<int>::min() ||
+      x2 > std::numeric_limits<int>::max() || y2 > std::numeric_limits<int>::max() ||
+      x2 - x1 > 32768 || y2 - y1 > 32768) return kOfxStatErrValue;
+  region = {rod, {int(x1), int(y1), int(x2), int(y2)}};
+  e->outputRegion = region;
+  return kOfxStatOK;
 }
 
-OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h, int outW, int outH, const RenderCancellation &cancellation) {
+OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int w, int h,
+                       const OfxOutputRegion &region, const RenderCancellation &cancellation,
+                       std::optional<CoordinateMapping> *mapping) {
   e->src = src;
   e->dst = dst;
   e->w = w;
   e->h = h;
-  e->outW = outW;
-  e->outH = outH;
+  e->outputRegion = region;
+  const int outW = region.width(), outH = region.height();
+  if (mapping) mapping->reset();
+  std::optional<CoordinateMapping> declaration;
+  e->renderMapping = &declaration;
   // Plugins may call abort from their render threads. They borrow a read-only
   // runtime token for this action only, including on exception paths.
   e->cancellation = cancellation;
-  struct ClearCancellation {
+  struct ClearRenderState {
     Effect &effect;
-    ~ClearCancellation() { effect.cancellation = {}; }
-  } clearCancellation{*e};
+    ~ClearRenderState() {
+      effect.cancellation = {};
+      effect.renderMapping = nullptr;
+    }
+  } clearRenderState{*e};
   PropSet in;
   OfxPropertySetHandle a = H(&in);
-  const int window[4] = {0, 0, outW, outH};
+  const int window[4] = {region.bounds.x1, region.bounds.y1, region.bounds.x2, region.bounds.y2};
   const double scale[2] = {1, 1};
   propSetDouble(a, kOfxPropTime, 0, 0);
   propSetString(a, kOfxImageEffectPropFieldToRender, 0, kOfxImageFieldNone);
@@ -304,6 +327,7 @@ OfxStatus renderEffect(OfxPlugin *plugin, Effect *e, float *src, float *dst, int
     propSetInt(a, kOfxImageEffectPropMetalEnabled, 0, 0);
   }
   const OfxStatus st = callAction(plugin, kOfxImageEffectActionRender, e, &in);
+  if (mapping && st == kOfxStatOK) *mapping = declaration;
   if (e->metalEnabled) ofxMetalSync();
   if (e->metalEnabled && st == kOfxStatOK && e->dstMtl) {
     float *d = static_cast<float *>(ofxMetalBufferContents(reinterpret_cast<OfxMetalBuffer *>(e->dstMtl)));

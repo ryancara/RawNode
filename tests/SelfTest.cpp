@@ -4,6 +4,7 @@
 #include "PngColorTests.h"
 #include "OfxThreadPoolTests.h"
 #include "OfxImageHandleTests.h"
+#include "OfxCoordinateTests.h"
 #include "GraphModelTests.h"
 #include "GraphDepthTests.h"
 #include "GraphPersistenceTests.h"
@@ -3079,6 +3080,7 @@ static int runSelfTestsImpl() {
   printf("ok  OFX plugin rediscovery\n");
   if (!testGraphPersistenceOfx()) return fail("Step 7 OFX persistence identity");
   if (!testGraphEvaluatorOfx()) return fail("Step 6C OFX graph evaluator");
+  if (!testOfxCoordinates()) return fail("OFX coordinate correspondence");
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
 
   // Standard CTL backend: load a real .ctl with a sibling import, render it
@@ -4028,13 +4030,15 @@ static int runSelfTestsImpl() {
 
     // At default (crop=0): RoD matches source size and render is identity.
     int ow = src.w, oh = src.h;
-    queryOutputSize(it->plugin, e.get(), src.w, src.h, &ow, &oh);
+    OfxOutputRegion region;
+    if (queryOutputRegion(it->plugin, e.get(), src.w, src.h, region) != kOfxStatOK) return fail("OFX output region");
+    ow = region.width(); oh = region.height();
     if (ow != src.w || oh != src.h) return fail("crop RoD at default != source size");
     Image out;
     out.w = src.w;
     out.h = src.h;
     out.px.assign(src.px.size(), -1.0f);
-    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, src.w, src.h, {}) != kOfxStatOK)
+    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, region, {}) != kOfxStatOK)
       return fail("render: Crop (defaults)");
     if (out.px != src.px) return fail("crop defaults are not identity");
 
@@ -4043,12 +4047,13 @@ static int runSelfTestsImpl() {
     if (!crop || crop->v.empty()) return fail("crop param missing");
     crop->v[0] = 80;
     ow = src.w; oh = src.h;
-    queryOutputSize(it->plugin, e.get(), src.w, src.h, &ow, &oh);
+    if (queryOutputRegion(it->plugin, e.get(), src.w, src.h, region) != kOfxStatOK) return fail("OFX output region");
+    ow = region.width(); oh = region.height();
     if (ow >= src.w || oh >= src.h) return fail("crop RoD did not shrink at 80%");
     out.w = ow;
     out.h = oh;
     out.px.assign((size_t)ow * oh * 4, -1.0f);
-    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, {}) != kOfxStatOK)
+    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, region, {}) != kOfxStatOK)
       return fail("render: Crop (zoomed)");
     bool finite = true, changed = false;
     for (float v : out.px) {
@@ -4067,25 +4072,30 @@ static int runSelfTestsImpl() {
     if (!offsetX || offsetX->v.empty()) return fail("offsetX param missing");
     if (!offsetY || offsetY->v.empty()) return fail("offsetY param missing");
     ow = src.w; oh = src.h;
-    queryOutputSize(it->plugin, e.get(), src.w, src.h, &ow, &oh);
+    if (queryOutputRegion(it->plugin, e.get(), src.w, src.h, region) != kOfxStatOK) return fail("OFX output region");
+    ow = region.width(); oh = region.height();
     out.w = ow; out.h = oh;
     out.px.assign((size_t)ow * oh * 4, -1.0f);
     offsetX->v[0] = 0; offsetY->v[0] = 0;
-    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, {}) != kOfxStatOK)
+    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, region, {}) != kOfxStatOK)
       return fail("render: Crop (centered)");
     for (float v : out.px)
       if (v == 0.0f) return fail("centered crop should have no black pixels");
     offsetY->v[0] = 100;
+    if (queryOutputRegion(it->plugin, e.get(), src.w, src.h, region) != kOfxStatOK ||
+        region.width() != ow || region.height() != oh) return fail("Crop Y offset region");
     std::fill(out.px.begin(), out.px.end(), -1.0f);
-    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, {}) != kOfxStatOK)
+    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, region, {}) != kOfxStatOK)
       return fail("render: Crop (Y offset)");
     changed = false;
     for (float v : out.px)
       changed |= v == 0.0f;
     if (!changed) return fail("Y offset produced no black fill");
     offsetX->v[0] = 100; offsetY->v[0] = 0;
+    if (queryOutputRegion(it->plugin, e.get(), src.w, src.h, region) != kOfxStatOK ||
+        region.width() != ow || region.height() != oh) return fail("Crop X offset region");
     std::fill(out.px.begin(), out.px.end(), -1.0f);
-    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, {}) != kOfxStatOK)
+    if (renderEffect(it->plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, region, {}) != kOfxStatOK)
       return fail("render: Crop (X offset)");
     changed = false;
     for (float v : out.px)
@@ -4099,12 +4109,14 @@ static int runSelfTestsImpl() {
     auto e = createInstance(pe);
     if (!e) return fail(("createInstance: " + pe.label).c_str());
     int ow = src.w, oh = src.h;
-    queryOutputSize(pe.plugin, e.get(), src.w, src.h, &ow, &oh);
+    OfxOutputRegion region;
+    if (queryOutputRegion(pe.plugin, e.get(), src.w, src.h, region) != kOfxStatOK) return fail("OFX output region");
+    ow = region.width(); oh = region.height();
     Image out;
     out.w = ow;
     out.h = oh;
     out.px.assign((size_t)ow * oh * 4, -1.0f);
-    const OfxStatus st = renderEffect(pe.plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, ow, oh, {});
+    const OfxStatus st = renderEffect(pe.plugin, e.get(), src.px.data(), out.px.data(), src.w, src.h, region, {});
     callAction(pe.plugin, kOfxActionDestroyInstance, e.get());
     if (st != kOfxStatOK) return fail(("render: " + pe.label).c_str());
     bool finite = true, touched = false;

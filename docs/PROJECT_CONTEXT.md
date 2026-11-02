@@ -584,6 +584,10 @@ These are known but are not reasons to expand unrelated focused PRs:
 - the production OpenFX plugin descriptor shutdown leak described above;
 - JPEG XL DNG decoding is not yet supported in the current image-loading path;
 - TIFF SubIFD handling is incomplete for some RAW-like TIFF structures;
+- some default bundled Crops produce a black boundary row from floating-point
+  sampling at the Source edge, also on merged main. A pixel-rendering correction
+  is a separate quality follow-up for owner consideration; PR #107's final
+  Identity metadata correction deliberately retains those legacy samples;
 - export UX can block/wait on a non-cancellable full-resolution export;
 - thumbnail worker exceptional-unwind lifetime, the macOS pthread-to-joiner
   exception gap, and `makePreview` partial helper-thread launch remain focused
@@ -594,6 +598,17 @@ architecture rather than layering more scheduler state onto the design without
 need.
 
 ## Current development phase
+
+The coordinate/Mask-handle work follows three focused stages:
+
+1. PR #106 — backend-neutral coordinate correspondence, merged.
+2. PR #107 — OFX bounds correctness and bundled Crop coordinate declarations,
+   under correction/review; retain legacy Crop sizing and sampling.
+3. Draft PR #105 — rework interactive Radial Mask handles to use the published
+   mapping contract after the foundation is reviewed.
+
+Mask Overlay alignment follows the same architecture. Outward feathering is a
+separate product change, not part of these coordinate or handle corrections.
 
 **Step 8 in progress (2026-10-29):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#102 are merged, including native Radial Mask → Exposure and Mask Only preview, with owner-reported independent Claude review and native macOS GUI validation for #102. Photo remains the default; selection can retarget active Mask inspection or restore Photo, and photo/grade replacement resets the transient view. Viewer mode stays outside grades, history and export. Mask Overlay is implemented for independent review and native macOS validation: one paired evaluation shares Image/Mask dependencies and publishes both under the existing request/generation gate; the display path adds a fixed red tint and retains the pair for processor-free colour refresh. Mask failures hide coverage with diagnostics while retaining the current processed photograph where available; mismatched rasters are never resampled. Non-AI masking workflows remain the priority; on-image handles, other geometry and freeform generators, Combine/modifiers and basic qualifiers/conversion follow as independently scoped features. CTL/future DCTL remain Image-producing. Step 9's approved whole-codebase audit follows the agreed Step 8 exit gate; SAM/AI masking is deferred without a scheduled milestone.
 

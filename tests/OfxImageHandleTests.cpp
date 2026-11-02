@@ -151,7 +151,7 @@ struct ImagePluginFixture {
     checks.expect(instance != nullptr, "createInstance");
     if (instance)
       checks.expect(renderEffect(&plugin, instance.get(), src.data(), dst.data(), kSourceW, kSourceH,
-                                 kOutputW, kOutputH) == kOfxStatOK, "render action");
+                                 OfxOutputRegion{{0, 0, kOutputW, kOutputH}, {0, 0, kOutputW, kOutputH}}) == kOfxStatOK, "render action");
     return checks.ok;
   }
 

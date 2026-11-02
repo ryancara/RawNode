@@ -421,7 +421,11 @@ correspondence. Metadata owns no intermediate rasters and lives in the existing
 `EvaluationResult`, so normal
 generation-gated publication and display refresh retain it with the correct Image.
 Image/Mask values and saved parameters remain raster-local and unchanged. This
-foundation changes no handle/Overlay alignment, OFX bounds handling or Crop adapter.
+contract changes no handle/Overlay alignment. The OFX adapter now preserves
+canonical RoD and enclosing pixel bounds and accepts an optional per-Render
+declaration from cooperating plugins, including bundled Crop. See
+[OFX coordinate handling](OFX_COORDINATES.md) for the minimal private suite,
+independent pixel oracles and fixed-scale/PAR compatibility boundaries.
 
 ## Control-thread contract
 

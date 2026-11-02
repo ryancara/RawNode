@@ -4,6 +4,7 @@
 #endif
 
 #include "ofxsImageEffect.h"
+#include "rawnode/OfxCoordinateMapping.h"
 
 #include <algorithm>
 #include <cmath>
@@ -129,6 +130,28 @@ void CropPlugin::render(const OFX::RenderArguments &args) {
   double x0, y0, w, h;
   computeCropWindow(args.time, srcW, srcH, x0, y0, w, h);
 
+  // The optional RawNode declaration describes the very same sampling window,
+  // in normalized raster coordinates. Other hosts need not offer this suite.
+  double mapping[6] = {srcW / w, 0, -x0 / w, 0, srcH / h, -y0 / h};
+  // Legacy full-frame arithmetic can drift by a few ulps. Canonicalize only
+  // this declaration, so partial Strength retains known placement. At the
+  // host's 32768-axis limit, 1e-12 relative is less than 3.3e-8 pixel.
+  constexpr double identityTolerance = 1e-12;
+  const OfxRectI &db = dst->getBounds();
+  if (db.x2 - db.x1 == sw && db.y2 - db.y1 == sh &&
+      std::abs(x0) <= identityTolerance * srcW &&
+      std::abs(y0) <= identityTolerance * srcH &&
+      std::abs(x0 + w - srcW) <= identityTolerance * srcW &&
+      std::abs(y0 + h - srcH) <= identityTolerance * srcH) {
+    mapping[0] = mapping[4] = 1;
+    mapping[2] = mapping[5] = 0;
+  }
+  const auto *coordinates = static_cast<const RawNodeOfxCoordinateMappingSuiteV1 *>(
+      OFX::fetchSuite(kRawNodeOfxCoordinateMappingSuite, 1, true));
+  if (coordinates) coordinates->setInputToOutput(getHandle(), mapping);
+  x0 += sb.x1 / rsx;
+  y0 += sb.y1 / rsy;
+
   const double outW = static_cast<double>(rw.x2 - rw.x1);
   const double outH = static_cast<double>(rw.y2 - rw.y1);
 
@@ -182,8 +205,7 @@ void CropPlugin::render(const OFX::RenderArguments &args) {
 }
 
 bool CropPlugin::getRegionOfDefinition(const OFX::RegionOfDefinitionArguments &args, OfxRectD &rod) {
-  // Source clip RoD is in canonical coordinates; with this host's renderScale {1,1}
-  // canonical equals pixel, so the crop window maps directly to output dimensions.
+  // Source clip RoD is in canonical coordinates. RawNode uses unit scale/PAR.
   OfxRectD srcRod;
   try {
     srcRod = srcClip_->getRegionOfDefinition(args.time);
@@ -197,7 +219,18 @@ bool CropPlugin::getRegionOfDefinition(const OFX::RegionOfDefinitionArguments &a
 
   double x0, y0, w, h;
   computeCropWindow(args.time, srcW, srcH, x0, y0, w, h);
-  rod = {x0, y0, x0 + w, y0 + h};
+  // Preserve legacy rounded raster dimensions without changing the continuous
+  // sampling window. Pixel-align the reported region so outward enclosure does
+  // not add a row/column. Legacy subpixel crops used Source dimensions whenever
+  // either continuous extent was below one; keep that behaviour in the plugin.
+  // Measure the same edge differences that the legacy host rounded, including
+  // their floating-point behaviour at half-integer sizes; do not snap the window.
+  const double legacyW = (x0 + w) - x0, legacyH = (y0 + h) - y0;
+  double outW = std::round(legacyW), outH = std::round(legacyH);
+  if (legacyW < 1 || legacyH < 1) { outW = srcW; outH = srcH; }
+  const double left = std::floor(srcRod.x1 + x0);
+  const double bottom = std::floor(srcRod.y1 + y0);
+  rod = {left, bottom, left + outW, bottom + outH};
   return true;
 }
 
