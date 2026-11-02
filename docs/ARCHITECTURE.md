@@ -412,7 +412,7 @@ Unknown. The Mask applied at that mix still starts in its output raster.
 Bypass, zero Strength and missing processors pass upstream records through and
 add no unused coverage. Inactive/Unavailable coverage adds no placement.
 
-Multiple consumers retain separate records. Future Preview integration must
+Multiple consumers retain separate records. Preview handles
 consider all matching records: equal known mappings can establish unambiguous
 placement, differing known mappings are ambiguous, and Unknown prevents claiming
 known placement. No consumer is chosen implicitly. Test-only multi-Image joins
@@ -420,8 +420,14 @@ conservatively retain all uses, including their own Slot coverage, with Unknown
 correspondence. Metadata owns no intermediate rasters and lives in the existing
 `EvaluationResult`, so normal
 generation-gated publication and display refresh retain it with the correct Image.
-Image/Mask values and saved parameters remain raster-local and unchanged. This
-contract changes no handle/Overlay alignment. The OFX adapter now preserves
+Image/Mask values and saved parameters remain raster-local and unchanged.
+Texture upload records its publication generation/request. Handles use placements
+only from the matching evaluated result; new CPU metadata cannot drive an old
+texture. New external Preview demand interrupts a gesture; its own live edits may
+continue against a matching displayed mapping while replacement pixels are pending.
+Affine curves are forward-mapped and drags inverse-mapped to saved Radial parameters.
+Mask Only uses its own raster; transformed Overlay alignment is deferred.
+The OFX adapter preserves
 canonical RoD and enclosing pixel bounds and accepts an optional per-Render
 declaration from cooperating plugins, including bundled Crop. See
 [OFX coordinate handling](OFX_COORDINATES.md) for the minimal private suite,

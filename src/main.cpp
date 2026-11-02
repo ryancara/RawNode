@@ -22,7 +22,7 @@
 #include <string>
 
 int main(int argc, char **argv) {
-  if (argc > 1 && std::string(argv[1]) == "--selftest-preview-interaction") return testPreviewInteraction() ? 0 : 1;
+  if (argc > 1 && std::string(argv[1]) == "--selftest-preview-interaction") return runPreviewInteractionTests();
   if (argc > 1 && std::string(argv[1]) == "--selftest-ofx-coordinates") return runOfxCoordinateTests();
   if (argc > 1 && std::string(argv[1]) == "--selftest-graph-view") return testGraphView() ? 0 : 1;
   if (argc > 1 && std::string(argv[1]) == "--selftest-graph-depth") return testGraphDepth() ? 0 : 1;

@@ -110,7 +110,7 @@ All generated samples are finite scalar coverage in `[0,1]`.
 - Preview toolbar offers optional coloured **Mask Overlay** and grayscale **Mask Only**, inspecting the selected Mask endpoint's actual final output; inactive shows no stale mask raster.
 - Inspector and handles edit the same parameters; a completed drag is one Undo step.
 - Reuse the existing requested-endpoint evaluator/runtime. An overlay requiring both final Image and Mask may require a bounded multi-endpoint publication extension, **not** another rendering system.
-- No silent automatic raster remapping through Crop, warp, or other geometry. D056 adds backend-neutral transient coordinate metadata: undeclared equal-sized processing preserves coordinates, explicit declarations override it, and undeclared size changes are Unknown. Mask placement starts where the Image adjustment applies coverage, not at its Reference. This foundation changes no Mask samples, saved geometry, handle UI or Overlay alignment; future handles must hide/qualify unknown or ambiguous placement.
+- No silent automatic raster remapping through Crop, warp, or other geometry. D056 supplies backend-neutral transient coordinate metadata: undeclared equal-sized processing preserves coordinates, explicit declarations override it, and undeclared size changes are Unknown. Mask placement starts where the Image adjustment applies coverage, not at its Reference. Handles use this metadata and hide/qualify unknown or ambiguous placement without changing Mask samples or saved geometry. Transformed Overlay alignment remains separate.
 
 ### Radial handles (implementation for independent review)
 
@@ -128,11 +128,20 @@ live, including through zero radii. With both radii zero, feather has no spatial
 extent and its drag leaves the parameter unchanged. Inspector controls remain
 the alternative for off-canvas geometry.
 
-Photo and Overlay handles require matching Reference/photo raster frames.
-The UI crosses only known native Exposure/CST operations and exact declared
-bypasses; it never infers a transform through arbitrary active processors.
-An identical Reference/photo endpoint is itself a shared frame. Unproved
-alignment hides handles. Mask Only uses the selected Radial output's own frame.
+Photo handles use the displayed evaluated Image's published Mask placements,
+without processor eligibility lists or UI traversal of Reference/processor parameters.
+All uses of the selected Mask must agree on a known, invertible mapping; differing,
+Unknown or singular placements hide handles with an explanation. Mask Reference
+still controls generation dimensions only; handle placement starts at the Image
+consumer's output. No saved Mask coordinates change merely because a Crop moves.
+Full affine maps transform ellipse points, handle positions and screen-space
+directions; inverse maps take pointer motion back to the original Mask parameters.
+The GPU texture and CPU result must share a publication generation/request.
+Pending mismatches hide controls; external demand interrupts stale gestures while
+their own accepted live edits retain one drag/Undo transaction.
+Mask Only uses the selected Radial output's own frame. Overlay handles remain
+available for Identity placement; transformed Overlay alignment is deferred and
+asks the user to use Photo or Mask Only, without resampling or changing coverage.
 Missing Radials and protected/export-owned documents have no editable
 handles.
 
@@ -172,4 +181,4 @@ allowing high-cost problems to accumulate until Step 9.
 
 ## Deferred, not implicit approvals
 
-Exact fractional coverage combination equations (particularly soft masks), advanced masks/AI, mask Gain, generic Mask-output Effect Mask, auto Image-to-Mask connection conversion, HDR non-Normal Image blend maths, general alpha association and compositing, OFX RoD/render-scale/internal-mask policy, transformed handle alignment and multiple automatic Combine slots. Introduce any future capability via a focused, reviewed contract rather than assumptions in processor code.
+Exact fractional coverage combination equations (particularly soft masks), advanced masks/AI, mask Gain, generic Mask-output Effect Mask, auto Image-to-Mask connection conversion, HDR non-Normal Image blend maths, general alpha association and compositing, non-unit OFX render-scale/internal-mask policy, transformed Overlay alignment and multiple automatic Combine slots. Introduce any future capability via a focused, reviewed contract rather than assumptions in processor code.

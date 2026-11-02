@@ -41,6 +41,7 @@ class RenderRuntime {
   // A new capture may drain preview, but must not nest mutation or wait on export.
   bool canCaptureSnapshot() const;
   bool canEditParameters() const;      // Same control thread as export acquisition.
+  int previewGeneration() const;       // Control-thread identity of current Preview demand.
   // Caller already owns preview/export execution exclusion. Single-endpoint
   // evaluation shares its test hooks with paired preview; configure before execution.
   EvaluationResult evaluateOwned(const OutputRef &endpoint, const EvaluationContext &context,

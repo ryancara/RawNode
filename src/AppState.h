@@ -180,6 +180,10 @@ struct App {
     EvaluationResult result;
     std::optional<EvaluationResult> overlayMask; // Same evaluation/request as the document Image.
   } processed{0, {}, EvaluationResult{{primarySource, ports::image}}};
+  // UI-thread upload identity only. Placements stay in the evaluated result;
+  // input must not pair a newer CPU publication with an older texture.
+  int textureGeneration = -1;
+  std::shared_ptr<const OutputRef> textureRequest;
   std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
   std::mutex displayMutex;
   bool displayDirty = false;

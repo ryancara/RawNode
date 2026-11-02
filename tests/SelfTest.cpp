@@ -3083,6 +3083,7 @@ static int runSelfTestsImpl() {
   if (!testGraphPersistenceOfx()) return fail("Step 7 OFX persistence identity");
   if (!testGraphEvaluatorOfx()) return fail("Step 6C OFX graph evaluator");
   if (!testOfxCoordinates()) return fail("OFX coordinate correspondence");
+  if (!testPreviewCoordinatePlacement()) return fail("Preview coordinate placement");
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
 
   // Standard CTL backend: load a real .ctl with a sibling import, render it

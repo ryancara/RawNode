@@ -3,6 +3,8 @@
 #include "AppState.h"
 #include "Export.h"
 #include "GraphCommands.h"
+#include "processors/OfxProcessor.h"
+#include "processors/CtlProcessor.h"
 #include "NodeGraph.h"
 #include "RenderPipeline.h"
 #include "RenderRuntimeTestAccess.h"
@@ -16,6 +18,8 @@
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <condition_variable>
 
 #define CHECK(expression) do { if (!(expression)) { \
   std::fprintf(stderr, "Preview interaction check failed at line %d: %s\n", __LINE__, #expression); return false; \
@@ -29,18 +33,48 @@ double parameter(const App &app, const NodeId &id, const char *name) {
     if (p.id == name) return std::get<double>(p.value);
   return -99;
 }
-void fixture(App &app) {
+bool fixture(App &app) {
   app.path = "preview-handles.png";
   app.full.w = 32; app.full.h = 16;
   for (int i = 0; i < 32 * 16; ++i) app.full.px.insert(app.full.px.end(), {.25f, -.5f, 2, .375f});
   app.preview = std::make_shared<Image>(app.full);
-  addNativeRadialMaskNode(app);
+  CHECK(addNativeRadialMaskNode(app));
+  const auto radial = *app.selectedNodeId();
+  selectOutput(app); CHECK(addNativeExposureNode(app));
+  CHECK(graph::connect(app, {radial,ports::mask}, {*app.selectedNodeId(),std::nullopt,ports::mask}).ok());
+  selectNode(app,radial);
   app.history.reset(app);
+  return true;
 }
 ui::RadialGeometry geometry(const App &app) {
   const auto id = *app.selectedNodeId();
   return {parameter(app, id, "centreX"), parameter(app, id, "centreY"), parameter(app, id, "radiusX"),
           parameter(app, id, "radiusY"), parameter(app, id, "feather")};
+}
+
+// Retain actual evaluator publications. Only the GL upload is replaced here;
+// its texture identity is acknowledged exactly as pumpDisplayUpload does.
+void fakeUpload(App &app) {
+  std::lock_guard<std::mutex> lock(app.displayMutex);
+  app.texW = app.display.w; app.texH = app.display.h;
+  app.tex = app.texW > 0 && app.texH > 0 ? 1 : 0;
+  app.textureGeneration = app.processed.generation;
+  app.textureRequest = app.processed.request;
+  app.displayDirty = false;
+}
+void publishFrame(App &app, std::optional<CoordinateMapping> mappingOverride = std::nullopt) {
+  const auto mode = previewMode(app);
+  const OutputRef endpoint = mode == PreviewMode::MaskOnly ? *selectedMaskOutput(app) : app.documentOutput;
+  const EvaluationContext context{EvaluationPurpose::Preview,app.full.w,app.full.h,app.preview->w,app.preview->h};
+  auto result = evaluateGraph({app.nodes,app.primarySource,app.documentOutput},endpoint,context,app.preview);
+  if (mappingOverride)
+    for (auto &placement : result.maskPlacements) placement.maskToImage = *mappingOverride;
+  int w = 0, h = 0;
+  if (const auto *image = std::get_if<ImageValue>(&result.value); image && *image) { w = (*image)->w; h = (*image)->h; }
+  if (const auto *mask = std::get_if<MaskValue>(&result.value); mask && *mask) { w = (*mask)->w; h = (*mask)->h; }
+  display_detail::publishPreview(app,std::move(result),app.renderer.previewGeneration(),
+      std::make_shared<OutputRef>(endpoint),{{},w,h});
+  fakeUpload(app);
 }
 
 // Real Preview and ImGui input, without a GL context. Only texture upload is
@@ -49,8 +83,9 @@ struct Ui {
   ImGuiContext *previous = ImGui::GetCurrentContext(), *context = ImGui::CreateContext();
   ImRect canvas;
   ui::PreviewTransform view;
-  bool visible = true, otherControls = false, texture = true;
+  bool visible = true, otherControls = false, texture = true, autoPublish = true;
   ImVec2 textPoint;
+  std::optional<CoordinateMapping> mappingOverride; // Synthetic published geometry for affine-only UI tests.
   char text[32] = {};
   Ui() {
     auto &io = ImGui::GetIO(); io.IniFilename = nullptr; io.ConfigInputTrickleEventQueue = false;
@@ -59,17 +94,20 @@ struct Ui {
   }
   ~Ui() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
   void tick(App &app) {
+    if (autoPublish) publishFrame(app, mappingOverride);
     auto &io = ImGui::GetIO(); io.DisplaySize = {1400, 900}; io.DeltaTime = 1.0f / 60;
     ImGui::NewFrame();
     if (visible) {
-      app.displayDirty = false; app.tex = texture ? 1 : 0; app.texW = 32; app.texH = 16;
+      app.displayDirty = false;
+      if (!texture) app.tex = 0;
       ImGui::SetNextWindowPos({20, 20}); ImGui::SetNextWindowSize({912, 650});
       ImGui::Begin("Preview test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
                    ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
       drawPreviewPanel(app);
       canvas = context->LastItemData.Rect;
-      const float fit = std::min(canvas.GetWidth() / 32, canvas.GetHeight() / 16);
-      const ImVec2 size{32 * fit * app.previewZoom, 16 * fit * app.previewZoom};
+      const float w = float(std::max(app.texW,1)), h = float(std::max(app.texH,1));
+      const float fit = std::min(canvas.GetWidth() / w, canvas.GetHeight() / h);
+      const ImVec2 size{w * fit * app.previewZoom, h * fit * app.previewZoom};
       view = {{canvas.GetCenter().x + app.previewPanX - size.x / 2,
                canvas.GetCenter().y + app.previewPanY - size.y / 2}, size};
       ImGui::End();
@@ -91,7 +129,8 @@ struct Ui {
   void release(App &app, int button = 0) { ImGui::GetIO().AddMouseButtonEvent(button, false); tick(app); }
   void key(App &app, ImGuiKey key, bool down) { ImGui::GetIO().AddKeyEvent(key, down); tick(app); }
   ImVec2 grip(App &app, PreviewDrag kind) {
-    for (const auto &h : ui::radialHandles(view, geometry(app))) if (h.kind == kind) return h.grip;
+    if (autoPublish && ui::radialPlacement(app).state == ui::PlacementState::Pending) tick(app);
+    for (const auto &h : ui::radialHandles(view, geometry(app), ui::radialPlacement(app).mapping)) if (h.kind == kind) return h.grip;
     return {};
   }
   void drag(App &app, PreviewDrag kind, ImVec2 delta) {
@@ -157,7 +196,7 @@ bool mappingsAndOverlap() {
 
 bool collapsedRadiusRecovery() {
   for (auto kind : {PreviewDrag::Left, PreviewDrag::Right, PreviewDrag::Top, PreviewDrag::Bottom}) {
-    App app; Ui ui; fixture(app);
+    App app; Ui ui; CHECK(fixture(app));
     const auto id = *app.selectedNodeId();
     CHECK(setNodeParameterValue(app, id, "radiusX", 0.0) && setNodeParameterValue(app, id, "radiusY", 0.0));
     CHECK(app.history.recordCompletedEdit(app));
@@ -182,7 +221,7 @@ bool collapsedRadiusRecovery() {
 }
 
 bool editsAndHistory() {
-  App app; Ui ui; fixture(app); ui.tick(app); ui.tick(app);
+  App app; Ui ui; CHECK(fixture(app)); ui.tick(app); ui.tick(app);
   const auto id = *app.selectedNodeId();
   const auto before = app.history.size();
   const auto start = ui.grip(app, PreviewDrag::Centre), size = ui.view.size;
@@ -243,7 +282,7 @@ bool editsAndHistory() {
 }
 
 bool ownershipAndZoom() {
-  App app; Ui ui; fixture(app); ui.tick(app); ui.tick(app);
+  App app; Ui ui; CHECK(fixture(app)); ui.tick(app); ui.tick(app);
   const ImVec2 empty{ui.canvas.Min.x + 30, ui.canvas.Min.y + 30};
   ui.press(app, empty); ui.key(app, ImGuiKey_Space, true); ui.hover(app, {empty.x + 40, empty.y + 30});
   CHECK(app.previewPanX == 0 && app.previewPanY == 0 && app.previewInteraction.drag == PreviewDrag::Ignore);
@@ -292,7 +331,7 @@ bool ownershipAndZoom() {
 }
 
 bool doubleClicks() {
-  App app; Ui ui; fixture(app); ui.tick(app); ui.tick(app);
+  App app; Ui ui; CHECK(fixture(app)); ui.tick(app); ui.tick(app);
   const auto before = app.history.size();
   for (auto kind : {PreviewDrag::Centre, PreviewDrag::Left, PreviewDrag::Right,
                     PreviewDrag::Top, PreviewDrag::Bottom, PreviewDrag::Feather}) {
@@ -314,7 +353,7 @@ bool doubleClicks() {
 }
 
 bool interruptionsAndAlignment() {
-  App app; Ui ui; fixture(app); ui.tick(app); ui.tick(app);
+  App app; Ui ui; CHECK(fixture(app)); ui.tick(app); ui.tick(app);
   CHECK(!(ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_NavEnableKeyboard));
   const auto id = *app.selectedNodeId();
   for (int interruption = 0; interruption < 7; ++interruption) {
@@ -359,34 +398,9 @@ bool interruptionsAndAlignment() {
   CHECK(app.previewPanX == 20 && app.previewPanY == 10);
   app.previewPanX = app.previewPanY = 0;
   app.sidecarWriteBlockedPath.clear();
-  CHECK(ui::radialHandlesAligned(app));
-  selectOutput(app);
-  CHECK(addNativeExposureNode(app)); const auto exposure = *app.selectedNodeId();
-  selectNode(app, id); CHECK(ui::radialHandlesAligned(app));
-  selectOutput(app);
-  CHECK(addNativeCstNode(app)); selectNode(app, id); CHECK(ui::radialHandlesAligned(app));
-  // Unknown same-sized Image processing cannot imply Source coordinates.
-  Node unknown(NodeOperation::ImageProcessor); unknown.id = NodeId{"unknown"};
-  unknown.fixedInputs[ports::image] = OutputRef{app.primarySource, ports::image};
-  app.nodes.push_back(std::move(unknown)); app.documentOutput = {NodeId{"unknown"}, ports::image};
-  CHECK(!ui::radialHandlesAligned(app));
-  findNode(app, NodeId{"unknown"})->enabled = false; CHECK(ui::radialHandlesAligned(app));
-  findNode(app, NodeId{"unknown"})->enabled = true;
-  findNode(app, NodeId{"unknown"})->strength = 0; CHECK(ui::radialHandlesAligned(app));
-  findNode(app, NodeId{"unknown"})->strength = .5; CHECK(!ui::radialHandlesAligned(app));
-  CHECK(setPreviewMode(app, PreviewMode::MaskOnly) && ui::radialHandlesAligned(app));
-  CHECK(setPreviewMode(app, PreviewMode::MaskOverlay) && !ui::radialHandlesAligned(app));
-  CHECK(setPreviewMode(app, PreviewMode::Photo));
-  app.documentOutput = {exposure, ports::image};
-  findNode(app, id)->fixedInputs[ports::reference] = OutputRef{NodeId{"unknown"}, ports::image};
-  CHECK(!ui::radialHandlesAligned(app));
-  app.documentOutput = {NodeId{"unknown"}, ports::image}; CHECK(ui::radialHandlesAligned(app));
-  findNode(app, id)->fixedInputs[ports::reference].reset(); app.documentOutput = {exposure, ports::image};
-  findNode(app, id)->enabled = false; CHECK(ui::radialHandlesAligned(app));
-  findNode(app, id)->enabled = true;
+  ui.tick(app);
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
   // Successful grade replacement reusing the same node IDs cancels old input.
-  app.nodes.erase(std::remove_if(app.nodes.begin(), app.nodes.end(),
-      [](const auto &n) { return n.id.value == "unknown"; }), app.nodes.end());
   PersistGrade grade; CHECK(captureGrade(app, grade));
   ui.tick(app); start = ui.grip(app, PreviewDrag::Centre); ui.press(app, start); ui.hover(app, {start.x + 10, start.y});
   CHECK(applyGrade(app, grade)); selectNode(app, id); ui.tick(app);
@@ -404,7 +418,7 @@ bool interruptionsAndAlignment() {
 }
 
 bool savedGeometryAndPixels() {
-  Files files; App app; Ui ui; fixture(app);
+  Files files; App app; Ui ui; CHECK(fixture(app));
   const auto radial = *app.selectedNodeId();
   selectOutput(app); CHECK(addNativeExposureNode(app)); const auto exposure = *app.selectedNodeId();
   CHECK(setNodeParameterValue(app, exposure, "exposure", 1.0));
@@ -421,7 +435,9 @@ bool savedGeometryAndPixels() {
         {EvaluationPurpose::Preview, 96, 48, w, h}, std::make_shared<Image>(std::move(source)));
   };
   const auto image = [](const EvaluationResult &result) { return std::get<ImageValue>(result.value); };
-  const auto small = image(evaluate(32, 16)), large = image(evaluate(96, 48));
+  const auto smallResult = evaluate(32,16);
+  CHECK(smallResult.maskPlacements.size() == 2);
+  const auto small = image(smallResult), large = image(evaluate(96,48));
   for (int y = 0; y < 16; ++y) for (int x = 0; x < 32; ++x) {
     // Same normalised pixel centre at (3*x+1,3*y+1), including negative/HDR and alpha.
     for (int c = 0; c < 4; ++c) CHECK(small->px[(y * 32 + x) * 4 + c] == large->px[((3 * y + 1) * 96 + 3 * x + 1) * 4 + c]);
@@ -436,7 +452,7 @@ bool savedGeometryAndPixels() {
   // Merely showing controls in every mode, and navigating, changes no grade.
   for (auto mode : {PreviewMode::Photo, PreviewMode::MaskOverlay, PreviewMode::MaskOnly}) {
     CHECK(setPreviewMode(app, mode)); ui.tick(app); ui.tick(app);
-    CHECK(ui::radialHandlesAligned(app));
+    CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
   }
   CHECK(setPreviewMode(app, PreviewMode::Photo));
   CHECK(savePreset(app, files.path("geometry.rawnode.json")));
@@ -467,7 +483,10 @@ bool savedGeometryAndPixels() {
   // establishes a fresh history even when the path and restored IDs are reused.
   App photo; CHECK(writeImage(app.full, files.path("photo.png")));
   CHECK(openPath(photo, files.path("photo.png")) && addNativeRadialMaskNode(photo));
-  const auto oldId = *photo.selectedNodeId(); ui.tick(photo); ui.tick(photo);
+  const auto oldId = *photo.selectedNodeId();
+  selectOutput(photo); CHECK(addNativeExposureNode(photo));
+  CHECK(graph::connect(photo,{oldId,ports::mask},{*photo.selectedNodeId(),std::nullopt,ports::mask}).ok());
+  selectNode(photo,oldId); ui.tick(photo); ui.tick(photo);
   const auto start = ui.grip(photo, PreviewDrag::Centre);
   ui.press(photo, start); ui.hover(photo, {start.x + 10, start.y});
   CHECK(openPath(photo, photo.path)); selectNode(photo, oldId); ui.tick(photo);
@@ -477,12 +496,266 @@ bool savedGeometryAndPixels() {
   CHECK(!photo.previewInteraction.editPending && photo.previewInteraction.drag == PreviewDrag::None);
   return true;
 }
+
+bool affineGeometryAndDrag() {
+  const ui::PreviewTransform view{{100,200},{800,400}};
+  const auto mapping = CoordinateMapping::affine(0,-2,1.25,1.5,.5,-.25);
+  const ui::RadialGeometry g{.5,.5,.25,.125,.5};
+  const auto handles = ui::radialHandles(view,g,mapping);
+  // Literal transformed cardinal points; this ellipse is rotated and sheared.
+  const ImVec2 expected[] = {{300,300},{300,450},{300,150},{100,275},{500,325}};
+  for (int i = 0; i < 5; ++i) {
+    CHECK(handles[i].anchor.x == expected[i].x && handles[i].anchor.y == expected[i].y);
+    CHECK(ui::hitRadialHandle(handles,handles[i].grip) == handles[i].kind);
+  }
+  for (double scale : {1.0,.5}) {
+    const auto outline = ui::radialOutline(view,g,mapping,scale);
+    for (const auto &p : outline) {
+      // Independent analytic inverse: u=1.25-2*y; v=1.5*x+.5*y-.25.
+      const double u = (p.x-100)/800, v = 1-(p.y-200)/400;
+      const double y = (1.25-u)/2, x = (v+.25-.5*y)/1.5;
+      const double ellipse = std::pow((x-.5)/.25,2) + std::pow((y-.5)/.125,2);
+      CHECK(std::abs(ellipse-scale*scale) < 2e-6);
+    }
+  }
+  const auto reflection = CoordinateMapping::affine(-1,0,1,0,1,0);
+  const auto reflected = ui::radialHandles(view,g,reflection);
+  CHECK(reflected[1].anchor.x == 700 && reflected[2].anchor.x == 300);
+  CHECK(!(CoordinateMapping::affine(1,0,1e16,0,1,0) == CoordinateMapping::affine(2,0,1e16,0,1,0)));
+  for (const auto &transform : {mapping,reflection}) {
+    const auto collapsed = ui::radialHandles(view,{.5,.5,0,0,1},transform);
+    for (const auto &h : collapsed) CHECK(ui::hitRadialHandle(collapsed,h.grip) == h.kind);
+  }
+  App app; Ui ui; CHECK(fixture(app)); const auto mask = *app.selectedNodeId();
+  const auto shear = CoordinateMapping::affine(.5,-.5,.5,.5,.75,-.125);
+  ui.mappingOverride = shear; ui.tick(app); ui.tick(app);
+  CHECK(ui::radialPlacement(app).mapping == shear);
+  auto size = ui.view.size; auto count = app.history.size();
+  // du=.09375,dv=.015625 is independently the image displacement of
+  // mask displacement (+.125,-.0625) under this affine.
+  ui.drag(app,PreviewDrag::Centre,{size.x*.09375f,-size.y*.015625f});
+  CHECK(near(parameter(app,mask,"centreX"),.625) && near(parameter(app,mask,"centreY"),.4375));
+  CHECK(app.history.size() == count+1);
+  CHECK(app.history.undo(app) && parameter(app,mask,"centreX") == .5 && parameter(app,mask,"centreY") == .5);
+  CHECK(app.history.redo(app)); ui.tick(app);
+  ui.hover(app,ui.grip(app,PreviewDrag::Right));
+  CHECK(ImGui::GetMouseCursor() == ImGuiMouseCursor_ResizeNESW);
+  ui.drag(app,PreviewDrag::Right,{size.x*.03125f,-size.y*.03125f});
+  CHECK(near(parameter(app,mask,"radiusX"),.3125));
+  CHECK(setNodeParameterValue(app,mask,"radiusX",.25)); ui.tick(app);
+  // Equal radii put the mapped feather spoke exactly vertical. Horizontal
+  // motion must not change feather, despite nonzero inverse-mask X/Y motion.
+  ui.drag(app,PreviewDrag::Feather,{30,0}); CHECK(near(parameter(app,mask,"feather"),.5));
+  ui.drag(app,PreviewDrag::Feather,{0,float(size.y*1.25*.25*.25/std::sqrt(2.0))});
+  CHECK(std::abs(parameter(app,mask,"feather")-.75) < .02);
+  CHECK(setNodeParameterValue(app,mask,"radiusX",0.0) && setNodeParameterValue(app,mask,"radiusY",0.0));
+  ui.tick(app); ui.drag(app,PreviewDrag::Right,{size.x*.03125f,-size.y*.03125f});
+  CHECK(near(parameter(app,mask,"radiusX"),.0625));
+  ui.drag(app,PreviewDrag::Top,{-size.x*.03125f,-size.y*.046875f});
+  CHECK(near(parameter(app,mask,"radiusY"),.0625));
+  ui.mappingOverride = reflection; app.renderer.requestPreview(); ui.tick(app);
+  const auto previous = parameter(app,mask,"centreX");
+  ui.drag(app,PreviewDrag::Centre,{size.x/16,0});
+  CHECK(near(parameter(app,mask,"centreX"),previous-.0625));
+  ui.drag(app,PreviewDrag::Left,{size.x/16,0});
+  CHECK(near(parameter(app,mask,"radiusX"),.125));
+  return true;
+}
+
+bool sharedPlacementAndPublication() {
+  App app; Ui ui; CHECK(fixture(app)); ui.tick(app); ui.autoPublish = false;
+  const auto mask = *app.selectedNodeId();
+  const auto placements = [&](std::vector<CoordinateMapping> mappings) {
+    publishFrame(app);
+    {
+      std::lock_guard<std::mutex> lock(app.displayMutex);
+      auto &records = app.processed.result.maskPlacements; records.clear();
+      for (size_t i = 0; i < mappings.size(); ++i)
+        records.push_back({{mask,ports::mask},{NodeId{"consumer-"+std::to_string(i)},std::nullopt,ports::mask},mappings[i]});
+    }
+    fakeUpload(app);
+  };
+  const auto identity = CoordinateMapping::identity(), moved = CoordinateMapping::affine(1,0,.125,0,1,0);
+  const auto unknown = CoordinateMapping::unknown();
+  placements({identity,identity}); CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
+  placements({moved,moved}); CHECK(ui::radialPlacement(app).mapping == moved);
+  for (auto values : {std::vector<CoordinateMapping>{identity,moved}, {identity,unknown}, {unknown,identity},
+                      {CoordinateMapping::affine(0,0,0,0,1,0)}}) {
+    placements(values); const auto p = ui::radialPlacement(app);
+    CHECK(p.state == ui::PlacementState::Unavailable && p.message);
+  }
+  placements({identity,unknown});
+  const auto hiddenCentre = ui.view.toScreen(.5,.5);
+  ui.press(app,hiddenCentre); ui.hover(app,{hiddenCentre.x+30,hiddenCentre.y}); ui.release(app);
+  CHECK(parameter(app,mask,"centreX") == .5);
+  placements({}); CHECK(ui::radialPlacement(app).state == ui::PlacementState::Unavailable);
+  placements({identity});
+  const int before = app.textureGeneration;
+  app.renderer.requestPreview(); CHECK(ui::radialPlacement(app).state == ui::PlacementState::Pending);
+  // New CPU metadata cannot become interactive over old GPU pixels.
+  auto request = std::make_shared<OutputRef>(app.documentOutput);
+  auto result = app.processed.result;
+  display_detail::publishPreview(app,result,app.renderer.previewGeneration(),request,{{},32,16});
+  CHECK(app.textureGeneration == before && ui::radialPlacement(app).state == ui::PlacementState::Pending);
+  fakeUpload(app); CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
+  app.renderer.requestDisplayRefresh(); CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
+  CHECK(setPreviewMode(app,PreviewMode::MaskOnly));
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Pending);
+  publishFrame(app); CHECK(ui::radialPlacement(app).mapping == identity);
+  CHECK(setPreviewMode(app,PreviewMode::Photo)); publishFrame(app);
+  // Pending own edits retain one gesture; a resolution/image generation from
+  // elsewhere interrupts it, even when the eventual mapping would be equal.
+  ui.autoPublish = true; ui.tick(app); ui.tick(app);
+  auto start = ui.grip(app,PreviewDrag::Centre); ui.press(app,start);
+  ui.hover(app,{start.x+20,start.y}); const double edited = parameter(app,mask,"centreX");
+  ui.autoPublish = false;
+  app.preview = std::make_shared<Image>(*app.preview); app.renderer.requestPreview();
+  ui.hover(app,{start.x+60,start.y}); ui.release(app);
+  CHECK(parameter(app,mask,"centreX") == edited && !app.previewInteraction.editPending);
+  CHECK(app.previewInteraction.drag == PreviewDrag::None);
+  return true;
+}
+
+bool runtimeGenerationPairing() {
+  App app; Ui ui; CHECK(fixture(app)); ui.autoPublish = false;
+  struct Gate {
+    App &app;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool blocked = false, entered = false;
+    void release() { { std::lock_guard<std::mutex> lock(mutex); blocked = false; } cv.notify_all(); }
+    ~Gate() { release(); app.renderer.shutdown(); }
+  } gate{app};
+  RenderRuntimeTestAccess::publication(app.renderer,[](void *context,const OutputRef &) {
+    auto &gate = *static_cast<Gate *>(context);
+    std::unique_lock<std::mutex> lock(gate.mutex);
+    if (!gate.blocked) return;
+    gate.entered = true; gate.cv.notify_all();
+    gate.cv.wait(lock,[&] { return !gate.blocked; });
+  },&gate);
+  const auto idle = [&] { return RenderRuntimeTestAccess::wait(app.renderer,[](auto s) {
+    return !s.previewPending && !s.previewBusy && !s.displayPending;
+  }); };
+  app.renderer.start(); CHECK(idle()); fakeUpload(app);
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
+  const int uploaded = app.textureGeneration;
+  { std::lock_guard<std::mutex> lock(gate.mutex); gate.blocked = true; }
+  app.renderer.requestPreview();
+  {
+    std::unique_lock<std::mutex> lock(gate.mutex);
+    CHECK(gate.cv.wait_for(lock,std::chrono::seconds(2),[&] { return gate.entered; }));
+  }
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Pending);
+  // Supersede this blocked render before publication, through real demand.
+  app.renderer.requestPreview(); gate.release(); CHECK(idle());
+  CHECK(app.textureGeneration == uploaded && app.processed.generation == app.renderer.previewGeneration());
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Pending);
+  fakeUpload(app); CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
+  return true;
+}
+
+bool appendCrop(App &app,const char *id,double amount = 0,double x = 0,double y = 0) {
+  int index = -1;
+  for (size_t i = 0; i < gPlugins.size(); ++i) if (gPlugins[i].label == "Crop") index = int(i);
+  Node crop; crop.id = NodeId{id}; crop.processor = OfxProcessor::create(index); CHECK(crop.processor);
+  CHECK(crop.processor->setParameterValue("crop",amount) && crop.processor->setParameterValue("offsetX",x) &&
+        crop.processor->setParameterValue("offsetY",y));
+  return graph::insertImageNode(app,std::move(crop)).ok();
+}
+
+bool realCropPlacements() {
+  App app; Ui ui; CHECK(fixture(app)); const auto mask = *app.selectedNodeId();
+  CHECK(appendCrop(app,"crop-a",50,50,-100)); selectNode(app,mask); ui.tick(app); ui.tick(app);
+  auto placement = ui::radialPlacement(app); CHECK(placement.state == ui::PlacementState::Ready);
+  // [12,0,28,8] in 32x16 -> 16x8. The normalized map is identical
+  // to PR #107's independent 8x6 window [3,0,7,3] -> 4x3.
+  CHECK(placement.mapping == CoordinateMapping::affine(2,0,-.75,0,2,0));
+  auto point = placement.mapping.map(.5,.25); CHECK(point && point->first == .25 && point->second == .5);
+  const double originalX = parameter(app,mask,"centreX"), originalY = parameter(app,mask,"centreY");
+  auto size = ui.view.size;
+  ui.drag(app,PreviewDrag::Centre,{size.x/8,-size.y/8});
+  CHECK(near(parameter(app,mask,"centreX"),originalX+.0625) && near(parameter(app,mask,"centreY"),originalY+.0625));
+  CHECK(appendCrop(app,"crop-b",50,-100,0)); selectNode(app,mask); ui.tick(app);
+  placement = ui::radialPlacement(app);
+  // Second local [0,2,8,6] -> 8x4. Independent composition 4u-1.5,4v-.5.
+  CHECK(placement.state == ui::PlacementState::Ready && placement.mapping == CoordinateMapping::affine(4,0,-1.5,0,4,-.5));
+  CHECK(setPreviewMode(app,PreviewMode::MaskOnly)); ui.tick(app);
+  CHECK(ui::radialPlacement(app).mapping == CoordinateMapping::identity() && app.texW == 32 && app.texH == 16);
+  CHECK(setPreviewMode(app,PreviewMode::MaskOverlay)); ui.tick(app);
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Unavailable);
+  CHECK(setPreviewMode(app,PreviewMode::Photo));
+  // Crop before Mask application with an explicit Reference changes generation
+  // dimensions, not saved normalized geometry or placement at the consumer.
+  CHECK(graph::deleteImageNode(app,NodeId{"crop-b"}).ok());
+  const auto effect = findNode(app,NodeId{"crop-a"})->fixedInputs.at(ports::image).value();
+  CHECK(graph::reconnect(app,{app.primarySource,ports::image},{NodeId{"crop-a"},std::nullopt,ports::image}).ok());
+  CHECK(graph::reconnect(app,{NodeId{"crop-a"},ports::image},{effect.nodeId,std::nullopt,ports::image}).ok());
+  CHECK(graph::connect(app,{NodeId{"crop-a"},ports::image},{mask,std::nullopt,ports::reference}).ok());
+  CHECK(graph::setDocumentOutput(app,{effect.nodeId,ports::image}).ok());
+  const auto x = parameter(app,mask,"centreX"), y = parameter(app,mask,"centreY"); ui.tick(app);
+  CHECK(ui::radialPlacement(app).mapping == CoordinateMapping::identity() && app.texW == 16 && app.texH == 8);
+  CHECK(parameter(app,mask,"centreX") == x && parameter(app,mask,"centreY") == y);
+  const auto result = evaluateGraph({app.nodes,app.primarySource,app.documentOutput},{mask,ports::mask},
+      {EvaluationPurpose::Preview,32,16,32,16},app.preview);
+  CHECK(result.state == EvaluationState::Available);
+  const auto raster = std::get<MaskValue>(result.value); CHECK(raster->w == 16 && raster->h == 8);
+  return true;
+}
+
+bool sameSizeBackends() {
+  App app; Ui ui; CHECK(fixture(app)); const auto mask = *app.selectedNodeId();
+  app.full.w = 40; app.full.h = 53; app.full.px.assign(40*53*4,.25f);
+  app.preview = std::make_shared<Image>(app.full);
+  CHECK(appendCrop(app,"identity-crop"));
+  CHECK(setNodeStrength(app,NodeId{"identity-crop"},.5)); selectNode(app,mask); ui.tick(app);
+  CHECK(ui::radialPlacement(app).mapping == CoordinateMapping::identity());
+  Files files; const auto path = files.path("identity.ctl");
+  { std::ofstream script(path); script <<
+      "void main(input varying float rIn,input varying float gIn,input varying float bIn,"
+      "output varying float rOut,output varying float gOut,output varying float bOut,"
+      "output varying float aOut,input varying float aIn=1.0)"
+      "{rOut=rIn;gOut=gIn;bOut=bIn;aOut=aIn;}\n"; }
+  selectOutput(app); CHECK(addCtlNode(app,path)); selectNode(app,mask); ui.tick(app);
+  CHECK(ui::radialPlacement(app).mapping == CoordinateMapping::identity());
+  // Resolution changes preserve normalized placement and use the new texture's
+  // actual dimensions. Pan/zoom do not change graph placement or saved geometry.
+  app.preview = std::make_shared<Image>();
+  Image small; small.w = 16; small.h = 8; small.px.assign(16*8*4,.25f);
+  app.preview = std::make_shared<Image>(std::move(small)); app.renderer.requestPreview(); ui.tick(app);
+  CHECK(app.texW == 16 && app.texH == 8 && ui::radialPlacement(app).mapping == CoordinateMapping::identity());
+  app.previewZoom = 2; app.previewPanX = 37; app.previewPanY = -19; ui.tick(app);
+  const double before = parameter(app,mask,"centreX");
+  const float size = ui.view.size.x;
+  ui.drag(app,PreviewDrag::Centre,{size/8,0});
+  CHECK(near(parameter(app,mask,"centreX"),before+.125));
+  return true;
+}
+
 }
 
 bool testPreviewInteraction() {
   if (!mappingsAndOverlap() || !collapsedRadiusRecovery() || !editsAndHistory() || !doubleClicks() ||
       !ownershipAndZoom() || !interruptionsAndAlignment() ||
-      !savedGeometryAndPixels()) return false;
+      !savedGeometryAndPixels() || !affineGeometryAndDrag() || !sharedPlacementAndPublication() || !runtimeGenerationPairing()) return false;
   std::printf("ok  Preview mappings, Radial handles, mouse ownership, history and interruptions\n");
   return true;
+}
+
+
+bool testPreviewCoordinatePlacement() {
+  if (!realCropPlacements() || !sameSizeBackends()) return false;
+  std::printf("ok  Preview real Crop/CTL placement, inverse edits, Reference and resolution\n");
+  return true;
+}
+
+int runPreviewInteractionTests() {
+  loadPlugins();
+  const bool ok = testPreviewInteraction() && testPreviewCoordinatePlacement();
+  bool unloaded = true;
+  for (auto &entry : gPlugins) {
+    const auto status = callAction(entry.plugin,kOfxActionUnload,nullptr);
+    unloaded &= status == kOfxStatOK || status == kOfxStatReplyDefault;
+  }
+  gPlugins.clear();
+  return ok && unloaded ? 0 : 1;
 }

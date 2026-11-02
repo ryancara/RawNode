@@ -24,11 +24,15 @@ ProcessorResult renderChain(App &app, const Image &src, Image &out, const Render
 void pumpDisplayUpload(App &app) {
   std::lock_guard<std::mutex> lock(app.displayMutex);
   if (!app.displayDirty) return;
-  if (!app.displayRGBA.empty() && app.display.w > 0 && app.display.h > 0)
+  if (!app.displayRGBA.empty() && app.display.w > 0 && app.display.h > 0) {
     uploadTextureRGBA(app, app.displayRGBA.data(), app.display.w, app.display.h);
-  else {
+    app.textureGeneration = app.processed.generation;
+    app.textureRequest = app.processed.request;
+  } else {
     if (app.tex) glDeleteTextures(1, &app.tex);
     app.tex = 0; app.texW = app.texH = 0;
+    app.textureGeneration = -1;
+    app.textureRequest.reset();
   }
   app.displayDirty = false;
 }

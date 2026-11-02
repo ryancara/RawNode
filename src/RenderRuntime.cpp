@@ -70,6 +70,11 @@ bool RenderRuntime::canEditParameters() const {
   return !exportBusy_ && !app_.isPhotoProtected();
 }
 
+int RenderRuntime::previewGeneration() const {
+  assertControlThread();
+  return epoch_.load();
+}
+
 RenderRuntime::Export RenderRuntime::acquireExport() {
   assertControlThread();
   joinExport();
