@@ -14,7 +14,7 @@
 #include <cmath>
 #include <cstdio>
 
-void drawPreviewPanel(App &app) {
+void drawPreviewPanel(App &app, void (*upload)(App &)) {
   const char *items[kPreviewResCount];
   for (int i = 0; i < kPreviewResCount; ++i) items[i] = kPreviewRes[i].label;
   ImGui::SetNextItemWidth(std::min(140.0f, ImGui::GetContentRegionAvail().x));
@@ -39,7 +39,8 @@ void drawPreviewPanel(App &app) {
   }
   if (ImGui::IsItemHovered()) ImGui::SetTooltip("Preview mode");
   // Selection in Nodes can invalidate pixels after the main-loop upload.
-  pumpDisplayUpload(app);
+  if (upload) upload(app);
+  else pumpDisplayUpload(app);
   const ImVec2 canvasPos = ImGui::GetCursorScreenPos();
   const ImVec2 canvasSize = ImGui::GetContentRegionAvail();
   if (canvasSize.x < 1.0f || canvasSize.y < 1.0f) return;

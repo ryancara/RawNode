@@ -105,7 +105,8 @@ struct Ui {
       ImGui::SetNextWindowPos({20, 20}); ImGui::SetNextWindowSize({912, 650});
       ImGui::Begin("Preview test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
                    ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-      drawPreviewPanel(app);
+      if (autoUpload) drawPreviewPanel(app,[](App &app) { fakeUpload(app,true); });
+      else drawPreviewPanel(app,[](App &) {}); // Synthetic publication after the upload phase.
       canvas = context->LastItemData.Rect;
       const float w = float(std::max(app.texW,1)), h = float(std::max(app.texH,1));
       const float fit = std::min(canvas.GetWidth() / w, canvas.GetHeight() / h);
