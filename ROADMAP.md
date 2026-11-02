@@ -324,6 +324,13 @@ Do not replace LibRaw without a measured benefit.
 
 ## Masks and local adjustments
 
+Coordinate/handle sequence: merged PR #106 (backend-neutral correspondence),
+PR #107 (OFX bounds/Crop declarations, under correction/review), then draft
+PR #105 (Radial Mask handles using the published mapping contract). See
+[project context](docs/PROJECT_CONTEXT.md#current-development-phase).
+Mask Overlay alignment follows the same architecture; outward feathering is a
+separate product change.
+
 **Step 8 in progress:** PRs #97–#102 are merged, including Inactive bypass, Image Mask/Opacity, native Radial Mask → Exposure and Mask Only inspection. Photo remains the default, and explicit Mask Only inspects the selected typed Mask output through the existing runtime.
 
 **Step 8 approved contract:** [docs/STEP8_MASKING_CONTRACT.md](docs/STEP8_MASKING_CONTRACT.md), D054. Mask generators bypass to Inactive (not white/black), Image/Mask transforms bypass to same-type pass-through, and generic Opacity is available on unary transforms with a defined compatible pass-through. Standalone generators and Mask Combine have no generic Opacity initially. A dedicated binary Combine node ignores inactive operands when enabled, while its own bypass passes through A; keep unavailable distinct from intentionally inactive. Retain one typed scalar Mask graph and no separate scheduler/alpha channel. Implement in focused PRs: evaluator-only Inactive bypass, Image-node Mask/Opacity, Radial->Exposure, preview handles/modes, Combine and modifiers. The precise Combine arithmetic is deferred until Combine implementation. Radial coordinates and inward feather are specified in the contract. Native geometric generators produce typed Mask directly; CTL/future DCTL retain Image output. A future visible persisted Image → Mask node extracts explicit R/G/B/A, with optional later undoable automatic insertion. Mask Overlay and native handles remain separate follow-ups.

@@ -25,6 +25,16 @@ struct EvaluationDiagnostic {
   std::string message;
 };
 
+// One actual coverage use, anchored in the consuming Image operation's OUTPUT
+// raster, where mixing samples Mask. Reference controls generation, not placement.
+// Multiple uses of one Mask stay separate: callers must consider every record
+// (and Unknown mappings), never select an arbitrary consumer for future handles.
+struct MaskPlacement {
+  OutputRef mask;
+  InputAddress consumer;
+  CoordinateMapping maskToImage = CoordinateMapping::identity();
+};
+
 // Available results own an immutable value; all other states have no raster.
 // Inactive is Mask-only and is created by evaluator bypass/propagation, never
 // by processor execution. Optional coverage treats it as absent without warning.
@@ -36,6 +46,9 @@ struct EvaluationResult {
   EvaluationState state = EvaluationState::Error;
   GraphValue value;
   std::vector<EvaluationDiagnostic> diagnostics;
+  // Image-only transient metadata for exactly this evaluated value. It travels
+  // with the existing result/publication generation, never with saved rasters.
+  std::vector<MaskPlacement> maskPlacements;
 };
 
 namespace graph_test {

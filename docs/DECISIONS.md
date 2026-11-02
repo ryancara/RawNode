@@ -298,7 +298,9 @@ Graph values are deliberately minimal:
 - Mask is distinct from image alpha.
 
 The first DAG does not automatically propagate colour encoding, source-coordinate
-provenance, canvas offsets or a `SpatialDomain`. Operations that need colour
+provenance, canvas offsets or a `SpatialDomain`. D056 adds transient pairwise
+coordinate correspondence alongside evaluated results, without extending these
+raster values or saved Mask parameters. Operations that need colour
 interpretation declare it explicitly. Pixelwise operations use raster-coordinate
 correspondence and require compatible dimensions. No implicit resize, alignment
 or reprojection occurs.
@@ -780,6 +782,30 @@ This deliberately supersedes D042's white-generator bypass rule and related hist
 - **Sequencing:** The non-AI Step 8 exit gate precedes Step 9; SAM/AI masks are unscheduled and revisited only when a concrete product need justifies their complexity. Per-PR readability, scope discipline and independent verification remain in force **throughout** Step 8 and Step 9.
 
 `ROADMAP.md` is the canonical Step 9 programme; `PROJECT_CONTEXT.md` is the milestone/status tracker rather than a running audit log. `CODE_STYLE.md` remains the continuously applicable human-readability standard.
+
+## D056 — Transient backend-neutral coordinate correspondence
+
+**Status:** Owner-approved; PR 1 foundation merged as #106, with the approved
+PR 2 OFX bounds/Crop declaration extension in draft #107 under final correction/review.
+
+Image and Mask remain raster-local (D039). Processors may explicitly report
+Identity, Affine or Unknown input-to-output correspondence in the result of the
+same render. Undeclared same-dimension processing preserves coordinates by
+default; undeclared dimension changes are Unknown. Explicit declarations always
+override the default. This is a compatibility assumption, not a guarantee about
+opaque third-party pixel movement, and uses no backend/name whitelist.
+
+The existing evaluator composes transient per-consumer Mask placements, anchored
+where the consuming Image adjustment applies coverage, never by tracing Reference
+back to Source. Distinct uses remain distinct; self-mixing incompatible geometry
+cannot claim a single upstream mapping. Unknown correspondence does not invalidate
+an otherwise valid photograph render. See `ARCHITECTURE.md` for frame conventions
+and the result/publication lifetime contract.
+
+No saved raster-local graph values, Mask application, topology, scheduling or
+handle UI change. OFX bounds/Crop adaptation now follows this contract via a
+minimal optional Render suite; see `OFX_COORDINATES.md`. Preview handles,
+Overlay alignment and outward feathering remain separately scoped work.
 
 ## Pending decisions
 
