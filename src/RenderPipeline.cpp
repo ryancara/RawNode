@@ -99,11 +99,11 @@ void display_detail::commitDisplayRefresh(App &app, const App::PreviewPublicatio
   app.displayDirty = true;
 }
 
-void display_detail::publishPreview(App &app, EvaluationResult result, int generation,
+void display_detail::publishPreview(App &app, EvaluationResult result, int generation, uint64_t demand,
                                    std::shared_ptr<const OutputRef> request, Presentation presentation,
                                    std::optional<EvaluationResult> overlayMask) {
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  app.processed = {generation, std::move(request), std::move(result), std::move(overlayMask)};
+  app.processed = {generation, demand, std::move(request), std::move(result), std::move(overlayMask)};
   app.display = {presentation.w, presentation.h};
   app.displayRGBA = std::move(presentation.rgba);
   app.displayDirty = true;

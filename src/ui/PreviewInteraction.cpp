@@ -198,7 +198,6 @@ RadialPlacement radialPlacement(App &app) {
       !dynamic_cast<const NativeRadialMaskProcessor *>(node->processor.get())) return {};
   const auto pending = [] { return RadialPlacement{PlacementState::Pending, CoordinateMapping::unknown(),
                                                   "Mask handles: Preview updating."}; };
-  const int generation = app.renderer.previewGeneration();
   const auto demand = app.renderer.previewDemand();
   const auto mode = previewMode(app); // Runtime queries precede the display lock.
   const auto &gesture = app.previewInteraction;
@@ -208,7 +207,7 @@ RadialPlacement radialPlacement(App &app) {
   if (!app.tex || app.texW <= 0 || app.texH <= 0 || app.full.px.empty()) return {};
   if (!app.textureRequest || app.textureRequest != app.processed.request ||
       app.textureGeneration != app.processed.generation ||
-      (!ownEdits && app.textureGeneration != generation)) return pending();
+      (!ownEdits && app.processed.demand != demand)) return pending();
   const auto &result = app.processed.result;
   if (result.state != EvaluationState::Available) return {};
   if (mode == PreviewMode::MaskOnly) {
@@ -279,7 +278,7 @@ bool drawPreviewInteraction(App &app, const PreviewTransform &view, bool hovered
     state.button = middle ? ImGuiMouseButton_Middle : ImGuiMouseButton_Left;
     // Completing an Inspector gesture can advance demand before this press.
     // Do not start a handle against that older texture in the same frame.
-    const bool current = app.textureGeneration == app.renderer.previewGeneration();
+    const bool current = radialPlacement(app).state == PlacementState::Ready;
     state.drag = middle || space ? PreviewDrag::Pan :
         !current || hit == PreviewDrag::None ? PreviewDrag::Ignore : hit;
     state.node = app.selectedNodeId();

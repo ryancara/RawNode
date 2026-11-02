@@ -9,6 +9,7 @@
 #include "RenderPipeline.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActions.h"
+#include "ui/ParamWidgets.h"
 #include "ui/UiContext.h"
 #include "imgui_internal.h"
 
@@ -54,8 +55,9 @@ ui::RadialGeometry geometry(const App &app) {
 
 // Retain actual evaluator publications. Only the GL upload is replaced here;
 // its texture identity is acknowledged exactly as pumpDisplayUpload does.
-void fakeUpload(App &app) {
+void fakeUpload(App &app, bool onlyIfDirty = false) {
   std::lock_guard<std::mutex> lock(app.displayMutex);
+  if (onlyIfDirty && !app.displayDirty) return;
   app.texW = app.display.w; app.texH = app.display.h;
   app.tex = app.texW > 0 && app.texH > 0 ? 1 : 0;
   app.textureGeneration = app.processed.generation;
@@ -72,8 +74,8 @@ void publishFrame(App &app, std::optional<CoordinateMapping> mappingOverride = s
   int w = 0, h = 0;
   if (const auto *image = std::get_if<ImageValue>(&result.value); image && *image) { w = (*image)->w; h = (*image)->h; }
   if (const auto *mask = std::get_if<MaskValue>(&result.value); mask && *mask) { w = (*mask)->w; h = (*mask)->h; }
-  display_detail::publishPreview(app,std::move(result),app.renderer.previewGeneration(),
-      std::make_shared<OutputRef>(endpoint),{{},w,h});
+  display_detail::publishPreview(app,std::move(result),RenderRuntimeTestAccess::snapshot(app.renderer).epoch,
+      app.renderer.previewDemand(),std::make_shared<OutputRef>(endpoint),{{},w,h});
   fakeUpload(app);
 }
 
@@ -83,7 +85,7 @@ struct Ui {
   ImGuiContext *previous = ImGui::GetCurrentContext(), *context = ImGui::CreateContext();
   ImRect canvas;
   ui::PreviewTransform view;
-  bool visible = true, otherControls = false, texture = true, autoPublish = true;
+  bool visible = true, otherControls = false, texture = true, autoPublish = true, autoUpload = true;
   ImVec2 textPoint;
   std::optional<CoordinateMapping> mappingOverride; // Synthetic published geometry for affine-only UI tests.
   char text[32] = {};
@@ -95,10 +97,10 @@ struct Ui {
   ~Ui() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
   void tick(App &app) {
     if (autoPublish) publishFrame(app, mappingOverride);
+    if (autoUpload) fakeUpload(app, true); // Production consumes pending uploads before the UI frame.
     auto &io = ImGui::GetIO(); io.DisplaySize = {1400, 900}; io.DeltaTime = 1.0f / 60;
     ImGui::NewFrame();
     if (visible) {
-      { std::lock_guard<std::mutex> lock(app.displayMutex); app.displayDirty = false; }
       if (!texture) app.tex = 0;
       ImGui::SetNextWindowPos({20, 20}); ImGui::SetNextWindowSize({912, 650});
       ImGui::Begin("Preview test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
@@ -595,7 +597,8 @@ bool sharedPlacementAndPublication() {
   // New CPU metadata cannot become interactive over old GPU pixels.
   auto request = std::make_shared<OutputRef>(app.documentOutput);
   auto result = app.processed.result;
-  display_detail::publishPreview(app,result,app.renderer.previewGeneration(),request,{{},32,16});
+  display_detail::publishPreview(app,result,RenderRuntimeTestAccess::snapshot(app.renderer).epoch,
+      app.renderer.previewDemand(),request,{{},32,16});
   CHECK(app.textureGeneration == before && ui::radialPlacement(app).state == ui::PlacementState::Pending);
   fakeUpload(app); CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
   app.renderer.requestDisplayRefresh(); CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
@@ -611,10 +614,12 @@ bool sharedPlacementAndPublication() {
   ui.press(app,escapeStart); ui.hover(app,{escapeStart.x+20,escapeStart.y});
   const auto accepted = parameter(app,mask,"centreX");
   ui.autoPublish = false;
-  display_detail::publishPreview(app,app.processed.result,app.renderer.previewGeneration(),
-      std::make_shared<OutputRef>(app.documentOutput),{{},32,16});
+  display_detail::publishPreview(app,app.processed.result,RenderRuntimeTestAccess::snapshot(app.renderer).epoch,
+      app.renderer.previewDemand(),std::make_shared<OutputRef>(app.documentOutput),{{},32,16});
   CHECK(ui::radialPlacement(app).state == ui::PlacementState::Pending);
+  ui.autoUpload = false; // Model a CPU publication arriving after this frame's upload phase.
   ui.key(app,ImGuiKey_Escape,true);
+  ui.autoUpload = true;
   CHECK(app.previewInteraction.drag == PreviewDrag::None && app.history.size() == beforeEscape+1);
   CHECK(parameter(app,mask,"centreX") == accepted);
   ui.release(app); ui.key(app,ImGuiKey_Escape,false);
@@ -661,6 +666,7 @@ bool runtimeGenerationPairing() {
     return !s.previewPending && !s.previewBusy && !s.displayPending;
   }); };
   app.renderer.start(); CHECK(idle()); fakeUpload(app);
+  ui.tick(app); ui.tick(app);
   CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
   const int uploaded = app.textureGeneration;
   { std::lock_guard<std::mutex> lock(gate.mutex); gate.blocked = true; }
@@ -670,18 +676,27 @@ bool runtimeGenerationPairing() {
     CHECK(gate.cv.wait_for(lock,std::chrono::seconds(2),[&] { return gate.entered; }));
   }
   CHECK(ui::radialPlacement(app).state == ui::PlacementState::Pending);
+  const auto mask = *app.selectedNodeId();
+  selectNode(app,app.documentOutput.nodeId); ui.tick(app);
+  selectNode(app,mask); ui.tick(app);
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Pending);
+  const auto centre = ui.view.toScreen(.5,.5);
+  ui.press(app,centre); ui.hover(app,{centre.x+30,centre.y-20}); ui.release(app);
+  CHECK(parameter(app,mask,"centreX") == .5 && parameter(app,mask,"centreY") == .5);
   // Supersede this blocked render before publication, through real demand.
   app.renderer.requestPreview(); gate.release(); CHECK(idle());
-  CHECK(app.textureGeneration == uploaded && app.processed.generation == app.renderer.previewGeneration());
+  CHECK(app.textureGeneration == uploaded && app.processed.generation == RenderRuntimeTestAccess::snapshot(app.renderer).epoch);
+  CHECK(app.processed.demand == app.renderer.previewDemand());
   CHECK(ui::radialPlacement(app).state == ui::PlacementState::Pending);
   fakeUpload(app); CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
   return true;
 }
 
 
-bool liveWorkerHandleDrag(bool delayed) {
+bool liveWorkerHandleDrag(bool delayed, bool maskOnly = false, bool escape = false) {
   App app; Ui ui; CHECK(fixture(app)); ui.autoPublish = false;
   const auto mask = *app.selectedNodeId();
+  if (maskOnly) CHECK(setPreviewMode(app,PreviewMode::MaskOnly));
   struct Gate {
     App &app;
     std::mutex mutex;
@@ -728,7 +743,7 @@ bool liveWorkerHandleDrag(bool delayed) {
     if (!delayed) {
       // Normal order: finish the real render, upload its presentation, then
       // draw another UI frame with the button held and no further movement.
-      gate.release(); CHECK(idle()); fakeUpload(app); gate.block();
+      gate.release(); CHECK(idle()); gate.block();
       expectedPublication = gate.count()+1;
     }
     ui.tick(app); // Dispatch has advanced the epoch; ownership must survive it.
@@ -737,8 +752,10 @@ bool liveWorkerHandleDrag(bool delayed) {
     CHECK(near(parameter(app,mask,"centreY"),.5+5*i/size.y));
     CHECK(app.previewInteraction.editDemand == app.renderer.previewDemand());
   }
-  if (delayed) {
-    // Escape while the worker is still pending retains all six accepted moves.
+  const auto completedDemand = app.renderer.previewDemand();
+  const auto completedTexture = app.textureGeneration;
+  if (escape) {
+    // Escape retains accepted moves with either completed or pending work.
     ui.key(app,ImGuiKey_Escape,true);
     gate.release(); CHECK(idle()); fakeUpload(app); gate.block();
     ui.release(app); ui.key(app,ImGuiKey_Escape,false);
@@ -747,6 +764,12 @@ bool liveWorkerHandleDrag(bool delayed) {
   const double finalX = .5+60/size.x, finalY = .5+30/size.y;
   CHECK(app.previewInteraction.drag == PreviewDrag::None && !app.previewInteraction.editPending);
   CHECK(app.history.size() == history+1);
+  if (!delayed) {
+    CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch > completedTexture);
+    CHECK(app.renderer.previewDemand() == completedDemand && app.textureGeneration == completedTexture);
+  }
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
+  CHECK(app.processed.demand == app.renderer.previewDemand());
   gate.block(); CHECK(app.history.undo(app)); gate.release(); CHECK(idle()); fakeUpload(app);
   CHECK(parameter(app,mask,"centreX") == .5 && parameter(app,mask,"centreY") == .5);
   gate.block(); CHECK(app.history.redo(app)); gate.release(); CHECK(idle()); fakeUpload(app);
@@ -772,8 +795,66 @@ bool liveWorkerHandleDrag(bool delayed) {
   ui.hover(app,{again.x+80,again.y-40}); ui.release(app);
   CHECK(parameter(app,mask,"centreX") == acceptedX && parameter(app,mask,"centreY") == acceptedY);
   CHECK(app.history.size() == interruptedHistory+1);
-  std::printf("ok  Live-worker Radial drag: %s, six moves, one Undo/Redo, external interruption\n",
-              delayed ? "pending publication / Escape" : "render and upload between frames");
+  std::printf("ok  Live-worker Radial drag: %s, %s, %s, six moves, one Undo/Redo, external interruption\n",
+              delayed ? "pending publication" : "render and upload between frames",
+              maskOnly ? "Mask Only" : "Photo", escape ? "Escape" : "release");
+  return true;
+}
+
+bool liveWorkerIdleCaptures() {
+  App app; Ui ui; CHECK(fixture(app)); ui.autoPublish = false;
+  struct Guard { App &app; ~Guard() { app.renderer.shutdown(); } } guard{app};
+  const auto idle = [&] { return RenderRuntimeTestAccess::wait(app.renderer,[](auto s) {
+    return !s.previewPending && !s.previewBusy && !s.displayPending;
+  }); };
+  const auto mask = *app.selectedNodeId(), effect = app.documentOutput.nodeId;
+  app.renderer.start(); CHECK(idle()); ui.tick(app); ui.tick(app);
+  // Model an Inspector slider edit whose Preview is already uploaded when its
+  // gesture completes and captures history. No new request is needed on capture.
+  selectNode(app,effect);
+  app.parameterGesture = ui::ParameterGesture{0x1234,app.path,effect,"exposure",std::nullopt};
+  CHECK(setNodeParameterValue(app,effect,"exposure",1.0));
+  CHECK(idle()); fakeUpload(app);
+  const auto generation = app.textureGeneration;
+  const auto demand = app.renderer.previewDemand();
+  const auto history = app.history.size();
+  CHECK(finishParameterGesture(app,true));
+  CHECK(app.history.size() == history+1 && !app.parameterGesture);
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch > generation);
+  CHECK(app.renderer.previewDemand() == demand && app.processed.demand == demand);
+  selectNode(app,mask); ui.tick(app);
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
+
+  // These are the read-only capture operations used by Copy Node / Copy Grade.
+  PersistFragment fragment; std::vector<std::string> warnings; PersistGrade grade;
+  const auto epoch = RenderRuntimeTestAccess::snapshot(app.renderer).epoch;
+  CHECK(captureNodeFragment(app,{mask},fragment,warnings) && captureGrade(app,grade));
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).epoch > epoch);
+  CHECK(app.renderer.previewDemand() == demand && app.processed.demand == demand);
+  CHECK(app.processed.generation == generation && app.textureGeneration == generation);
+  selectNode(app,effect); ui.tick(app); selectNode(app,mask); ui.tick(app);
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
+
+  const auto request = app.processed.request;
+  app.renderer.requestDisplayRefresh(); CHECK(idle()); ui.tick(app);
+  CHECK(app.processed.demand == demand && app.renderer.previewDemand() == demand);
+  CHECK(app.processed.generation == generation && app.processed.request == request);
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
+  // Independent drags must still start after idle capture, with their existing
+  // history and Escape semantics. The six-move cases exercise live ownership.
+  const auto start = ui.grip(app,PreviewDrag::Centre), size = ui.view.size;
+  ui.press(app,start); ui.hover(app,{start.x+20,start.y-10}); ui.release(app);
+  CHECK(idle()); ui.tick(app);
+  CHECK(near(parameter(app,mask,"centreX"),.5+20/size.x));
+  CHECK(near(parameter(app,mask,"centreY"),.5+10/size.y));
+  CHECK(app.history.size() == history+2 && ui::radialPlacement(app).state == ui::PlacementState::Ready);
+  CHECK(app.history.undo(app) && idle()); ui.tick(app);
+  CHECK(parameter(app,mask,"centreX") == .5 && parameter(app,mask,"centreY") == .5);
+  CHECK(app.history.redo(app) && idle()); ui.tick(app);
+  CHECK(near(parameter(app,mask,"centreX"),.5+20/size.x));
+  CHECK(near(parameter(app,mask,"centreY"),.5+10/size.y));
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
+  std::printf("ok  Live-worker idle Inspector/Copy captures, node switching, display demand and subsequent drag\n");
   return true;
 }
 
@@ -872,7 +953,9 @@ bool sameSizeBackends() {
 }
 
 bool testPreviewInteraction() {
-  if (!liveWorkerHandleDrag(false) || !liveWorkerHandleDrag(true) || !previewDemandRequests() ||
+  if (!liveWorkerHandleDrag(false) || !liveWorkerHandleDrag(false,false,true) ||
+      !liveWorkerHandleDrag(false,true) || !liveWorkerHandleDrag(true) ||
+      !liveWorkerHandleDrag(true,false,true) || !liveWorkerIdleCaptures() || !previewDemandRequests() ||
       !mappingsAndOverlap() || !collapsedRadiusRecovery() || !editsAndHistory() || !doubleClicks() ||
       !ownershipAndZoom() || !interruptionsAndAlignment() ||
       !savedGeometryAndPixels() || !affineGeometryAndDrag() || !sharedPlacementAndPublication() || !runtimeGenerationPairing()) return false;

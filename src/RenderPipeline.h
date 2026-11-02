@@ -24,7 +24,7 @@ Presentation preparePresentation(const App &app, const EvaluationResult &result,
 // Drop obsolete pixels immediately while the replacement endpoint is pending.
 void clearPresentation(App &app);
 void commitDisplayRefresh(App &app, const App::PreviewPublication &snapshot, Presentation presentation);
-void publishPreview(App &app, EvaluationResult result, int generation,
+void publishPreview(App &app, EvaluationResult result, int generation, uint64_t demand,
                     std::shared_ptr<const OutputRef> request, Presentation presentation,
                     std::optional<EvaluationResult> overlayMask = std::nullopt);
 }

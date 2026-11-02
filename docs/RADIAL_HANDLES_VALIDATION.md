@@ -19,9 +19,11 @@ traversal is used. Source, Mask, Crop and Strength pixel processing are unchange
   controls. Own live edits may continue against the paired displayed mapping;
   external request changes end the gesture, and changed mappings cannot reuse
   its old baseline.
-- Gesture ownership uses the request-only `previewDemand()` counter. The
-  execution epoch exposed by `previewGeneration()` also advances on worker
-  dequeue; it continues to govern cancellation, publication and texture pairing.
+- Freshness and gesture ownership use the request-only `previewDemand()` counter.
+  Each result records its dispatch demand, retained by display-only refresh.
+  The internal execution epoch controls rendering/cancellation and publication
+  gates. Idle history/Copy capture can advance that epoch without changing demand
+  or invalidating the current display. Texture/result pairing remains mandatory.
 - Mask Only edits its own raster. Identity Overlay handles remain available;
   transformed Overlay alignment is deferred, with a message to use Photo or Mask
   Only. Overlay coverage is not resampled or changed.
@@ -43,6 +45,12 @@ case. They check every movement, one Undo step, both-coordinate Undo/Redo, Escap
 with pending work, and an independent request that interrupts an unchanged mapping.
 Condition-variable barriers control execution without arbitrary sleeps; history
 drains have an independent gate-release path so a regression fails instead of hanging.
+Every real-worker UI frame consumes pending uploads first. Completed-render release
+and Escape, Photo and Mask Only, pending-render release, idle Inspector/Copy capture,
+node switching, display-only refresh and subsequent drags check that handles become
+or remain Ready. Idle capture explicitly advances the epoch beyond the texture
+generation without changing demand. External demand and newer CPU publications
+over old textures remain non-interactive; pending selection changes cannot start edits.
 
 `--selftest-ofx-coordinates` retains #107's independent pixel/mapping oracles.
 Full self-tests and focused graph/runtime tests cover the unchanged evaluator,
@@ -55,6 +63,9 @@ Mask application, persistence and publication contract.
    drag centre, each radius and feather. Repeat with two downstream Crops.
    Keep the mouse held through multiple Preview updates: every pointer movement
    must be accepted and the whole continuous movement must remain one Undo step.
+   After release or Escape, wait for Preview completion and start another drag;
+   repeat in Mask Only. Copy Node/Grade and switch Radial → Exposure → Radial
+   while idle: controls must stay usable without forcing a new render.
 2. Put Crop before the masked Exposure and explicitly connect Crop to the Mask's
    Reference. Confirm saved centre/radii do not change when wiring/reordering;
    controls use the consuming Image frame. Check Mask Only's own aspect/raster.

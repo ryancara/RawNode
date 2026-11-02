@@ -70,11 +70,6 @@ bool RenderRuntime::canEditParameters() const {
   return !exportBusy_ && !app_.isPhotoProtected();
 }
 
-int RenderRuntime::previewGeneration() const {
-  assertControlThread();
-  return epoch_.load();
-}
-
 uint64_t RenderRuntime::previewDemand() const {
   assertControlThread();
   std::lock_guard<std::mutex> lock(mutex_);
@@ -268,6 +263,7 @@ void RenderRuntime::runPreview() {
     bool recolorOnly, quiet, overlay;
     std::optional<uint64_t> inheritedStatus;
     int gen;
+    uint64_t demand;
     std::shared_ptr<const OutputRef> endpoint;
     {
       std::unique_lock<std::mutex> lock(mutex_);
@@ -286,6 +282,7 @@ void RenderRuntime::runPreview() {
       previewPending_ = quietPending_ = displayPending_ = false;
       previewBusy_ = true;
       gen = recolorOnly ? epoch_.load() : ++epoch_;
+      demand = previewDemand_;
       endpoint = pendingEndpoint_;
       overlay = overlayInspection_;
     }
@@ -296,6 +293,7 @@ void RenderRuntime::runPreview() {
       if (recolorOnly) {
         const auto snapshot = [&] {
           std::lock_guard<std::mutex> displayLock(app_.displayMutex);
+          demand = app_.processed.demand; // Retain it even if copying the publication throws.
           return app_.processed; // Immutable shared value and publication identity.
         }();
         endpoint = snapshot.request;
@@ -374,16 +372,18 @@ void RenderRuntime::runPreview() {
                                            result.state != EvaluationState::Inactive) ||
           (overlayMask && overlayMask->state != EvaluationState::Available &&
                           overlayMask->state != EvaluationState::Inactive);
-      display_detail::publishPreview(app_, std::move(result), gen, endpoint, std::move(presentation), std::move(overlayMask));
+      display_detail::publishPreview(app_, std::move(result), gen, demand, endpoint,
+                                     std::move(presentation), std::move(overlayMask));
       if (reportStatus || inheritedStatus)
         app_.setStatus(status, reportStatus ? std::nullopt : inheritedStatus);
     } catch (...) {
-      reportPreviewException(endpoint, gen);
+      reportPreviewException(endpoint, gen, demand);
     }
   }
 }
 
-void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef> &endpoint, int gen) noexcept {
+void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef> &endpoint, int gen,
+                                           uint64_t demand) noexcept {
   const auto error = std::current_exception();
   try {
     if (!endpoint) return;
@@ -397,7 +397,7 @@ void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef
     result.diagnostics.push_back({DiagnosticLevel::Error, *endpoint, message});
     std::lock_guard<std::mutex> lock(mutex_);
     if (gen != epoch_.load() || stopping_) return;
-    display_detail::publishPreview(app_, std::move(result), gen, endpoint, {});
+    display_detail::publishPreview(app_, std::move(result), gen, demand, endpoint, {});
     app_.setStatus("Render failed: " + message);
   } catch (...) {
     // Even sustained allocation failure must not escape the worker or retain
@@ -409,6 +409,7 @@ void RenderRuntime::reportPreviewException(const std::shared_ptr<const OutputRef
       {
         std::lock_guard<std::mutex> displayLock(app_.displayMutex);
         app_.processed.generation = gen;
+        app_.processed.demand = demand;
         app_.processed.request = endpoint;
         app_.processed.result.state = EvaluationState::Error;
         app_.processed.result.value = std::monostate{};

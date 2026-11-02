@@ -95,7 +95,7 @@ static Image &testDisplay(App &app) {
 static void seedTestDisplay(App &app, Image image) {
   const OutputRef endpoint{NodeId{"fixture-processed"}, ports::image};
   app.display = {image.w, image.h};
-  app.processed = {0, std::make_shared<OutputRef>(endpoint),
+  app.processed = {0, 0, std::make_shared<OutputRef>(endpoint),
                    {endpoint, ValueType::Image, EvaluationState::Available,
                     ImageValue(std::make_shared<Image>(std::move(image))), {}}};
 }
