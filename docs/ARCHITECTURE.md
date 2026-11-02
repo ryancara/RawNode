@@ -423,8 +423,10 @@ generation-gated publication and display refresh retain it with the correct Imag
 Image/Mask values and saved parameters remain raster-local and unchanged.
 Texture upload records its publication generation/request. Handles use placements
 only from the matching evaluated result; new CPU metadata cannot drive an old
-texture. New external Preview demand interrupts a gesture; its own live edits may
-continue against a matching displayed mapping while replacement pixels are pending.
+texture. A request-only demand counter owns gestures; the execution epoch also
+advances when the worker dequeues a render and remains the cancellation/publication
+generation. New external Preview demand interrupts a gesture; its own live edits
+may continue against a matching displayed mapping while replacement pixels are pending.
 Affine curves are forward-mapped and drags inverse-mapped to saved Radial parameters.
 Mask Only uses its own raster; transformed Overlay alignment is deferred.
 The OFX adapter preserves

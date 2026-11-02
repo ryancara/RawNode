@@ -75,6 +75,12 @@ int RenderRuntime::previewGeneration() const {
   return epoch_.load();
 }
 
+uint64_t RenderRuntime::previewDemand() const {
+  assertControlThread();
+  std::lock_guard<std::mutex> lock(mutex_);
+  return previewDemand_;
+}
+
 RenderRuntime::Export RenderRuntime::acquireExport() {
   assertControlThread();
   joinExport();
@@ -168,6 +174,7 @@ void RenderRuntime::requestPreview(bool quiet) {
   std::lock_guard<std::mutex> lock(mutex_);
   if (stopping_) return;
   pendingEndpoint_ = inspection_ ? inspection_ : std::make_shared<OutputRef>(app_.documentOutput);
+  ++previewDemand_;
   ++epoch_;
   queuePreview(quiet);
   if (mutationDepth_ == 0) workCv_.notify_one();
@@ -182,6 +189,7 @@ void RenderRuntime::requestInspection(const OutputRef &endpoint, bool overlay) {
     display_detail::clearPresentation(app_);
   inspection_ = pendingEndpoint_ = std::move(request);
   overlayInspection_ = overlay;
+  ++previewDemand_;
   ++epoch_;
   queuePreview(false);
   if (mutationDepth_ == 0) workCv_.notify_one();
@@ -196,6 +204,7 @@ void RenderRuntime::requestDocumentPreview() {
   inspection_.reset();
   overlayInspection_ = false;
   pendingEndpoint_ = std::move(request);
+  ++previewDemand_;
   ++epoch_;
   queuePreview(false);
   if (mutationDepth_ == 0) workCv_.notify_one();

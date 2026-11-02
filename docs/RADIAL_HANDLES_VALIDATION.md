@@ -17,8 +17,11 @@ traversal is used. Source, Mask, Crop and Strength pixel processing are unchange
   Undo step, including both centre coordinates.
 - Pending or mismatched texture/result generations cannot supply new interactive
   controls. Own live edits may continue against the paired displayed mapping;
-  external generation changes end the gesture, and changed mappings cannot reuse
+  external request changes end the gesture, and changed mappings cannot reuse
   its old baseline.
+- Gesture ownership uses the request-only `previewDemand()` counter. The
+  execution epoch exposed by `previewGeneration()` also advances on worker
+  dequeue; it continues to govern cancellation, publication and texture pairing.
 - Mask Only edits its own raster. Identity Overlay handles remain available;
   transformed Overlay alignment is deferred, with a message to use Photo or Mask
   Only. Overlay coverage is not resampled or changed.
@@ -34,6 +37,13 @@ publication/cancellation barriers and texture-generation mismatch; resolution an
 pan/zoom; real non-centred and sequential Crop mappings, Crop-before-Mask with an
 explicit Reference, same-sized CTL and default OFX Crop at partial Strength.
 
+Real-worker drag regressions upload worker presentations between UI frames in
+the fast case and hold publication across six pointer movements in the delayed
+case. They check every movement, one Undo step, both-coordinate Undo/Redo, Escape
+with pending work, and an independent request that interrupts an unchanged mapping.
+Condition-variable barriers control execution without arbitrary sleeps; history
+drains have an independent gate-release path so a regression fails instead of hanging.
+
 `--selftest-ofx-coordinates` retains #107's independent pixel/mapping oracles.
 Full self-tests and focused graph/runtime tests cover the unchanged evaluator,
 Mask application, persistence and publication contract.
@@ -43,6 +53,8 @@ Mask application, persistence and publication contract.
 1. Select a Radial Mask on an Exposure at +1 EV, then apply Crop 50%, X=50%,
    Y=-100%. In Photo mode, confirm the controls follow the visible adjustment;
    drag centre, each radius and feather. Repeat with two downstream Crops.
+   Keep the mouse held through multiple Preview updates: every pointer movement
+   must be accepted and the whole continuous movement must remain one Undo step.
 2. Put Crop before the masked Exposure and explicitly connect Crop to the Mask's
    Reference. Confirm saved centre/radii do not change when wiring/reordering;
    controls use the consuming Image frame. Check Mask Only's own aspect/raster.

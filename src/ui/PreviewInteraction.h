@@ -5,6 +5,7 @@
 #include "imgui.h"
 
 #include <array>
+#include <cstdint>
 #include <vector>
 
 struct App;
@@ -52,7 +53,7 @@ struct PreviewInteraction {
   std::array<double, 2> startPointer{};
   RadialGeometry start;
   CoordinateMapping mapping = CoordinateMapping::unknown(); // In-progress gesture baseline only.
-  int editGeneration = -1; // Includes only this gesture's accepted parameter edits.
+  uint64_t editDemand = 0; // Includes only this gesture's accepted parameter requests.
   bool editPending = false;
   void stop() { drag = PreviewDrag::None; }
 };

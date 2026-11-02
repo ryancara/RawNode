@@ -137,8 +137,9 @@ consumer's output. No saved Mask coordinates change merely because a Crop moves.
 Full affine maps transform ellipse points, handle positions and screen-space
 directions; inverse maps take pointer motion back to the original Mask parameters.
 The GPU texture and CPU result must share a publication generation/request.
-Pending mismatches hide controls; external demand interrupts stale gestures while
-their own accepted live edits retain one drag/Undo transaction.
+Pending mismatches hide controls; external request demand interrupts stale gestures
+while their own accepted live edits retain one drag/Undo transaction. Worker
+execution advances the render epoch, not the gesture's request-only demand identity.
 Mask Only uses the selected Radial output's own frame. Overlay handles remain
 available for Identity placement; transformed Overlay alignment is deferred and
 asks the user to use Photo or Mask Only, without resampling or changing coverage.

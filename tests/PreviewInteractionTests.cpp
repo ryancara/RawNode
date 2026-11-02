@@ -98,7 +98,7 @@ struct Ui {
     auto &io = ImGui::GetIO(); io.DisplaySize = {1400, 900}; io.DeltaTime = 1.0f / 60;
     ImGui::NewFrame();
     if (visible) {
-      app.displayDirty = false;
+      { std::lock_guard<std::mutex> lock(app.displayMutex); app.displayDirty = false; }
       if (!texture) app.tex = 0;
       ImGui::SetNextWindowPos({20, 20}); ImGui::SetNextWindowSize({912, 650});
       ImGui::Begin("Preview test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
@@ -678,6 +678,120 @@ bool runtimeGenerationPairing() {
   return true;
 }
 
+
+bool liveWorkerHandleDrag(bool delayed) {
+  App app; Ui ui; CHECK(fixture(app)); ui.autoPublish = false;
+  const auto mask = *app.selectedNodeId();
+  struct Gate {
+    App &app;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool blocked = false;
+    int entered = 0;
+    void block() { std::lock_guard<std::mutex> lock(mutex); blocked = true; }
+    void release() { { std::lock_guard<std::mutex> lock(mutex); blocked = false; } cv.notify_all(); }
+    int count() { std::lock_guard<std::mutex> lock(mutex); return entered; }
+    bool wait(int count) {
+      std::unique_lock<std::mutex> lock(mutex);
+      return cv.wait_for(lock,std::chrono::seconds(2),[&] { return entered >= count; });
+    }
+    ~Gate() {
+      release(); app.renderer.shutdown();
+      RenderRuntimeTestAccess::observe(app.renderer,nullptr,nullptr);
+    }
+  } gate{app};
+  RenderRuntimeTestAccess::publication(app.renderer,[](void *context,const OutputRef &) {
+    auto &gate = *static_cast<Gate *>(context);
+    std::unique_lock<std::mutex> lock(gate.mutex);
+    if (!gate.blocked) return;
+    ++gate.entered; gate.cv.notify_all();
+    gate.cv.wait(lock,[&] { return !gate.blocked; });
+  },&gate);
+  // A regressed gesture can try to capture history while this test holds the
+  // worker. Give that drain an independent release path rather than deadlock.
+  RenderRuntimeTestAccess::observe(app.renderer,&gate,[](void *context,auto event) noexcept {
+    if (event == RenderRuntimeTestAccess::Event::MutationWaiting)
+      static_cast<Gate *>(context)->release();
+  });
+  const auto idle = [&] { return RenderRuntimeTestAccess::wait(app.renderer,[](auto s) {
+    return !s.previewPending && !s.previewBusy && !s.displayPending;
+  }); };
+  app.renderer.start(); CHECK(idle()); fakeUpload(app);
+  gate.block(); ui.tick(app); ui.tick(app);
+  const auto start = ui.grip(app,PreviewDrag::Centre), size = ui.view.size;
+  const auto history = app.history.size();
+  ui.press(app,start); CHECK(app.previewInteraction.drag == PreviewDrag::Centre);
+  int expectedPublication = gate.count()+1;
+  for (int i = 1; i <= 6; ++i) {
+    ui.hover(app,{start.x+10*i,start.y-5*i});
+    if (!delayed || i == 1) CHECK(gate.wait(expectedPublication));
+    if (!delayed) {
+      // Normal order: finish the real render, upload its presentation, then
+      // draw another UI frame with the button held and no further movement.
+      gate.release(); CHECK(idle()); fakeUpload(app); gate.block();
+      expectedPublication = gate.count()+1;
+    }
+    ui.tick(app); // Dispatch has advanced the epoch; ownership must survive it.
+    CHECK(app.previewInteraction.drag == PreviewDrag::Centre && app.history.size() == history);
+    CHECK(near(parameter(app,mask,"centreX"),.5+10*i/size.x));
+    CHECK(near(parameter(app,mask,"centreY"),.5+5*i/size.y));
+    CHECK(app.previewInteraction.editDemand == app.renderer.previewDemand());
+  }
+  if (delayed) {
+    // Escape while the worker is still pending retains all six accepted moves.
+    ui.key(app,ImGuiKey_Escape,true);
+    gate.release(); CHECK(idle()); fakeUpload(app); gate.block();
+    ui.release(app); ui.key(app,ImGuiKey_Escape,false);
+  } else ui.release(app);
+  gate.release(); CHECK(idle()); fakeUpload(app);
+  const double finalX = .5+60/size.x, finalY = .5+30/size.y;
+  CHECK(app.previewInteraction.drag == PreviewDrag::None && !app.previewInteraction.editPending);
+  CHECK(app.history.size() == history+1);
+  gate.block(); CHECK(app.history.undo(app)); gate.release(); CHECK(idle()); fakeUpload(app);
+  CHECK(parameter(app,mask,"centreX") == .5 && parameter(app,mask,"centreY") == .5);
+  gate.block(); CHECK(app.history.redo(app)); gate.release(); CHECK(idle()); fakeUpload(app);
+  CHECK(near(parameter(app,mask,"centreX"),finalX) && near(parameter(app,mask,"centreY"),finalY));
+  CHECK(app.history.size() == history+1);
+
+  // An independent request must interrupt even though the resulting Image
+  // mapping is still exactly Identity. Later held-button input cannot resume it.
+  gate.block(); ui.tick(app);
+  const auto again = ui.grip(app,PreviewDrag::Centre);
+  const auto interruptedHistory = app.history.size();
+  expectedPublication = gate.count()+1;
+  ui.press(app,again); ui.hover(app,{again.x+10,again.y-5});
+  CHECK(gate.wait(expectedPublication));
+  CHECK(app.previewInteraction.drag == PreviewDrag::Centre);
+  const double acceptedX = parameter(app,mask,"centreX"), acceptedY = parameter(app,mask,"centreY");
+  app.renderer.requestPreview();
+  ui.hover(app,{again.x+50,again.y-25});
+  CHECK(app.previewInteraction.drag == PreviewDrag::None && app.history.size() == interruptedHistory+1);
+  CHECK(parameter(app,mask,"centreX") == acceptedX && parameter(app,mask,"centreY") == acceptedY);
+  gate.release(); CHECK(idle()); fakeUpload(app); gate.block();
+  CHECK(ui::radialPlacement(app).mapping == CoordinateMapping::identity());
+  ui.hover(app,{again.x+80,again.y-40}); ui.release(app);
+  CHECK(parameter(app,mask,"centreX") == acceptedX && parameter(app,mask,"centreY") == acceptedY);
+  CHECK(app.history.size() == interruptedHistory+1);
+  std::printf("ok  Live-worker Radial drag: %s, six moves, one Undo/Redo, external interruption\n",
+              delayed ? "pending publication / Escape" : "render and upload between frames");
+  return true;
+}
+
+bool previewDemandRequests() {
+  App app;
+  const auto initial = app.renderer.previewDemand();
+  app.renderer.requestPreview(); CHECK(app.renderer.previewDemand() == initial+1);
+  app.renderer.requestDisplayRefresh(); CHECK(app.renderer.previewDemand() == initial+1);
+  app.renderer.requestInspection({app.primarySource,ports::image});
+  CHECK(app.renderer.previewDemand() == initial+2);
+  app.renderer.requestDocumentPreview(); CHECK(app.renderer.previewDemand() == initial+3);
+  app.renderer.shutdown();
+  app.renderer.requestPreview(); app.renderer.requestInspection({app.primarySource,ports::image});
+  app.renderer.requestDocumentPreview();
+  CHECK(app.renderer.previewDemand() == initial+3);
+  return true;
+}
+
 bool appendCrop(App &app,const char *id,double amount = 0,double x = 0,double y = 0) {
   int index = -1;
   for (size_t i = 0; i < gPlugins.size(); ++i) if (gPlugins[i].label == "Crop") index = int(i);
@@ -758,7 +872,8 @@ bool sameSizeBackends() {
 }
 
 bool testPreviewInteraction() {
-  if (!mappingsAndOverlap() || !collapsedRadiusRecovery() || !editsAndHistory() || !doubleClicks() ||
+  if (!liveWorkerHandleDrag(false) || !liveWorkerHandleDrag(true) || !previewDemandRequests() ||
+      !mappingsAndOverlap() || !collapsedRadiusRecovery() || !editsAndHistory() || !doubleClicks() ||
       !ownershipAndZoom() || !interruptionsAndAlignment() ||
       !savedGeometryAndPixels() || !affineGeometryAndDrag() || !sharedPlacementAndPublication() || !runtimeGenerationPairing()) return false;
   std::printf("ok  Preview mappings, Radial handles, mouse ownership, history and interruptions\n");

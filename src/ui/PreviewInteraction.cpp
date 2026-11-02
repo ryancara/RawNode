@@ -64,8 +64,8 @@ void editGeometry(App &app, const PreviewTransform &view) {
     if (value != previous && setNodeParameterValue(app, *state.node, id, value)) {
       app.previewInteraction.editPending = true;
       // Only our own requests may keep this gesture alive while replacement
-      // pixels are pending. Any other generation change interrupts the baseline.
-      app.previewInteraction.editGeneration = app.renderer.previewGeneration();
+      // pixels are pending. Worker dispatch must not look like another request.
+      app.previewInteraction.editDemand = app.renderer.previewDemand();
     }
   };
   switch (state.drag) {
@@ -199,10 +199,11 @@ RadialPlacement radialPlacement(App &app) {
   const auto pending = [] { return RadialPlacement{PlacementState::Pending, CoordinateMapping::unknown(),
                                                   "Mask handles: Preview updating."}; };
   const int generation = app.renderer.previewGeneration();
+  const auto demand = app.renderer.previewDemand();
   const auto mode = previewMode(app); // Runtime queries precede the display lock.
   const auto &gesture = app.previewInteraction;
   const bool ownEdits = isHandle(gesture.drag) && gesture.node == app.selectedNodeId() &&
-                        gesture.photoPath == app.path && gesture.editGeneration == generation;
+                        gesture.photoPath == app.path && gesture.editDemand == demand;
   std::lock_guard<std::mutex> lock(app.displayMutex);
   if (!app.tex || app.texW <= 0 || app.texH <= 0 || app.full.px.empty()) return {};
   if (!app.textureRequest || app.textureRequest != app.processed.request ||
@@ -241,7 +242,7 @@ bool finishPreviewInteraction(App &app, bool force) {
   const auto *context = ImGui::GetCurrentContext();
   const auto placement = radialPlacement(app);
   const bool obsolete = isHandle(state.drag) &&
-      (state.editGeneration != app.renderer.previewGeneration() ||
+      (state.editDemand != app.renderer.previewDemand() ||
        placement.state == PlacementState::Unavailable ||
        (placement.state == PlacementState::Ready && !(placement.mapping == state.mapping)));
   if (force || obsolete || !context || ImGui::GetIO().AppFocusLost || !ImGui::IsMousePosValid() ||
@@ -286,7 +287,7 @@ bool drawPreviewInteraction(App &app, const PreviewTransform &view, bool hovered
     if (isHandle(state.drag)) {
       state.start = geometry(*selectedNode(app));
       state.mapping = placement.mapping;
-      state.editGeneration = app.renderer.previewGeneration();
+      state.editDemand = app.renderer.previewDemand();
       state.startPointer = {maskPointer->first, maskPointer->second};
     }
   }
