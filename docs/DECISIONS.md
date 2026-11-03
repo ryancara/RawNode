@@ -786,7 +786,8 @@ This deliberately supersedes D042's white-generator bypass rule and related hist
 ## D056 — Transient backend-neutral coordinate correspondence
 
 **Status:** Owner-approved; PR 1 foundation merged as #106 and PR 2 OFX bounds/Crop
-declarations merged as #107. Draft #105 integrates Preview handles with this contract.
+declarations merged as #107. Preview handles merged as #105; draft #108 implements
+coordinate-aware Overlay alignment and is under final correction/review.
 
 Image and Mask remain raster-local (D039). Processors may explicitly report
 Identity, Affine or Unknown input-to-output correspondence in the result of the
@@ -802,11 +803,14 @@ cannot claim a single upstream mapping. Unknown correspondence does not invalida
 an otherwise valid photograph render. See `ARCHITECTURE.md` for frame conventions
 and the result/publication lifetime contract.
 
-No saved raster-local graph values, Mask application, topology, scheduling or
-handle UI change. OFX bounds/Crop adaptation now follows this contract via a
+Coordinate metadata changes no saved raster-local graph values, Mask application,
+topology or scheduling. OFX bounds/Crop adaptation follows this contract via a
 minimal optional Render suite; see `OFX_COORDINATES.md`. Preview handles consume
-published placements in draft #105. Transformed Overlay alignment and outward
-feathering remain separately scoped work.
+published placements in merged #105. Draft #108 makes handles and Overlay consume
+the same published placement resolution: handles map forward, Overlay samples
+coverage through the inverse for display only. Unknown/singular, conflicting or
+absent placement cannot establish alignment. Outward feathering remains separately
+scoped work.
 
 ## Pending decisions
 

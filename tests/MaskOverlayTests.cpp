@@ -56,6 +56,13 @@ bool sampling() {
   // A half-Mask-pixel translation: inverse sample columns are -.5,.5,1.5,2.5.
   CHECK(check(CoordinateMapping::affine(1,0,.125,0,1,0),
               {0,.125,.375,.625, .0625,.25,.5,.75, .125,.375,.625,.875}));
+  // Last-column inverse U=1.0625 lies outside the closed domain, even though
+  // a bilinear tap still overlaps the Mask. That partial coverage must be zero.
+  image = photo(4,3);
+  CHECK(check(CoordinateMapping::affine(1,0,-.1875,0,1,0),
+              {.1875,.4375,.6875,0,
+               .3125,.5625,.8125,0,
+               .4375,.6875,.9375,0}));
   // Two whole columns move right; no edge extrusion into the empty half.
   CHECK(check(CoordinateMapping::affine(1,0,.5,0,1,0),
               {0,0,0,.25, 0,0,.125,.375, 0,0,.25,.5}));

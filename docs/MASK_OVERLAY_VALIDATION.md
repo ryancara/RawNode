@@ -48,6 +48,15 @@ processor execution, unknown/singular explanations and supersession of both
 coverage and geometry before publication. Existing suites retain Photo, Mask Only,
 error/inactive clearing, texture/result pairing and export/persistence coverage.
 
+## Presentation approximations
+
+- Chained Crops resample Image pixels at each stage; Overlay samples coverage
+  once through the composed mapping. Claude measured differences below approximately
+  one RGBA8 display byte for the tested nonlinear Masks.
+- Bilinear zero-boundary sampling can tint Crop's transparent edge band before
+  final alpha blending. Native validation must confirm this produces no visible fringe.
+- Bilinear sampling does not perform area integration under strong minification.
+
 ## User-visible changes
 
 - Mask Overlay follows known downstream transforms, including OFX Crop, even
@@ -65,7 +74,8 @@ error/inactive clearing, texture/result pairing and export/persistence coverage.
    Y=-100%. Compare the photo adjustment, Overlay and centre/radius/feather grips.
    Repeat with a second downstream Crop 50%, X=-100%, Y=0%.
 2. Use full-size Crop with X=100%: confirm same-size non-Identity alignment and
-   empty coverage outside the Mask. Try fractional pan and soft feathering.
+   empty coverage outside the Mask. Try fractional pan and soft feathering;
+   inspect the transparent edge band after alpha blending for any visible fringe.
 3. Keep a centre/radius/feather drag held through several Preview updates in
    Overlay. Try slow rendering. Each movement stays responsive; tint may lag
    until publication. Release and Escape each retain one Undo step; Undo/Redo
