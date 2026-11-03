@@ -488,6 +488,27 @@ class Evaluation {
 
 }  // namespace
 
+ResolvedMaskPlacement resolveMaskPlacement(const EvaluationResult &image, const OutputRef &mask) {
+  if (image.state != EvaluationState::Available) return {};
+  const auto *value = std::get_if<ImageValue>(&image.value);
+  if (!value) return {};
+  if (!*value || !rasterShape((*value)->w, (*value)->h, 4, (*value)->px.size()))
+    return {MaskPlacementState::Unknown, {}};
+  std::optional<CoordinateMapping> mapping;
+  bool ambiguous = false;
+  for (const auto &placement : image.maskPlacements) {
+    if (placement.mask != mask) continue;
+    if (placement.maskToImage.inverse().kind() == CoordinateMapping::Kind::Unknown)
+      return {MaskPlacementState::Unknown, {}};
+    if (mapping && !(*mapping == placement.maskToImage)) ambiguous = true;
+    mapping = placement.maskToImage;
+  }
+  if (!mapping) return {};
+  if (ambiguous) return {MaskPlacementState::Ambiguous, {}};
+  return {mapping->kind() == CoordinateMapping::Kind::Identity ? MaskPlacementState::Identity
+                                                             : MaskPlacementState::Affine, *mapping};
+}
+
 EvaluationResult evaluateGraph(GraphView graph, const OutputRef &requested,
                                const EvaluationContext &context, ImageValue source,
                                const RenderCancellation &cancellation, graph_test::Executor *testExecutor) {

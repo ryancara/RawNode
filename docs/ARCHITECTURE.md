@@ -412,10 +412,13 @@ Unknown. The Mask applied at that mix still starts in its output raster.
 Bypass, zero Strength and missing processors pass upstream records through and
 add no unused coverage. Inactive/Unavailable coverage adds no placement.
 
-Multiple consumers retain separate records. Preview handles
-consider all matching records: equal known mappings can establish unambiguous
-placement, differing known mappings are ambiguous, and Unknown prevents claiming
-known placement. No consumer is chosen implicitly. Test-only multi-Image joins
+Multiple consumers retain separate records. `resolveMaskPlacement()` beside
+`EvaluationResult` is the UI-independent policy shared by handles and Overlay.
+It considers every matching Mask output: equal known mappings are unambiguous;
+differing known mappings are Ambiguous; any Unknown or singular mapping prevents
+known placement, regardless of record order. No matching applied use is Absent,
+even when Reference and Image dimensions match. No consumer is chosen implicitly.
+Test-only multi-Image joins
 conservatively retain all uses, including their own Slot coverage, with Unknown
 correspondence. Metadata owns no intermediate rasters and lives in the existing
 `EvaluationResult`, so normal
@@ -433,7 +436,22 @@ pairing remain mandatory. New external Preview demand interrupts a gesture; its 
 live edits may continue against a matching displayed mapping while replacement pixels
 are pending.
 Affine curves are forward-mapped and drags inverse-mapped to saved Radial parameters.
-Mask Only uses its own raster; transformed Overlay alignment is deferred.
+Mask Only uses its own raster. Photo and Overlay handles use the same resolved
+Identity/Affine map, without changing interaction freshness or gesture ownership.
+Overlay inverse-maps each final Image pixel centre to the selected Mask's
+normalized lower-left frame, then samples its bottom-up raster at
+`u*maskW-0.5, v*maskH-0.5` with bilinear interpolation. Coordinates outside the
+closed `[0,1]` domain have zero coverage; missing interpolation taps also have
+zero coverage, rather than extending edge samples. Non-finite coordinates or
+samples contribute zero; coverage stays in `[0,1]`. Equal-size Identity uses
+exact existing samples, avoiding numerical shifts. Known mappings may relate
+different raster sizes; equal sizes never prove Identity. This is display-only:
+the existing top-down colour-managed RGBA8 photograph receives the same red
+`0.4*coverage` tint, with unchanged alpha and no additional texture/pass.
+Absent, Unknown/singular and Ambiguous placement hide tint with an explanation,
+preserving any valid photograph and the selected Mask's evaluation state.
+Inactive/Unavailable/Error Masks contribute no stale tint. Display refresh
+retains the Image, Mask and placements under their existing paired publication.
 The OFX adapter preserves
 canonical RoD and enclosing pixel bounds and accepts an optional per-Render
 declaration from cooperating plugins, including bundled Crop. See

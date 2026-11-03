@@ -219,19 +219,17 @@ RadialPlacement radialPlacement(App &app) {
   const auto *image = std::get_if<ImageValue>(&result.value);
   if (result.requested != app.documentOutput || !image || !*image ||
       (*image)->w != app.texW || (*image)->h != app.texH) return {};
-  std::optional<CoordinateMapping> mapping;
-  for (const auto &placement : result.maskPlacements) {
-    if (placement.mask != OutputRef{node->id,ports::mask}) continue;
-    if (placement.maskToImage.inverse().kind() == CoordinateMapping::Kind::Unknown)
+  const auto placement = resolveMaskPlacement(result, {node->id,ports::mask});
+  switch (placement.state) {
+    case MaskPlacementState::Identity: case MaskPlacementState::Affine:
+      return {PlacementState::Ready, placement.maskToImage, nullptr};
+    case MaskPlacementState::Unknown:
       return {PlacementState::Unavailable, {}, "Mask handles: the image position cannot be established."};
-    if (mapping && !(*mapping == placement.maskToImage))
+    case MaskPlacementState::Ambiguous:
       return {PlacementState::Unavailable, {}, "Mask handles: this Mask appears in different image positions."};
-    mapping = placement.maskToImage;
+    case MaskPlacementState::Absent: return {};
   }
-  if (!mapping) return {};
-  if (mode == PreviewMode::MaskOverlay && mapping->kind() != CoordinateMapping::Kind::Identity)
-    return {PlacementState::Unavailable, {}, "Mapped Mask handles: use Photo or Mask Only. Overlay alignment is pending."};
-  return {PlacementState::Ready, *mapping, nullptr};
+  return {};
 }
 
 bool finishPreviewInteraction(App &app, bool force) {

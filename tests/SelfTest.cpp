@@ -1,5 +1,6 @@
 #include "SelfTest.h"
 #include "NativeRadialMaskTests.h"
+#include "MaskOverlayTests.h"
 #include "PreviewInteractionTests.h"
 #include "ExportSafetyTests.h"
 #include "PngColorTests.h"
@@ -2099,6 +2100,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 static int runSelfTestsImpl() {
   if (!testNativeRadialMask()) return fail("Native Radial Mask");
+  if (!testMaskOverlay()) return fail("Mask Overlay alignment");
   if (!testPreviewInteraction()) return fail("Preview interaction");
   if (!testPngColor()) return fail("PNG colour correctness");
   if (!testExportSafety()) return fail("export safety");
@@ -3083,6 +3085,7 @@ static int runSelfTestsImpl() {
   if (!testGraphPersistenceOfx()) return fail("Step 7 OFX persistence identity");
   if (!testGraphEvaluatorOfx()) return fail("Step 6C OFX graph evaluator");
   if (!testOfxCoordinates()) return fail("OFX coordinate correspondence");
+  if (!testMaskOverlayCrop()) return fail("Mask Overlay Crop alignment");
   if (!testPreviewCoordinatePlacement()) return fail("Preview coordinate placement");
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
 

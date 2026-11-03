@@ -69,13 +69,17 @@ void publishFrame(App &app, std::optional<CoordinateMapping> mappingOverride = s
   const OutputRef endpoint = mode == PreviewMode::MaskOnly ? *selectedMaskOutput(app) : app.documentOutput;
   const EvaluationContext context{EvaluationPurpose::Preview,app.full.w,app.full.h,app.preview->w,app.preview->h};
   auto result = evaluateGraph({app.nodes,app.primarySource,app.documentOutput},endpoint,context,app.preview);
+  std::optional<EvaluationResult> overlayMask;
+  if (mode == PreviewMode::MaskOverlay) {
+    auto pair = evaluateGraphPair({app.nodes,app.primarySource,app.documentOutput},endpoint,
+                                 *selectedMaskOutput(app),context,app.preview);
+    result = std::move(pair.first); overlayMask = std::move(pair.second);
+  }
   if (mappingOverride)
     for (auto &placement : result.maskPlacements) placement.maskToImage = *mappingOverride;
-  int w = 0, h = 0;
-  if (const auto *image = std::get_if<ImageValue>(&result.value); image && *image) { w = (*image)->w; h = (*image)->h; }
-  if (const auto *mask = std::get_if<MaskValue>(&result.value); mask && *mask) { w = (*mask)->w; h = (*mask)->h; }
+  auto presentation = display_detail::preparePresentation(app,result,overlayMask);
   display_detail::publishPreview(app,std::move(result),RenderRuntimeTestAccess::snapshot(app.renderer).epoch,
-      app.renderer.previewDemand(),std::make_shared<OutputRef>(endpoint),{{},w,h});
+      app.renderer.previewDemand(),std::make_shared<OutputRef>(endpoint),std::move(presentation),std::move(overlayMask));
   fakeUpload(app);
 }
 
@@ -694,10 +698,18 @@ bool runtimeGenerationPairing() {
 }
 
 
-bool liveWorkerHandleDrag(bool delayed, bool maskOnly = false, bool escape = false) {
+bool appendCrop(App &app, const char *id, double amount, double x, double y);
+
+bool liveWorkerHandleDrag(bool delayed, bool maskOnly = false, bool escape = false,
+                          bool overlay = false, bool transformed = false) {
   App app; Ui ui; CHECK(fixture(app)); ui.autoPublish = false;
   const auto mask = *app.selectedNodeId();
+  if (transformed) CHECK(appendCrop(app,"live-crop",50,0,0));
+  const double inverseScale = transformed ? .5 : 1;
+  const auto expectedMapping = transformed ? CoordinateMapping::affine(2,0,-.5,0,2,-.5)
+                                           : CoordinateMapping::identity();
   if (maskOnly) CHECK(setPreviewMode(app,PreviewMode::MaskOnly));
+  if (overlay) CHECK(setPreviewMode(app,PreviewMode::MaskOverlay));
   struct Gate {
     App &app;
     std::mutex mutex;
@@ -733,6 +745,14 @@ bool liveWorkerHandleDrag(bool delayed, bool maskOnly = false, bool escape = fal
     return !s.previewPending && !s.previewBusy && !s.displayPending;
   }); };
   app.renderer.start(); CHECK(idle()); fakeUpload(app);
+  if (overlay) {
+    CHECK(app.processed.overlayMask && app.processed.overlayMask->state == EvaluationState::Available);
+    if (transformed) {
+      CHECK(std::get<MaskValue>(app.processed.overlayMask->value)->w == 32 && app.texW == 16);
+      const auto background = display_detail::preparePresentation(app,app.processed.result);
+      CHECK(app.displayRGBA != background.rgba);
+    }
+  }
   gate.block(); ui.tick(app); ui.tick(app);
   const auto start = ui.grip(app,PreviewDrag::Centre), size = ui.view.size;
   const auto history = app.history.size();
@@ -749,8 +769,8 @@ bool liveWorkerHandleDrag(bool delayed, bool maskOnly = false, bool escape = fal
     }
     ui.tick(app); // Dispatch has advanced the epoch; ownership must survive it.
     CHECK(app.previewInteraction.drag == PreviewDrag::Centre && app.history.size() == history);
-    CHECK(near(parameter(app,mask,"centreX"),.5+10*i/size.x));
-    CHECK(near(parameter(app,mask,"centreY"),.5+5*i/size.y));
+    CHECK(near(parameter(app,mask,"centreX"),.5+inverseScale*10*i/size.x));
+    CHECK(near(parameter(app,mask,"centreY"),.5+inverseScale*5*i/size.y));
     CHECK(app.previewInteraction.editDemand == app.renderer.previewDemand());
   }
   const auto completedDemand = app.renderer.previewDemand();
@@ -762,7 +782,7 @@ bool liveWorkerHandleDrag(bool delayed, bool maskOnly = false, bool escape = fal
     ui.release(app); ui.key(app,ImGuiKey_Escape,false);
   } else ui.release(app);
   gate.release(); CHECK(idle()); fakeUpload(app);
-  const double finalX = .5+60/size.x, finalY = .5+30/size.y;
+  const double finalX = .5+inverseScale*60/size.x, finalY = .5+inverseScale*30/size.y;
   CHECK(app.previewInteraction.drag == PreviewDrag::None && !app.previewInteraction.editPending);
   CHECK(app.history.size() == history+1);
   if (!delayed) {
@@ -778,7 +798,7 @@ bool liveWorkerHandleDrag(bool delayed, bool maskOnly = false, bool escape = fal
   CHECK(app.history.size() == history+1);
 
   // An independent request must interrupt even though the resulting Image
-  // mapping is still exactly Identity. Later held-button input cannot resume it.
+  // mapping is unchanged. Later held-button input cannot resume it.
   gate.block(); ui.tick(app);
   const auto again = ui.grip(app,PreviewDrag::Centre);
   const auto interruptedHistory = app.history.size();
@@ -792,13 +812,14 @@ bool liveWorkerHandleDrag(bool delayed, bool maskOnly = false, bool escape = fal
   CHECK(app.previewInteraction.drag == PreviewDrag::None && app.history.size() == interruptedHistory+1);
   CHECK(parameter(app,mask,"centreX") == acceptedX && parameter(app,mask,"centreY") == acceptedY);
   gate.release(); CHECK(idle()); fakeUpload(app); gate.block();
-  CHECK(ui::radialPlacement(app).mapping == CoordinateMapping::identity());
+  CHECK(ui::radialPlacement(app).mapping == expectedMapping);
   ui.hover(app,{again.x+80,again.y-40}); ui.release(app);
   CHECK(parameter(app,mask,"centreX") == acceptedX && parameter(app,mask,"centreY") == acceptedY);
   CHECK(app.history.size() == interruptedHistory+1);
   std::printf("ok  Live-worker Radial drag: %s, %s, %s, six moves, one Undo/Redo, external interruption\n",
               delayed ? "pending publication" : "render and upload between frames",
-              maskOnly ? "Mask Only" : "Photo", escape ? "Escape" : "release");
+              overlay ? (transformed ? "cropped Mask Overlay" : "Mask Overlay") : (maskOnly ? "Mask Only" : "Photo"),
+              escape ? "Escape" : "release");
   return true;
 }
 
@@ -891,6 +912,25 @@ bool realCropPlacements() {
   // to PR #107's independent 8x6 window [3,0,7,3] -> 4x3.
   CHECK(placement.mapping == CoordinateMapping::affine(2,0,-.75,0,2,0));
   auto point = placement.mapping.map(.5,.25); CHECK(point && point->first == .25 && point->second == .5);
+  CHECK(setPreviewMode(app,PreviewMode::MaskOverlay)); ui.tick(app);
+  CHECK(ui::radialPlacement(app).mapping == placement.mapping && app.processed.overlayMask);
+  // The literal Crop window selects original sample centres (12+x+.5,y+.5).
+  // Evaluate the documented default radial equation there, independently of
+  // both placement inversion and the overlay sampler. Handles above use the
+  // forward mapping from the very same publication.
+  const auto background = display_detail::preparePresentation(app,app.processed.result);
+  for (int y = 0; y < 8; ++y) for (int x = 0; x < 16; ++x) {
+    const double d = std::hypot(((12+x+.5)/32-.5)/.25,((y+.5)/16-.5)/.25);
+    const double t = std::clamp(2*(1-d),0.0,1.0);
+    const float amount = .4f*float(t*t*(3-2*t));
+    const size_t i = (size_t(7-y)*16+x)*4;
+    for (int c = 0; c < 3; ++c) {
+      const float target = c == 0 ? 255.0f : 0.0f;
+      CHECK(app.displayRGBA[i+c] == static_cast<unsigned char>(background.rgba[i+c]+(target-background.rgba[i+c])*amount+.5f));
+    }
+    CHECK(app.displayRGBA[i+3] == background.rgba[i+3]);
+  }
+  CHECK(setPreviewMode(app,PreviewMode::Photo)); ui.tick(app);
   const double originalX = parameter(app,mask,"centreX"), originalY = parameter(app,mask,"centreY");
   auto size = ui.view.size;
   ui.drag(app,PreviewDrag::Centre,{size.x/8,-size.y/8});
@@ -902,7 +942,8 @@ bool realCropPlacements() {
   CHECK(setPreviewMode(app,PreviewMode::MaskOnly)); ui.tick(app);
   CHECK(ui::radialPlacement(app).mapping == CoordinateMapping::identity() && app.texW == 32 && app.texH == 16);
   CHECK(setPreviewMode(app,PreviewMode::MaskOverlay)); ui.tick(app);
-  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Unavailable);
+  CHECK(ui::radialPlacement(app).state == ui::PlacementState::Ready);
+  CHECK(ui::radialPlacement(app).mapping == CoordinateMapping::affine(4,0,-1.5,0,4,-.5));
   CHECK(setPreviewMode(app,PreviewMode::Photo));
   // Crop before Mask application with an explicit Reference changes generation
   // dimensions, not saved normalized geometry or placement at the consumer.
@@ -956,7 +997,8 @@ bool sameSizeBackends() {
 bool testPreviewInteraction() {
   if (!liveWorkerHandleDrag(false) || !liveWorkerHandleDrag(false,false,true) ||
       !liveWorkerHandleDrag(false,true) || !liveWorkerHandleDrag(true) ||
-      !liveWorkerHandleDrag(true,false,true) || !liveWorkerIdleCaptures() || !previewDemandRequests() ||
+      !liveWorkerHandleDrag(true,false,true) || !liveWorkerHandleDrag(false,false,false,true) ||
+      !liveWorkerHandleDrag(true,false,true,true) || !liveWorkerIdleCaptures() || !previewDemandRequests() ||
       !mappingsAndOverlap() || !collapsedRadiusRecovery() || !editsAndHistory() || !doubleClicks() ||
       !ownershipAndZoom() || !interruptionsAndAlignment() ||
       !savedGeometryAndPixels() || !affineGeometryAndDrag() || !sharedPlacementAndPublication() || !runtimeGenerationPairing()) return false;
@@ -966,7 +1008,8 @@ bool testPreviewInteraction() {
 
 
 bool testPreviewCoordinatePlacement() {
-  if (!realCropPlacements() || !sameSizeBackends()) return false;
+  if (!realCropPlacements() || !sameSizeBackends() ||
+      !liveWorkerHandleDrag(false,false,false,true,true) || !liveWorkerHandleDrag(true,false,true,true,true)) return false;
   std::printf("ok  Preview real Crop/CTL placement, inverse edits, Reference and resolution\n");
   return true;
 }

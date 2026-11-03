@@ -51,6 +51,16 @@ struct EvaluationResult {
   std::vector<MaskPlacement> maskPlacements;
 };
 
+// One authoritative placement policy for consumers of a published Image.
+// Unknown includes singular mappings. Any invalid matching use prevents a
+// known result; identical uses remain unambiguous. No Reference traversal.
+enum class MaskPlacementState { Identity, Affine, Unknown, Ambiguous, Absent };
+struct ResolvedMaskPlacement {
+  MaskPlacementState state = MaskPlacementState::Absent;
+  CoordinateMapping maskToImage = CoordinateMapping::unknown();
+};
+ResolvedMaskPlacement resolveMaskPlacement(const EvaluationResult &image, const OutputRef &mask);
+
 namespace graph_test {
 
 struct SlotValues {
