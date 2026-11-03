@@ -28,10 +28,12 @@ not 1: missing taps are empty, not clamped. Additional cases exercise malformed
 dimensions/storage, non-finite coordinates/samples, singular/inverse overflow,
 multiple equal/conflicting uses and unrelated Mask output ports.
 
-Real bundled Crop cases use a test Mask plane `(x+2*y)/32` in an 8x6 Reference.
+Real bundled Crop cases use a test Mask plane `(x+3*y)/32` in an 8x6 Reference.
 The single Crop window `[3,0,7,3]` gives first-row coverage `[3,4,5,6]/32` in
 4x3. Two Crops select original centres X `[3.5,4.5]`, Y `[1.125,1.875]`, giving
-`[4.25,5.25;5.75,6.75]/32` in 2x2. A full-size Crop panned 100% in X remains
+`[4.875,5.875;7.125,8.125]/32` in 2x2. The unequal axis weights also distinguish
+reversed composition (an earlier `x+2*y` plane accidentally cancelled that error).
+A full-size Crop panned 100% in X remains
 8x6 but selects original columns 4–7 then empty coverage; equal dimensions
 cannot pass as Identity. These expectations come from literal sample locations,
 not calls to the mapping or sampler under test.

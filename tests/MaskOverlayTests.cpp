@@ -166,7 +166,7 @@ class PlaneMask final : public graph_test::Executor {
       const graph_test::InputValues &inputs, const RenderCancellation &) override {
     auto mask = std::make_shared<Mask>(); mask->w = inputs.reference->w; mask->h = inputs.reference->h;
     for (int y = 0; y < mask->h; ++y) for (int x = 0; x < mask->w; ++x)
-      mask->px.push_back(float(x+2*y)/32);
+      mask->px.push_back(float(x+3*y)/32);
     return {EvaluationState::Available,{{ports::mask,MaskValue(mask)}},{}};
   }
 };
@@ -208,10 +208,10 @@ bool testMaskOverlayCrop() {
   auto pair = evaluate(a);
   CHECK(pair.first.state == EvaluationState::Available && pair.second.state == EvaluationState::Available);
   CHECK(std::get<MaskValue>(pair.second.value)->w == 8 && std::get<ImageValue>(pair.first.value)->w == 4);
-  CHECK(pixels(pair.first,pair.second,{3/32.,4/32.,5/32.,6/32., 5/32.,6/32.,7/32.,8/32., 7/32.,8/32.,9/32.,10/32.}));
+  CHECK(pixels(pair.first,pair.second,{3/32.,4/32.,5/32.,6/32., 6/32.,7/32.,8/32.,9/32., 9/32.,10/32.,11/32.,12/32.}));
   pair = evaluate(b);
   // Composed original sample centres: X=3.5,4.5; Y=1.125,1.875.
-  CHECK(pixels(pair.first,pair.second,{4.25/32,5.25/32,5.75/32,6.75/32}));
+  CHECK(pixels(pair.first,pair.second,{4.875/32,5.875/32,7.125/32,8.125/32}));
 
   // Full-size Crop pans half a frame. Matching dimensions cannot imply Identity.
   CHECK(nodes[3].processor->setParameterValue("crop",0.0));
@@ -222,7 +222,7 @@ bool testMaskOverlayCrop() {
   CHECK(resolveMaskPlacement(pair.first,maskOutput).state == MaskPlacementState::Affine);
   std::vector<double> expected;
   for (int y = 0; y < 6; ++y) for (int x = 0; x < 8; ++x)
-    expected.push_back(x < 4 ? (x+4+2*y)/32. : 0);
+    expected.push_back(x < 4 ? (x+4+3*y)/32. : 0);
   // Crop's existing out-of-bounds alpha is zero; use its photograph alpha as
   // the independent unchanged background check, then check all tint bytes.
   App app; const auto background = display_detail::preparePresentation(app,pair.first);
