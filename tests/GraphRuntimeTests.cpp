@@ -1059,8 +1059,10 @@ static bool testWorkerExceptionBoundary() {
   auto result = publication(app);
   CHECK(result.result.state == EvaluationState::Error && result.result.requested == image(endpoint) && processor->calls == 0);
   CHECK(result.request && *result.request == image(endpoint) && diagnostic(result.result, "bad_alloc"));
+  CHECK(result.demand == app.renderer.previewDemand());
   { document_detail::DocumentMutation mutation(app); mutation.changed(); }
   CHECK(idle(app) && publication(app).result.state == EvaluationState::Available && processor->calls == 1 && attempts == 2);
+  CHECK(publication(app).demand == app.renderer.previewDemand());
   return true;
 }
 

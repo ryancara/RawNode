@@ -96,6 +96,7 @@ bool selectNode(App &app, std::optional<NodeId> id) {
   InspectorSelection selection;
   if (id) selection = *id;
   if (app.selection != selection) {
+    app.previewInteraction.stop();
     const auto mode = previewMode(app);
     app.selection = std::move(selection);
     app.paramFilter[0] = '\0';
@@ -106,6 +107,7 @@ bool selectNode(App &app, std::optional<NodeId> id) {
 
 void selectOutput(App &app) {
   if (!app.outputSelected()) {
+    app.previewInteraction.stop();
     const auto mode = previewMode(app);
     app.selection = InspectorEndpoint::Output;
     app.paramFilter[0] = '\0';

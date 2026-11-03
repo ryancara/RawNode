@@ -1,0 +1,67 @@
+#pragma once
+
+#include "GraphModel.h"
+#include "CoordinateMapping.h"
+#include "imgui.h"
+
+#include <array>
+#include <cstdint>
+#include <vector>
+
+struct App;
+
+namespace ui {
+
+// The displayed photo rectangle already includes fit, zoom and pan. Image
+// coordinates use the Radial contract's bottom-left origin, independent of size.
+struct PreviewTransform {
+  ImVec2 origin, size;
+  ImVec2 toScreen(double x, double y) const;
+  std::array<double, 2> toImage(ImVec2 point) const;
+};
+
+enum class PreviewDrag { None, Ignore, Pan, Centre, Left, Right, Top, Bottom, Feather };
+struct RadialGeometry {
+  double centreX = 0, centreY = 0, radiusX = 0, radiusY = 0, feather = 0;
+};
+struct RadialHandle {
+  PreviewDrag kind;
+  ImVec2 anchor, grip;
+};
+using RadialHandles = std::array<RadialHandle, 6>;
+RadialHandles radialHandles(const PreviewTransform &view, const RadialGeometry &geometry,
+                            const CoordinateMapping &mapping = CoordinateMapping::identity());
+std::vector<ImVec2> radialOutline(const PreviewTransform &view, const RadialGeometry &geometry,
+                                 const CoordinateMapping &mapping, double scale);
+PreviewDrag hitRadialHandle(const RadialHandles &handles, ImVec2 point);
+enum class PlacementState { Ready, Pending, Unavailable };
+struct RadialPlacement {
+  PlacementState state = PlacementState::Unavailable;
+  CoordinateMapping mapping = CoordinateMapping::unknown();
+  const char *message = "Mask handles: this Mask is not applied in this Preview.";
+};
+RadialPlacement radialPlacement(App &app);
+
+// Only an in-progress gesture's baseline, never saved geometry or processor
+// ownership. Live values always come from the selected processor parameters.
+struct PreviewInteraction {
+  PreviewDrag drag = PreviewDrag::None;
+  int button = -1;
+  ImGuiID canvas = 0;
+  std::string photoPath;
+  std::optional<NodeId> node;
+  std::array<double, 2> startPointer{};
+  RadialGeometry start;
+  CoordinateMapping mapping = CoordinateMapping::unknown(); // In-progress gesture baseline only.
+  uint64_t editDemand = 0; // Includes only this gesture's accepted parameter requests.
+  bool editPending = false;
+  void stop() { drag = PreviewDrag::None; }
+};
+
+// Called for the actual Preview canvas item. Returns whether this gesture owns
+// a double click, so the ordinary background zoom reset can remain unchanged.
+bool drawPreviewInteraction(App &app, const PreviewTransform &view, bool hovered,
+                            bool active, bool textInputWasActive);
+bool finishPreviewInteraction(App &app, bool force = false);
+
+}  // namespace ui

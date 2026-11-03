@@ -113,6 +113,7 @@ add_executable(OfxRawHost
   tests/PresetClipboardTests.cpp
   tests/GraphCommandsTests.cpp
   tests/NativeRadialMaskTests.cpp
+  tests/PreviewInteractionTests.cpp
   tests/GraphEvaluatorTests.cpp
   tests/GraphRuntimeTests.cpp
   tests/NodeListTests.cpp
@@ -162,6 +163,7 @@ add_executable(OfxRawHost
   src/ui/GraphCanvas.cpp
   src/ui/InspectorPanel.cpp
   src/ui/PreviewPanel.cpp
+  src/ui/PreviewInteraction.cpp
   src/ui/FilmstripPanel.cpp
   third_party/tinyexr/tinyexr.cc
 )

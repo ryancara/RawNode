@@ -1,5 +1,6 @@
 #include "SelfTest.h"
 #include "NativeRadialMaskTests.h"
+#include "PreviewInteractionTests.h"
 #include "ExportSafetyTests.h"
 #include "PngColorTests.h"
 #include "OfxThreadPoolTests.h"
@@ -94,7 +95,7 @@ static Image &testDisplay(App &app) {
 static void seedTestDisplay(App &app, Image image) {
   const OutputRef endpoint{NodeId{"fixture-processed"}, ports::image};
   app.display = {image.w, image.h};
-  app.processed = {0, std::make_shared<OutputRef>(endpoint),
+  app.processed = {0, 0, std::make_shared<OutputRef>(endpoint),
                    {endpoint, ValueType::Image, EvaluationState::Available,
                     ImageValue(std::make_shared<Image>(std::move(image))), {}}};
 }
@@ -2098,6 +2099,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 static int runSelfTestsImpl() {
   if (!testNativeRadialMask()) return fail("Native Radial Mask");
+  if (!testPreviewInteraction()) return fail("Preview interaction");
   if (!testPngColor()) return fail("PNG colour correctness");
   if (!testExportSafety()) return fail("export safety");
   if (!testPreferences()) return fail("Step 7 preferences");
@@ -3081,6 +3083,7 @@ static int runSelfTestsImpl() {
   if (!testGraphPersistenceOfx()) return fail("Step 7 OFX persistence identity");
   if (!testGraphEvaluatorOfx()) return fail("Step 6C OFX graph evaluator");
   if (!testOfxCoordinates()) return fail("OFX coordinate correspondence");
+  if (!testPreviewCoordinatePlacement()) return fail("Preview coordinate placement");
   if (gPlugins.empty()) return fail("no OFX filter plugins found");
 
   // Standard CTL backend: load a real .ctl with a sibling import, render it

@@ -325,8 +325,8 @@ Do not replace LibRaw without a measured benefit.
 ## Masks and local adjustments
 
 Coordinate/handle sequence: merged PR #106 (backend-neutral correspondence),
-PR #107 (OFX bounds/Crop declarations, under correction/review), then draft
-PR #105 (Radial Mask handles using the published mapping contract). See
+merged PR #107 (OFX bounds/Crop declarations), then draft PR #105 (Radial Mask
+handles using published placements, under implementation/review). See
 [project context](docs/PROJECT_CONTEXT.md#current-development-phase).
 Mask Overlay alignment follows the same architecture; outward feathering is a
 separate product change.

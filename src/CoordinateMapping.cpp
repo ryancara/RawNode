@@ -24,6 +24,11 @@ CoordinateMapping CoordinateMapping::defaultForDimensions(int inputW, int inputH
   return inputW == outputW && inputH == outputH ? identity() : unknown();
 }
 
+bool CoordinateMapping::operator==(const CoordinateMapping &other) const {
+  return kind_ == other.kind_ && xx_ == other.xx_ && xy_ == other.xy_ && tx_ == other.tx_ &&
+         yx_ == other.yx_ && yy_ == other.yy_ && ty_ == other.ty_;
+}
+
 CoordinateMapping CoordinateMapping::then(const CoordinateMapping &next) const {
   if (kind_ == Kind::Unknown || next.kind_ == Kind::Unknown) return unknown();
   return affine(next.xx_ * xx_ + next.xy_ * yx_,

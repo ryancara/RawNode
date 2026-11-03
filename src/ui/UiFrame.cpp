@@ -43,11 +43,13 @@ void doExport(App &app) {
   std::string outPath = sel.result();
   if (outPath.empty()) return;
   if (fs::path(outPath).extension().empty()) outPath += exts[app.exportFormat];
+  ui::finishPreviewInteraction(app, true);
   finishParameterGesture(app, true);
   startExport(app, outPath);
 }
 
 void finishUiEdits(App &app) {
+  ui::finishPreviewInteraction(app, true);
   // Parameter completion may already have attempted a full capture.
   // Ending a simultaneous canvas interaction must not repeat that attempt.
   if (finishParameterGesture(app, true)) app.graphCanvas.positionEditPending = false;
@@ -198,7 +200,8 @@ static void drawFileToolbar(App &app) {
 
 static bool historyIdle(const App &app) {
   return !app.path.empty() && app.renderer.canCaptureSnapshot() &&
-         !app.parameterGesture && !app.graphCanvas.dragging && !app.graphCanvas.positionEditPending;
+         !app.parameterGesture && app.previewInteraction.drag == ui::PreviewDrag::None &&
+         !app.previewInteraction.editPending && !app.graphCanvas.dragging && !app.graphCanvas.positionEditPending;
 }
 
 bool canUndoGrade(const App &app) { return historyIdle(app) && app.history.canUndo(); }
@@ -415,5 +418,6 @@ void DrawUiFrame(App &app) {
     ImGui::EndPopup();
   }
   finishParameterGesture(app);
+  ui::finishPreviewInteraction(app);
   ui::finishGraphDrag(app);
 }

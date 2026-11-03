@@ -110,7 +110,52 @@ All generated samples are finite scalar coverage in `[0,1]`.
 - Preview toolbar offers optional coloured **Mask Overlay** and grayscale **Mask Only**, inspecting the selected Mask endpoint's actual final output; inactive shows no stale mask raster.
 - Inspector and handles edit the same parameters; a completed drag is one Undo step.
 - Reuse the existing requested-endpoint evaluator/runtime. An overlay requiring both final Image and Mask may require a bounded multi-endpoint publication extension, **not** another rendering system.
-- No silent automatic raster remapping through Crop, warp, or other geometry. D056 adds backend-neutral transient coordinate metadata: undeclared equal-sized processing preserves coordinates, explicit declarations override it, and undeclared size changes are Unknown. Mask placement starts where the Image adjustment applies coverage, not at its Reference. This foundation changes no Mask samples, saved geometry, handle UI or Overlay alignment; future handles must hide/qualify unknown or ambiguous placement.
+- No silent automatic raster remapping through Crop, warp, or other geometry. D056 supplies backend-neutral transient coordinate metadata: undeclared equal-sized processing preserves coordinates, explicit declarations override it, and undeclared size changes are Unknown. Mask placement starts where the Image adjustment applies coverage, not at its Reference. Handles use this metadata and hide/qualify unknown or ambiguous placement without changing Mask samples or saved geometry. Transformed Overlay alignment remains separate.
+
+### Radial handles (implementation for independent review)
+
+Preview uses middle-drag or Space + left-drag to pan; ordinary left-drag is
+reserved for handles. Ownership is chosen on press and lasts until release or
+interruption. Space does not claim drags from active text or other controls.
+Wheel/pinch zoom and anchoring are unchanged; a background double click still
+resets the view, while a handle or pan gesture owns its double click.
+
+Selected native Radial Masks show an outer ellipse, inward feather
+boundary, centre circle, four radius squares and a diagonal feather diamond.
+The grips keep a fixed screen size; overlapping grips separate with leader
+lines to their exact geometry positions. Dragging edits the existing parameters
+live, including through zero radii. With both radii zero, feather has no spatial
+extent and its drag leaves the parameter unchanged. Inspector controls remain
+the alternative for off-canvas geometry.
+
+Photo handles use the displayed evaluated Image's published Mask placements,
+without processor eligibility lists or UI traversal of Reference/processor parameters.
+All uses of the selected Mask must agree on a known, invertible mapping; differing,
+Unknown or singular placements hide handles with an explanation. Mask Reference
+still controls generation dimensions only; handle placement starts at the Image
+consumer's output. No saved Mask coordinates change merely because a Crop moves.
+Full affine maps transform ellipse points, handle positions and screen-space
+directions; inverse maps take pointer motion back to the original Mask parameters.
+The GPU texture and CPU result must share a publication generation/request.
+The result also records its dispatch demand, which identifies the accepted Preview
+request and survives display-only refresh. Pending mismatches hide controls; external
+request demand interrupts stale gestures while their own accepted live edits retain
+one drag/Undo transaction. The internal execution epoch controls render cancellation
+and publication gates; idle history capture may advance it without changing demand
+or invalidating a correctly paired, current displayed image.
+Mask Only uses the selected Radial output's own frame. Overlay handles remain
+available for Identity placement; transformed Overlay alignment is deferred and
+asks the user to use Photo or Mask Only, without resampling or changing coverage.
+Missing Radials and protected/export-owned documents have no editable
+handles.
+
+One completed or interrupted drag retains its live edits as one GradeHistory
+step, including both centre parameters. Escape, focus loss, selection changes
+and a disappearing widget end the gesture. Export defers any outstanding
+capture until execution is released; ordinary UI export completes edits first.
+Successful photo/grade replacement clears outgoing interaction state, including
+same-path/ID reuse. No handle state is saved, and the geometry, evaluator and
+export numerical contracts above are unchanged.
 
 ## First implementation and verification
 
@@ -140,4 +185,4 @@ allowing high-cost problems to accumulate until Step 9.
 
 ## Deferred, not implicit approvals
 
-Exact fractional coverage combination equations (particularly soft masks), advanced masks/AI, mask Gain, generic Mask-output Effect Mask, auto Image-to-Mask connection conversion, HDR non-Normal Image blend maths, general alpha association and compositing, OFX RoD/render-scale/internal-mask policy, transformed handle alignment and multiple automatic Combine slots. Introduce any future capability via a focused, reviewed contract rather than assumptions in processor code.
+Exact fractional coverage combination equations (particularly soft masks), advanced masks/AI, mask Gain, generic Mask-output Effect Mask, auto Image-to-Mask connection conversion, HDR non-Normal Image blend maths, general alpha association and compositing, non-unit OFX render-scale/internal-mask policy, transformed Overlay alignment and multiple automatic Combine slots. Introduce any future capability via a focused, reviewed contract rather than assumptions in processor code.

@@ -8,6 +8,7 @@
 #include "persist/Preferences.h"
 #include "ui/GraphCanvas.h"
 #include "ui/ParamWidgets.h"
+#include "ui/PreviewInteraction.h"
 
 #include <GLFW/glfw3.h>
 
@@ -92,6 +93,7 @@ struct App {
   PersistPositions nodePositions;
   GradeHistory history;
   std::optional<ui::ParameterGesture> parameterGesture;
+  ui::PreviewInteraction previewInteraction;
   // Colour state is read by the render worker and written by the UI/document
   // thread. Guard snapshots/updates so gamut+gamma pairs remain coherent.
   mutable std::mutex colorMutex;
@@ -174,10 +176,15 @@ struct App {
   struct { int w = 0, h = 0; } display;  // Presentation dimensions, not a second raster.
   struct PreviewPublication {
     int generation = 0;
+    uint64_t demand = 0; // Accepted Preview demand captured at dispatch, independent of cancellation.
     std::shared_ptr<const OutputRef> request;  // Retained even if error reporting cannot allocate.
     EvaluationResult result;
     std::optional<EvaluationResult> overlayMask; // Same evaluation/request as the document Image.
-  } processed{0, {}, EvaluationResult{{primarySource, ports::image}}};
+  } processed{0, 0, {}, EvaluationResult{{primarySource, ports::image}}};
+  // UI-thread upload identity only. Placements stay in the evaluated result;
+  // input must not pair a newer CPU publication with an older texture.
+  int textureGeneration = -1;
+  std::shared_ptr<const OutputRef> textureRequest;
   std::vector<unsigned char> displayRGBA;  // sRGB8 top-down, ready for GL upload
   std::mutex displayMutex;
   bool displayDirty = false;

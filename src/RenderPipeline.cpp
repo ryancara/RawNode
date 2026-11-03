@@ -24,11 +24,15 @@ ProcessorResult renderChain(App &app, const Image &src, Image &out, const Render
 void pumpDisplayUpload(App &app) {
   std::lock_guard<std::mutex> lock(app.displayMutex);
   if (!app.displayDirty) return;
-  if (!app.displayRGBA.empty() && app.display.w > 0 && app.display.h > 0)
+  if (!app.displayRGBA.empty() && app.display.w > 0 && app.display.h > 0) {
     uploadTextureRGBA(app, app.displayRGBA.data(), app.display.w, app.display.h);
-  else {
+    app.textureGeneration = app.processed.generation;
+    app.textureRequest = app.processed.request;
+  } else {
     if (app.tex) glDeleteTextures(1, &app.tex);
     app.tex = 0; app.texW = app.texH = 0;
+    app.textureGeneration = -1;
+    app.textureRequest.reset();
   }
   app.displayDirty = false;
 }
@@ -95,11 +99,11 @@ void display_detail::commitDisplayRefresh(App &app, const App::PreviewPublicatio
   app.displayDirty = true;
 }
 
-void display_detail::publishPreview(App &app, EvaluationResult result, int generation,
+void display_detail::publishPreview(App &app, EvaluationResult result, int generation, uint64_t demand,
                                    std::shared_ptr<const OutputRef> request, Presentation presentation,
                                    std::optional<EvaluationResult> overlayMask) {
   std::lock_guard<std::mutex> lock(app.displayMutex);
-  app.processed = {generation, std::move(request), std::move(result), std::move(overlayMask)};
+  app.processed = {generation, demand, std::move(request), std::move(result), std::move(overlayMask)};
   app.display = {presentation.w, presentation.h};
   app.displayRGBA = std::move(presentation.rgba);
   app.displayDirty = true;

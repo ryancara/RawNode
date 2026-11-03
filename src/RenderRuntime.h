@@ -41,6 +41,8 @@ class RenderRuntime {
   // A new capture may drain preview, but must not nest mutation or wait on export.
   bool canCaptureSnapshot() const;
   bool canEditParameters() const;      // Same control thread as export acquisition.
+  // Control-thread query: advances only on accepted Preview/inspection/document requests.
+  uint64_t previewDemand() const;
   // Caller already owns preview/export execution exclusion. Single-endpoint
   // evaluation shares its test hooks with paired preview; configure before execution.
   EvaluationResult evaluateOwned(const OutputRef &endpoint, const EvaluationContext &context,
@@ -81,7 +83,8 @@ class RenderRuntime {
   void completeMutation(bool changed, bool interrupted) noexcept;
 
   void requestPreview(bool quiet);
-  void reportPreviewException(const std::shared_ptr<const OutputRef> &endpoint, int generation) noexcept;
+  void reportPreviewException(const std::shared_ptr<const OutputRef> &endpoint, int generation,
+                              uint64_t demand) noexcept;
   void queuePreview(bool quiet);        // mutex_ held; normal demand wins.
   bool cancelAndDrain(std::unique_lock<std::mutex> &lock);
 
@@ -114,6 +117,7 @@ class RenderRuntime {
   std::optional<uint64_t> statusPending_, statusBusy_;
   std::shared_ptr<const OutputRef> inspection_, pendingEndpoint_;
   bool overlayInspection_ = false; // Protected by mutex_, captured with each request.
+  uint64_t previewDemand_ = 0;      // mutex_ held; never advanced by worker execution.
   int mutationDepth_ = 0;
 
   // Evaluation reads cancellation without taking mutex_. Thread handles are

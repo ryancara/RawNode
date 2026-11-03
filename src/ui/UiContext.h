@@ -6,7 +6,8 @@
 void drawProcessorPicker(App &app);
 void drawInspector(App &app);
 void drawNodesPanel(App &app);
-void drawPreviewPanel(App &app);
+// Headless interaction tests replace only the GL upload boundary.
+void drawPreviewPanel(App &app, void (*upload)(App &) = nullptr);
 void drawFilmstripPanel(App &app);
 SaveFailureDecision promptSaveFailure(const std::string &error);
 void doExport(App &app);  // Choose a destination, then start the export job.

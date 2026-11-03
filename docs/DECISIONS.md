@@ -785,8 +785,8 @@ This deliberately supersedes D042's white-generator bypass rule and related hist
 
 ## D056 — Transient backend-neutral coordinate correspondence
 
-**Status:** Owner-approved; PR 1 foundation merged as #106, with the approved
-PR 2 OFX bounds/Crop declaration extension in draft #107 under final correction/review.
+**Status:** Owner-approved; PR 1 foundation merged as #106 and PR 2 OFX bounds/Crop
+declarations merged as #107. Draft #105 integrates Preview handles with this contract.
 
 Image and Mask remain raster-local (D039). Processors may explicitly report
 Identity, Affine or Unknown input-to-output correspondence in the result of the
@@ -804,8 +804,9 @@ and the result/publication lifetime contract.
 
 No saved raster-local graph values, Mask application, topology, scheduling or
 handle UI change. OFX bounds/Crop adaptation now follows this contract via a
-minimal optional Render suite; see `OFX_COORDINATES.md`. Preview handles,
-Overlay alignment and outward feathering remain separately scoped work.
+minimal optional Render suite; see `OFX_COORDINATES.md`. Preview handles consume
+published placements in draft #105. Transformed Overlay alignment and outward
+feathering remain separately scoped work.
 
 ## Pending decisions
 

@@ -24,6 +24,7 @@ class CoordinateMapping {
   CoordinateMapping then(const CoordinateMapping &next) const;
   CoordinateMapping inverse() const;  // Singular/non-finite inverse is Unknown.
   std::optional<std::pair<double, double>> map(double x, double y) const;
+  bool operator==(const CoordinateMapping &other) const;
 
  private:
   Kind kind_ = Kind::Unknown;
