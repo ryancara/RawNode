@@ -110,7 +110,7 @@ All generated samples are finite scalar coverage in `[0,1]`.
 - Preview toolbar offers optional coloured **Mask Overlay** and grayscale **Mask Only**, inspecting the selected Mask endpoint's actual final output; inactive shows no stale mask raster.
 - Inspector and handles edit the same parameters; a completed drag is one Undo step.
 - Reuse the existing requested-endpoint evaluator/runtime. An overlay requiring both final Image and Mask may require a bounded multi-endpoint publication extension, **not** another rendering system.
-- No silent automatic raster remapping through Crop, warp, or other geometry. D056 supplies backend-neutral transient coordinate metadata: undeclared equal-sized processing preserves coordinates, explicit declarations override it, and undeclared size changes are Unknown. Mask placement starts where the Image adjustment applies coverage, not at its Reference. Handles use this metadata and hide/qualify unknown or ambiguous placement without changing Mask samples or saved geometry. Transformed Overlay alignment remains separate.
+- No silent automatic raster remapping through Crop, warp, or other geometry. D056 supplies backend-neutral transient coordinate metadata: undeclared equal-sized processing preserves coordinates, explicit declarations override it, and undeclared size changes are Unknown. Mask placement starts where the Image adjustment applies coverage, not at its Reference. Handles and display-only Overlay share the published-placement resolver without changing Mask samples or saved geometry.
 
 ### Radial handles (implementation for independent review)
 
@@ -143,9 +143,10 @@ request demand interrupts stale gestures while their own accepted live edits ret
 one drag/Undo transaction. The internal execution epoch controls render cancellation
 and publication gates; idle history capture may advance it without changing demand
 or invalidating a correctly paired, current displayed image.
-Mask Only uses the selected Radial output's own frame. Overlay handles remain
-available for Identity placement; transformed Overlay alignment is deferred and
-asks the user to use Photo or Mask Only, without resampling or changing coverage.
+Mask Only uses the selected Radial output's own frame. Photo and Overlay handles
+share the same authoritative Identity/Affine placement. Overlay inverse-samples
+the published Mask raster; handles forward-map the saved geometry. During a live
+drag, published tint may lag live handles until the next asynchronous Preview.
 Missing Radials and protected/export-owned documents have no editable
 handles.
 
@@ -163,7 +164,19 @@ export numerical contracts above are unchanged.
 2. **Merged #98–#100: ordinary Image-node optional Effect Mask + Opacity, Normal mixing and interaction/status corrections.** Central evaluator wrapper; exact 0%/100% endpoints; deterministic Image dimensions/alpha/HDR behaviour; save, clipboard, history and preview/export equivalence. The same Opacity control applies to native, CTL and OFX Image processors. Existing raster-dimension checks govern mixing; separate OFX adapter follow-ups do not block Opacity exposure.
 3. **Merged #101: first native Radial Mask → Exposure.** The geometry above is the persisted convention. Add from the existing Native picker, wire Mask to Exposure, edit Centre X/Y, horizontal/vertical radius and Feather in the Inspector, and use existing enable/bypass. Shared sidecar/preset/full-grade transfers and history preserve parameters and topology. Copy Node/Paste supports a detached single Radial Mask, omitting external Reference as usual. Branched grade Append and arbitrary fragment attachment retain existing limitations; Replace/full-grade copy preserve the complete graph.
 4. **Merged #102: Mask Only preview.** Explicit Photo/Mask Only control beside Preview Resolution; eligibility follows declared typed Mask outputs. Reuse runtime inspection and scalar grayscale presentation, clear stale/inactive coverage, and return to Photo on ineligible selection or document replacement. Viewer mode is transient and does not change grades, history or export. Mask Overlay is the next focused slice; on-image handles remain separate.
-5. **Current slice: Mask Overlay preview (implemented for independent review and native macOS validation).** Add Mask Overlay to the same transient Preview mode control; Photo stays default. One bounded paired-endpoint evaluation plans document Image and selected final typed Mask together, shares upstream work and retains both roots. The existing runtime publishes both under one request identity/generation; display-only refresh reuses the pair. Tint the normal colour-managed RGBA8 presentation toward red at `0.4 * coverage`, preserving alpha and orientation, with no extra texture. Inactive/Unavailable/Error Mask results contribute no tint; preserve diagnostics and the current Image where available. Dimension mismatch explicitly hides coverage with an error, without resampling. Image failure clears the presentation. Selection retargeting, ineligible selection and document replacement follow Mask Only policy; export always uses document Image.
+5. **Mask Overlay preview and coordinate alignment (alignment implemented for independent review and native macOS validation).** Photo stays default. One bounded paired-endpoint evaluation plans document Image and selected final typed Mask together, shares upstream work and retains both roots. The runtime publishes both with placements under one request identity/generation; display-only refresh reuses the pair. Handles and Overlay call `resolveMaskPlacement()` on that Image result and the requested Mask output. Identity and invertible Affine are known, including differing raster dimensions; matching dimensions alone never establish correspondence. Identical multiple uses remain unambiguous. Any Unknown/singular use, conflicting uses or absent applied placement hide tint with an explanation while preserving the valid photograph. Unused/disconnected Masks remain inspectable in Mask Only; Reference alone never establishes Overlay placement. Alignment diagnostics do not turn a valid Mask or Image evaluation into Error. Inactive/Unavailable/Error Masks retain their existing diagnostics and contribute no stale tint. Image failure clears the presentation. Selection retargeting, ineligible selection and replacement follow Mask Only policy; export always uses document Image.
+
+   Overlay maps final lower-left normalized pixel centres through the inverse
+   published `maskToImage`, then bilinearly samples bottom-up Mask coordinates
+   `(u*W-0.5,v*H-0.5)`. Outside the closed `[0,1]` domain is empty; missing taps
+   are zero, including within half a pixel of the boundary. No edge extrusion.
+   Non-finite coordinates/samples contribute zero and coverage is bounded.
+   Equal-size Identity preserves the original samples and presentation exactly.
+   Apply the existing red tint at `0.4*coverage` to the normal colour-managed,
+   top-down RGBA8 photograph, preserving alpha and using the existing pass/texture.
+   This never changes Mask generation, applied coverage, Strength or export.
+   Numerical oracles and native checks are in
+   [MASK_OVERLAY_VALIDATION.md](MASK_OVERLAY_VALIDATION.md).
 6. **Follow-up: binary Combine, then Invert/Blur**, after fractional maths and unavailable-input details are reviewed. Later Linear, Qualifier, Image-to-Mask, DCTL and advanced selection tools.
 
 PR 1 acceptance should cover: disabled generator -> optional Image Effect Mask (global, no inactivity warning); disabled generator -> test-only unary Mask modifier -> Effect Mask (still Inactive); Inactive versus Available black/white and versus Unavailable (warning); bypassed generator ignores missing/unavailable Reference/analysis data and bypassed missing backend gives no evaluation warning, while invalid stored cycles still fail structural validation; shared fan-out; **test-only multiple-output nodes where Image outputs pass through and Mask outputs without pass-through become Inactive**; execution rejects producer/executor-supplied Inactive; Image results can never be Inactive; inactive inspection clears stale content and does not report failure; **quiet inactive preview restoration preserves Export complete / other meaningful status**; full self-tests and appropriate sanitizers. Tests must catch accidental restoration of the former white-bypass behaviour.
@@ -185,4 +198,4 @@ allowing high-cost problems to accumulate until Step 9.
 
 ## Deferred, not implicit approvals
 
-Exact fractional coverage combination equations (particularly soft masks), advanced masks/AI, mask Gain, generic Mask-output Effect Mask, auto Image-to-Mask connection conversion, HDR non-Normal Image blend maths, general alpha association and compositing, non-unit OFX render-scale/internal-mask policy, transformed Overlay alignment and multiple automatic Combine slots. Introduce any future capability via a focused, reviewed contract rather than assumptions in processor code.
+Exact fractional coverage combination equations (particularly soft masks), advanced masks/AI, mask Gain, generic Mask-output Effect Mask, auto Image-to-Mask connection conversion, HDR non-Normal Image blend maths, general alpha association and compositing, non-unit OFX render-scale/internal-mask policy and multiple automatic Combine slots. Introduce any future capability via a focused, reviewed contract rather than assumptions in processor code.

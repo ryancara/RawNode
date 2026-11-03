@@ -17,11 +17,13 @@
 #include "GraphPersistenceTests.h"
 #include "GraphViewTests.h"
 #include "PreviewInteractionTests.h"
+#include "MaskOverlayTests.h"
 
 #include <cstring>
 #include <string>
 
 int main(int argc, char **argv) {
+  if (argc > 1 && std::string(argv[1]) == "--selftest-mask-overlay") return runMaskOverlayTests();
   if (argc > 1 && std::string(argv[1]) == "--selftest-preview-interaction") return runPreviewInteractionTests();
   if (argc > 1 && std::string(argv[1]) == "--selftest-ofx-coordinates") return runOfxCoordinateTests();
   if (argc > 1 && std::string(argv[1]) == "--selftest-graph-view") return testGraphView() ? 0 : 1;

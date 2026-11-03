@@ -113,6 +113,7 @@ add_executable(OfxRawHost
   tests/PresetClipboardTests.cpp
   tests/GraphCommandsTests.cpp
   tests/NativeRadialMaskTests.cpp
+  tests/MaskOverlayTests.cpp
   tests/PreviewInteractionTests.cpp
   tests/GraphEvaluatorTests.cpp
   tests/GraphRuntimeTests.cpp

@@ -216,7 +216,9 @@ under that same publication identity (D056). Processors may declare geometry in
 their render result; undeclared equal-sized processing defaults to Identity.
 Per-consumer Mask placements start where coverage is applied and compose through
 downstream processing. Unknown/ambiguous geometry does not change raster rendering
-or saved Mask values. Preview handle/Overlay integration remains separate.
+or saved Mask values. Merged #105 handles and draft #108 coordinate-aware Overlay
+consume the same published placement resolution; Overlay inverse sampling is
+display-only and does not change evaluation-time Mask pixels.
 The runtime owns **when** evaluation may execute safely, not what the document
 or export means. List View was included in the completed independent Step 6
 review; Step 7 has replaced its temporary V2 persistence boundary with the
@@ -599,23 +601,26 @@ need.
 
 ## Current development phase
 
-The coordinate/Mask-handle work follows three focused stages:
+The coordinate/Mask-handle work follows four focused stages:
 
 1. PR #106 — backend-neutral coordinate correspondence, merged.
 2. PR #107 — OFX bounds correctness and bundled Crop coordinate declarations,
    merged; legacy Crop sizing and sampling retained.
-3. Draft PR #105 — interactive Radial Mask handles using the published mapping
-   contract, under implementation/review on the merged foundations.
+3. PR #105 — interactive Radial Mask handles using the published mapping
+   contract, merged.
+4. Draft PR #108 — coordinate-aware Mask Overlay alignment using the same
+   published placement resolution as handles, under final correction/review.
 
-Mask Overlay alignment follows the same architecture. Outward feathering is a
-separate product change, not part of these coordinate or handle corrections.
-Mapped Photo handles use all relevant placements from the displayed evaluation;
-Mask Only stays in its own raster. Transformed Overlay alignment remains a
-separate follow-up, without changing coverage pixels in the handle PR.
+Mask Overlay alignment in #108 follows the same architecture. Outward feathering
+is a separate product change, not part of these coordinate or handle corrections.
+Photo and Overlay handles use all relevant placements from the displayed
+evaluation; Mask Only stays in its own raster. Overlay inverse-samples coverage
+through the resolved mapping without changing evaluated Mask pixels or saved geometry.
 Focused acceptance and native GUI checks are in
-[RADIAL_HANDLES_VALIDATION.md](RADIAL_HANDLES_VALIDATION.md).
+[RADIAL_HANDLES_VALIDATION.md](RADIAL_HANDLES_VALIDATION.md) and
+[MASK_OVERLAY_VALIDATION.md](MASK_OVERLAY_VALIDATION.md).
 
-**Step 8 in progress (2026-10-29):** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#102 are merged, including native Radial Mask → Exposure and Mask Only preview, with owner-reported independent Claude review and native macOS GUI validation for #102. Photo remains the default; selection can retarget active Mask inspection or restore Photo, and photo/grade replacement resets the transient view. Viewer mode stays outside grades, history and export. Mask Overlay is implemented for independent review and native macOS validation: one paired evaluation shares Image/Mask dependencies and publishes both under the existing request/generation gate; the display path adds a fixed red tint and retains the pair for processor-free colour refresh. Mask failures hide coverage with diagnostics while retaining the current processed photograph where available; mismatched rasters are never resampled. Non-AI masking workflows remain the priority; on-image handles, other geometry and freeform generators, Combine/modifiers and basic qualifiers/conversion follow as independently scoped features. CTL/future DCTL remain Image-producing. Step 9's approved whole-codebase audit follows the agreed Step 8 exit gate; SAM/AI masking is deferred without a scheduled milestone.
+**Step 8 in progress:** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#102 are merged, including native Radial Mask → Exposure and Mask Only preview, with owner-reported independent Claude review and native macOS GUI validation for #102. Photo remains the default; selection can retarget active Mask inspection or restore Photo, and photo/grade replacement resets the transient view. Viewer mode stays outside grades, history and export. Radial handles are merged as #105; coordinate-aware Overlay alignment is the current draft #108, under final correction/review with native macOS GUI validation outstanding. One paired evaluation shares Image/Mask dependencies and publishes both under the existing request/generation gate; the display path adds a fixed red tint and retains the pair for processor-free colour refresh. Mask failures hide coverage with diagnostics while retaining the current processed photograph where available. Evaluation-time Mask pixels remain unchanged; display-only inverse sampling supports differently sized Image/Mask rasters when published placement is known and invertible. Non-AI masking workflows remain the priority; other geometry and freeform generators, Combine/modifiers and basic qualifiers/conversion follow as independently scoped features. CTL/future DCTL remain Image-producing. Step 9's approved whole-codebase audit follows the agreed Step 8 exit gate; SAM/AI masking is deferred without a scheduled milestone.
 
 Undo/Redo design and behaviour are approved in D053. Stage 1 was independently
 reviewed, approved and merged in PR #92 at

@@ -1,14 +1,16 @@
 # Radial handles: mapping and interaction validation
 
-Draft PR #105 builds on merged #106/#107. Handles consume the evaluated Image's
-Mask placements; no UI reconstruction from processor parameters or Reference
-traversal is used. Source, Mask, Crop and Strength pixel processing are unchanged.
+Merged PR #105 builds on merged #106/#107; draft #108 extends the same published
+placement resolution to coordinate-aware Overlay. Handles consume the evaluated
+Image's Mask placements; no UI reconstruction from processor parameters or
+Reference traversal is used. Source, Mask, Crop and Strength pixel processing are unchanged.
 
 ## Visible behaviour
 
-- Photo handles follow known, invertible Image mappings through native, CTL and
-  OFX processing. All matching consumers must agree exactly; Unknown, singular,
-  different or absent placements hide handles with a reason in the Preview.
+- Photo and Overlay handles follow known, invertible Image mappings through
+  native, CTL and OFX processing. All matching consumers must agree exactly;
+  Unknown, singular, different or absent placements hide handles with a reason
+  in the Preview.
 - Ellipse outlines and radius/feather grips follow full affine geometry, including
   reflection, rotation and shear. Pointer displacement is inverse-mapped; handle
   hit targets and leader separation retain fixed screen-pixel sizes.
@@ -24,9 +26,10 @@ traversal is used. Source, Mask, Crop and Strength pixel processing are unchange
   The internal execution epoch controls rendering/cancellation and publication
   gates. Idle history/Copy capture can advance that epoch without changing demand
   or invalidating the current display. Texture/result pairing remains mandatory.
-- Mask Only edits its own raster. Identity Overlay handles remain available;
-  transformed Overlay alignment is deferred, with a message to use Photo or Mask
-  Only. Overlay coverage is not resampled or changed.
+- Mask Only edits its own raster. Photo and transformed Overlay handles share
+  the resolved published mapping; Overlay inverse-samples coverage for display
+  while evaluated Mask pixels and saved geometry remain unchanged. Live handles
+  may lead the published tint until the next asynchronous Preview update.
 
 ## Automated evidence
 
@@ -59,8 +62,9 @@ Mask application, persistence and publication contract.
 ## Recommended native macOS GUI checks
 
 1. Select a Radial Mask on an Exposure at +1 EV, then apply Crop 50%, X=50%,
-   Y=-100%. In Photo mode, confirm the controls follow the visible adjustment;
-   drag centre, each radius and feather. Repeat with two downstream Crops.
+   Y=-100%. In Photo, confirm the controls follow the visible adjustment. In
+   Mask Overlay, confirm aligned tint and controls. Drag centre, each radius
+   and feather. Repeat with two downstream Crops.
    Keep the mouse held through multiple Preview updates: every pointer movement
    must be accepted and the whole continuous movement must remain one Undo step.
    After release or Escape, wait for Preview completion and start another drag;
@@ -81,8 +85,9 @@ Mask application, persistence and publication contract.
    grade, Preview mode and export ownership during a drag; no stale gesture may
    modify a replacement document.
 7. Check the placement explanation for unused/disabled Masks, unknown geometry
-   and differing shared placements. In transformed Overlay, verify the deferral
-   message; Photo/Mask Only remain available and Overlay pixels stay unchanged.
+   and differing shared placements. Unsupported alignment must hide tint and
+   handles while retaining any valid photo; Mask Only remains available. Restore
+   a known Crop placement and confirm aligned tint and handles return together.
 
 Affine and shared-placement edge cases also use explicit synthetic publications,
 keeping their geometry expectations independent of backend rendering. Crop and

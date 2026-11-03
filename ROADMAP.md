@@ -325,11 +325,15 @@ Do not replace LibRaw without a measured benefit.
 ## Masks and local adjustments
 
 Coordinate/handle sequence: merged PR #106 (backend-neutral correspondence),
-merged PR #107 (OFX bounds/Crop declarations), then draft PR #105 (Radial Mask
-handles using published placements, under implementation/review). See
+merged PR #107 (OFX bounds/Crop declarations), then merged PR #105 (Radial Mask
+handles using published placements). See
 [project context](docs/PROJECT_CONTEXT.md#current-development-phase).
-Mask Overlay alignment follows the same architecture; outward feathering is a
-separate product change.
+Coordinate-aware Mask Overlay alignment is implemented for independent review:
+handles and tint share one published-placement resolver, with inverse bilinear
+display sampling through Crop and other known Affines. Unknown, conflicting or
+absent placement hides tint with an explanation. See
+[validation and native checklist](docs/MASK_OVERLAY_VALIDATION.md).
+Outward feathering remains a separate product change.
 
 **Step 8 in progress:** PRs #97–#102 are merged, including Inactive bypass, Image Mask/Opacity, native Radial Mask → Exposure and Mask Only inspection. Photo remains the default, and explicit Mask Only inspects the selected typed Mask output through the existing runtime.
 

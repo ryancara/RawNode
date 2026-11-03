@@ -330,14 +330,18 @@ void RenderRuntime::runPreview() {
         result = std::move(pair.first);
         overlayMask = std::move(pair.second);
         if (result.state == EvaluationState::Available && overlayMask->state == EvaluationState::Available) {
-          const auto &image = std::get<ImageValue>(result.value);
-          const auto &mask = std::get<MaskValue>(overlayMask->value);
-          if (image->w != mask->w || image->h != mask->h) {
-            overlayMask->state = EvaluationState::Error;
-            overlayMask->value = std::monostate{};
-            overlayMask->diagnostics.push_back({DiagnosticLevel::Error, *endpoint,
-                                               "Mask Overlay Image/Mask dimension mismatch; overlay hidden"});
+          const auto placement = resolveMaskPlacement(result, overlayMask->requested);
+          const char *message = nullptr;
+          switch (placement.state) {
+            case MaskPlacementState::Identity: case MaskPlacementState::Affine: break;
+            case MaskPlacementState::Unknown:
+              message = "Mask Overlay hidden: the image position cannot be established"; break;
+            case MaskPlacementState::Ambiguous:
+              message = "Mask Overlay hidden: this Mask appears in different image positions"; break;
+            case MaskPlacementState::Absent:
+              message = "Mask Overlay hidden: this Mask is not applied in this Preview"; break;
           }
+          if (message) overlayMask->diagnostics.push_back({DiagnosticLevel::Warning, *endpoint, message});
         }
       } else result = evaluateOwned(*endpoint, context, source, cancellation);
       if (result.state == EvaluationState::Cancelled || cancellation.cancelled()) continue;

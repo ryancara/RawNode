@@ -3,8 +3,31 @@
 
 #include <GLFW/glfw3.h>
 #include <algorithm>
+#include <cmath>
 
 static void uploadTextureRGBA(App &app, const unsigned char *rgba, int w, int h);
+
+namespace {
+float boundedCoverage(float coverage) {
+  return std::isfinite(coverage) ? std::clamp(coverage, 0.0f, 1.0f) : 0.0f;
+}
+
+// Normalized lower-left edge coordinates -> bottom-up pixel-centre lattice.
+// Outside the domain is empty; inside, missing bilinear taps are also zero.
+// Never extend boundary coverage by clamping sample coordinates to the edge.
+float sampleCoverage(const Mask &mask, double u, double v) {
+  if (!std::isfinite(u) || !std::isfinite(v) || u < 0 || u > 1 || v < 0 || v > 1) return 0;
+  const double x = u * mask.w - .5, y = v * mask.h - .5;
+  const int x0 = int(std::floor(x)), y0 = int(std::floor(y));
+  const double fx = x - x0, fy = y - y0;
+  const auto tap = [&](int i, int j) {
+    return i < 0 || i >= mask.w || j < 0 || j >= mask.h ? 0.0f
+        : boundedCoverage(mask.px[size_t(j) * mask.w + i]);
+  };
+  return boundedCoverage(float((1 - fy) * ((1 - fx) * tap(x0, y0) + fx * tap(x0 + 1, y0)) +
+                                    fy * ((1 - fx) * tap(x0, y0 + 1) + fx * tap(x0 + 1, y0 + 1))));
+}
+}
 
 ProcessorResult renderChain(App &app, const Image &src, Image &out, const RenderCancellation &cancellation) {
   const EvaluationContext context{EvaluationPurpose::Inspection, src.w, src.h, src.w, src.h};
@@ -68,10 +91,20 @@ display_detail::Presentation display_detail::preparePresentation(
   if (overlayMask && overlayMask->state == EvaluationState::Available &&
       std::holds_alternative<ImageValue>(result.value)) {
     const auto *mask = std::get_if<MaskValue>(&overlayMask->value);
-    if (mask && *mask && (*mask)->w == w && (*mask)->h == h) {
+    const auto placement = resolveMaskPlacement(result, overlayMask->requested);
+    const auto imageToMask = placement.maskToImage.inverse();
+    if (mask && *mask && (*mask)->w > 0 && (*mask)->h > 0 &&
+        (*mask)->px.size() / size_t((*mask)->h) == size_t((*mask)->w) &&
+        (*mask)->px.size() % size_t((*mask)->h) == 0 &&
+        imageToMask.kind() != CoordinateMapping::Kind::Unknown) {
+      const bool direct = placement.state == MaskPlacementState::Identity && (*mask)->w == w && (*mask)->h == h;
       for (int y = 0; y < h; ++y)
         for (int x = 0; x < w; ++x) {
-          const float amount = 0.4f * (*mask)->px[static_cast<size_t>(h - 1 - y) * w + x];
+          float coverage = 0;
+          if (direct) coverage = boundedCoverage((*mask)->px[static_cast<size_t>(h - 1 - y) * w + x]);
+          else if (const auto point = imageToMask.map((x + .5) / w, (h - y - .5) / h))
+            coverage = sampleCoverage(**mask, point->first, point->second);
+          const float amount = 0.4f * coverage;
           const size_t i = (static_cast<size_t>(y) * w + x) * 4;
           for (size_t channel = 0; channel < 3; ++channel) {
             const float target = channel == 0 ? 255.0f : 0.0f;

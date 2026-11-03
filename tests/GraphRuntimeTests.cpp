@@ -652,6 +652,7 @@ static bool testOverlayPresentation() {
   auto coverage = std::make_shared<Mask>(); coverage->w = 3; coverage->h = 2;
   coverage->px = {1,.5f,0, 0,.5f,1};
   EvaluationResult imageResult{image(output), ValueType::Image, EvaluationState::Available, ImageValue(photo), {}};
+  imageResult.maskPlacements.push_back({mask(selected), input(output,ports::mask), CoordinateMapping::identity()});
   EvaluationResult maskResult{mask(selected), ValueType::Mask, EvaluationState::Available, MaskValue(coverage), {}};
   const auto presentation = display_detail::preparePresentation(app, imageResult, maskResult);
   // Top row is blue, bottom row green. Alpha is never tinted or used as coverage.
@@ -663,7 +664,8 @@ static bool testOverlayPresentation() {
     CHECK(display_detail::preparePresentation(app, imageResult, maskResult).rgba ==
           display_detail::preparePresentation(app, imageResult).rgba);
   }
-  // Unmatched rasters never acquire a spatial mapping, even in display refresh.
+  // An unused Mask has no placement, irrespective of its raster dimensions.
+  imageResult.maskPlacements.clear();
   coverage->w = 2; coverage->h = 3;
   maskResult.state = EvaluationState::Available; maskResult.value = MaskValue(coverage);
   CHECK(display_detail::preparePresentation(app, imageResult, maskResult).rgba ==
@@ -737,6 +739,86 @@ static bool testCoordinatePublication() {
   return true;
 }
 
+static bool testOverlayCoordinateRuntime() {
+  App app; Gate gate;
+  app.full = raster(4,2); app.preview = std::make_shared<Image>(app.full);
+  app.outputEncoding = {RgbGamut::Rec709,TransferFunction::SRGB};
+  const NodeId effect{"overlay-applied"}, move{"overlay-move"};
+  CHECK(numeric(app,effect));
+  CHECK(addNativeRadialMaskNode(app)); const auto radial = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app,radial,"radiusX",2.0) && setNodeParameterValue(app,radial,"radiusY",2.0));
+  CHECK(setNodeParameterValue(app,radial,"feather",0.0));
+  CHECK(graph::connect(app,mask(radial),input(effect,ports::mask)).ok());
+  auto *transform = numeric(app,move); CHECK(transform);
+  transform->mapping = CoordinateMapping::affine(1,0,.25,0,1,0);
+  CHECK(selectNode(app,radial));
+  RenderRuntimeTestAccess::publication(app.renderer,[](void *context,const OutputRef &) {
+    static_cast<Gate *>(context)->hold();
+  },&gate);
+  GateWorkerGuard guard{app,gate};
+  app.renderer.start(); CHECK(setPreviewMode(app,PreviewMode::MaskOverlay) && idle(app));
+  const auto shifted = publication(app);
+  CHECK(resolveMaskPlacement(shifted.result,mask(radial)).state == MaskPlacementState::Affine);
+  { std::lock_guard<std::mutex> lock(app.displayMutex);
+    for (int i = 0; i < 8; ++i) {
+      const int expected[] = {i%4 == 0 ? 64 : 140,i%4 == 0 ? 64 : 38,i%4 == 0 ? 64 : 38,191};
+      for (int c = 0; c < 4; ++c) CHECK(std::abs(int(app.displayRGBA[i*4+c])-expected[c]) <= (c == 3 ? 0 : 1));
+    }
+  }
+  const auto calls = transform->calls.load();
+  const auto demand = app.renderer.previewDemand();
+  { std::lock_guard<std::mutex> lock(app.colorMutex); app.outputEncoding.gamma = TransferFunction::Linear; }
+  app.renderer.requestDisplayRefresh(); CHECK(idle(app));
+  CHECK(transform->calls == calls && publication(app).generation == shifted.generation &&
+        publication(app).request == shifted.request && app.renderer.previewDemand() == demand);
+  { std::lock_guard<std::mutex> lock(app.displayMutex);
+    for (int i = 0; i < 8; ++i) {
+      const int expected[] = {i%4 == 0 ? 137 : 184,i%4 == 0 ? 137 : 82,i%4 == 0 ? 137 : 82,191};
+      for (int c = 0; c < 4; ++c) CHECK(std::abs(int(app.displayRGBA[i*4+c])-expected[c]) <= (c == 3 ? 0 : 1));
+    }
+  }
+  // Two real consumers of the same Mask disagree after a downstream move.
+  const NodeId second{"overlay-second-consumer"};
+  CHECK(numeric(app,second) && graph::connect(app,mask(radial),input(second,ports::mask)).ok() && idle(app));
+  auto shared = publication(app);
+  CHECK(resolveMaskPlacement(shared.result,mask(radial)).state == MaskPlacementState::Ambiguous);
+  CHECK(diagnostic(*shared.overlayMask,"different image positions") && app.getStatus().find("different image positions") != std::string::npos);
+  { const auto background = display_detail::preparePresentation(app,shared.result);
+    std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA == background.rgba); }
+  transform->mapping = CoordinateMapping::identity(); app.renderer.requestPreview(); CHECK(idle(app));
+  shared = publication(app);
+  CHECK(shared.result.maskPlacements.size() == 2 && resolveMaskPlacement(shared.result,mask(radial)).state == MaskPlacementState::Identity);
+  CHECK(!diagnostic(*shared.overlayMask,"different image positions"));
+  transform->mapping = CoordinateMapping::affine(1,0,.25,0,1,0);
+  CHECK(setNodeStrength(app,second,0) && idle(app));
+  for (auto mapping : {CoordinateMapping::unknown(),CoordinateMapping::affine(0,0,0,0,1,0)}) {
+    transform->mapping = mapping; app.renderer.requestPreview(); CHECK(idle(app));
+    const auto frame = publication(app);
+    CHECK(frame.result.state == EvaluationState::Available && frame.overlayMask->state == EvaluationState::Available);
+    CHECK(diagnostic(*frame.overlayMask,"cannot be established") && app.getStatus().find("cannot be established") != std::string::npos);
+    const auto background = display_detail::preparePresentation(app,frame.result);
+    std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA == background.rgba);
+  }
+  transform->mapping = CoordinateMapping::affine(1,0,.25,0,1,0);
+  app.renderer.requestPreview(); CHECK(idle(app));
+  const auto previous = publication(app);
+  gate.arm(); app.renderer.requestPreview(); CHECK(gate.wait(1));
+  // Supersede a completed Image/Mask presentation with both new geometry and
+  // new coverage. Neither endpoint nor its placement may leak across the gate.
+  CHECK(setNodeStrength(app,move,0) && setNodeParameterValue(app,radial,"radiusX",0.0));
+  gate.unblock(); CHECK(idle(app));
+  const auto current = publication(app);
+  CHECK(current.generation > previous.generation && current.demand == app.renderer.previewDemand());
+  CHECK(current.generation == RenderRuntimeTestAccess::snapshot(app.renderer).epoch);
+  CHECK(resolveMaskPlacement(current.result,mask(radial)).state == MaskPlacementState::Identity);
+  CHECK(resolveMaskPlacement(previous.result,mask(radial)).state == MaskPlacementState::Affine);
+  CHECK(std::get<MaskValue>(previous.overlayMask->value)->px[0] == 1);
+  CHECK(std::get<MaskValue>(current.overlayMask->value)->px[0] == 0);
+  { const auto background = display_detail::preparePresentation(app,current.result);
+    std::lock_guard<std::mutex> lock(app.displayMutex); CHECK(app.displayRGBA == background.rgba); }
+  return true;
+}
+
 static bool testOverlayRuntime() {
   OverlayExecutor executor; App app; source(app);
   app.outputEncoding = {RgbGamut::Rec709, TransferFunction::SRGB};
@@ -758,11 +840,11 @@ static bool testOverlayRuntime() {
   CHECK(frame.overlayMask->state == EvaluationState::Available &&
         std::get<MaskValue>(frame.overlayMask->value)->px[0] == .75f); // Final inverted coverage, not generator .25.
   CHECK(std::get<ImageValue>(frame.result.value)->px == std::vector<float>({.5f,.5f,.5f,.75f}));
-  // lcms versions can round the colour-managed background one byte apart.
-  // Bound RGB variation only; alpha and the separate overlay maths oracle stay exact.
+  // Reference to the final Image does not establish an applied placement.
+  CHECK(diagnostic(*frame.overlayMask,"not applied") && app.getStatus().find("not applied") != std::string::npos);
   { std::lock_guard<std::mutex> lock(app.displayMutex);
     CHECK(app.displayRGBA.size() == 4 && app.displayRGBA[3] == 191);
-    const int expected[] = {166,90,90};
+    const int expected[] = {128,128,128};
     for (size_t channel = 0; channel < 3; ++channel)
       CHECK(std::abs(int(app.displayRGBA[channel]) - expected[channel]) <= 1);
   }
@@ -771,10 +853,10 @@ static bool testOverlayRuntime() {
   app.renderer.requestDisplayRefresh(); CHECK(idle(app));
   CHECK(processor->calls == calls && executor.calls == maskCalls && publication(app).request == frame.request &&
         publication(app).generation == frame.generation);
-  // sRGB encode(.5) is approximately 188; .3 tint gives (208,132,132).
+  // Display refresh retains the absent-placement decision with the pair.
   { std::lock_guard<std::mutex> lock(app.displayMutex);
     CHECK(app.displayRGBA.size() == 4 && app.displayRGBA[3] == 191);
-    const int expected[] = {208,132,132};
+    const int expected[] = {188,188,188};
     for (size_t channel = 0; channel < 3; ++channel)
       CHECK(std::abs(int(app.displayRGBA[channel]) - expected[channel]) <= 1);
   }
@@ -801,7 +883,7 @@ static bool testOverlayRuntime() {
   CHECK(idle(app) && app.getStatus() == "Export complete");
   setNodeEnabled(app, generator, true); executor.mismatch = true; app.renderer.requestPreview(); CHECK(idle(app));
   frame = publication(app);
-  CHECK(frame.overlayMask->state == EvaluationState::Error && diagnostic(*frame.overlayMask, "dimension mismatch"));
+  CHECK(frame.overlayMask->state == EvaluationState::Available && diagnostic(*frame.overlayMask, "not applied"));
   { std::lock_guard<std::mutex> lock(app.displayMutex);
     CHECK(app.displayRGBA == display_detail::preparePresentation(app, frame.result).rgba); }
   executor.mismatch = false; processor->fail = true; app.renderer.requestPreview(); CHECK(idle(app));
@@ -830,6 +912,11 @@ static bool testOverlayRuntime() {
   frame = publication(app);
   CHECK(std::get<ImageValue>(frame.result.value)->px[0] == .4375f);
   CHECK(std::get<MaskValue>(frame.overlayMask->value)->px[0] == .75f);
+  CHECK(resolveMaskPlacement(frame.result,mask(modifier)).state == MaskPlacementState::Identity);
+  CHECK(!diagnostic(*frame.overlayMask,"not applied"));
+  { const auto background = display_detail::preparePresentation(app,frame.result);
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    CHECK(app.displayRGBA[0] > background.rgba[0] && app.displayRGBA[1] < background.rgba[1]); }
   // One operation with Image+Mask outputs also shares execution and retains
   // both typed outputs, even when each is consumed on the Image path.
   const NodeId bundle{"overlay-bundle"};
@@ -1842,6 +1929,7 @@ bool testGraphRuntime() {
       {"Coordinate metadata follows image generations, retained display refresh and supersession", testCoordinatePublication},
       {"Mask Overlay leaves grade/history/view/export unchanged and resets on replacement", testOverlayDocumentBoundaries},
       {"Mask Overlay display byte maths, colour, orientation, alpha and mismatch", testOverlayPresentation},
+      {"Mask Overlay transformed colour refresh, alignment diagnostics and paired supersession", testOverlayCoordinateRuntime},
       {"Mask Overlay shared endpoints, final coverage, retained colour refresh and safe failures", testOverlayRuntime},
       {"Mask Overlay paired publication rejects stale selection, mode, edits and display work", testOverlaySupersession},
       {"Interrupted normal preview retains status intent; quiet export restoration and newer messages remain protected", testInterruptedPreviewStatus},
