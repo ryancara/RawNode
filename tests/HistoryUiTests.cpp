@@ -212,7 +212,8 @@ bool radialInspectorGestures() {
   CHECK(openPath(app, files.photo("radial.png")) && addNativeRadialMaskNode(app));
   const auto id = *app.selectedNodeId();
   const auto feather = [&] { return std::get<double>(findNode(app, id)->processor->parameters()[4].value); };
-  ui.tick(app); ui.tick(app); // The last Inspector row is Feather.
+  std::snprintf(app.paramFilter, sizeof app.paramFilter, "Feather");
+  ui.tick(app); ui.tick(app); // Select Feather independently of later processor parameters.
   const auto row = ui.item;
   const auto before = app.history.size();
   ui.hover(app, row.GetCenter()); ImGui::GetIO().AddMouseButtonEvent(0, true); ui.tick(app);
@@ -232,9 +233,11 @@ bool radialInspectorGestures() {
   CHECK(feather() == .375 && !app.parameterGesture);
   CHECK(app.history.undo(app) && feather() == dragged);
   CHECK(app.history.redo(app) && feather() == .375);
+  app.paramFilter[0] = '\0';
   ui.full = true; ui.tick(app); ui.tick(app);
   CHECK(ui.log.find("Radial Mask") != std::string::npos && ui.log.find("Centre X") != std::string::npos);
   CHECK(ui.log.find("Horizontal radius") != std::string::npos && ui.log.find("Feather") != std::string::npos);
+  CHECK(ui.log.find("Invert") != std::string::npos);
   CHECK(ui.log.find("Opacity") == std::string::npos);
   return true;
 }
