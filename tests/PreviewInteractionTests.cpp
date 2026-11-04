@@ -904,8 +904,9 @@ bool appendCrop(App &app,const char *id,double amount = 0,double x = 0,double y 
   return graph::insertImageNode(app,std::move(crop)).ok();
 }
 
-bool realCropPlacements() {
+bool realCropPlacements(bool invert) {
   App app; Ui ui; CHECK(fixture(app)); const auto mask = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app,mask,"invert",invert));
   CHECK(appendCrop(app,"crop-a",50,50,-100)); selectNode(app,mask); ui.tick(app); ui.tick(app);
   auto placement = ui::radialPlacement(app); CHECK(placement.state == ui::PlacementState::Ready);
   // [12,0,28,8] in 32x16 -> 16x8. The normalized map is identical
@@ -922,7 +923,8 @@ bool realCropPlacements() {
   for (int y = 0; y < 8; ++y) for (int x = 0; x < 16; ++x) {
     const double d = std::hypot(((12+x+.5)/32-.5)/.25,((y+.5)/16-.5)/.25);
     const double t = std::clamp(2*(1-d),0.0,1.0);
-    const float amount = .4f*float(t*t*(3-2*t));
+    const double ordinary = t*t*(3-2*t);
+    const float amount = .4f*float(invert ? 1-ordinary : ordinary);
     const size_t i = (size_t(7-y)*16+x)*4;
     for (int c = 0; c < 3; ++c) {
       const float target = c == 0 ? 255.0f : 0.0f;
@@ -1008,7 +1010,7 @@ bool testPreviewInteraction() {
 
 
 bool testPreviewCoordinatePlacement() {
-  if (!realCropPlacements() || !sameSizeBackends() ||
+  if (!realCropPlacements(false) || !realCropPlacements(true) || !sameSizeBackends() ||
       !liveWorkerHandleDrag(false,false,false,true,true) || !liveWorkerHandleDrag(true,false,true,true,true)) return false;
   std::printf("ok  Preview real Crop/CTL placement, inverse edits, Reference and resolution\n");
   return true;

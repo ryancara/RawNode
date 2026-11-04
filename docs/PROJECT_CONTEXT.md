@@ -601,6 +601,10 @@ need.
 
 ## Current development phase
 
+Native Radial Mask supports **Invert** (Boolean processor parameter `invert`,
+default false). See [the masking contract](STEP8_MASKING_CONTRACT.md#native-radial-mask-geometry)
+for coverage semantics and the generator-specific inversion decision.
+
 The coordinate/Mask-handle work follows four focused stages:
 
 1. PR #106 — backend-neutral coordinate correspondence, merged.

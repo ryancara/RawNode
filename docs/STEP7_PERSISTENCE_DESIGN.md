@@ -132,7 +132,11 @@ Node records follow the existing model:
   `backend: "native"`, `identifier: "rawnode.native.radial-mask"`, boolean
   `enabled`, and the shared `params`/`inputs` objects. Its persisted numeric
   parameters are `centreX`, `centreY`, `radiusX`, `radiusY` and `feather`;
-  geometry/defaults/limits are specified in [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md).
+  Boolean `invert` defaults to false when absent. It uses ordinary processor
+  parameter restoration: saved non-Boolean values fail strict restoration,
+  while unavailable processors preserve the raw JSON. Sidecars, presets,
+  clipboard and history share this representation; reset restores false.
+  Geometry, defaults, limits and the inversion decision are specified in [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md).
   `inputs.reference` is an optional Image binding (null/unconnected uses Source).
   The operation declares a typed Mask output; no raster is saved. Generic
   `strength`/Opacity is absent and is not an accepted field on this record.

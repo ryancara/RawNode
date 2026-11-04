@@ -26,6 +26,7 @@ class NativeRadialMaskProcessor final : public Processor {
 
  private:
   // Ordinary parameter edits can overlap an obsolete preview, as for Exposure.
-  // Each generation reads the five scalars once; a new preview settles edits.
+  // Each generation reads its parameters once; a new preview settles edits.
   std::array<std::atomic<double>, 5> values_;
+  std::atomic<bool> invert_{false};
 };

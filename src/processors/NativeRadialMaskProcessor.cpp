@@ -36,10 +36,22 @@ std::vector<ProcessorParameter> NativeRadialMaskProcessor::parameters() const {
     param.step = 0.01;
     result.push_back(std::move(param));
   }
+  ProcessorParameter invert;
+  invert.id = "invert"; invert.label = "Invert";
+  invert.type = ParameterType::Boolean;
+  invert.value = invert_.load(std::memory_order_relaxed);
+  invert.defaultValue = false;
+  result.push_back(std::move(invert));
   return result;
 }
 
 bool NativeRadialMaskProcessor::setParameterValue(const std::string &id, const ParameterValue &value, bool) {
+  if (id == "invert") {
+    const auto *enabled = std::get_if<bool>(&value);
+    if (!enabled) return false;
+    invert_.store(*enabled, std::memory_order_relaxed);
+    return true;
+  }
   const auto *number = std::get_if<double>(&value);
   if (!number || !std::isfinite(*number)) return false;
   for (size_t i = 0; i < values_.size(); ++i) if (id == specs[i].id) {
@@ -50,6 +62,7 @@ bool NativeRadialMaskProcessor::setParameterValue(const std::string &id, const P
 }
 
 bool NativeRadialMaskProcessor::resetParameter(const std::string &id, bool notify) {
+  if (id == "invert") return setParameterValue(id, false, notify);
   for (const auto &spec : specs) if (id == spec.id) return setParameterValue(id, spec.initial, notify);
   return false;
 }
@@ -65,8 +78,9 @@ ProcessorResult NativeRadialMaskProcessor::generateMask(int width, int height, M
   const double cx = values_[0].load(std::memory_order_relaxed), cy = values_[1].load(std::memory_order_relaxed);
   const double rx = values_[2].load(std::memory_order_relaxed), ry = values_[3].load(std::memory_order_relaxed);
   const double feather = values_[4].load(std::memory_order_relaxed);
+  const bool invert = invert_.load(std::memory_order_relaxed);
   output.w = width; output.h = height;
-  output.px.assign(size_t(width) * size_t(height), 0.0f);
+  output.px.assign(size_t(width) * size_t(height), invert ? 1.0f : 0.0f);
   if (rx == 0 || ry == 0) return ProcessorResult::success();
   // Pixel centres in the Reference raster's normalised, bottom-up frame.
   // Feather moves inward from the outer ellipse, never changing its extent.
@@ -78,7 +92,8 @@ ProcessorResult NativeRadialMaskProcessor::generateMask(int width, int height, M
       const double distance = std::hypot(dx, dy);
       const double t = feather == 0 ? (distance <= 1 ? 1.0 : 0.0)
           : std::clamp((1.0 - distance) / feather, 0.0, 1.0);
-      output.px[size_t(y) * size_t(width) + size_t(x)] = float(t * t * (3.0 - 2.0 * t));
+      const double coverage = t * t * (3.0 - 2.0 * t);
+      output.px[size_t(y) * size_t(width) + size_t(x)] = float(invert ? 1.0 - coverage : coverage);
     }
   }
   return ProcessorResult::success();
