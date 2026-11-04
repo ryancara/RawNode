@@ -17,14 +17,13 @@ bool isHandle(PreviewDrag drag) { return drag >= PreviewDrag::Centre; }
 RadialGeometry geometry(const Node &node) {
   RadialGeometry value;
   for (const auto &parameter : node.processor->parameters()) {
-    if (parameter.id != "centreX" && parameter.id != "centreY" && parameter.id != "radiusX" &&
-        parameter.id != "radiusY" && parameter.id != "feather") continue;
-    const double v = std::get<double>(parameter.value);
-    if (parameter.id == "centreX") value.centreX = v;
-    else if (parameter.id == "centreY") value.centreY = v;
-    else if (parameter.id == "radiusX") value.radiusX = v;
-    else if (parameter.id == "radiusY") value.radiusY = v;
-    else if (parameter.id == "feather") value.feather = v;
+    const auto *v = std::get_if<double>(&parameter.value);
+    if (!v) continue;
+    if (parameter.id == "centreX") value.centreX = *v;
+    else if (parameter.id == "centreY") value.centreY = *v;
+    else if (parameter.id == "radiusX") value.radiusX = *v;
+    else if (parameter.id == "radiusY") value.radiusY = *v;
+    else if (parameter.id == "feather") value.feather = *v;
   }
   return value;
 }

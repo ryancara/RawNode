@@ -108,8 +108,7 @@ Exposure, Mask Only, Mask Overlay and export consume the ordinary typed output.
 Prefer generator-specific inversion for the small set of Mask generators for
 now, using existing processor parameters, history and persistence. There is no
 universal node-level Invert property or shared inversion machinery. A dedicated
-Mask -> Mask Invert processor remains a future composable operation, with the
-existing unary generic Opacity contract unchanged.
+Mask -> Mask Invert processor remains a future composable operation.
 
 Defaults are centre `(0.5,0.5)`, radii `(0.25,0.25)` and feather `0.5`.
 Centre limits are `[-1,2]` on each axis (off-raster centres are supported),

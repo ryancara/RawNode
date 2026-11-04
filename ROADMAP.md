@@ -324,10 +324,8 @@ Do not replace LibRaw without a measured benefit.
 
 ## Masks and local adjustments
 
-Radial Mask includes a generator-specific Invert checkbox (default off), using
-existing parameters, persistence and history. Prefer individual generator
-controls over universal node-level inversion for now. A dedicated composable
-Invert Mask modifier remains future work; its generic Opacity contract is unchanged.
+Radial Mask includes an Invert checkbox (default off); see the
+[masking contract](docs/STEP8_MASKING_CONTRACT.md#native-radial-mask-geometry).
 
 Coordinate/handle sequence: merged PR #106 (backend-neutral correspondence),
 merged PR #107 (OFX bounds/Crop declarations), then merged PR #105 (Radial Mask

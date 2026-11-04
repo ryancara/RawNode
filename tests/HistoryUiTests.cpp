@@ -207,6 +207,32 @@ bool nativeGestures() {
   return true;
 }
 
+bool radialInspectorBoolean() {
+  Files files; App app; Ui ui;
+  CHECK(openPath(app, files.photo("radial-invert.png")) && addNativeRadialMaskNode(app));
+  const auto id = *app.selectedNodeId();
+  const auto inverted = [&] {
+    for (const auto &p : findNode(app, id)->processor->parameters())
+      if (p.id == "invert") return std::get<bool>(p.value);
+    throw std::runtime_error("Missing Invert parameter");
+  };
+  std::snprintf(app.paramFilter, sizeof app.paramFilter, "Invert");
+  ui.tick(app); ui.tick(app);
+  const auto history = app.history.size();
+  CHECK(!inverted());
+  ui.click(app, ui.item.GetCenter());
+  CHECK(inverted() && app.history.size() == history + 1);
+  CHECK(app.history.undo(app) && !inverted());
+  CHECK(app.history.redo(app) && inverted());
+  ui.tick(app);
+  ui.click(app, {ui.item.Min.x - ImGui::GetStyle().ItemInnerSpacing.x - ImGui::GetFrameHeight()/2,
+                 ui.item.GetCenter().y});
+  CHECK(!inverted() && app.history.size() == history + 2);
+  CHECK(app.history.undo(app) && inverted());
+  CHECK(app.history.redo(app) && !inverted());
+  return true;
+}
+
 bool radialInspectorGestures() {
   Files files; App app; Ui ui;
   CHECK(openPath(app, files.photo("radial.png")) && addNativeRadialMaskNode(app));
@@ -405,7 +431,7 @@ bool shortcutsAndMenus() {
 }
 
 bool testHistoryUi() {
-  if (!radialInspectorGestures() || !opacityGesturesAndPersistence() || !nativeGestures() || !ctlDeferredInputAndFailure() || !droppedPhotoCompletesOutgoingGesture() || !shortcutsAndMenus()) return false;
+  if (!radialInspectorBoolean() || !radialInspectorGestures() || !opacityGesturesAndPersistence() || !nativeGestures() || !ctlDeferredInputAndFailure() || !droppedPhotoCompletesOutgoingGesture() || !shortcutsAndMenus()) return false;
   std::puts("ok  History UI: native gestures, numeric commits/interruption, discrete buttons, shortcuts and eligibility");
   return true;
 }

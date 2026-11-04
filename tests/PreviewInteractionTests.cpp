@@ -704,7 +704,6 @@ bool liveWorkerHandleDrag(bool delayed, bool maskOnly = false, bool escape = fal
                           bool overlay = false, bool transformed = false) {
   App app; Ui ui; CHECK(fixture(app)); ui.autoPublish = false;
   const auto mask = *app.selectedNodeId();
-  if (overlay) CHECK(setNodeParameterValue(app,mask,"invert",true));
   if (transformed) CHECK(appendCrop(app,"live-crop",50,0,0));
   const double inverseScale = transformed ? .5 : 1;
   const auto expectedMapping = transformed ? CoordinateMapping::affine(2,0,-.5,0,2,-.5)

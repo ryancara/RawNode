@@ -9,8 +9,7 @@
 #include "persist/DocumentActions.h"
 #include "processors/NativeRadialMaskProcessor.h"
 #include "ui/UiContext.h"
-#include "ui/ParamWidgets.h"
-#include "imgui_internal.h"
+#include "imgui.h"
 
 #include <algorithm>
 #include <chrono>
@@ -391,41 +390,6 @@ struct Clipboard {
   ~Clipboard() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
 };
 
-bool inspectorBoolean() {
-  Files files; Clipboard ui; App app;
-  const auto photo = files.path("radial-inspector.png");
-  CHECK(writeImage(raster(8, 8), photo, {RgbGamut::Rec709, TransferFunction::Linear}) && openPath(app, photo));
-  CHECK(addNativeRadialMaskNode(app)); const auto radial = *app.selectedNodeId();
-  auto &io = ImGui::GetIO(); io.IniFilename = nullptr; io.ConfigInputTrickleEventQueue = false;
-  unsigned char *font; int w, h; io.Fonts->GetTexDataAsRGBA32(&font, &w, &h);
-  ImRect checkbox;
-  const auto tick = [&] {
-    io.DisplaySize = {900, 800}; io.DeltaTime = 1.0f / 60;
-    ImGui::NewFrame();
-    ImGui::SetNextWindowPos({20, 20}); ImGui::SetNextWindowSize({650, 700});
-    ImGui::Begin("Radial Inspector", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
-    drawInspector(app); checkbox = ui.context->LastItemData.Rect;
-    ImGui::End(); ImGui::EndFrame();
-  };
-  const auto click = [&](ImVec2 point) {
-    io.AddMousePosEvent(point.x, point.y); tick();
-    io.AddMouseButtonEvent(0, true); tick();
-    io.AddMouseButtonEvent(0, false); tick();
-  };
-  tick(); tick();
-  const auto history = app.history.size();
-  click(checkbox.GetCenter());
-  CHECK(inverted(*findNode(app, radial)) && app.history.size() == history + 1);
-  CHECK(app.history.undo(app) && !inverted(*findNode(app, radial)));
-  CHECK(app.history.redo(app) && inverted(*findNode(app, radial)));
-  tick();
-  click({checkbox.Min.x - ImGui::GetStyle().ItemInnerSpacing.x - ImGui::GetFrameHeight()/2, checkbox.GetCenter().y});
-  CHECK(!inverted(*findNode(app, radial)) && app.history.size() == history + 2);
-  CHECK(app.history.undo(app) && inverted(*findNode(app, radial)));
-  CHECK(app.history.redo(app) && !inverted(*findNode(app, radial)));
-  return true;
-}
-
 bool maskPresentation() {
   App app;
   CHECK(addNativeExposureNode(app)); const auto exposure = *app.selectedNodeId();
@@ -573,7 +537,7 @@ bool editingAndPersistence() {
 bool testNativeRadialMask() {
   if (!numerical() || !inversion() || !zeroRadiusAtPixelCentre() || !persistedRadialIdentityValidation() ||
       !processorOperationIdentityPairing() || !graphSemantics(false) || !graphSemantics(true) ||
-      !inspectorBoolean() || !maskPresentation() || !editingAndPersistence()) return false;
+      !maskPresentation() || !editingAndPersistence()) return false;
   std::printf("ok  native Radial Mask geometry, typed evaluation, editing, persistence and preview/export\n");
   return true;
 }
