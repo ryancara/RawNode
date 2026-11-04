@@ -601,6 +601,14 @@ need.
 
 ## Current development phase
 
+Native Radial Mask supports generator-specific **Invert** (Boolean processor
+parameter `invert`, default false), including feathered and zero-radius coverage.
+Existing Inspector/history/sidecar/preset/clipboard paths own the edit. Bypass
+remains raster-free Inactive; geometry and published placements are unchanged.
+Generator-specific inversion is preferred over universal node-level inversion
+for now; a future dedicated Invert Mask modifier remains available under D054's
+existing generic Opacity contract.
+
 The coordinate/Mask-handle work follows four focused stages:
 
 1. PR #106 — backend-neutral coordinate correspondence, merged.

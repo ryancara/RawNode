@@ -5,10 +5,12 @@
 #include "GraphEvaluator.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
+#include "RenderPipeline.h"
 #include "persist/DocumentActions.h"
 #include "processors/NativeRadialMaskProcessor.h"
 #include "ui/UiContext.h"
-#include "imgui.h"
+#include "ui/ParamWidgets.h"
+#include "imgui_internal.h"
 
 #include <algorithm>
 #include <chrono>
@@ -64,14 +66,20 @@ double parameter(const Node &node, const std::string &id) {
   for (const auto &p : node.processor->parameters()) if (p.id == id) return std::get<double>(p.value);
   throw std::runtime_error("Missing test parameter");
 }
+bool inverted(const Node &node) {
+  for (const auto &p : node.processor->parameters()) if (p.id == "invert") return std::get<bool>(p.value);
+  throw std::runtime_error("Missing Invert parameter");
+}
 
 bool numerical() {
   NativeRadialMaskProcessor radial;
   const auto defaults = radial.parameters();
-  CHECK(defaults.size() == 5);
+  CHECK(defaults.size() == 6);
   CHECK(std::get<double>(defaults[0].value) == .5 && std::get<double>(defaults[1].value) == .5);
   CHECK(std::get<double>(defaults[2].value) == .25 && std::get<double>(defaults[3].value) == .25);
   CHECK(std::get<double>(defaults[4].value) == .5);
+  CHECK(defaults[5].id == "invert" && defaults[5].label == "Invert" && defaults[5].type == ParameterType::Boolean);
+  CHECK(!std::get<bool>(defaults[5].value) && !std::get<bool>(defaults[5].defaultValue));
   Mask value;
   CHECK(radial.setParameterValue("centreX", .5625) && radial.setParameterValue("centreY", .5625));
   CHECK(radial.setParameterValue("feather", 0.0) && radial.generateMask(8, 8, value, {}).ok);
@@ -138,6 +146,38 @@ bool numerical() {
   return true;
 }
 
+bool inversion() {
+  NativeRadialMaskProcessor radial;
+  CHECK(radial.setParameterValue("centreX", .515625) && radial.setParameterValue("centreY", .515625));
+  for (double feather : {0.0, .5, 1.0}) {
+    Mask ordinary, inverse, restored;
+    CHECK(radial.setParameterValue("feather", feather) && radial.generateMask(32, 32, ordinary, {}).ok);
+    CHECK(radial.setParameterValue("invert", true) && radial.generateMask(32, 32, inverse, {}).ok);
+    CHECK(inverse.w == ordinary.w && inverse.h == ordinary.h && inverse.px.size() == ordinary.px.size());
+    CHECK(at(inverse, 16, 16) == 0 && at(inverse, 31, 31) == 1);
+    // Literal cubic values: d=5/8,7/8 at feather 1/2 yield 1-27/32,1-5/32.
+    if (feather == .5) CHECK(at(inverse, 21, 16) == .15625f && at(inverse, 23, 16) == .84375f);
+    if (feather == 0) CHECK(at(inverse, 24, 16) == 0 && at(inverse, 25, 16) == 1);
+    for (size_t i = 0; i < inverse.px.size(); ++i) {
+      CHECK(std::isfinite(inverse.px[i]) && inverse.px[i] >= 0 && inverse.px[i] <= 1);
+      // Each independent double result is rounded to float once (at most one float epsilon in the sum).
+      CHECK(std::abs(double(ordinary.px[i]) + inverse.px[i] - 1) <= std::numeric_limits<float>::epsilon());
+    }
+    CHECK(!radial.setParameterValue("invert", 1.0) && !radial.setParameterValue("invert", 1));
+    CHECK(!radial.setParameterValue("invert", std::string("true")));
+    CHECK(radial.resetParameter("invert") && radial.generateMask(32, 32, restored, {}).ok);
+    CHECK(restored.px == ordinary.px); // Default-off generation retains the exact original samples.
+  }
+  // At d=2^-14, ordinary coverage rounds to float 1, but its complement must
+  // retain 3*d^2-2*d^3 rather than subtracting an already-rounded float.
+  CHECK(radial.setParameterValue("centreX", .5-1.0/16384) && radial.setParameterValue("centreY", .5));
+  CHECK(radial.setParameterValue("radiusX", 1.0) && radial.setParameterValue("feather", 1.0));
+  Mask tiny;
+  CHECK(radial.setParameterValue("invert", true) && radial.generateMask(1, 1, tiny, {}).ok);
+  CHECK(tiny.px[0] == float(3.0/268435456 - 2.0/4398046511104));
+  return true;
+}
+
 bool zeroRadiusAtPixelCentre() {
   App app;
   CHECK(addNativeRadialMaskNode(app)); const auto radial = *app.selectedNodeId();
@@ -145,14 +185,15 @@ bool zeroRadiusAtPixelCentre() {
   // one zero radius and one positive radius, including at that sampled centre.
   CHECK(setNodeParameterValue(app, radial, "centreX", .5625));
   CHECK(setNodeParameterValue(app, radial, "centreY", .5625));
-  for (const auto &zero : {"radiusX", "radiusY"}) {
+  for (bool invert : {false, true}) for (const auto &zero : {"radiusX", "radiusY"}) {
+    CHECK(setNodeParameterValue(app, radial, "invert", invert));
     CHECK(resetNodeParameter(app, radial, "radiusX") && resetNodeParameter(app, radial, "radiusY"));
     CHECK(setNodeParameterValue(app, radial, zero, 0.0));
     const auto result = evaluate(app, mask(radial), 8, 8);
     CHECK(result.state == EvaluationState::Available && result.diagnostics.empty());
     const auto value = coverage(result);
     CHECK(value && value->w == 8 && value->h == 8 && value->px.size() == 64);
-    CHECK(std::all_of(value->px.begin(), value->px.end(), [](float v) { return std::isfinite(v) && v == 0; }));
+    CHECK(uniform(value, invert ? 1.0f : 0.0f));
   }
   return true;
 }
@@ -229,12 +270,13 @@ struct ReferenceExecutor final : graph_test::Executor {
   }
 };
 
-bool graphSemantics() {
+bool graphSemantics(bool invert) {
   App app;
   CHECK(addNativeExposureNode(app)); const auto exposure = *app.selectedNodeId();
   CHECK(setNodeParameterValue(app, exposure, "exposure", 1.0));
   const auto output = app.documentOutput;
   CHECK(addNativeRadialMaskNode(app)); const auto radial = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app, radial, "invert", invert));
   CHECK(app.documentOutput == output && findNode(app, radial)->operation == NodeOperation::NativeRadialMask);
   CHECK(!*findInput(app, input(radial, ports::reference)));
   CHECK(!setNodeStrength(app, radial, .5));
@@ -283,8 +325,10 @@ bool graphSemantics() {
   CHECK(result.state == EvaluationState::Available && result.diagnostics.empty() && pixels(result)->px[0] == 1);
   setNodeEnabled(app, radial, true);
   CHECK(setNodeParameterValue(app, radial, "radiusX", 0.0));
-  CHECK(uniform(coverage(evaluate(app, mask(radial), 8, 8)), 0));
-  CHECK(pixels(evaluate(app, app.documentOutput, 8, 8))->px == raster(8, 8).px);
+  CHECK(uniform(coverage(evaluate(app, mask(radial), 8, 8)), invert ? 1.0f : 0.0f));
+  auto expected = raster(8, 8);
+  if (invert) for (size_t i = 0; i < 64; ++i) for (int c = 0; c < 3; ++c) expected.px[i*4+c] *= 4;
+  CHECK(pixels(evaluate(app, app.documentOutput, 8, 8))->px == expected.px);
   CHECK(resetNodeParameter(app, radial, "radiusX"));
 
   ReferenceExecutor executor;
@@ -347,6 +391,68 @@ struct Clipboard {
   ~Clipboard() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
 };
 
+bool inspectorBoolean() {
+  Files files; Clipboard ui; App app;
+  const auto photo = files.path("radial-inspector.png");
+  CHECK(writeImage(raster(8, 8), photo, {RgbGamut::Rec709, TransferFunction::Linear}) && openPath(app, photo));
+  CHECK(addNativeRadialMaskNode(app)); const auto radial = *app.selectedNodeId();
+  auto &io = ImGui::GetIO(); io.IniFilename = nullptr; io.ConfigInputTrickleEventQueue = false;
+  unsigned char *font; int w, h; io.Fonts->GetTexDataAsRGBA32(&font, &w, &h);
+  ImRect checkbox;
+  const auto tick = [&] {
+    io.DisplaySize = {900, 800}; io.DeltaTime = 1.0f / 60;
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({20, 20}); ImGui::SetNextWindowSize({650, 700});
+    ImGui::Begin("Radial Inspector", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
+    drawInspector(app); checkbox = ui.context->LastItemData.Rect;
+    ImGui::End(); ImGui::EndFrame();
+  };
+  const auto click = [&](ImVec2 point) {
+    io.AddMousePosEvent(point.x, point.y); tick();
+    io.AddMouseButtonEvent(0, true); tick();
+    io.AddMouseButtonEvent(0, false); tick();
+  };
+  tick(); tick();
+  const auto history = app.history.size();
+  click(checkbox.GetCenter());
+  CHECK(inverted(*findNode(app, radial)) && app.history.size() == history + 1);
+  CHECK(app.history.undo(app) && !inverted(*findNode(app, radial)));
+  CHECK(app.history.redo(app) && inverted(*findNode(app, radial)));
+  tick();
+  click({checkbox.Min.x - ImGui::GetStyle().ItemInnerSpacing.x - ImGui::GetFrameHeight()/2, checkbox.GetCenter().y});
+  CHECK(!inverted(*findNode(app, radial)) && app.history.size() == history + 2);
+  CHECK(app.history.undo(app) && inverted(*findNode(app, radial)));
+  CHECK(app.history.redo(app) && !inverted(*findNode(app, radial)));
+  return true;
+}
+
+bool maskPresentation() {
+  App app;
+  CHECK(addNativeExposureNode(app)); const auto exposure = *app.selectedNodeId();
+  CHECK(addNativeRadialMaskNode(app)); const auto radial = *app.selectedNodeId();
+  CHECK(graph::connect(app, mask(radial), input(exposure, ports::mask)).ok());
+  CHECK(setNodeParameterValue(app, radial, "centreX", .515625));
+  CHECK(setNodeParameterValue(app, radial, "centreY", .515625));
+  CHECK(setNodeParameterValue(app, radial, "invert", true));
+  const auto generated = evaluate(app, mask(radial), 32, 32);
+  const auto photo = evaluate(app, app.documentOutput, 32, 32);
+  const auto gray = display_detail::preparePresentation(app, generated);
+  const auto background = display_detail::preparePresentation(app, photo);
+  const auto overlay = display_detail::preparePresentation(app, photo, generated);
+  // Along the centre row: inverted centre=0, cubic feather=5/32, outside=1.
+  for (const auto &sample : {std::pair<int, float>{16, 0}, {21, .15625f}, {31, 1}}) {
+    const size_t i = (size_t(31-16)*32+sample.first)*4;
+    for (int c = 0; c < 3; ++c) {
+      CHECK(gray.rgba[i+c] == std::lround(255*sample.second));
+      const float target = c == 0 ? 255.0f : 0.0f;
+      CHECK(overlay.rgba[i+c] == static_cast<unsigned char>(background.rgba[i+c] +
+          (target-background.rgba[i+c])*(.4f*sample.second)+.5f));
+    }
+    CHECK(gray.rgba[i+3] == 255 && overlay.rgba[i+3] == background.rgba[i+3]);
+  }
+  return true;
+}
+
 bool editingAndPersistence() {
   Files files; Clipboard clipboard; App app;
   const auto photo = files.path("photo.png");
@@ -357,20 +463,23 @@ bool editingAndPersistence() {
   CHECK(addNativeRadialMaskNode(app)); const auto radial = *app.selectedNodeId();
   CHECK(app.history.undo(app) && !findNode(app, radial));
   CHECK(app.history.redo(app) && findNode(app, radial));
+  CHECK(!inverted(*findNode(app, radial)));
   CHECK(graph::connect(app, mask(radial), input(exposure, ports::mask)).ok());
   CHECK(graph::connect(app, image(app.primarySource), input(radial, ports::reference)).ok());
   CHECK(setNodeParameterValue(app, radial, "centreX", .25));
   CHECK(setNodeParameterValue(app, radial, "radiusY", .4));
   CHECK(setNodeParameterValue(app, radial, "feather", .75));
+  CHECK(setNodeParameterValue(app, radial, "invert", true));
   CHECK(app.history.recordCompletedEdit(app));
-  CHECK(app.history.undo(app) && parameter(*findNode(app, radial), "centreX") == .5);
-  CHECK(app.history.redo(app) && parameter(*findNode(app, radial), "centreX") == .25);
+  CHECK(app.history.undo(app) && parameter(*findNode(app, radial), "centreX") == .5 && !inverted(*findNode(app, radial)));
+  CHECK(app.history.redo(app) && parameter(*findNode(app, radial), "centreX") == .25 && inverted(*findNode(app, radial)));
   setNodeEnabled(app, radial, false);
   CHECK(!findNode(app, radial)->enabled && app.history.undo(app) && findNode(app, radial)->enabled);
   CHECK(app.history.redo(app) && !findNode(app, radial)->enabled);
   setNodeEnabled(app, radial, true);
   CHECK(saveCurrentInputSidecar(app));
   CHECK(openPath(app, photo) && findNode(app, radial) && findNode(app, radial)->enabled);
+  CHECK(inverted(*findNode(app, radial)));
   CHECK(parameter(*findNode(app, radial), "radiusY") == .4 && parameter(*findNode(app, radial), "feather") == .75);
   CHECK(*findInput(app, input(exposure, ports::mask)) == mask(radial));
   CHECK(*findInput(app, input(radial, ports::reference)) == image(app.primarySource));
@@ -381,6 +490,26 @@ bool editingAndPersistence() {
   const auto preset = files.path("preset.rawnode.json");
   CHECK(savePreset(app, preset)); PersistGrade grade; std::string error;
   CHECK(loadPresetFile(preset, grade, error));
+  for (const auto &saved : {std::string("1"), std::string("\"true\""), std::string("null"), std::string("{}")}) {
+    auto badBoolean = grade;
+    for (auto &record : badBoolean.graph.nodes) if (record.id == radial.value) record.paramsJson["invert"] = saved;
+    CHECK(!applyGrade(app, badBoolean) && inverted(*findNode(app, radial)));
+  }
+  auto older = grade;
+  for (auto &record : older.graph.nodes) if (record.id == radial.value) record.paramsJson.erase("invert");
+  CHECK(applyGrade(app, older) && !inverted(*findNode(app, radial)));
+  CHECK(applyGrade(app, grade) && inverted(*findNode(app, radial)));
+  // Preserve Boolean JSON verbatim when the processor is unavailable, using the existing missing-node path.
+  auto *missing = findNode(app, radial);
+  for (const auto &record : grade.graph.nodes) if (record.id == radial.value) missing->preservedParamsJson = record.paramsJson;
+  missing->processor.reset();
+  PersistGrade unavailable;
+  CHECK(captureGrade(app, unavailable));
+  for (const auto &record : unavailable.graph.nodes) if (record.id == radial.value)
+    CHECK(record.paramsJson.at("invert") == "true");
+  std::string savedMissing; PersistTransfer reopenedMissing;
+  CHECK(encodeTransferPayload(unavailable, savedMissing, error) && decodeTransferPayload(savedMissing, reopenedMissing, error));
+  CHECK(applyGrade(app, std::get<PersistGrade>(reopenedMissing)) && inverted(*findNode(app, radial)));
   // Unknown parameters survive the one existing codec; understood invalid values fail before publication.
   auto invalid = grade;
   for (auto &record : invalid.graph.nodes) if (record.id == radial.value) record.paramsJson["radiusX"] = "-1";
@@ -393,15 +522,18 @@ bool editingAndPersistence() {
   CHECK(pasteFromClipboard(app)); const auto pasted = *app.selectedNodeId();
   CHECK(pasted != radial && app.documentOutput == output && !*findInput(app, input(pasted, ports::reference)));
   CHECK(parameter(*findNode(app, pasted), "centreX") == .25);
+  CHECK(inverted(*findNode(app, pasted)));
   CHECK(app.nodePositions.at(pasted.value).x == app.nodePositions.at(radial.value).x &&
         app.nodePositions.at(pasted.value).y == app.nodePositions.at(radial.value).y);
   CHECK(app.history.undo(app) && !findNode(app, pasted));
   CHECK(app.history.redo(app) && findNode(app, pasted));
   CHECK(copyGrade(app)); clearNodes(app); CHECK(pasteFromClipboard(app));
   CHECK(findNode(app, radial) && *findInput(app, input(exposure, ports::mask)) == mask(radial));
+  CHECK(inverted(*findNode(app, radial)));
   CHECK(destroyNode(app, radial) && !*findInput(app, input(exposure, ports::mask)));
   CHECK(app.history.undo(app) && *findInput(app, input(exposure, ports::mask)) == mask(radial));
   CHECK(loadPresetDialog(app, false, preset) && findNode(app, radial));
+  CHECK(inverted(*findNode(app, radial)));
 
   // Real worker publication follows parameter edits; selection leaves the processed photograph as default.
   app.renderer.start(); app.renderer.requestPreview(); CHECK(idle(app));
@@ -439,8 +571,9 @@ bool editingAndPersistence() {
 }
 
 bool testNativeRadialMask() {
-  if (!numerical() || !zeroRadiusAtPixelCentre() || !persistedRadialIdentityValidation() ||
-      !processorOperationIdentityPairing() || !graphSemantics() || !editingAndPersistence()) return false;
+  if (!numerical() || !inversion() || !zeroRadiusAtPixelCentre() || !persistedRadialIdentityValidation() ||
+      !processorOperationIdentityPairing() || !graphSemantics(false) || !graphSemantics(true) ||
+      !inspectorBoolean() || !maskPresentation() || !editingAndPersistence()) return false;
   std::printf("ok  native Radial Mask geometry, typed evaluation, editing, persistence and preview/export\n");
   return true;
 }

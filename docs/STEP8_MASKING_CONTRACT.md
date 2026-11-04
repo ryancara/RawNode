@@ -94,7 +94,22 @@ elliptical radius occupied by the transition; the outer ellipse stays fixed.
 For `f>0`, `t=clamp((1-d)/f,0,1)` and coverage `t*t*(3-2*t)`.
 Thus coverage is 1 at/below `d=1-f`, 0 at/above `d=1`, and 0.5 at
 `d=1-f/2`. At zero feather use coverage 1 when `d<=1`, otherwise 0.
-Either radius zero defines an empty (all-black, Available) Mask, even at centre.
+Either radius zero defines an empty (all-black, Available) Mask, even at centre,
+before inversion.
+
+Radial owns a Boolean `invert` parameter (Inspector label **Invert**, default
+`false`). When enabled, complement the generated coverage as `1.0 - coverage`,
+including fractional feathering. Either zero radius therefore produces all-white
+Available coverage when inverted. Reference pixels, geometry, handle placement
+and cancellation are unchanged. Disabled Radials still return raster-free
+Inactive regardless of Invert; inversion never converts Inactive to white.
+Exposure, Mask Only, Mask Overlay and export consume the ordinary typed output.
+
+Prefer generator-specific inversion for the small set of Mask generators for
+now, using existing processor parameters, history and persistence. There is no
+universal node-level Invert property or shared inversion machinery. A dedicated
+Mask -> Mask Invert processor remains a future composable operation, with the
+existing unary generic Opacity contract unchanged.
 
 Defaults are centre `(0.5,0.5)`, radii `(0.25,0.25)` and feather `0.5`.
 Centre limits are `[-1,2]` on each axis (off-raster centres are supported),
