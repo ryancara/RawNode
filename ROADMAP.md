@@ -26,6 +26,43 @@ The original backend-neutral architecture work is now in place:
 
 The current codebase is a clean base for feature development. New work should return to small, focused PRs.
 
+## Near-term execution priorities (November 2026)
+
+These priorities sequence focused work without reopening completed architecture milestones:
+
+1. **Investigate JPEG XL-compressed DNG support immediately.** DxO PureRAW
+   high-fidelity DNG is a primary photo input format and is not currently
+   supported by RawNode's image-loading path. First validate real PureRAW
+   samples and compare the smallest viable decode options, especially LibRaw
+   built with Adobe DNG SDK 1.7.x, before approving implementation. Check
+   licensing/distribution, macOS and Windows builds, decoding, linear-DNG
+   colour/metadata interpretation, previews and export against references.
+   This is a focused compatibility investigation, **not** approval to
+   replace LibRaw or rewrite RAW development.
+2. **Enable/bypass directly in Graph View.** Reuse the existing node
+   enabled state, edit/history command and protections already exposed in
+   List View; avoid a second bypass mechanism.
+3. **Close the practical Step 8 masking core.** Agree the exit gate, then
+   deliver Mask Combine, upstream geometry/Overlay placement through Mask
+   modifiers, a Linear Gradient generator and an initial Blur modifier in
+   focused slices. Defer Brush, Bézier, advanced qualifiers and AI masks
+   unless the exit-gate discussion establishes a concrete necessity.
+4. **Pick / Unmarked / Reject.** Expose photo-specific culling state with
+   keyboard actions, filmstrip navigation/filtering and independent sidecar
+   metadata, without adding a catalogue.
+5. **Multi-photo selection and batch export.** Select photos in the
+   filmstrip and export a selected or filtered set using the existing
+   single-image export path and its execution ownership, initially
+   sequentially. Multi-photo grade/preset application can follow separately.
+6. **Step 9 whole-codebase audit.** Schedule the approved D055 audit after
+   the agreed Step 8 exit gate and the initial practical photo workflow
+   improvements. The formal Step 9 entry criterion remains Step 8 closure,
+   not completion of every unrelated workflow feature.
+
+**Deferred:** Multiple-node selection in Graph/List View is low priority.
+It is distinct from the filmstrip multi-photo selection needed for batch
+export; do not build group node editing without an identified workflow.
+
 ## Current architecture/stabilisation sequence
 
 The original eight-step architecture migration is in progress at Step 8; Steps
@@ -320,18 +357,20 @@ Evaluate LibRaw, Rawler, and RawSpeed using real criteria:
 - cross-platform build complexity;
 - compressed DNG / JPEG XL support where relevant.
 
-Do not replace LibRaw without a measured benefit.
+Do not replace LibRaw without a measured benefit. The near-term JPEG XL DNG
+compatibility investigation above is distinct from this later broad RAW
+architecture evaluation.
 
 ## Masks and local adjustments
 
-Radial Mask includes an Invert checkbox (default off); see the
+Radial Mask includes an Invert checkbox (merged as PR #109, default off); see the
 [masking contract](docs/STEP8_MASKING_CONTRACT.md#native-radial-mask-geometry).
 
 Coordinate/handle sequence: merged PR #106 (backend-neutral correspondence),
 merged PR #107 (OFX bounds/Crop declarations), then merged PR #105 (Radial Mask
 handles using published placements). See
 [project context](docs/PROJECT_CONTEXT.md#current-development-phase).
-Coordinate-aware Mask Overlay alignment is implemented for independent review:
+Coordinate-aware Mask Overlay alignment is merged as PR #108:
 handles and tint share one published-placement resolver, with inverse bilinear
 display sampling through Crop and other known Affines. Unknown, conflicting or
 absent placement hides tint with an explanation. See
