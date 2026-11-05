@@ -1,0 +1,166 @@
+{
+  "sdk-selftest": {
+    "arguments": [
+      "--selftest"
+    ],
+    "exit": 0,
+    "elapsed_s": 0.00851488199987216,
+    "evidence": [
+      "unpack_ms=0.024496 sdk_processed=0 stage2_applied=0 stage3_applied=0",
+      "bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.024496 total_after_identify_ms=0.580431",
+      "unpack_ms=0.016104 sdk_processed=0 stage2_applied=0 stage3_applied=0",
+      "bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.016104 total_after_identify_ms=0.527403",
+      "unpack_ms=0.015923 sdk_processed=0 stage2_applied=0 stage3_applied=0",
+      "bitmap=48x64 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.015923 total_after_identify_ms=0.36198",
+      "unpack_ms=0.015964 sdk_processed=0 stage2_applied=0 stage3_applied=0",
+      "bitmap=60x44 channels=3 bits=16 float_rgba_bytes=42240 unpack_ms=0.015964 total_after_identify_ms=0.276405",
+      "unpack_ms=0.016584 sdk_processed=0 stage2_applied=0 stage3_applied=0",
+      "bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.016584 total_after_identify_ms=0.490478",
+      "unpack_ms=0.016094 sdk_processed=0 stage2_applied=0 stage3_applied=0",
+      "bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.016094 total_after_identify_ms=0.87635"
+    ]
+  },
+  "integer-default": {
+    "arguments": [
+      "fixtures/adobe-01-jxl-integer.dng"
+    ],
+    "exit": 0,
+    "elapsed_s": 15.214651915000104,
+    "evidence": [
+      "unpack_ms=1507.38169 sdk_processed=1 stage2_applied=0 stage3_applied=0",
+      "bitmap=9504x6336 channels=3 bits=16 float_rgba_bytes=963477504 unpack_ms=1507.38169 total_after_identify_ms=15139.886",
+      "peak_rss_bytes=2913075200 (process lifetime, includes comparisons and diagnostics)"
+    ]
+  },
+  "float-default": {
+    "arguments": [
+      "fixtures/adobe-02-jxl-float.dng"
+    ],
+    "exit": 0,
+    "elapsed_s": 3.531420356000126,
+    "evidence": [
+      "unpack_ms=1054.59937 sdk_processed=1 stage2_applied=0 stage3_applied=0",
+      "bitmap=4667x7000 channels=3 bits=16 float_rgba_bytes=522704000 unpack_ms=1054.59937 total_after_identify_ms=3487.65967",
+      "peak_rss_bytes=1592684544 (process lifetime, includes comparisons and diagnostics)"
+    ]
+  },
+  "integer-reference": {
+    "arguments": [
+      "--reference-unpack",
+      "fixtures/adobe-01-jxl-integer.dng"
+    ],
+    "exit": 0,
+    "elapsed_s": 9.716808481000044,
+    "evidence": [
+      "unpack_ms=1465.44113 sdk_processed=1 stage2_applied=0 stage3_applied=0",
+      "sdk_reference samples=180652032 different=0 max_abs=0 rmse=0 stage=1 pixel_type=uint16 reference_ms=1833.06721",
+      "bitmap=9504x6336 channels=3 bits=16 float_rgba_bytes=963477504 unpack_ms=1465.44113 total_after_identify_ms=9651.71392",
+      "peak_rss_bytes=2915577856 (process lifetime, includes comparisons and diagnostics)"
+    ]
+  },
+  "integer-opcode-reference": {
+    "arguments": [
+      "--stage=opcode",
+      "--reference-unpack",
+      "fixtures/adobe-01-jxl-integer.dng"
+    ],
+    "exit": 0,
+    "elapsed_s": 12.200402567000083,
+    "evidence": [
+      "unpack_ms=2801.7659 sdk_processed=1 stage2_applied=1 stage3_applied=0",
+      "sdk_reference samples=180652032 different=0 max_abs=0 rmse=0 stage=2 pixel_type=uint16 reference_ms=3154.67063",
+      "bitmap=9504x6336 channels=3 bits=16 float_rgba_bytes=963477504 unpack_ms=2801.7659 total_after_identify_ms=12145.739",
+      "peak_rss_bytes=2908045312 (process lifetime, includes comparisons and diagnostics)"
+    ]
+  },
+  "integer-stage2-reference": {
+    "arguments": [
+      "--stage=stage2",
+      "--reference-unpack",
+      "fixtures/adobe-01-jxl-integer.dng"
+    ],
+    "exit": 0,
+    "elapsed_s": 10.413100976999885,
+    "evidence": [
+      "unpack_ms=2772.58427 sdk_processed=1 stage2_applied=1 stage3_applied=0",
+      "sdk_reference samples=180652032 different=0 max_abs=0 rmse=0 stage=2 pixel_type=uint16 reference_ms=3191.83884",
+      "bitmap=9504x6336 channels=3 bits=16 float_rgba_bytes=963477504 unpack_ms=2772.58427 total_after_identify_ms=10341.2404",
+      "peak_rss_bytes=2908237824 (process lifetime, includes comparisons and diagnostics)"
+    ]
+  },
+  "integer-stage3-reference": {
+    "arguments": [
+      "--stage=stage3",
+      "--reference-unpack",
+      "fixtures/adobe-01-jxl-integer.dng"
+    ],
+    "exit": 0,
+    "elapsed_s": 11.09152436699992,
+    "evidence": [
+      "unpack_ms=3053.04525 sdk_processed=1 stage2_applied=1 stage3_applied=1",
+      "sdk_reference samples=180652032 different=0 max_abs=0 rmse=0 stage=3 pixel_type=uint16 reference_ms=3427.21387",
+      "bitmap=9504x6336 channels=3 bits=16 float_rgba_bytes=963477504 unpack_ms=3053.04525 total_after_identify_ms=11030.2841",
+      "peak_rss_bytes=2908110848 (process lifetime, includes comparisons and diagnostics)"
+    ]
+  },
+  "integer-highlight1": {
+    "arguments": [
+      "--stage=opcode",
+      "--highlight=1",
+      "fixtures/adobe-01-jxl-integer.dng"
+    ],
+    "exit": 0,
+    "elapsed_s": 7.381022919000088,
+    "evidence": [
+      "unpack_ms=2974.81915 sdk_processed=1 stage2_applied=1 stage3_applied=0",
+      "bitmap=9504x6336 channels=3 bits=16 float_rgba_bytes=963477504 unpack_ms=2974.81915 total_after_identify_ms=7311.26073",
+      "peak_rss_bytes=2906394624 (process lifetime, includes comparisons and diagnostics)"
+    ]
+  },
+  "float-reference": {
+    "arguments": [
+      "--keep-float",
+      "--reference-unpack",
+      "fixtures/adobe-02-jxl-float.dng"
+    ],
+    "exit": 0,
+    "elapsed_s": 2.914964112000007,
+    "evidence": [
+      "unpack_ms=1021.07915 sdk_processed=1 stage2_applied=0 stage3_applied=0",
+      "sdk_reference samples=98007000 different=0 max_abs=0 rmse=0 stage=1 pixel_type=float32 reference_ms=1028.81693",
+      "unpacked_float channel=0 min=0.570950627 max=2352.62549 mean=77.7651122 below0=0 above1=32600694 zero=0 one=0 nonfinite=0",
+      "unpacked_float channel=1 min=2.77404308 max=5440.77539 mean=216.864398 below0=0 above1=32669000 zero=0 one=0 nonfinite=0",
+      "unpacked_float channel=2 min=2.72083211 max=3226.34448 mean=162.971013 below0=0 above1=32669000 zero=0 one=0 nonfinite=0",
+      "peak_rss_bytes=810229760 (process lifetime, includes comparisons and diagnostics)"
+    ]
+  },
+  "float-stage2-reference": {
+    "arguments": [
+      "--keep-float",
+      "--stage=stage2",
+      "--reference-unpack",
+      "fixtures/adobe-02-jxl-float.dng"
+    ],
+    "exit": 0,
+    "elapsed_s": 3.469738606000192,
+    "evidence": [
+      "unpack_ms=1324.20613 sdk_processed=1 stage2_applied=1 stage3_applied=0",
+      "sdk_reference samples=98007000 different=0 max_abs=0 rmse=0 stage=2 pixel_type=float32 reference_ms=1310.31714",
+      "unpacked_float channel=0 min=1.74240304e-05 max=0.0717964321 mean=0.00237320289 below0=0 above1=0 zero=0 one=0 nonfinite=0",
+      "unpacked_float channel=1 min=8.46570765e-05 max=0.166039288 mean=0.00661817621 below0=0 above1=0 zero=0 one=0 nonfinite=0",
+      "unpacked_float channel=2 min=8.30332065e-05 max=0.0984602198 mean=0.00497348061 below0=0 above1=0 zero=0 one=0 nonfinite=0",
+      "peak_rss_bytes=1196773376 (process lifetime, includes comparisons and diagnostics)"
+    ]
+  },
+  "jxl-host-disabled": {
+    "arguments": [
+      "--no-sdk",
+      "fixtures/adobe-01-jxl-integer.dng"
+    ],
+    "exit": 1,
+    "elapsed_s": 0.0042014089999611315,
+    "evidence": [
+      "ERROR: unpack: Unsupported file format or not RAW file (-2)"
+    ]
+  }
+}

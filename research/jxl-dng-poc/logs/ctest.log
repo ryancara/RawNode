@@ -1,0 +1,8 @@
+Internal ctest changing into directory: /workspace/work/jxl-dng-poc/build-nosdk
+Test project /workspace/work/jxl-dng-poc/build-nosdk
+    Start 1: memory_checks
+1/1 Test #1: memory_checks ....................   Passed    0.01 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Total Test time (real) =   0.01 sec

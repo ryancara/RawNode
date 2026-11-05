@@ -1,0 +1,48 @@
+{
+  "nef": {
+    "outputs": {
+      "build-nosdk": {
+        "exit": 0,
+        "evidence": [
+          "jxl_selected=0 host_attached=0 stage=default options=2",
+          "camera_processed fingerprint_fnv64=17678123939841825433",
+          "linear_rec2020 fingerprint_fnv64=5443951636652481966",
+          "bitmap=4284x2844 channels=3 bits=16 float_rgba_bytes=194939136 unpack_ms=229.142587 total_after_identify_ms=1889.21546"
+        ]
+      },
+      "build-sdk": {
+        "exit": 0,
+        "evidence": [
+          "jxl_selected=0 host_attached=0 stage=default options=2",
+          "camera_processed fingerprint_fnv64=17678123939841825433",
+          "linear_rec2020 fingerprint_fnv64=5443951636652481966",
+          "bitmap=4284x2844 channels=3 bits=16 float_rgba_bytes=194939136 unpack_ms=220.109283 total_after_identify_ms=1851.25588"
+        ]
+      }
+    },
+    "matching_fingerprints": true
+  },
+  "ordinary-dng": {
+    "outputs": {
+      "build-nosdk": {
+        "exit": 0,
+        "evidence": [
+          "jxl_selected=0 host_attached=0 stage=default options=2",
+          "camera_processed fingerprint_fnv64=1799762627878221605",
+          "linear_rec2020 fingerprint_fnv64=14635425836026566053",
+          "bitmap=1000x1000 channels=3 bits=16 float_rgba_bytes=16000000 unpack_ms=22.001214 total_after_identify_ms=97.818016"
+        ]
+      },
+      "build-sdk": {
+        "exit": 0,
+        "evidence": [
+          "jxl_selected=0 host_attached=0 stage=default options=2",
+          "camera_processed fingerprint_fnv64=1799762627878221605",
+          "linear_rec2020 fingerprint_fnv64=14635425836026566053",
+          "bitmap=1000x1000 channels=3 bits=16 float_rgba_bytes=16000000 unpack_ms=5.555675 total_after_identify_ms=93.007807"
+        ]
+      }
+    },
+    "matching_fingerprints": true
+  }
+}

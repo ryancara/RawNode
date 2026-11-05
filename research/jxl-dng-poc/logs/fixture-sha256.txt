@@ -1,0 +1,2 @@
+7afde5e71d6359d87db2d25e2b8d89a15af96169b6970d7b2db229cb0e8c8447  fixtures/adobe-01-jxl-integer.dng
+af445705ec29f18d6ed59acfb75adf61c64919bfcc6095a0e80a347a538c6d3f  fixtures/adobe-02-jxl-float.dng

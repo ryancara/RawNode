@@ -1,0 +1,30 @@
+{
+  "parts": [
+    {
+      "name": "dng-sdk.part-aa",
+      "bytes": 25165824,
+      "sha256": "a51cc137387dd6fb8fb702ae8b975fd160cdf0070b77e05bc139dab8da741c29"
+    },
+    {
+      "name": "dng-sdk.part-ab",
+      "bytes": 25165824,
+      "sha256": "839dd78a823ea26cbb6e0046f9a9d6f497cb17998fbfac3b53b9dd547b4cbe67"
+    },
+    {
+      "name": "dng-sdk.part-ac",
+      "bytes": 25165824,
+      "sha256": "ab927dfc21b77e340c3e105c6aaefc1e1a6476cab491d2e8e1a71d68f105069c"
+    },
+    {
+      "name": "dng-sdk.part-ad",
+      "bytes": 5012446,
+      "sha256": "911b10e671833b0ec4e5e60099b4a0f16eed8e4f00186f34ba59ad21f3fdc571"
+    }
+  ],
+  "archive": {
+    "bytes": 80509918,
+    "sha256": "c1d3a545ed45b150e59af2e6aa0695c1551f0e2bed34ad87436898a05194d2b1"
+  },
+  "extracted_files_checked": 3769,
+  "modified_extracted_files": []
+}

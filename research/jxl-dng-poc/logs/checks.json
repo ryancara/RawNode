@@ -1,0 +1,22 @@
+{
+  "selftest": {
+    "exit": 0,
+    "expected_exit": 0
+  },
+  "adobe-integer-nosdk": {
+    "exit": 1,
+    "expected_exit": 1
+  },
+  "adobe-float-nosdk": {
+    "exit": 1,
+    "expected_exit": 1
+  },
+  "sdk-mode-refusal": {
+    "exit": 1,
+    "expected_exit": 1
+  },
+  "missing-input": {
+    "exit": 1,
+    "expected_exit": 1
+  }
+}

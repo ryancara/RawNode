@@ -1,0 +1,15 @@
+{
+  "base_main_sha": "f87a6f670ce569e6fc760d60305b8bb60dd0a313",
+  "original_archive_sha256": "6e8c30dbbd60de47ef5c644bbb922d2161e5cb18399ac45f2a9b47699fc5b6b2",
+  "omitted_archive_entries": {
+    "logs/build-sdk-2768-first-attempt.log": "Compiler diagnostics quote Adobe SDK source.",
+    "logs/build-sdk-2768-second-attempt.log": "Compiler diagnostics quote Adobe SDK source.",
+    "logs/sdk-unzip-test.log": "Verbose SDK file inventory; integrity result is retained in provenance and review notes.",
+    "logs/README-before-sdk-success.md": "Superseded report from before the successful build.",
+    "logs/sdk-download-blocker.txt": "Superseded SDK acquisition failure.",
+    "logs/sdk-upload-blocker.txt": "Superseded SDK acquisition failure.",
+    "logs/configure-sdk.log": "Superseded SDK-unavailable configuration failure."
+  },
+  "compatibility_patch": "Zero-context diff with only added preprocessor guards; no SDK code context.",
+  "sdk_dng_jxl_cpp_sha256": "915831cdad621c6de54795aa011a797f90ad212d3dafc3171ed8e0608053ad1b"
+}

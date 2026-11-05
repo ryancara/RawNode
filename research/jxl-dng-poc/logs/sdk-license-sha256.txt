@@ -1,0 +1,1 @@
+89d75e1bfd65269c41ec57be67adacd48926af81554574d92742f96296ed9166  sources/dng_sdk_1_7_1/LICENSE.txt

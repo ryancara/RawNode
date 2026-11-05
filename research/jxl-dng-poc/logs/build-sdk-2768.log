@@ -1,0 +1,15 @@
+[  1%] Built target jxl_threads
+[  4%] Built target hwy
+[  6%] Built target brotlicommon
+[  6%] Built target jxl_export
+[  7%] Built target brotlidec
+[ 14%] Built target brotlienc
+[ 15%] Built target jxl_cms
+[ 31%] Built target jxl_enc-obj
+[ 54%] Built target jxl_dec-obj
+[ 54%] Built target jxl
+[ 75%] Built target probe_dng
+[100%] Built target probe_raw
+[100%] Building CXX object CMakeFiles/dng_probe.dir/src/probe.cpp.o
+[100%] Linking CXX executable dng_probe
+[100%] Built target dng_probe

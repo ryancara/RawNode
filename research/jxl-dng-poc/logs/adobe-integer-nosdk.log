@@ -1,0 +1,23 @@
+libraw=0.22.3-Release capabilities=192 sdk_compiled=0
+input=fixtures/adobe-01-jxl-integer.dng
+phase=identified raw=9504x6336 active=9504x6336 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=0 float_source=0
+cam_mul=2.8203094,1,1.4218744,0, pre_mul=2.53862286,0.931161284,1.38107049,0, dng_white=65535,65535,65535,0, baseline_exposure=0.349999994
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=1.54173863,-0.357950985,-0.183787629,0, opcode1_bytes=0
+rgb_cam[1]=-0.130611017,1.54901671,-0.418405712,0, opcode2_bytes=256
+opcode_list=2 id=8 flags=0 payload_bytes=68
+opcode_list=2 id=8 flags=0 payload_bytes=68
+opcode_list=2 id=8 flags=0 payload_bytes=68
+rgb_cam[2]=0.00473544467,-0.39965713,1.39492166,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+jxl_selected=1 host_attached=0 stage=default options=2
+phase=unpack_failed_state_may_be_recycled raw=0x0 active=0x0 margins=0,0 flip=0 filters=0 channels=0 black=0 maximum=0 warnings=0 float_source=0
+cam_mul=0,0,0,0, pre_mul=0,0,0,0, dng_white=0,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,0,0,0
+rgb_cam[0]=0,0,0,0, opcode1_bytes=0
+rgb_cam[1]=0,0,0,0, opcode2_bytes=0
+rgb_cam[2]=0,0,0,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+ERROR: unpack: Unsupported file format or not RAW file (-2)

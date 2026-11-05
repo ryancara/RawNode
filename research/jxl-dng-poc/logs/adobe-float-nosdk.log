@@ -1,0 +1,20 @@
+libraw=0.22.3-Release capabilities=192 sdk_compiled=0
+input=fixtures/adobe-02-jxl-float.dng
+phase=identified raw=4667x7000 active=4667x7000 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=32768 warnings=0 float_source=1
+cam_mul=2.55077958,1,1.62499905,0, pre_mul=2.64295697,0.931161284,1.32978761,0, dng_white=32768,32768,32768,0, baseline_exposure=3.31999993
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=1.54173863,-0.357950985,-0.183787629,0, opcode1_bytes=0
+rgb_cam[1]=-0.130611017,1.54901671,-0.418405712,0, opcode2_bytes=0
+rgb_cam[2]=0.00473544467,-0.39965713,1.39492166,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+jxl_selected=1 host_attached=0 stage=default options=2
+phase=unpack_failed_state_may_be_recycled raw=0x0 active=0x0 margins=0,0 flip=0 filters=0 channels=0 black=0 maximum=0 warnings=0 float_source=0
+cam_mul=0,0,0,0, pre_mul=0,0,0,0, dng_white=0,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,0,0,0
+rgb_cam[0]=0,0,0,0, opcode1_bytes=0
+rgb_cam[1]=0,0,0,0, opcode2_bytes=0
+rgb_cam[2]=0,0,0,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+ERROR: unpack: Unsupported file format or not RAW file (-2)
