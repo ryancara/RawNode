@@ -1,0 +1,3 @@
+libraw=0.22.3-Release capabilities=192 sdk_compiled=0
+input=does-not-exist.dng
+ERROR: identify open_file: Input/output error (-100009)

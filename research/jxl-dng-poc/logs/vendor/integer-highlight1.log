@@ -1,0 +1,51 @@
+libraw=0.22.3-Release capabilities=194 sdk_compiled=1
+adobe_sdk=1.7.1 (2768) libjxl_version_number=11002
+input=fixtures/adobe-01-jxl-integer.dng
+phase=identified raw=9504x6336 active=9504x6336 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=0 float_source=0
+cam_mul=2.8203094,1,1.4218744,0, pre_mul=2.53862286,0.931161284,1.38107049,0, dng_white=65535,65535,65535,0, baseline_exposure=0.349999994
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=1.54173863,-0.357950985,-0.183787629,0, opcode1_bytes=0
+rgb_cam[1]=-0.130611017,1.54901671,-0.418405712,0, opcode2_bytes=256
+opcode_list=2 id=8 flags=0 payload_bytes=68
+opcode_list=2 id=8 flags=0 payload_bytes=68
+opcode_list=2 id=8 flags=0 payload_bytes=68
+rgb_cam[2]=0.00473544467,-0.39965713,1.39492166,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+jxl_selected=1 host_attached=1 stage=opcode options=134217730
+phase=unpacked raw=9504x6336 active=9504x6336 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+cam_mul=2.8203094,1,1.4218744,0, pre_mul=2.53862286,0.931161284,1.38107049,0, dng_white=65535,65535,65535,0, baseline_exposure=0.349999994
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=1.54173863,-0.357950985,-0.183787629,0, opcode1_bytes=0
+rgb_cam[1]=-0.130611017,1.54901671,-0.418405712,0, opcode2_bytes=256
+opcode_list=2 id=8 flags=0 payload_bytes=68
+opcode_list=2 id=8 flags=0 payload_bytes=68
+opcode_list=2 id=8 flags=0 payload_bytes=68
+rgb_cam[2]=0.00473544467,-0.39965713,1.39492166,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+unpack_ms=3277.14911 sdk_processed=1 stage2_applied=1 stage3_applied=0
+unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=9504x6336 active=9504x6336 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+cam_mul=2.8203094,1,1.4218744,0, pre_mul=1,0.354571015,0.504155457,0.354571015, dng_white=65535,65535,65535,0, baseline_exposure=0.349999994
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=1.54173863,-0.357950985,-0.183787629,0, opcode1_bytes=0
+rgb_cam[1]=-0.130611017,1.54901671,-0.418405712,0, opcode2_bytes=256
+opcode_list=2 id=8 flags=0 payload_bytes=68
+opcode_list=2 id=8 flags=0 payload_bytes=68
+opcode_list=2 id=8 flags=0 payload_bytes=68
+rgb_cam[2]=0.00473544467,-0.39965713,1.39492166,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=1453434553065720421
+camera_processed channel=0 min=0.00137331197 max=0.152315557 mean=0.0347654268 below0=0 above1=0 zero=0 one=0 nonfinite=0
+camera_processed channel=1 min=0.00149538415 max=0.15359731 mean=0.0373847974 below0=0 above1=0 zero=0 one=0 nonfinite=0
+camera_processed channel=2 min=0.00189211871 max=0.16743724 mean=0.0436009233 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 fingerprint_fnv64=16004476720816967812
+linear_rec2020 channel=0 min=0.00121636456 max=0.151863009 mean=0.0337655874 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=1 min=0.00109783735 max=0.154637128 mean=0.03504819 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=2 min=0.00190737762 max=0.172104955 mean=0.0448556801 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=60217344 nonfinite=0
+bitmap=9504x6336 channels=3 bits=16 float_rgba_bytes=963477504 unpack_ms=3277.14911 total_after_identify_ms=7773.78047
+path_total_ms=7816.65184
+peak_rss_bytes=2906296320 (process lifetime, includes comparisons and diagnostics)

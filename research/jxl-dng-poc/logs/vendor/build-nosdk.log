@@ -1,0 +1,92 @@
+[  1%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/canon_600.cpp.o
+[  2%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/crx.cpp.o
+[  3%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/decoders_dcraw.cpp.o
+[  4%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/decoders_libraw.cpp.o
+[  6%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/decoders_libraw_dcrdefs.cpp.o
+[  7%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/dng.cpp.o
+[  8%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/fp_dng.cpp.o
+[  9%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/fuji_compressed.cpp.o
+[ 10%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/generic.cpp.o
+[ 12%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/kodak_decoders.cpp.o
+[ 13%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/load_mfbacks.cpp.o
+[ 14%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/olympus14.cpp.o
+[ 15%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/pana8.cpp.o
+[ 17%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/smal.cpp.o
+[ 18%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/sonycc.cpp.o
+[ 19%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/unpack.cpp.o
+[ 20%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decoders/unpack_thumb.cpp.o
+[ 21%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/decompressors/losslessjpeg.cpp.o
+/workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/sources/LibRaw-0.22.3/src/decompressors/losslessjpeg.cpp:24:9: warning: "ZERO" redefined
+   24 | #define ZERO(a) do { memset(a,0,sizeof(a));} while(0)
+      |         ^~~~
+In file included from /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/sources/LibRaw-0.22.3/src/decompressors/../../internal/losslessjpeg.h:23,
+                 from /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/sources/LibRaw-0.22.3/src/decompressors/losslessjpeg.cpp:21:
+/workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/sources/LibRaw-0.22.3/src/decompressors/../../internal/libraw_cxx_defs.h:117:9: note: this is the location of the previous definition
+  117 | #define ZERO(a) memset(&a, 0, sizeof(a))
+      |         ^~~~
+[ 23%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/demosaic/aahd_demosaic.cpp.o
+[ 24%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/demosaic/ahd_demosaic.cpp.o
+[ 25%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/demosaic/dcb_demosaic.cpp.o
+[ 26%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/demosaic/dht_demosaic.cpp.o
+[ 28%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/demosaic/misc_demosaic.cpp.o
+[ 29%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/demosaic/xtrans_demosaic.cpp.o
+[ 30%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/integration/dngsdk_glue.cpp.o
+[ 31%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/integration/rawspeed_glue.cpp.o
+[ 32%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/libraw_c_api.cpp.o
+[ 34%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/libraw_datastream.cpp.o
+[ 35%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/adobepano.cpp.o
+[ 36%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/canon.cpp.o
+[ 37%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/ciff.cpp.o
+[ 39%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/cr3_parser.cpp.o
+[ 40%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/epson.cpp.o
+[ 41%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/exif_gps.cpp.o
+[ 42%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/fuji.cpp.o
+[ 43%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/hasselblad_model.cpp.o
+[ 45%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/identify.cpp.o
+[ 46%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/identify_tools.cpp.o
+[ 47%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/kodak.cpp.o
+[ 48%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/leica.cpp.o
+[ 50%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/makernotes.cpp.o
+[ 51%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/mediumformat.cpp.o
+[ 52%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/minolta.cpp.o
+[ 53%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/misc_parsers.cpp.o
+[ 54%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/nikon.cpp.o
+[ 56%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/normalize_model.cpp.o
+[ 57%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/olympus.cpp.o
+[ 58%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/p1.cpp.o
+[ 59%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/pentax.cpp.o
+[ 60%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/samsung.cpp.o
+[ 62%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/sony.cpp.o
+[ 63%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/metadata/tiff.cpp.o
+[ 64%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/postprocessing/aspect_ratio.cpp.o
+[ 65%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/postprocessing/dcraw_process.cpp.o
+[ 67%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/postprocessing/mem_image.cpp.o
+[ 68%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/postprocessing/postprocessing_aux.cpp.o
+[ 69%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/postprocessing/postprocessing_utils.cpp.o
+[ 70%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/postprocessing/postprocessing_utils_dcrdefs.cpp.o
+[ 71%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/preprocessing/ext_preprocess.cpp.o
+[ 73%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/preprocessing/raw2image.cpp.o
+[ 74%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/preprocessing/subtract_black.cpp.o
+[ 75%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/tables/cameralist.cpp.o
+[ 76%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/tables/colorconst.cpp.o
+[ 78%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/tables/colordata.cpp.o
+[ 79%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/tables/wblists.cpp.o
+[ 80%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/utils/curves.cpp.o
+[ 81%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/utils/decoder_info.cpp.o
+[ 82%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/utils/init_close_utils.cpp.o
+[ 84%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/utils/open.cpp.o
+[ 85%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/utils/phaseone_processing.cpp.o
+[ 86%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/utils/read_utils.cpp.o
+[ 87%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/utils/thumb_utils.cpp.o
+[ 89%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/utils/utils_dcraw.cpp.o
+[ 90%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/utils/utils_libraw.cpp.o
+[ 91%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/write/apply_profile.cpp.o
+[ 92%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/write/file_write.cpp.o
+[ 93%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/write/tiff_writer.cpp.o
+[ 95%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/x3f/x3f_parse_process.cpp.o
+[ 96%] Building CXX object CMakeFiles/probe_raw.dir/sources/LibRaw-0.22.3/src/x3f/x3f_utils_patched.cpp.o
+[ 97%] Linking CXX static library libprobe_raw.a
+[ 97%] Built target probe_raw
+[ 98%] Building CXX object CMakeFiles/dng_probe.dir/src/probe.cpp.o
+[100%] Linking CXX executable dng_probe
+[100%] Built target dng_probe

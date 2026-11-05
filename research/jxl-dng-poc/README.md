@@ -1,133 +1,88 @@
 # LibRaw 0.22.3 + Adobe DNG SDK 2768: standalone JPEG XL proof of concept
 
-> Public review snapshot. Start with [REVIEW.md](REVIEW.md) for omissions, fixture
-> preparation and reproduction outside the RawNode checkout. No production integration.
+**Result: the original SDK-enabled experiment built on Linux x86-64 and decoded
+both Adobe JPEG XL DNG examples directly into memory.** This branch now also
+contains the redistributable SDK source subset and fetches pinned upstream JPEG
+XL dependencies, so the build no longer requires the Adobe ZIP. Start with
+[REVIEW.md](REVIEW.md) for current reproduction and validation details.
 
-**Result: SDK-enabled build succeeded on Linux x86-64. Both supplied Adobe JPEG XL
-DNG examples decoded directly from their original paths into memory.** Numerical
-bridge/stage comparisons passed. This establishes JPEG XL decoding for these
-fixtures, not production DxO PureRAW compatibility or complete colour rendering.
+This remains an isolated experiment. RawNode production source, root CMake and
+CI/dependency setup are unchanged. No production integration PR, conversion
+utility, intermediate DNG/TIFF, image exporter or fixture publication is included.
 
-RawNode production source, CMake, dependency setup and Git state were not changed.
-No commits/PRs, external conversion utilities, intermediate DNG/TIFF files or
-image exporter were used. Synthetic fixtures exist only in memory.
+## Source provenance, licensing and build
 
-## Verified package and versions
-
-The four uploaded `dng-sdk.part-aa` through `part-ad` files were concatenated with
-`cat` in that order into `downloads/dng_sdk_1_7_1_2768_20261013.zip`.
-`unzip -t` reported no errors. Reconstructed ZIP size: 80,509,918 bytes.
-
-ZIP SHA256:
+The uploaded four-part official SDK archive was concatenated alphabetically and
+passed `unzip -t`. Its 80,509,918 bytes have SHA256
 `c1d3a545ed45b150e59af2e6aa0695c1551f0e2bed34ad87436898a05194d2b1`.
+Version macros identify Adobe DNG SDK 1.7.1 build 2768. Provenance is based on the
+user-supplied official archive and file/hash checks, not an independently signed
+Adobe checksum. The original 3,769 extracted package files remain untouched.
 
-The extracted SDK is `sources/dng_sdk_1_7_1`, outside RawNode. Both `DNG_ReadMe.txt`
-and the version/build macros in `dng_flags.h` identify **1.7.1 build 2768,
-13 October 2026**. The program statically checks build 2768 and logs its SDK and
-libjxl versions. Archive integrity and contents were checked; Adobe provenance is
-based on the user-supplied official archive, not an independently signed checksum.
-All 3,769 extracted package files were compared with the ZIP and remain unchanged.
-See `logs/sdk-provenance.json`; the verbose ZIP inventory is omitted from this
-public snapshot. `unzip -t` completed with no errors in the original experiment.
+`../../third_party/dng_sdk/` contains 145 unmodified source/header files selected
+for the prototype plus the full Adobe licence and required third-party notices.
+Its README explains the actual licence grant and restrictions; `UPSTREAM.json`
+records hashes and omissions. Nothing from the XMP toolkit, photographs, SDK
+manuals/specifications, upstream project files or prebuilt binaries is vendored.
 
-| Component | Actual source/version |
+| Dependency | Reproducible source |
 |---|---|
-| Platform/toolchain | Linux x86-64, GCC/G++ 14.2.0, CMake 3.31.6 |
-| LibRaw | Upstream 0.22.3, commit cf02d66eb5c19d4e46df7aee0582e47a4918509a |
-| Adobe DNG SDK | Uploaded official 1.7.1 build 2768 |
-| libjxl | 0.11.2, bundled with that SDK |
-| Highway | 1.2.0, bundled with that SDK |
-| Brotli | 1.0.9, bundled with that SDK |
-| skcms | Bundled SDK copy, no separate release version asserted |
-| libjpeg | Existing Debian libjpeg62-turbo 2.1.5-4, ABI 62 |
-| zlib | Existing development package 1.3.1; linked libz.so.1 |
+| Adobe DNG SDK | Checked-in 1.7.1 build 2768 subset |
+| LibRaw | 0.22.3 archive and SHA256 pinned by `prepare-libraw.sh` |
+| libjxl | 0.11.2, Git 332feb17d17311c748445f7ee75c4fb55cc38530 |
+| Highway | 1.2.0, Git 457c891775a7397bdb0376bb1031e6e027af1c48 |
+| Brotli | 1.0.9, Git 36533a866ed1ca4b75cf049f4521e4ec5fe24727 |
+| skcms | Git b2e692629c1fb19342517d7fb61f1cf83d075492 |
+| System libraries | JPEG development library and zlib; installed toolchain supplies these |
 
-LibRaw archive URL:
-https://codeload.github.com/LibRaw/LibRaw/tar.gz/refs/tags/0.22.3
+`prepare-libjxl.sh` fetches only the three submodules needed from libjxl's own
+recorded Git revisions. It uses Google's GitHub mirror for the same skcms commit.
+External source trees remain ignored, rather than being copied into Git history.
+The original executor used GCC 14.2.0, CMake 3.31.6, JPEG ABI 62 and zlib 1.3.1.
 
-LibRaw archive SHA256:
-`7edf96c5b70cff88980a02ab0fc8af125cb6a4a377985573c654439d9d02355c`.
-
-The pre-existing system LibRaw 0.21.4 installation was not overwritten. The two
-experimental builds each link their own static LibRaw 0.22.3; their executable
-names and build directories distinguish the plain and SDK-enabled experiments.
-
-## Build commands
-
-On this executor, activate the pre-existing development sysroot first. On another
-machine provide equivalent C++17, CMake, Python, JPEG and zlib development tools.
+From this directory, with those development tools installed:
 
 ```bash
-cd /workspace/work/jxl-dng-poc
-source /workspace/.rawnode-tools/activate.sh
 bash prepare-libraw.sh
-
-cmake -S . -B build-sdk -DCMAKE_BUILD_TYPE=Release \
-  -DWITH_DNGSDK=ON \
-  -DLIBRAW_SOURCE_DIR="$PWD/sources/LibRaw-0.22.3" \
-  -DDNG_SDK_ROOT="$PWD/sources/dng_sdk_1_7_1"
+bash prepare-libjxl.sh
+cmake -S . -B build-sdk -DCMAKE_BUILD_TYPE=Release -DWITH_DNGSDK=ON \
+  -DLIBRAW_SOURCE_DIR="$PWD/sources/LibRaw-0.22.3"
 cmake --build build-sdk --parallel 2
 ctest --test-dir build-sdk --output-on-failure
-python3 run-sdk-checks.py
-
-cmake -S . -B build-nosdk -DCMAKE_BUILD_TYPE=Release \
-  -DWITH_DNGSDK=OFF \
-  -DLIBRAW_SOURCE_DIR="$PWD/sources/LibRaw-0.22.3"
-cmake --build build-nosdk --parallel 2
-python3 run-checks.py
-python3 run-ordinary-checks.py
 ```
 
-The last ordinary-file test requires the downloaded NEF fixture documented below.
-All JPEG XL dependencies come from the SDK; no dependency fetching or conversion
-utility is invoked by the build. libjxl tools/examples/tests/JNI/jpegli and other
-unneeded applications are disabled. Both encoder and decoder library code is
-linked because the SDK's JXL translation unit references both APIs.
+CMake finds the checked-in SDK subset by default. `DNG_SDK_ROOT` can select another
+subset root containing `source/dng_host.h`; `LIBJXL_SOURCE_DIR` selects a separately
+prepared JXL source tree. Plain LibRaw remains selectable with `WITH_DNGSDK=OFF`.
+Neither the prototype nor this dependency is referenced by RawNode's root build.
+No new dependency manager or automatic build-time download is introduced.
 
-Compiler definitions for the SDK/bridge/application are consistent:
-`qLinux=1`, `qDNGThreadSafe=1`, `qDNGUseLibJPEG=1`, `qDNGUseXMP=0`,
-`qDNGXMPFiles=0`, `qDNGXMPDocOps=0`, `qDNGValidateTarget=0`.
-LibRaw itself receives `USE_DNGSDK`, `USE_JPEG`, `USE_ZLIB`, `LIBRAW_NODLL`.
-The standalone build omits OpenMP. No legacy `qDNGSupportJXL` override is used.
-The default `dng_host` reports one processing thread; no new scheduler/thread pool
-was introduced.
+The SDK flags remain `qLinux=1` (or the platform branch), `qDNGThreadSafe=1`,
+`qDNGUseLibJPEG=1`, `qDNGUseXMP=0`, `qDNGXMPFiles=0`, `qDNGXMPDocOps=0`, and
+`qDNGValidateTarget=0`. LibRaw uses `USE_DNGSDK`, `USE_JPEG`, `USE_ZLIB` and
+`LIBRAW_NODLL`. OpenMP is omitted. JXL encoder and decoder library code remains
+linked because the SDK JXL translation unit references both APIs.
 
-At runtime a `dng_host` is attached with `raw.set_dng_host(&host)` only after
-positive JPEG XL DNG classification. The host outlives unpacking, processing and
-all borrowed SDK image buffers. The probe calls `raw.recycle()` and then
-`raw.set_dng_host(nullptr)` before destroying that host. Ordinary inputs receive
-no host; the default `use_dngsdk` eligibility mask is not a format dispatcher.
+No vendored upstream file is modified. `prepare-sdk-compat.py` generates a local
+build-directory copy of `dng_jxl.cpp` with two XMP-disabled guards; the patch is
+recorded in `logs/sdk-2768-no-xmp.patch`. It changes XMP access, not pixel decoding.
+XMP-disabled profile/metadata handling still needs real PureRAW qualification.
 
-| Probe option | LibRaw raw option | Purpose |
-|---|---|---|
-| `--stage=default` | No additional stage bit | Read compressed samples; useful control, skips required opcodes in example 01 |
-| `--stage=opcode` | `LIBRAW_RAWOPTIONS_DNG_STAGE23_IFPRESENT_JPGJXL` | Run conditional Stage 2/3 for JPEG/JXL files with OpcodeList2/3 |
-| `--stage=stage2` | `LIBRAW_RAWOPTIONS_DNG_STAGE2` | Force Stage 2 for diagnosis |
-| `--stage=stage3` | `LIBRAW_RAWOPTIONS_DNG_STAGE3` | Force Stage 2 and Stage 3 for diagnosis |
-| `--keep-float` | Clear `LIBRAW_RAWOPTIONS_CONVERTFLOAT_TO_INT` | Retain unpacked float samples; stop before integer development |
-| `--allow-size-change` | `LIBRAW_RAWOPTIONS_DNG_ALLOWSIZECHANGE` | Explicitly permit SDK stage geometry changes; not required by these examples |
+A `dng_host` is attached through `set_dng_host(&host)` only for positively
+classified JXL DNGs. The host outlives all borrowed buffers; the probe recycles
+LibRaw and detaches the host before destruction. Stage flags are set before
+opening the processing instance because identification adjusts WB metadata.
 
-Stage flags are set before opening the processing instance, because LibRaw's
-identification also adjusts white-balance metadata according to those flags.
+| Probe option | LibRaw option/effect |
+|---|---|
+| `--stage=default` | Read compressed samples; control that skips the integer example's required opcodes |
+| `--stage=opcode` | `LIBRAW_RAWOPTIONS_DNG_STAGE23_IFPRESENT_JPGJXL` |
+| `--stage=stage2` / `stage3` | Force SDK Stage 2 / Stage 2 and Stage 3 for diagnosis |
+| `--keep-float` | Clear `CONVERTFLOAT_TO_INT`, retain unpacked float samples, stop before integer development |
+| `--allow-size-change` | Explicit `DNG_ALLOWSIZECHANGE`, not automatic recovery |
 
-### Required SDK build compatibility adjustment
-
-SDK 2768 does not compile completely with XMP disabled as supplied:
-`dng_jxl.cpp` has unguarded encoder `GetXMP()` references and a decoder XMP-box
-handler. `prepare-sdk-compat.py` generates `build-sdk/dng_jxl_no_xmp.cpp` with
-`qDNGUseXMP` guards around those two blocks. The added guards are retained as a zero-context diff in
-`logs/sdk-2768-no-xmp.patch`, without SDK source context. It changes XMP metadata handling only; the JPEG XL
-pixel decode path is unchanged. The original SDK source is untouched.
-
-The target also excludes `dng_xmp.cpp`, `dng_xmp_sdk.cpp`, and the XMP-dependent
-in-place file updater `dng_update_meta.cpp`, in addition to `dng_validate.cpp`.
-No LibRaw, libjxl, Highway or Brotli patches were required. Compiler diagnostic
-notes and macro redefinition warnings remain in the logs; these were not treated
-as a reason to change upstream sources unnecessarily.
-
-An unpatched full-XMP SDK configuration is an alternative, but would add the XMP
-SDK and its dependencies and was not built in this experiment. XMP-disabled
-operation must still be qualified against actual PureRAW metadata before release.
+The following original numerical findings are retained as historical evidence;
+current vendored-source validation is recorded separately under `logs/vendor/`.
 
 ## Executed JPEG XL decoding
 

@@ -1,0 +1,14 @@
+{
+  "identical_files": 771,
+  "different_files": [
+    "CMakeLists.txt",
+    "lib/jxl_lists.cmake",
+    "lib/jxl/enc_chroma_from_luma.cc",
+    "third_party/skcms/skcms.cc",
+    "third_party/brotli/CMakeLists.txt",
+    "third_party/highway/CMakeLists.txt"
+  ],
+  "files_missing_upstream": [
+    "lib/include/jxl/version.h"
+  ]
+}

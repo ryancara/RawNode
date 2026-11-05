@@ -6,7 +6,7 @@ import subprocess
 
 root=Path(__file__).resolve().parent
 fixtures={'nef':'fixtures/iss030e122639.NEF',
-          'ordinary-dng':'sources/dng_sdk_1_7_1/sample_files/04_PGTM2_per_profile.dng'}
+          'ordinary-dng':'fixtures/adobe-04-ordinary.dng'}
 report={}
 for name,path in fixtures.items():
     outputs={}

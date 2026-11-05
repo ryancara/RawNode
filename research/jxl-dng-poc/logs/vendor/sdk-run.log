@@ -1,0 +1,11 @@
+sdk-selftest exit 0 seconds 0.01
+integer-default exit 0 seconds 11.246
+float-default exit 0 seconds 6.244
+integer-reference exit 0 seconds 13.658
+integer-opcode-reference exit 0 seconds 11.137
+integer-stage2-reference exit 0 seconds 10.789
+integer-stage3-reference exit 0 seconds 11.186
+integer-highlight1 exit 0 seconds 7.837
+float-reference exit 0 seconds 2.91
+float-stage2-reference exit 0 seconds 3.373
+jxl-host-disabled exit 1 seconds 0.003
