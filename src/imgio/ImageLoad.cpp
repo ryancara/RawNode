@@ -4,7 +4,15 @@
 #include "imgio/ImageIOPriv.h"
 #include "perf.h"
 
+#define LIBRAW_DNGSDK_CONFLICT 1
 #include <libraw/libraw.h>
+#if RAWNODE_ENABLE_JXL_DNG
+// Keep SDK typedefs before libtiff's deprecated aliases.
+#include "dng_host.h"
+#include <optional>
+static_assert(kDNGSDK_BuildVersion == 2768, "Use the reviewed Adobe SDK build");
+#endif
+static_assert(LIBRAW_VERSION == LIBRAW_MAKE_VERSION(0, 22, 3), "RawNode requires LibRaw 0.22.3");
 #include <tiffio.h>
 
 #include <algorithm>
@@ -106,11 +114,96 @@ bool makeCameraToWorkingMatrix(const float cameraToRec709[3][4], RgbGamut target
   return true;
 }
 
+// This diagnostic decoder name is deliberately pinned to LibRaw 0.22.3.
+// It describes the selected main image, not a filename or embedded preview.
+static bool isJxlDng(LibRaw &raw) {
+  libraw_decoder_info_t decoder{};
+  return raw.imgdata.idata.dng_version && raw.get_decoder_info(&decoder) == LIBRAW_SUCCESS &&
+         decoder.decoder_name && std::strcmp(decoder.decoder_name, "jxl_dng_load_raw_placeholder()") == 0;
+}
+
+static bool jxlDngError(const char *reason) {
+  std::fprintf(stderr, "JPEG XL DNG: %s\n", reason);
+  return false;
+}
+
+#if RAWNODE_ENABLE_JXL_DNG
+static bool unsupportedJxlStage1Geometry(const LibRaw &raw) {
+  const auto &list = raw.imgdata.color.dng_levels.rawopcodes[0];
+  if (!list.len) return false;
+  if (!list.data || list.len < 4) return true;
+  const auto *bytes = static_cast<const unsigned char *>(list.data);
+  const auto be32 = [&](size_t p) {
+    return (uint32_t(bytes[p]) << 24) | (uint32_t(bytes[p + 1]) << 16) |
+           (uint32_t(bytes[p + 2]) << 8) | bytes[p + 3];
+  };
+  const uint32_t count = be32(0);
+  size_t position = 4;
+  for (uint32_t i = 0; i < count; ++i) {
+    if (position > list.len || list.len - position < 16) return true;
+    const uint32_t id = be32(position), length = be32(position + 12);
+    if (length > list.len - position - 16 || id == 6) return true; // TrimBounds
+    position += 16 + length;
+  }
+  return false;
+}
+#endif
+
 static bool loadRaw(const std::string &path, Image &out, RgbGamut workingGamut, TransferFunction workingGamma) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
+#if RAWNODE_ENABLE_JXL_DNG
+  // raw must be destroyed first: its borrowed SDK buffers can reference this host.
+  std::optional<dng_host> dngHost;
+#endif
   LibRaw raw;
   if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
-  if (raw.unpack() != LIBRAW_SUCCESS) return false;
+  const bool jxl = isJxlDng(raw);
+#if RAWNODE_ENABLE_JXL_DNG
+  bool stage2 = false;
+  if (jxl) {
+    if (raw.is_floating_point())
+      return jxlDngError("floating-point development is unsupported");
+    stage2 = raw.imgdata.color.dng_levels.rawopcodes[1].len != 0;
+    if (stage2) {
+      // LibRaw adjusts WB while identifying. Force Stage 2 before reopening;
+      // the conditional JPEG/JXL stage flag applies the wrong WB for unequal whites.
+      raw.recycle();
+      raw.imgdata.rawparams.options |= LIBRAW_RAWOPTIONS_DNG_STAGE2 | LIBRAW_RAWOPTIONS_DNG_ALLOWSIZECHANGE;
+      if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS || !isJxlDng(raw) ||
+          raw.is_floating_point() || !raw.imgdata.color.dng_levels.rawopcodes[1].len)
+        return jxlDngError("could not reopen the identified integer image for Stage 2");
+      if (unsupportedJxlStage1Geometry(raw))
+        return jxlDngError("unsupported or malformed Stage 1 TrimBounds geometry");
+    }
+    // Keep default use_dngsdk eligibility; ordinary RAW inputs receive no host.
+    dngHost.emplace();
+    raw.set_dng_host(&*dngHost);
+  }
+  const auto active = raw.imgdata.sizes;
+#else
+  if (jxl) return jxlDngError("support is disabled; build with RAWNODE_ENABLE_JXL_DNG=ON");
+#endif
+  if (raw.unpack() != LIBRAW_SUCCESS) {
+    if (jxl) return jxlDngError("SDK unpack failed");
+    return false;
+  }
+#if RAWNODE_ENABLE_JXL_DNG
+  if (jxl) {
+    const auto warnings = raw.imgdata.process_warnings;
+    if (!(warnings & LIBRAW_WARN_DNGSDK_PROCESSED) || (warnings & LIBRAW_WARN_DNG_STAGE3_APPLIED) ||
+        bool(warnings & LIBRAW_WARN_DNG_STAGE2_APPLIED) != stage2)
+      return jxlDngError("SDK did not perform the requested decoding stages");
+    if (stage2) {
+      const auto &size = raw.imgdata.sizes;
+      // Only the reviewed ActiveArea trim is supported. RawNode does not request
+      // DefaultCrop, so no unused inset-crop metadata is rebased here.
+      if (size.raw_width != active.width || size.raw_height != active.height ||
+          size.width != active.width || size.height != active.height ||
+          size.left_margin != 0 || size.top_margin != 0)
+        return jxlDngError("unsupported Stage 2 dimensions or geometry");
+    }
+  }
+#endif
 
   // Keep LibRaw responsible for the existing RAW-development stages (including
   // camera WB and demosaic), but stop before its output-colour conversion.

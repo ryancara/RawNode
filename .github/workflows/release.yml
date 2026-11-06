@@ -26,11 +26,11 @@ jobs:
         with:
           submodules: true
       - name: Install dependencies
-        run: brew install cmake libraw libtiff little-cms2 openexr
+        run: brew install cmake jpeg-turbo libtiff little-cms2 openexr
       - name: Build and package DMG
         run: |
           rm -rf build
-          ARCHS=${{ matrix.arch }} VERSION="${GITHUB_REF_NAME#v}" ./build.sh
+          CMAKE_PREFIX_PATH="$(brew --prefix jpeg-turbo)" ARCHS=${{ matrix.arch }} VERSION="${GITHUB_REF_NAME#v}" ./build.sh
           # Verify binary arch matches the matrix target
           lipo -info build/OfxRawHost.app/Contents/MacOS/OfxRawHost | tee /dev/stderr | grep -q "${{ matrix.arch }}"
           mkdir -p build/dmg

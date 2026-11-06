@@ -126,19 +126,25 @@ Restart OFX Raw Host after installing plugins. If none are found, the status bar
 
 ## Build
 
-Requires CMake 3.16+, a C++17 compiler, [LibRaw](https://www.libraw.org/),
+Requires CMake 3.16+, a C++17 compiler, JPEG and zlib development libraries,
 [libtiff](https://libtiff.gitlab.io/libtiff/),
 [Little CMS 2](https://www.littlecms.com/), and
 [OpenEXR 3](https://openexr.com/) (with Imath) for the CTL backend.
 GLFW, Dear ImGui and the [CTL](https://github.com/aces-aswf/CTL) reference
-interpreter are fetched automatically by CMake.
+interpreter and pinned [LibRaw 0.22.3](https://www.libraw.org/) are fetched
+automatically by CMake. No system LibRaw is used.
+
+Integer JPEG XL DNG decoding is experimental and disabled by default.
+See [JPEG XL DNG validation](docs/JPEG_XL_DNG.md) for the optional SDK build,
+dependency pins, limitations and manual platform checks.
 
 ```sh
 # macOS
-brew install cmake libraw libtiff little-cms2 openexr
+brew install cmake jpeg-turbo libtiff little-cms2 openexr
+export CMAKE_PREFIX_PATH="$(brew --prefix jpeg-turbo)${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
 
 # Debian/Ubuntu
-sudo apt install cmake pkg-config libraw-dev libtiff-dev liblcms2-dev libopenexr-dev libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+sudo apt install cmake pkg-config libjpeg-dev libtiff-dev liblcms2-dev libopenexr-dev libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
 
 git clone --recursive https://github.com/ryancara/RawNode.git
 cd RawNode
