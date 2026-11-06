@@ -35,7 +35,8 @@ for name,args in cases:
     print(name,'exit',result.returncode,'seconds',round(summary[name]['elapsed_s'],3),flush=True)
     if result.returncode and name!='jxl-host-disabled':
         print(result.stdout[-2200:],flush=True)
-    expected=1 if name=='jxl-host-disabled' else 0
+    expected=1 if name in ('jxl-host-disabled','float-default') else 0
     if result.returncode!=expected:failed.append(name)
-    if name not in ('sdk-selftest','jxl-host-disabled') and 'sdk_processed=1' not in result.stdout:failed.append(name+': no SDK evidence')
+    if name=='float-default' and 'Unsupported floating-point JPEG XL DNG' not in result.stdout:failed.append(name+': missing float rejection')
+    if name not in ('sdk-selftest','jxl-host-disabled','float-default') and 'sdk_processed=1' not in result.stdout:failed.append(name+': no SDK evidence')
 if failed:raise SystemExit('Unexpected results: '+', '.join(failed))

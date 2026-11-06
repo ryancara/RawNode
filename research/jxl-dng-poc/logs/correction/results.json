@@ -1,0 +1,37 @@
+{
+  "base_reviewed_commit": "58bda0b3ff316f191872d1869fe1b421b3c731a1",
+  "jxl_regression_checks": 18,
+  "release_ctest": "2/2 passed; plain build 1/1 passed",
+  "asan_ubsan_ctest": "2/2 passed, full leak detection outside sandbox, OpenMP on",
+  "tsan_ctest": "2/2 passed, OpenMP off",
+  "initial_sanitizer_findings": [
+    "libjxl encoder EntropyEncodingData::use_prefix_code uninitialized Boolean, fixed by one-line exact-hash compatibility patch",
+    "LeakSanitizer worker inspection blocked in sandbox; full suite passed outside restriction, no leak suppression"
+  ],
+  "maximum_lossless_camera_error": 1.52311116e-05,
+  "lossless_tolerance": 6.103608758678569e-05,
+  "lossy_linear_rgb_smoke_error": 0.000257563111,
+  "lossy_tolerance": 0.01,
+  "restored_stage_bug_max_error": 0.633699634,
+  "float_diagnostic_tolerance": 1e-09,
+  "crop_outputs": [
+    "active 52x40",
+    "DefaultCrop 44x34",
+    "rotated DefaultCrop 34x44",
+    "small DefaultCrop 20x12"
+  ],
+  "reproduced": [
+    "unequal-white WB scaling/clipping",
+    "unwanted Stage 3",
+    "ActiveArea rejection without size-change flag",
+    "DefaultCrop loss with size change",
+    "black float+OpcodeList2 integer output",
+    "Stage 1 TrimBounds mapping requires explicit rejection"
+  ],
+  "not_tested": [
+    "PureRAW photos and trusted photographic colour reference",
+    "LibRaw 0.21.2 comparison reported by Claude",
+    "macOS Apple Silicon and Windows",
+    "TSan with OpenMP"
+  ]
+}

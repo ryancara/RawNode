@@ -17,21 +17,27 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #if defined(__unix__) || defined(__APPLE__)
 #include <sys/resource.h>
 #endif
 
 static_assert(LIBRAW_VERSION == LIBRAW_MAKE_VERSION(0,22,3), "Use LibRaw 0.22.3 headers");
 struct Options {
-  std::string stage = "default";
+  std::string stage = "auto";
   bool sdk = true, keepFloat = false, allowSize = false, crop = false, reference = false, compareStage = false;
   int highlight = 0;
+  bool captureCamera = false; // Small synthetic tests only; no extra retained photograph buffer.
 };
 struct Result {
   int w=0,h=0;
   std::vector<float> pixels;
   std::array<float,3> cameraMiddle{};
   unsigned unpackedMiddle=0;
+  std::vector<float> camera;
+  bool sdkProcessed=false, stage2=false, stage3=false, retainedFloat=false;
 };
 using Clock = std::chrono::steady_clock;
 static void check(int code, const char* operation) {
@@ -46,16 +52,62 @@ static bool isJxlDng(LibRaw& raw) {
   return raw.imgdata.idata.dng_version && info.decoder_name &&
     std::strcmp(info.decoder_name,"jxl_dng_load_raw_placeholder()") == 0;
 }
-static void configure(LibRaw& raw, const Options& o, bool jxl) {
+static void configure(LibRaw& raw, const Options& o, bool jxl, bool hasOpcode2=false) {
   // Stage options affect identify-time WB metadata adjustment as well as unpack.
   // Apply them before open_file, and only to an already classified JXL request.
   if(jxl) {
+    if(o.stage=="auto" && hasOpcode2)
+      raw.imgdata.rawparams.options |= LIBRAW_RAWOPTIONS_DNG_STAGE2 | LIBRAW_RAWOPTIONS_DNG_ALLOWSIZECHANGE;
     if(o.stage=="opcode") raw.imgdata.rawparams.options |= LIBRAW_RAWOPTIONS_DNG_STAGE23_IFPRESENT_JPGJXL;
     else if(o.stage=="stage2") raw.imgdata.rawparams.options |= LIBRAW_RAWOPTIONS_DNG_STAGE2;
     else if(o.stage=="stage3") raw.imgdata.rawparams.options |= LIBRAW_RAWOPTIONS_DNG_STAGE3;
     if(o.allowSize) raw.imgdata.rawparams.options |= LIBRAW_RAWOPTIONS_DNG_ALLOWSIZECHANGE;
   }
   if(o.keepFloat) raw.imgdata.rawparams.options &= ~LIBRAW_RAWOPTIONS_CONVERTFLOAT_TO_INT;
+}
+
+// Stage 2 trims to ActiveArea. LibRaw's ALLOWSIZECHANGE resets dimensions and
+// margins but leaves inset crops in stored-image coordinates. Preserve the
+// requested region and rebase metadata only when that trim is unambiguous.
+static void preserveStage2Geometry(LibRaw& raw, const libraw_image_sizes_t& active,
+                                   const libraw_image_sizes_t& requested) {
+  auto& sizes=raw.imgdata.sizes;
+  if(sizes.raw_width==active.raw_width && sizes.raw_height==active.raw_height)return;
+  if(sizes.raw_width!=active.width || sizes.raw_height!=active.height)
+    throw std::runtime_error("Unsupported SDK Stage 2 geometry change: cannot preserve DNG crop coordinates");
+  const int left=int(requested.left_margin)-active.left_margin;
+  const int top=int(requested.top_margin)-active.top_margin;
+  if(left<0 || top<0 || left+requested.width>sizes.raw_width || top+requested.height>sizes.raw_height)
+    throw std::runtime_error("DNG requested crop is outside the SDK ActiveArea");
+  for(auto& crop:sizes.raw_inset_crops) {
+    if(crop.cleft==0xffff || crop.ctop==0xffff)continue;
+    const int x=int(crop.cleft)-active.left_margin, y=int(crop.ctop)-active.top_margin;
+    if(x<0 || y<0 || x+crop.cwidth>sizes.raw_width || y+crop.cheight>sizes.raw_height)
+      throw std::runtime_error("Cannot preserve DNG inset crop after SDK Stage 2 trim");
+    crop.cleft=x;crop.ctop=y;
+  }
+  sizes.left_margin=left;sizes.top_margin=top;
+  sizes.width=requested.width;sizes.height=requested.height;
+  raw.imgdata.rawdata.sizes=sizes; // raw2image_start restores this snapshot.
+}
+
+static void rejectUnmappedStage1Trim(LibRaw& raw) {
+  const unsigned stages=LIBRAW_RAWOPTIONS_DNG_STAGE2 | LIBRAW_RAWOPTIONS_DNG_STAGE3 |
+                        LIBRAW_RAWOPTIONS_DNG_STAGE23_IFPRESENT_JPGJXL;
+  if(!(raw.imgdata.rawparams.options&stages))return;
+  const auto& list=raw.imgdata.color.dng_levels.rawopcodes[0];
+  if(!list.data || list.len<4)return;
+  const auto* bytes=static_cast<const unsigned char*>(list.data);
+  auto be=[&](size_t p){return (uint32_t(bytes[p])<<24)|(uint32_t(bytes[p+1])<<16)|
+                             (uint32_t(bytes[p+2])<<8)|bytes[p+3];};
+  const uint32_t count=be(0);size_t pos=4;
+  for(uint32_t i=0;i<count;++i) {
+    if(pos>list.len || list.len-pos<16)throw std::runtime_error("Malformed OpcodeList1 header");
+    const uint32_t id=be(pos), length=be(pos+12);
+    if(length>list.len-pos-16)throw std::runtime_error("Malformed OpcodeList1 payload");
+    if(id==6)throw std::runtime_error("Unsupported DNG Stage 1 TrimBounds with SDK Stage 2: crop coordinates cannot be preserved");
+    pos+=16+length;
+  }
 }
 static void metadata(LibRaw& raw, const char* phase) {
   const auto& d=raw.imgdata;
@@ -134,15 +186,23 @@ static Result process(LibRaw& raw, const Options& o, const std::string& path={})
   } guard{raw};
   if(jxl && o.sdk) { raw.set_dng_host(&host); attached=true; }
 #endif
-  if((o.stage!="default" || o.allowSize) && !attached)
+  if(((o.stage!="auto" && o.stage!="default") || o.allowSize) && !attached)
     throw std::runtime_error("SDK stage experiments require classified JXL input and an SDK-enabled build/host");
-  if(o.crop) std::cout << "crop_selection=" << raw.adjust_to_raw_inset_crop(1) << " (0=none,1=first inset)\n";
+  if(jxl && raw.is_floating_point() && !o.keepFloat)
+    throw std::runtime_error("Unsupported floating-point JPEG XL DNG: integer development loses precision; use --keep-float for unpack diagnostics only");
+  if(jxl && attached)rejectUnmappedStage1Trim(raw);
+  const auto activeGeometry=raw.imgdata.sizes;
+  if(o.crop && raw.adjust_to_raw_inset_crop(1,0.f)!=1)
+    throw std::runtime_error("Requested DNG DefaultCrop is missing or outside the image");
+  const auto requestedGeometry=raw.imgdata.sizes;
   std::cout << "jxl_selected=" << jxl << " host_attached=" << attached
     << " stage=" << o.stage << " options=" << raw.imgdata.rawparams.options << '\n';
   const auto unpackStart=Clock::now();
   int error=raw.unpack(); metadata(raw,error?"unpack_failed_state_may_be_recycled":"unpacked"); check(error,"unpack");
   if(jxl && attached && !(raw.imgdata.process_warnings & LIBRAW_WARN_DNGSDK_PROCESSED))
     throw std::runtime_error("JXL unpack returned success without SDK_PROCESSED evidence");
+  if(jxl && (raw.imgdata.process_warnings & LIBRAW_WARN_DNG_STAGE2_APPLIED))
+    preserveStage2Geometry(raw,activeGeometry,requestedGeometry);
   const auto unpackEnd=Clock::now();
   std::cout << "unpack_ms=" << std::chrono::duration<double,std::milli>(unpackEnd-unpackStart).count()
     << " sdk_processed=" << bool(raw.imgdata.process_warnings & LIBRAW_WARN_DNGSDK_PROCESSED)
@@ -165,7 +225,10 @@ static Result process(LibRaw& raw, const Options& o, const std::string& path={})
     const int channels=rd.float_image?1:rd.float3_image?3:4;
     const size_t count=size_t(raw.imgdata.sizes.raw_width)*raw.imgdata.sizes.raw_height*channels;
     std::vector<float> copy(data,data+count); statistics(copy,channels,"unpacked_float");
-    return {};
+    Result diagnostic;diagnostic.w=raw.imgdata.sizes.width;diagnostic.h=raw.imgdata.sizes.height;
+    diagnostic.sdkProcessed=attached;diagnostic.retainedFloat=true;
+    if(o.captureCamera)diagnostic.camera=std::move(copy);
+    return diagnostic;
   }
   // Match RawNode's current development settings; highlight is an explicit experiment.
   auto& p=raw.imgdata.params;
@@ -179,6 +242,9 @@ static Result process(LibRaw& raw, const Options& o, const std::string& path={})
   if(!img || img->type!=LIBRAW_IMAGE_BITMAP || img->colors<3 || img->colors>4 || img->bits!=16)
     throw std::runtime_error("Unexpected processed bitmap format");
   Result result;
+  result.sdkProcessed=(raw.imgdata.process_warnings & LIBRAW_WARN_DNGSDK_PROCESSED)!=0;
+  result.stage2=(raw.imgdata.process_warnings & LIBRAW_WARN_DNG_STAGE2_APPLIED)!=0;
+  result.stage3=(raw.imgdata.process_warnings & LIBRAW_WARN_DNG_STAGE3_APPLIED)!=0;
   result.w=img->width; result.h=img->height; result.unpackedMiddle=unpackedMiddle;
   for(int c=0;c<3;++c) result.cameraMiddle[c]=reinterpret_cast<const uint16_t*>(img->data)[size_t(img->width/2)*img->colors+c]/65535.f;
   const size_t n=size_t(img->width)*img->height;
@@ -209,12 +275,26 @@ static Result process(LibRaw& raw, const Options& o, const std::string& path={})
   }
   for(size_t i=0;i<camera.size();++i) camera[i]=src[i]/65535.f;
   statistics(camera,img->colors,"camera_processed"); statistics(result.pixels,4,"linear_rec2020");
+  if(o.captureCamera)result.camera=std::move(camera);
   const auto end=Clock::now();
   std::cout << "bitmap=" << img->width << 'x' << img->height << " channels=" << img->colors
     << " bits=" << img->bits << " float_rgba_bytes=" << result.pixels.size()*sizeof(float)
     << " unpack_ms=" << std::chrono::duration<double,std::milli>(unpackEnd-unpackStart).count()
     << " total_after_identify_ms=" << std::chrono::duration<double,std::milli>(end-begin).count() << '\n';
   return result;
+}
+
+static Result loadOriginal(const std::string& path, const Options& options) {
+  LibRaw identified;check(identified.open_file(path.c_str()),"identify open_file");
+  const bool jxl=isJxlDng(identified);
+  const bool hasOpcode2=identified.imgdata.color.dng_levels.rawopcodes[1].len!=0;
+  if(jxl && identified.is_floating_point() && !options.keepFloat)
+    throw std::runtime_error("Unsupported floating-point JPEG XL DNG: use --keep-float for unpack diagnostics only");
+  identified.recycle();
+  LibRaw raw;configure(raw,options,jxl,hasOpcode2); // Before identification-time WB adjustment.
+  check(raw.open_file(path.c_str()),"decode open_file");
+  if(isJxlDng(raw)!=jxl)throw std::runtime_error("Input classification changed between opens");
+  return process(raw,options,path);
 }
 
 // Minimal classic TIFF/DNG memory fixture builder. No fixture is written to disk.
@@ -307,10 +387,18 @@ static void selftest() {
   std::cout << "PASS in-memory integer linear DNG, rotation, table response, WB headroom difference=" << maxDiff
     << " table_difference=" << tableDiff << "\n";
 }
+#if POC_WITH_DNGSDK
+#include "../tests/jxl_checks.h"
+#endif
 int main(int argc,char** argv) {
   try {
     std::cout << std::setprecision(9) << "libraw=" << LibRaw::version() << " capabilities=" << LibRaw::capabilities()
       << " sdk_compiled=" << POC_WITH_DNGSDK << '\n';
+#ifdef _OPENMP
+    std::cout << "openmp=1 max_threads=" << omp_get_max_threads() << '\n';
+#else
+    std::cout << "openmp=0\n";
+#endif
 #if POC_WITH_DNGSDK
     std::cout << "adobe_sdk=" << kDNGSDK_GetInfoVersion << " libjxl_version_number=" << JxlDecoderVersion() << '\n';
 #endif
@@ -318,6 +406,9 @@ int main(int argc,char** argv) {
     if(POC_WITH_DNGSDK && !(LibRaw::capabilities() & LIBRAW_CAPS_DNGSDK))
       throw std::runtime_error("SDK requested but linked LibRaw has no SDK capability");
     if(argc==2 && std::string(argv[1])=="--selftest") { selftest(); return 0; }
+#if POC_WITH_DNGSDK
+    if(argc==2 && std::string(argv[1])=="--jxl-selftest") { jxl_checks::run(); return 0; }
+#endif
     Options o;std::vector<std::string> paths;
     for(int i=1;i<argc;++i){std::string a=argv[i];
       if(a=="--no-sdk")o.sdk=false;
@@ -327,21 +418,20 @@ int main(int argc,char** argv) {
       else if(a=="--allow-size-change")o.allowSize=true;
       else if(a=="--crop")o.crop=true;
       else if(a=="--highlight=1")o.highlight=1;
-      else if(a.rfind("--stage=",0)==0){o.stage=a.substr(8);if(o.stage!="default"&&o.stage!="opcode"&&o.stage!="stage2"&&o.stage!="stage3")throw std::runtime_error("Unknown stage");}
+      else if(a.rfind("--stage=",0)==0){o.stage=a.substr(8);if(o.stage!="auto"&&o.stage!="default"&&o.stage!="opcode"&&o.stage!="stage2"&&o.stage!="stage3")throw std::runtime_error("Unknown stage");}
       else if(a.rfind("--",0)==0)throw std::runtime_error("Unknown option: "+a);
       else paths.push_back(a);
     }
-    if(paths.empty()||paths.size()>2)throw std::runtime_error("Usage: dng_probe [--stage=default|opcode|stage2|stage3] [--no-sdk] [--keep-float] [--allow-size-change] [--highlight=1] [--crop] ORIGINAL [COMPARISON]");
-    if(o.compareStage){if(paths.size()!=1 || o.stage!="default" || o.keepFloat || o.reference)throw std::runtime_error("--compare-stage needs one input and default processed mode");paths.push_back(paths[0]);}
+    if(paths.empty()||paths.size()>2)throw std::runtime_error("Usage: dng_probe [--stage=auto|default|opcode|stage2|stage3] [--no-sdk] [--keep-float] [--allow-size-change] [--highlight=1] [--crop] ORIGINAL [COMPARISON]");
+    if(o.stage=="opcode" || o.stage=="stage3")
+      std::cerr << "DIAGNOSTIC ONLY: legacy conditional/Stage 3 override is outside the supported decoding policy\n";
+    if(o.compareStage){if(paths.size()!=1 || o.stage!="auto" || o.keepFloat || o.reference)throw std::runtime_error("--compare-stage needs one input and auto processed mode");paths.push_back(paths[0]);}
     std::vector<Result> results;
     for(const auto& path:paths){
       const auto start=Clock::now();
-      LibRaw identified;std::cout << "input=" << path << '\n';check(identified.open_file(path.c_str()),"identify open_file");
-      const bool jxl=isJxlDng(identified);identified.recycle();
-      Options current=o;if(o.compareStage && !results.empty())current.stage="opcode";
-      LibRaw raw;configure(raw,current,jxl);check(raw.open_file(path.c_str()),"decode open_file");
-      if(isJxlDng(raw)!=jxl)throw std::runtime_error("Input classification changed between opens");
-      results.push_back(process(raw,current,path));
+      std::cout << "input=" << path << '\n';
+      Options current=o;if(o.compareStage && !results.empty())current.stage="default";
+      results.push_back(loadOriginal(path,current));
       std::cout << "path_total_ms=" << std::chrono::duration<double,std::milli>(Clock::now()-start).count() << '\n';
     }
     if(results.size()==2){const auto& a=results[0];const auto& b=results[1];
@@ -349,7 +439,7 @@ int main(int argc,char** argv) {
       double sum=0,square=0,maximum=0;size_t count=0;
       for(size_t i=0;i<a.pixels.size();++i)if(i%4!=3){double d=double(a.pixels[i])-b.pixels[i];sum+=std::abs(d);square+=d*d;maximum=std::max(maximum,std::abs(d));++count;}
       std::cout << "comparison RGB MAE=" << sum/count << " RMSE=" << std::sqrt(square/count) << " max_abs=" << maximum
-        << (o.compareStage?" (same file; default versus conditional SDK stage processing)\n":" (compression and development differences combined)\n");
+        << (o.compareStage?" (same file; supported auto policy versus decompression only)\n":" (compression and development differences combined)\n");
     }
 #if defined(__unix__) || defined(__APPLE__)
     rusage usage{};getrusage(RUSAGE_SELF,&usage);

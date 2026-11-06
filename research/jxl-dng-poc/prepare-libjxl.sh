@@ -8,7 +8,14 @@ checkout_pinned() {
   if [[ -e "$destination/.git" ]]; then
     local actual
     actual=$(git -C "$destination" rev-parse HEAD)
-    if [[ "$actual" != "$revision" ]] || [[ -n "$(git -C "$destination" status --porcelain --untracked-files=no)" ]]; then
+    local changes
+    if [[ "$destination" == sources/libjxl ]]; then
+      # The helper below verifies exact pristine/patched bytes of this one file.
+      changes=$(git -C "$destination" status --porcelain --untracked-files=no -- . ':!lib/jxl/enc_ans.h')
+    else
+      changes=$(git -C "$destination" status --porcelain --untracked-files=no)
+    fi
+    if [[ "$actual" != "$revision" ]] || [[ -n "$changes" ]]; then
       echo "Refusing to replace a different or modified checkout: $destination" >&2
       exit 1
     fi
@@ -18,6 +25,8 @@ checkout_pinned() {
       exit 1
     fi
     git init -q "$destination"
+    git -C "$destination" config core.autocrlf false
+    git -C "$destination" config core.eol lf
     git -C "$destination" remote add origin "$upstream"
     git -C "$destination" fetch --depth=1 origin "$revision"
     git -C "$destination" checkout -q --detach FETCH_HEAD
@@ -36,3 +45,4 @@ checkout_pinned sources/libjxl/third_party/brotli https://github.com/google/brot
 # Google's GitHub mirror exposes the same skcms commit as the upstream gitlink.
 checkout_pinned sources/libjxl/third_party/skcms https://github.com/google/skcms.git \
   b2e692629c1fb19342517d7fb61f1cf83d075492
+python3 prepare-libjxl-compat.py sources/libjxl

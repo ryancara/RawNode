@@ -20,7 +20,9 @@ for name,(arguments,expected) in cases.items():
     summary[name]={'exit':p.returncode,'expected_exit':expected}
     if p.returncode!=expected:
         raise SystemExit(f'{name}: unexpected exit {p.returncode}; inspect log')
-    if name.startswith('adobe-') and ('jxl_selected=1' not in p.stdout or 'unpack: Unsupported file format' not in p.stdout):
+    if name=='adobe-integer-nosdk' and ('jxl_selected=1' not in p.stdout or 'unpack: Unsupported file format' not in p.stdout):
         raise SystemExit(f'{name}: expected classified JXL / unsupported unpack evidence missing')
+    if name=='adobe-float-nosdk' and 'Unsupported floating-point JPEG XL DNG' not in p.stdout:
+        raise SystemExit(f'{name}: missing explicit float diagnostic')
 (root/'logs/checks.json').write_text(json.dumps(summary,indent=2)+'\n')
 print(json.dumps(summary,indent=2))

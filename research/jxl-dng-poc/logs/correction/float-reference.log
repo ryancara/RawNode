@@ -1,0 +1,31 @@
+libraw=0.22.3-Release capabilities=194 sdk_compiled=1
+openmp=1 max_threads=3
+adobe_sdk=1.7.1 (2768) libjxl_version_number=11002
+input=fixtures/adobe-02-jxl-float.dng
+phase=identified raw=4667x7000 active=4667x7000 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=32768 warnings=0 float_source=1
+cam_mul=2.55077958,1,1.62499905,0, pre_mul=2.64295697,0.931161284,1.32978761,0, dng_white=32768,32768,32768,0, baseline_exposure=3.31999993
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=1.54173863,-0.357950985,-0.183787629,0, opcode1_bytes=0
+rgb_cam[1]=-0.130611017,1.54901671,-0.418405712,0, opcode2_bytes=0
+rgb_cam[2]=0.00473544467,-0.39965713,1.39492166,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+jxl_selected=1 host_attached=1 stage=auto options=0
+phase=unpacked raw=4667x7000 active=4667x7000 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=32768 warnings=131072 float_source=1
+cam_mul=2.55077958,1,1.62499905,0, pre_mul=2.64295697,0.931161284,1.32978761,0, dng_white=32768,32768,32768,0, baseline_exposure=3.31999993
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=1.54173863,-0.357950985,-0.183787629,0, opcode1_bytes=0
+rgb_cam[1]=-0.130611017,1.54901671,-0.418405712,0, opcode2_bytes=0
+rgb_cam[2]=0.00473544467,-0.39965713,1.39492166,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+unpack_ms=1706.4517 sdk_processed=1 stage2_applied=0 stage3_applied=0
+unpacked_buffers u16_rgb=0 u16_rgba=0 float=0 float_rgb=1 float_rgba=0
+sdk_main_ifd compression=52546 bits_per_sample=16 sample_format=3 photometric=34892
+sdk_reference samples=98007000 different=0 max_abs=0 rmse=0 stage=1 pixel_type=float32 reference_ms=1809.75116
+unpacked_float fingerprint_fnv64=10871337215614489451
+unpacked_float channel=0 min=0.570950627 max=2352.62549 mean=77.7651122 below0=0 above1=32600694 zero=0 one=0 nonfinite=0
+unpacked_float channel=1 min=2.77404308 max=5440.77539 mean=216.864398 below0=0 above1=32669000 zero=0 one=0 nonfinite=0
+unpacked_float channel=2 min=2.72083211 max=3226.34448 mean=162.971013 below0=0 above1=32669000 zero=0 one=0 nonfinite=0
+path_total_ms=4871.17228
+peak_rss_bytes=810479616 (process lifetime, includes comparisons and diagnostics)

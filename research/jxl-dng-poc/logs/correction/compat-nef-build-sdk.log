@@ -1,0 +1,43 @@
+libraw=0.22.3-Release capabilities=194 sdk_compiled=1
+openmp=1 max_threads=3
+adobe_sdk=1.7.1 (2768) libjxl_version_number=11002
+input=/workspace/work/jxl-dng-poc-vendor-validation/fixtures/iss030e122639.NEF
+phase=identified raw=4288x2844 active=4284x2844 margins=2,0 flip=0 filters=3031741620 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=576,256,432,256, pre_mul=1.91237473,0.931347787,1.09377563,0, dng_white=0,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=1.75113821,-0.602178693,-0.148959547,0, opcode1_bytes=0
+rgb_cam[1]=-0.163776577,1.59465599,-0.430879354,0, opcode2_bytes=0
+rgb_cam[2]=-0.00777203357,-0.370700359,1.37847245,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+jxl_selected=0 host_attached=0 stage=auto options=2
+phase=unpacked raw=4288x2844 active=4284x2844 margins=2,0 flip=0 filters=3031741620 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=576,256,432,256, pre_mul=1.91237473,0.931347787,1.09377563,0, dng_white=0,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=1.75113821,-0.602178693,-0.148959547,0, opcode1_bytes=0
+rgb_cam[1]=-0.163776577,1.59465599,-0.430879354,0, opcode2_bytes=0
+rgb_cam[2]=-0.00777203357,-0.370700359,1.37847245,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+unpack_ms=183.327141 sdk_processed=0 stage2_applied=0 stage3_applied=0
+unpacked_buffers u16_rgb=0 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=4288x2844 active=4284x2844 margins=2,0 flip=0 filters=2492765332 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=576,256,432,256, pre_mul=2.25,1,1.6875,1, dng_white=0,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=1.75113821,-0.602178693,-0.148959547,0, opcode1_bytes=0
+rgb_cam[1]=-0.163776577,1.59465599,-0.430879354,0, opcode2_bytes=0
+rgb_cam[2]=-0.00777203357,-0.370700359,1.37847245,0, opcode3_bytes=0
+inset=65535,65535,0,0
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=17678123939841825433
+camera_processed channel=0 min=0 max=1 mean=0.0227083821 below0=0 above1=0 zero=298806 one=19 nonfinite=0
+camera_processed channel=1 min=0 max=0.999252319 mean=0.0236210004 below0=0 above1=0 zero=329441 one=0 nonfinite=0
+camera_processed channel=2 min=0 max=1 mean=0.0219119395 below0=0 above1=0 zero=327519 one=30 nonfinite=0
+linear_rec2020 fingerprint_fnv64=5443951636652481966
+linear_rec2020 channel=0 min=-0.171904027 max=1.04560161 mean=0.022968025 below0=260073 above1=11 zero=26785 one=0 nonfinite=0
+linear_rec2020 channel=1 min=-0.390947044 max=1.21028888 mean=0.0243160684 below0=496762 above1=610 zero=26785 one=0 nonfinite=0
+linear_rec2020 channel=2 min=-0.112458877 max=1.19421482 mean=0.0215733723 below0=254895 above1=33 zero=26785 one=0 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=12183696 nonfinite=0
+bitmap=4284x2844 channels=3 bits=16 float_rgba_bytes=194939136 unpack_ms=183.327141 total_after_identify_ms=1342.0699
+path_total_ms=1355.23937
+peak_rss_bytes=541609984 (process lifetime, includes comparisons and diagnostics)

@@ -1,0 +1,918 @@
+Internal ctest changing into directory: /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/build-sdk
+UpdateCTestConfiguration  from :/workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/build-sdk/DartConfiguration.tcl
+UpdateCTestConfiguration  from :/workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/build-sdk/DartConfiguration.tcl
+Test project /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/build-sdk
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 1
+    Start 1: memory_checks
+
+1: Test command: /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/build-sdk/dng_probe "--selftest"
+1: Working Directory: /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/build-sdk
+1: Test timeout computed to be: 10000000
+1: libraw=0.22.3-Release capabilities=194 sdk_compiled=1
+1: openmp=1 max_threads=3
+1: adobe_sdk=1.7.1 (2768) libjxl_version_number=11002
+1: PASS malformed input rejected without SDK retry
+1: PASS classification compression=1 (header only; JXL payload is NOT valid)
+1: PASS classification compression=52546 (header only; JXL payload is NOT valid)
+1: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: jxl_selected=0 host_attached=0 stage=auto options=2
+1: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: unpack_ms=0.075545 sdk_processed=0 stage2_applied=0 stage3_applied=0
+1: unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+1: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=2,1,4,1, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: camera_processed fingerprint_fnv64=12413173887322845272
+1: camera_processed channel=0 min=0 max=1 mean=0.746353169 below0=0 above1=0 zero=47 one=1537 nonfinite=0
+1: camera_processed channel=1 min=0 max=0.999984741 mean=0.499992132 below0=0 above1=0 zero=48 one=0 nonfinite=0
+1: camera_processed channel=2 min=0 max=1 mean=0.869045406 below0=0 above1=0 zero=48 one=2304 nonfinite=0
+1: linear_rec2020 fingerprint_fnv64=7327521263969554687
+1: linear_rec2020 channel=0 min=0 max=1.63131166 mean=0.80009647 below0=0 above1=1729 zero=47 one=0 nonfinite=0
+1: linear_rec2020 channel=1 min=-0.63371706 max=0.999975324 mean=0.350209053 below0=1 above1=0 zero=47 one=0 nonfinite=0
+1: linear_rec2020 channel=2 min=0 max=1.02368474 mean=0.882786061 below0=0 above1=2304 zero=47 one=0 nonfinite=0
+1: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+1: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.075545 total_after_identify_ms=0.486643
+1: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: jxl_selected=0 host_attached=0 stage=auto options=2
+1: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: unpack_ms=0.022218 sdk_processed=0 stage2_applied=0 stage3_applied=0
+1: unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+1: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=0.5,0.25,1,0.25, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: camera_processed fingerprint_fnv64=1789058419561786585
+1: camera_processed channel=0 min=0 max=0.499992371 mean=0.250155367 below0=0 above1=0 zero=47 one=0 nonfinite=0
+1: camera_processed channel=1 min=0 max=0.249988556 mean=0.124992847 below0=0 above1=0 zero=48 one=0 nonfinite=0
+1: camera_processed channel=2 min=0 max=0.999984741 mean=0.499992132 below0=0 above1=0 zero=48 one=0 nonfinite=0
+1: linear_rec2020 fingerprint_fnv64=13708847772198587716
+1: linear_rec2020 channel=0 min=0 max=0.81564337 mean=0.225744722 below0=0 above1=0 zero=47 one=0 nonfinite=0
+1: linear_rec2020 channel=1 min=-0.316853702 max=0.104441345 mean=0.0521174853 below0=1 above1=0 zero=47 one=0 nonfinite=0
+1: linear_rec2020 channel=2 min=0 max=1.02370584 mean=0.51185541 below0=0 above1=96 zero=47 one=0 nonfinite=0
+1: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+1: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.022218 total_after_identify_ms=1.592204
+1: phase=identified raw=64x48 active=64x48 margins=0,0 flip=6 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: jxl_selected=0 host_attached=0 stage=auto options=2
+1: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=6 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: unpack_ms=0.015539 sdk_processed=0 stage2_applied=0 stage3_applied=0
+1: unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+1: phase=processed raw=64x48 active=64x48 margins=0,0 flip=6 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=2,1,4,1, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: camera_processed fingerprint_fnv64=12357011543958994312
+1: camera_processed channel=0 min=0 max=1 mean=0.746353169 below0=0 above1=0 zero=47 one=1537 nonfinite=0
+1: camera_processed channel=1 min=0 max=0.999984741 mean=0.499992132 below0=0 above1=0 zero=48 one=0 nonfinite=0
+1: camera_processed channel=2 min=0 max=1 mean=0.869045406 below0=0 above1=0 zero=48 one=2304 nonfinite=0
+1: linear_rec2020 fingerprint_fnv64=4867170736685254051
+1: linear_rec2020 channel=0 min=0 max=1.63131166 mean=0.80009647 below0=0 above1=1729 zero=47 one=0 nonfinite=0
+1: linear_rec2020 channel=1 min=-0.63371706 max=0.999975324 mean=0.350209053 below0=1 above1=0 zero=47 one=0 nonfinite=0
+1: linear_rec2020 channel=2 min=0 max=1.02368474 mean=0.882786061 below0=0 above1=2304 zero=47 one=0 nonfinite=0
+1: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+1: bitmap=48x64 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.015539 total_after_identify_ms=0.329986
+1: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: jxl_selected=0 host_attached=0 stage=auto options=2
+1: phase=unpacked raw=64x48 active=60x44 margins=2,2 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: unpack_ms=0.015519 sdk_processed=0 stage2_applied=0 stage3_applied=0
+1: unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+1: phase=processed raw=64x48 active=60x44 margins=2,2 flip=0 filters=0 channels=3 black=0 maximum=3965 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=2,1,4,1, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: camera_processed fingerprint_fnv64=7940425242582841773
+1: camera_processed channel=0 min=0.065568015 max=1 mean=0.770214897 below0=0 above1=0 zero=0 one=1364 nonfinite=0
+1: camera_processed channel=1 min=0.0327763781 max=1 mean=0.516385899 below0=0 above1=0 zero=0 one=44 nonfinite=0
+1: camera_processed channel=2 min=0.13113603 max=1 mean=0.896719564 below0=0 above1=0 zero=0 one=2024 nonfinite=0
+1: linear_rec2020 fingerprint_fnv64=16495705931504646757
+1: linear_rec2020 channel=0 min=0.059141539 max=1.17484236 mean=0.82556161 below0=0 above1=1496 zero=0 one=0 nonfinite=0
+1: linear_rec2020 channel=1 min=0.0136855142 max=1 mean=0.362064038 below0=0 above1=0 zero=0 one=44 nonfinite=0
+1: linear_rec2020 channel=2 min=0.13424705 max=1.02360749 mean=0.910879174 below0=0 above1=2024 zero=0 one=44 nonfinite=0
+1: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=2640 nonfinite=0
+1: bitmap=60x44 channels=3 bits=16 float_rgba_bytes=42240 unpack_ms=0.015519 total_after_identify_ms=0.291377
+1: PASS default dimensions 64x48, orientation6 48x64, explicit crop 60x44; float_min=-0.63371706 float_max=1.63131166
+1: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,512,2048,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: jxl_selected=0 host_attached=0 stage=auto options=2
+1: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,512,2048,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: unpack_ms=0.082213 sdk_processed=0 stage2_applied=0 stage3_applied=0
+1: unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+1: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=2,1,4,1, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,512,2048,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: camera_processed fingerprint_fnv64=12774042287221236952
+1: camera_processed channel=0 min=0 max=1 mean=0.869370927 below0=0 above1=0 zero=47 one=2305 nonfinite=0
+1: camera_processed channel=1 min=0 max=1 mean=0.746027648 below0=0 above1=0 zero=48 one=1536 nonfinite=0
+1: camera_processed channel=2 min=0 max=1 mean=0.930554523 below0=0 above1=0 zero=48 one=2688 nonfinite=0
+1: linear_rec2020 fingerprint_fnv64=908801828902385355
+1: linear_rec2020 channel=0 min=0 max=1.63131166 mean=0.896345234 below0=0 above1=865 zero=47 one=0 nonfinite=0
+1: linear_rec2020 channel=1 min=-0.63371706 max=1 mean=0.671032969 below0=1 above1=0 zero=47 one=1536 nonfinite=0
+1: linear_rec2020 channel=2 min=0 max=1.02368474 mean=0.937427585 below0=0 above1=1152 zero=47 one=1536 nonfinite=0
+1: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+1: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.082213 total_after_identify_ms=1.100846
+1: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=64 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: jxl_selected=0 host_attached=0 stage=auto options=2
+1: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=64 maximum=4095 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: unpack_ms=0.017432 sdk_processed=0 stage2_applied=0 stage3_applied=0
+1: unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+1: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4031 warnings=0 float_source=0
+1: cam_mul=2,1,4,0, pre_mul=2,1,4,1, dng_white=4095,0,0,0, baseline_exposure=-999
+1: cblack=0,0,0 curve=0,256,1024,65535
+1: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+1: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+1: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+1: inset=2,2,60,44
+1: inset=65535,65535,0,0
+1: camera_processed fingerprint_fnv64=6513641087828631704
+1: camera_processed channel=0 min=0 max=1 mean=0.734879815 below0=0 above1=0 zero=47 one=1537 nonfinite=0
+1: camera_processed channel=1 min=0 max=1 mean=0.4923023 below0=0 above1=0 zero=48 one=48 nonfinite=0
+1: camera_processed channel=2 min=0 max=1 mean=0.855560244 below0=0 above1=0 zero=48 one=2256 nonfinite=0
+1: linear_rec2020 fingerprint_fnv64=13305456685628039359
+1: linear_rec2020 channel=0 min=0 max=1.63131166 mean=0.787832935 below0=0 above1=1633 zero=47 one=0 nonfinite=0
+1: linear_rec2020 channel=1 min=-0.63371706 max=1 mean=0.344817345 below0=1 above1=0 zero=47 one=48 nonfinite=0
+1: linear_rec2020 channel=2 min=0 max=1.02364469 mean=0.869086559 below0=0 above1=2208 zero=47 one=48 nonfinite=0
+1: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+1: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.017432 total_after_identify_ms=0.327642
+1: PASS exact unpacked lookup 2080 -> 4160; normalized green=0.50792706; default blue=1; headroom blue=0.50792706; headroom blue * 4=2.03170824; black64 green=0.500114441
+1: PASS in-memory integer linear DNG, rotation, table response, WB headroom difference=0.945881307 table_difference=0.795454443
+1/2 Test #1: memory_checks ....................   Passed    0.01 sec
+test 2
+    Start 2: jpeg_xl_decoding
+
+2: Test command: /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/build-sdk/dng_probe "--jxl-selftest"
+2: Working Directory: /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/build-sdk
+2: Test timeout computed to be: 120
+2: libraw=0.22.3-Release capabilities=194 sdk_compiled=1
+2: openmp=1 max_threads=3
+2: adobe_sdk=1.7.1 (2768) libjxl_version_number=11002
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=2
+2: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.822285 sdk_processed=1 stage2_applied=0 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=16096665380478894838
+2: camera_processed channel=0 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=5127638383384862092
+2: linear_rec2020 channel=0 min=0.125017151 max=0.732585549 mean=0.167439798 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.125017166 max=0.732585788 mean=0.167439816 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+2: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.822285 total_after_identify_ms=1.277619
+2: ORACLE max_camera_error=1.51961896e-05 tolerance=6.10360876e-05
+2: PASS JXL integer decompression
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=2
+2: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.419027 sdk_processed=1 stage2_applied=0 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=7071695551424104528
+2: camera_processed channel=0 min=0.125017166 max=0.732585669 mean=0.167439655 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.125017166 max=0.732585669 mean=0.167439655 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.125017166 max=0.732585669 mean=0.167439655 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=11107368672919591920
+2: linear_rec2020 channel=0 min=0.125017151 max=0.732585549 mean=0.167439639 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.125017166 max=0.732585788 mean=0.167439657 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.125017166 max=0.732585669 mean=0.167439655 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+2: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.419027 total_after_identify_ms=0.811701
+2: ORACLE max_camera_error=0.000257563111 tolerance=0.01
+2: PASS JXL lossy XYB linear RGB decompression
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=20482
+2: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.90584 sdk_processed=1 stage2_applied=1 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=9858181289662475166
+2: camera_processed channel=0 min=0.0625162125 max=0.366308093 mean=0.0837275858 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.0625162125 max=0.366308093 mean=0.0837275858 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.0625162125 max=0.366308093 mean=0.0837275858 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=5232937264427837563
+2: linear_rec2020 channel=0 min=0.062516205 max=0.366308063 mean=0.0837275781 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.0625162199 max=0.366308123 mean=0.0837275874 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.0625162125 max=0.366308093 mean=0.0837275863 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+2: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.90584 total_after_identify_ms=1.221738
+2: ORACLE max_camera_error=1.14018609e-05 tolerance=6.10360876e-05
+2: PASS JXL OpcodeList2
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,8191,16383,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=20482
+2: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,8191,16383,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.985851 sdk_processed=1 stage2_applied=1 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,8191,16383,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=15311999348218412022
+2: camera_processed channel=0 min=0.0625162125 max=0.366308093 mean=0.0837275858 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.0625162125 max=0.366262317 mean=0.0837198273 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.0625009537 max=0.366231799 mean=0.0837123072 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=15372718377319822993
+2: linear_rec2020 channel=0 min=0.0625204146 max=0.366345376 mean=0.0837345508 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.0625159517 max=0.366232783 mean=0.0837147829 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.0625005513 max=0.366231799 mean=0.0837122408 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+2: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.985851 total_after_identify_ms=1.339767
+2: ORACLE max_camera_error=1.14363302e-05 tolerance=6.10360876e-05
+2: PASS JXL unequal whites and OpcodeList2
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=16383 warnings=0 float_source=0
+2: cam_mul=4.00073242,2.00012207,1,0, pre_mul=4.20921469,2.00012183,0.918417037,0, dng_white=4095,8191,16383,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=2
+2: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=16383 warnings=131072 float_source=0
+2: cam_mul=4.00073242,2.00012207,1,0, pre_mul=4.20921469,2.00012183,0.918417037,0, dng_white=4095,8191,16383,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.342281 sdk_processed=1 stage2_applied=0 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=16383 warnings=131072 float_source=0
+2: cam_mul=4.00073242,2.00012207,1,0, pre_mul=4.00073242,2.00012207,1,2.00012207, dng_white=4095,8191,16383,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=18192806707053878967
+2: camera_processed channel=0 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.125001907 max=0.732509375 mean=0.167422603 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.125001907 max=0.732463598 mean=0.167409127 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=4652746330322020607
+2: linear_rec2020 channel=0 min=0.125026777 max=0.732646346 mean=0.167454382 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.124992244 max=0.73246026 mean=0.167411466 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.125002161 max=0.732463717 mean=0.167409061 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+2: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.342281 total_after_identify_ms=0.758795
+2: ORACLE max_camera_error=1.52311116e-05 tolerance=6.10360876e-05
+2: PASS JXL unequal whites without OpcodeList2
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=72
+2: opcode_list=3 id=8 flags=0 payload_bytes=52
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=2
+2: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=72
+2: opcode_list=3 id=8 flags=0 payload_bytes=52
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.321695 sdk_processed=1 stage2_applied=0 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=72
+2: opcode_list=3 id=8 flags=0 payload_bytes=52
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=16096665380478894838
+2: camera_processed channel=0 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=5127638383384862092
+2: linear_rec2020 channel=0 min=0.125017151 max=0.732585549 mean=0.167439798 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.125017166 max=0.732585788 mean=0.167439816 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+2: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.321695 total_after_identify_ms=0.655275
+2: ORACLE max_camera_error=1.51961896e-05 tolerance=6.10360876e-05
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=72
+2: opcode_list=3 id=8 flags=0 payload_bytes=52
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=0 host_attached=0 stage=auto options=2
+2: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=72
+2: opcode_list=3 id=8 flags=0 payload_bytes=52
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.026354 sdk_processed=0 stage2_applied=0 stage3_applied=0
+2: unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=72
+2: opcode_list=3 id=8 flags=0 payload_bytes=52
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=16096665380478894838
+2: camera_processed channel=0 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=5127638383384862092
+2: linear_rec2020 channel=0 min=0.125017151 max=0.732585549 mean=0.167439798 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.125017166 max=0.732585788 mean=0.167439816 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+2: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.026354 total_after_identify_ms=0.306126
+2: ORACLE max_camera_error=1.51961896e-05 tolerance=6.10360876e-05
+2: PASS JXL OpcodeList3 only matches ordinary DNG
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=72
+2: opcode_list=3 id=8 flags=0 payload_bytes=52
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=20482
+2: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=72
+2: opcode_list=3 id=8 flags=0 payload_bytes=52
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.757824 sdk_processed=1 stage2_applied=1 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=72
+2: opcode_list=3 id=8 flags=0 payload_bytes=52
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=9858181289662475166
+2: camera_processed channel=0 min=0.0625162125 max=0.366308093 mean=0.0837275858 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.0625162125 max=0.366308093 mean=0.0837275858 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.0625162125 max=0.366308093 mean=0.0837275858 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=5232937264427837563
+2: linear_rec2020 channel=0 min=0.062516205 max=0.366308063 mean=0.0837275781 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.0625162199 max=0.366308123 mean=0.0837275874 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.0625162125 max=0.366308093 mean=0.0837275863 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+2: bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.757824 total_after_identify_ms=1.068035
+2: ORACLE max_camera_error=1.14018609e-05 tolerance=6.10360876e-05
+2: PASS JXL OpcodeList2 and 3 selects only Stage 2
+2: phase=identified raw=64x48 active=52x40 margins=6,4 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=2
+2: phase=unpacked raw=64x48 active=52x40 margins=6,4 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.41287 sdk_processed=1 stage2_applied=0 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=64x48 active=52x40 margins=6,4 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=7899739269468770793
+2: camera_processed channel=0 min=0.132829785 max=0.201709017 mean=0.167269438 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.132829785 max=0.201709017 mean=0.167269438 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.132829785 max=0.201709017 mean=0.167269438 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=6484917583498501252
+2: linear_rec2020 channel=0 min=0.132829756 max=0.201708987 mean=0.167269423 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.132829785 max=0.201709002 mean=0.167269441 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.132829785 max=0.201709017 mean=0.167269438 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=2080 nonfinite=0
+2: bitmap=52x40 channels=3 bits=16 float_rgba_bytes=33280 unpack_ms=0.41287 total_after_identify_ms=0.708512
+2: ORACLE max_camera_error=1.51961896e-05 tolerance=6.10360876e-05
+2: PASS JXL ActiveArea without OpcodeList2
+2: phase=identified raw=64x48 active=52x40 margins=6,4 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=20482
+2: phase=unpacked raw=52x40 active=52x40 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.753128 sdk_processed=1 stage2_applied=1 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=52x40 active=52x40 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=1993974508817959957
+2: camera_processed channel=0 min=0.0664225221 max=0.100862138 mean=0.0836424767 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.0664225221 max=0.100862138 mean=0.0836424767 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.0664225221 max=0.100862138 mean=0.0836424767 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=4733589758636287400
+2: linear_rec2020 channel=0 min=0.0664225146 max=0.100862123 mean=0.0836424691 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.0664225221 max=0.100862145 mean=0.0836424784 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.0664225221 max=0.100862138 mean=0.0836424772 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=2080 nonfinite=0
+2: bitmap=52x40 channels=3 bits=16 float_rgba_bytes=33280 unpack_ms=0.753128 total_after_identify_ms=1.005345
+2: ORACLE max_camera_error=1.14018609e-05 tolerance=6.10360876e-05
+2: PASS JXL ActiveArea with OpcodeList2
+2: phase=identified raw=64x48 active=52x40 margins=6,4 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=20482
+2: phase=unpacked raw=52x40 active=52x40 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.712818 sdk_processed=1 stage2_applied=1 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=52x40 active=44x34 margins=3,2 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=13191517119271800129
+2: camera_processed channel=0 min=0.0683756769 max=0.0974441171 mean=0.0829095502 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.0683756769 max=0.0974441171 mean=0.0829095502 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.0683756769 max=0.0974441171 mean=0.0829095502 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=14335395470510866953
+2: linear_rec2020 channel=0 min=0.0683756694 max=0.0974441171 mean=0.0829095426 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.0683756769 max=0.0974441171 mean=0.0829095519 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.0683756769 max=0.0974441171 mean=0.0829095506 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=1496 nonfinite=0
+2: bitmap=44x34 channels=3 bits=16 float_rgba_bytes=23936 unpack_ms=0.712818 total_after_identify_ms=1.089712
+2: ORACLE max_camera_error=1.14018609e-05 tolerance=6.10360876e-05
+2: PASS JXL DefaultCrop preserved after Stage 2 trim
+2: phase=identified raw=64x48 active=52x40 margins=6,4 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=2
+2: phase=unpacked raw=64x48 active=44x34 margins=9,6 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.331107 sdk_processed=1 stage2_applied=0 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=64x48 active=44x34 margins=9,6 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=3243083318972216713
+2: camera_processed channel=0 min=0.136751354 max=0.194857717 mean=0.165804535 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.136751354 max=0.194857717 mean=0.165804535 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.136751354 max=0.194857717 mean=0.165804535 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=16547348342903724827
+2: linear_rec2020 channel=0 min=0.136751339 max=0.194857687 mean=0.16580452 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.136751354 max=0.194857717 mean=0.165804539 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.136751354 max=0.194857717 mean=0.165804536 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=1496 nonfinite=0
+2: bitmap=44x34 channels=3 bits=16 float_rgba_bytes=23936 unpack_ms=0.331107 total_after_identify_ms=0.55611
+2: ORACLE max_camera_error=1.40783114e-05 tolerance=6.10360876e-05
+2: PASS JXL crop without Stage 2
+2: phase=identified raw=64x48 active=52x40 margins=6,4 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,20,12
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=20482
+2: phase=unpacked raw=52x40 active=52x40 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,20,12
+2: inset=65535,65535,0,0
+2: unpack_ms=0.756923 sdk_processed=1 stage2_applied=1 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=52x40 active=20x12 margins=3,2 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,20,12
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=3416902511612708709
+2: camera_processed channel=0 min=0.0683756769 max=0.0803387538 mean=0.0743572153 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.0683756769 max=0.0803387538 mean=0.0743572153 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.0683756769 max=0.0803387538 mean=0.0743572153 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=8314579999058576939
+2: linear_rec2020 channel=0 min=0.0683756694 max=0.0803387463 mean=0.0743572081 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.0683756769 max=0.0803387538 mean=0.0743572167 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.0683756769 max=0.0803387538 mean=0.0743572157 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=240 nonfinite=0
+2: bitmap=20x12 channels=3 bits=16 float_rgba_bytes=3840 unpack_ms=0.756923 total_after_identify_ms=0.91327
+2: ORACLE max_camera_error=3.12658202e-06 tolerance=6.10360876e-05
+2: PASS JXL small DefaultCrop is not silently skipped
+2: phase=identified raw=64x48 active=52x40 margins=6,4 flip=6 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=20482
+2: phase=unpacked raw=52x40 active=52x40 margins=0,0 flip=6 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=9,6,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.73054 sdk_processed=1 stage2_applied=1 stage3_applied=0
+2: unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+2: phase=processed raw=52x40 active=44x34 margins=3,2 flip=6 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: camera_processed fingerprint_fnv64=1741116592923497913
+2: camera_processed channel=0 min=0.0683756769 max=0.0974441171 mean=0.0829095502 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=1 min=0.0683756769 max=0.0974441171 mean=0.0829095502 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: camera_processed channel=2 min=0.0683756769 max=0.0974441171 mean=0.0829095502 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 fingerprint_fnv64=13431685694821667845
+2: linear_rec2020 channel=0 min=0.0683756694 max=0.0974441171 mean=0.0829095426 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=1 min=0.0683756769 max=0.0974441171 mean=0.0829095519 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=2 min=0.0683756769 max=0.0974441171 mean=0.0829095506 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=1496 nonfinite=0
+2: bitmap=34x44 channels=3 bits=16 float_rgba_bytes=23936 unpack_ms=0.73054 total_after_identify_ms=0.951388
+2: ORACLE max_camera_error=1.14018609e-05 tolerance=6.10360876e-05
+2: PASS JXL rotated DefaultCrop after Stage 2
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=36
+2: opcode_list=1 id=6 flags=0 payload_bytes=16
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: PASS JXL unmapped opcode geometry is rejected
+2: PASS JXL default SDK eligibility is unchanged
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=1
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=0
+2: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=1
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.44475 sdk_processed=1 stage2_applied=0 stage3_applied=0
+2: unpacked_buffers u16_rgb=0 u16_rgba=0 float=0 float_rgb=1 float_rgba=0
+2: unpacked_float fingerprint_fnv64=17220258273094361893
+2: unpacked_float channel=0 min=0.125 max=0.125 mean=0.125 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: unpacked_float channel=1 min=0.1875 max=0.1875 mean=0.1875 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: unpacked_float channel=2 min=0.25 max=0.25 mean=0.25 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: PASS JXL float rejected
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=1
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=1 stage=auto options=20480
+2: phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=1
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+2: opcode_list=2 id=8 flags=0 payload_bytes=52
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: unpack_ms=0.442878 sdk_processed=1 stage2_applied=1 stage3_applied=0
+2: unpacked_buffers u16_rgb=0 u16_rgba=0 float=0 float_rgb=1 float_rgba=0
+2: unpacked_float fingerprint_fnv64=14685239092221502245
+2: unpacked_float channel=0 min=1.52625162e-05 max=1.52625162e-05 mean=1.52625162e-05 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: unpacked_float channel=1 min=2.28937752e-05 max=2.28937752e-05 mean=2.28937752e-05 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: unpacked_float channel=2 min=3.05250323e-05 max=3.05250323e-05 mean=3.05250323e-05 below0=0 above1=0 zero=0 one=0 nonfinite=0
+2: PASS JXL float with OpcodeList2 rejected
+2: phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+2: cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,256,1024,65535
+2: rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+2: rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+2: rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+2: inset=3,2,44,34
+2: inset=65535,65535,0,0
+2: jxl_selected=1 host_attached=0 stage=auto options=2
+2: phase=unpack_failed_state_may_be_recycled raw=0x0 active=0x0 margins=0,0 flip=0 filters=0 channels=0 black=0 maximum=0 warnings=0 float_source=0
+2: cam_mul=0,0,0,0, pre_mul=0,0,0,0, dng_white=0,0,0,0, baseline_exposure=-999
+2: cblack=0,0,0 curve=0,0,0,0
+2: rgb_cam[0]=0,0,0,0, opcode1_bytes=0
+2: rgb_cam[1]=0,0,0,0, opcode2_bytes=0
+2: rgb_cam[2]=0,0,0,0, opcode3_bytes=0
+2: inset=65535,65535,0,0
+2: inset=65535,65535,0,0
+2: PASS JXL missing SDK host is an explicit failure
+2: PASS 18 real JPEG XL regressions; synthetic files removed on exit
+2/2 Test #2: jpeg_xl_decoding .................   Passed    0.06 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   0.07 sec

@@ -1,0 +1,75 @@
+-- CMAKE_SYSTEM_PROCESSOR is x86_64
+-- tcmalloc version  -- tcmalloc 2.8.0 disabled due to https://github.com/gperftools/gperftools/issues/1204
+-- libjpeg-turbo submodule is absent; not enabling jpegli
+-- Compiled IDs C:GNU, C++:GNU
+-- Disabled AVX512 (set JPEGXL_ENABLE_AVX512 to enable it)
+-- Disabled AVX512_SPR (set JPEGXL_ENABLE_AVX512_SPR to enable it)
+-- Disabled AVX512_ZEN4 (set JPEGXL_ENABLE_AVX512_ZEN4 to enable it)
+CMake Deprecation Warning at sources/libjxl/third_party/highway/CMakeLists.txt:28 (cmake_policy):
+  The OLD behavior for policy CMP0111 will be removed from a future version
+  of CMake.
+
+  The cmake-policies(7) manual explains that the OLD behaviors of all
+  policies are deprecated and that a policy should be set to OLD only under
+  specific short-term circumstances.  Projects should be ported to the NEW
+  behavior and not rely on setting a policy to OLD.
+
+
+-- Build type is 'Release'
+-- Compiler is not EMSCRIPTEN
+-- Building with JPEGXL_VERSION=332feb1 (auto-updated)
+-- Building tools: 
+-- Configuring done (0.2s)
+-- Generating done (0.1s)
+-- Build files have been written to: /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/build-sdk
+[  2%] Built target jxl_threads
+[  4%] Built target hwy
+[  6%] Built target brotlicommon
+[  6%] Built target jxl_export
+[  7%] Built target jxl_cms
+[  8%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_ac_strategy.cc.o
+[ 31%] Built target jxl_dec-obj
+[ 34%] Built target brotlidec
+[ 40%] Built target brotlienc
+[ 40%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_adaptive_quantization.cc.o
+[ 40%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_ans.cc.o
+[ 40%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_cache.cc.o
+[ 40%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_cluster.cc.o
+[ 40%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_coeff_order.cc.o
+[ 40%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_context_map.cc.o
+[ 40%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_detect_dots.cc.o
+[ 41%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_dot_dictionary.cc.o
+[ 41%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_entropy_coder.cc.o
+[ 41%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_frame.cc.o
+[ 42%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_group.cc.o
+[ 42%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_heuristics.cc.o
+[ 42%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_icc_codec.cc.o
+[ 43%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_modular.cc.o
+[ 43%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_patch_dictionary.cc.o
+[ 43%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_quant_weights.cc.o
+[ 44%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/enc_splines.cc.o
+[ 45%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/encode.cc.o
+[ 45%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/modular/encoding/enc_encoding.cc.o
+In member function ‘jxl::Status JxlEncoderOutputProcessorWrapper::SetAvailOut(uint8_t**, size_t*)’,
+    inlined from ‘jxl::Status JxlEncoderOutputProcessorWrapper::SetAvailOut(uint8_t**, size_t*)’ at /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/sources/libjxl/lib/jxl/encode.cc:183:13,
+    inlined from ‘jxl::Status JxlEncoderOutputProcessorWrapper::CopyOutput(std::vector<unsigned char>&, uint8_t*, size_t&)’ at /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/sources/libjxl/lib/jxl/encode.cc:195:5:
+/workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/sources/libjxl/lib/jxl/encode.cc:187:13: warning: storing the address of local variable ‘next_out’ in ‘*this.JxlEncoderOutputProcessorWrapper::next_out_’ [-Wdangling-pointer=]
+  187 |   next_out_ = next_out;
+      |   ~~~~~~~~~~^~~~~~~~~~
+/workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/sources/libjxl/lib/jxl/encode.cc: In member function ‘jxl::Status JxlEncoderOutputProcessorWrapper::CopyOutput(std::vector<unsigned char>&, uint8_t*, size_t&)’:
+/workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/sources/libjxl/lib/jxl/encode.cc:193:44: note: ‘next_out’ declared here
+  193 |     std::vector<uint8_t>& output, uint8_t* next_out, size_t& avail_out) {
+      |                                   ~~~~~~~~~^~~~~~~~
+/workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/sources/libjxl/lib/jxl/encode.cc:193:71: note: ‘this’ declared here
+  193 |     std::vector<uint8_t>& output, uint8_t* next_out, size_t& avail_out) {
+      |                                                                       ^
+[ 45%] Building CXX object bundled-jxl/lib/CMakeFiles/jxl_enc-obj.dir/jxl/modular/encoding/enc_ma.cc.o
+[ 55%] Built target jxl_enc-obj
+[ 56%] Linking CXX static library libjxl.a
+[ 56%] Built target jxl
+[ 56%] Building CXX object CMakeFiles/probe_dng.dir/dng_jxl_no_xmp.cpp.o
+[ 57%] Linking CXX static library libprobe_dng.a
+[ 75%] Built target probe_dng
+[100%] Built target probe_raw
+[100%] Linking CXX executable dng_probe
+[100%] Built target dng_probe

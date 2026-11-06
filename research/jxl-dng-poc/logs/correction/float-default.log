@@ -1,0 +1,5 @@
+libraw=0.22.3-Release capabilities=194 sdk_compiled=1
+openmp=1 max_threads=3
+adobe_sdk=1.7.1 (2768) libjxl_version_number=11002
+input=fixtures/adobe-02-jxl-float.dng
+ERROR: Unsupported floating-point JPEG XL DNG: use --keep-float for unpack diagnostics only

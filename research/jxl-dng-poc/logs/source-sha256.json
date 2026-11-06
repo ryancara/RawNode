@@ -1,14 +1,19 @@
 {
-  ".gitignore": "e22835388280139ec72527203e79c1de54b439059548bbe0e1df85b74dee117b",
-  "CMakeLists.txt": "a3633d7bbb754659041d4f1a0fc3105fe6d7286d7c8126b44b4040f94fd085e0",
-  "README.md": "378185c1c4f22d818033208fe94cc15246cca0636241e37d6ee78faa557048fb",
-  "REVIEW.md": "26dba6baed701388c77a54284c43f97124c38fe6a96c21a3e57c581320df096e",
-  "prepare-libjxl.sh": "a7d8f7f9f5513eefb3503cbb1c48b3b907b956c30d109b32a3028ede3a47542a",
+  "CMakeLists.txt": "19468614cb65fe9991c0bd81bb29fdb39aba8f9fb22ca5ee567c498096eff45e",
+  "README.md": "938327cbb98b902d0c9c168843ed9d8073e67e97551cb85ea9f417e1241ba893",
+  "REVIEW.md": "bc9bbdf64b09671dc0c113b67f2ac30a74051ee52949ec02f77d346ca1c14d10",
+  "patches/libjxl-0.11.2-entropy-initialization.patch": "fad8d7f92ac865b2ded69dbebde698a8161a040624b4838f0c634914a7633b4c",
+  "prepare-libjxl-compat.py": "9588f9cda56c3bfe93820be06e4842f31f00d4dda0fc3f381ec469a2fcc37ce5",
+  "prepare-libjxl.sh": "f11fb895c1223a658b8d397a24c0507c402a201d0a49fea62e558819979d0a67",
   "prepare-libraw.sh": "10b27fe59fe7fbdb1712936dfad63251c0c112fcc4c3ab614b8c0ee6a418538e",
   "prepare-sdk-compat.py": "5586b9d0ac9ad3b67cb176ae09a9436ac3aea09ce370ed3cae58d708714d7e9d",
-  "run-checks.py": "7393f0d17b91e2112a6a7ab115072af1c0a166a825d08c3f02e424b8a0ee865e",
+  "run-checks.py": "2fe74e4df581d39fc8283879e87d1a1f9ad97177d0c11c583424af1b8861e876",
   "run-ordinary-checks.py": "b8dde74af981ad2ac20126742cb636e1d521b4be6c67832f696905b3f931a4b6",
-  "run-sdk-checks.py": "547e6807bb8026c7cf20fd8a4e9f3b53c71fd057e125498a32ab367649d05bda",
-  "src/probe.cpp": "06ef8501f2f84693d4262bb35aff84542bd8848c8123e7509453e4cb7f043dcb",
-  "src/reference.h": "ad58427788d7bc44e61e6c332554a8501e9bccab81a7751c2011247ea53d9bfa"
+  "run-sdk-checks.py": "643599cbe202c7634c5a86c342cf7138d99758c0133ccb9b3f9c648a4c374613",
+  "src/probe.cpp": "da889bc9a2992b8fc41ef3cbcfef54c3eb38d226538b765c2e488e4b46c02385",
+  "src/reference.h": "ad58427788d7bc44e61e6c332554a8501e9bccab81a7751c2011247ea53d9bfa",
+  "tests/PROVENANCE.md": "ff50a01ccef07c7d868dd227e78e114d432a78753f551d5237d88e30d5a957a4",
+  "tests/check_stage_mutation.py": "f0e488b47dcff6a4baf42c3cab89ace522cbe6b9b5e2419091269476c0f9fa2d",
+  "tests/compare_openmp.py": "d5d6626ac5d8ddbd1cfbd4575160dd7d0b7c2fe8d721ba4892430bd6daec8acd",
+  "tests/jxl_checks.h": "df1e9d1b41fa893a33ed371f346142abc3aac3450dbdcb92946eb99803895bb0"
 }

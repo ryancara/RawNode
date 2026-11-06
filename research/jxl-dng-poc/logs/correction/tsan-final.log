@@ -1,0 +1,10 @@
+Internal ctest changing into directory: /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/build-tsan
+Test project /workspace/work/jxl-dng-poc-vendor-review/research/jxl-dng-poc/build-tsan
+    Start 1: memory_checks
+1/2 Test #1: memory_checks ....................   Passed    0.12 sec
+    Start 2: jpeg_xl_decoding
+2/2 Test #2: jpeg_xl_decoding .................   Passed    1.77 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Total Test time (real) =   1.89 sec

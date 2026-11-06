@@ -1,0 +1,168 @@
+libraw=0.22.3-Release capabilities=194 sdk_compiled=1
+openmp=1 max_threads=3
+adobe_sdk=1.7.1 (2768) libjxl_version_number=11002
+phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+jxl_selected=1 host_attached=1 stage=auto options=134217730
+phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+unpack_ms=0.585006 sdk_processed=1 stage2_applied=0 stage3_applied=0
+unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=16096665380478894838
+camera_processed channel=0 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+camera_processed channel=1 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+camera_processed channel=2 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 fingerprint_fnv64=5127638383384862092
+linear_rec2020 channel=0 min=0.125017151 max=0.732585549 mean=0.167439798 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=1 min=0.125017166 max=0.732585788 mean=0.167439816 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=2 min=0.125017166 max=0.732585669 mean=0.167439814 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.585006 total_after_identify_ms=0.966485
+ORACLE max_camera_error=1.51961896e-05 tolerance=6.10360876e-05
+PASS JXL integer decompression
+phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+jxl_selected=1 host_attached=1 stage=auto options=134217730
+phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+unpack_ms=0.445553 sdk_processed=1 stage2_applied=0 stage3_applied=0
+unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=131072 float_source=0
+cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=7071695551424104528
+camera_processed channel=0 min=0.125017166 max=0.732585669 mean=0.167439655 below0=0 above1=0 zero=0 one=0 nonfinite=0
+camera_processed channel=1 min=0.125017166 max=0.732585669 mean=0.167439655 below0=0 above1=0 zero=0 one=0 nonfinite=0
+camera_processed channel=2 min=0.125017166 max=0.732585669 mean=0.167439655 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 fingerprint_fnv64=11107368672919591920
+linear_rec2020 channel=0 min=0.125017151 max=0.732585549 mean=0.167439639 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=1 min=0.125017166 max=0.732585788 mean=0.167439657 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=2 min=0.125017166 max=0.732585669 mean=0.167439655 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.445553 total_after_identify_ms=0.759302
+ORACLE max_camera_error=0.000257563111 tolerance=0.01
+PASS JXL lossy XYB linear RGB decompression
+phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+opcode_list=2 id=8 flags=0 payload_bytes=52
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+jxl_selected=1 host_attached=1 stage=auto options=134217730
+phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+cam_mul=1,1,1,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,4095,4095,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+opcode_list=2 id=8 flags=0 payload_bytes=52
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+unpack_ms=1.240597 sdk_processed=1 stage2_applied=1 stage3_applied=0
+unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+cam_mul=1,1,1,0, pre_mul=1,1,1,1, dng_white=4095,4095,4095,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+opcode_list=2 id=8 flags=0 payload_bytes=52
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=9858181289662475166
+camera_processed channel=0 min=0.0625162125 max=0.366308093 mean=0.0837275858 below0=0 above1=0 zero=0 one=0 nonfinite=0
+camera_processed channel=1 min=0.0625162125 max=0.366308093 mean=0.0837275858 below0=0 above1=0 zero=0 one=0 nonfinite=0
+camera_processed channel=2 min=0.0625162125 max=0.366308093 mean=0.0837275858 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 fingerprint_fnv64=5232937264427837563
+linear_rec2020 channel=0 min=0.062516205 max=0.366308063 mean=0.0837275781 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=1 min=0.0625162199 max=0.366308123 mean=0.0837275874 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=2 min=0.0625162125 max=0.366308093 mean=0.0837275863 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=1.240597 total_after_identify_ms=1.688131
+ORACLE max_camera_error=1.14018609e-05 tolerance=6.10360876e-05
+PASS JXL OpcodeList2
+phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=16383 warnings=0 float_source=0
+cam_mul=4.00073242,2.00012207,1,0, pre_mul=4.20921469,2.00012183,0.918417037,0, dng_white=4095,8191,16383,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+opcode_list=2 id=8 flags=0 payload_bytes=52
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+jxl_selected=1 host_attached=1 stage=auto options=134217730
+phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+cam_mul=4.00073242,2.00012207,1,0, pre_mul=4.20921469,2.00012183,0.918417037,0, dng_white=4095,8191,16383,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+opcode_list=2 id=8 flags=0 payload_bytes=52
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+unpack_ms=1.009508 sdk_processed=1 stage2_applied=1 stage3_applied=0
+unpacked_buffers u16_rgb=1 u16_rgba=0 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=65535 warnings=655360 float_source=0
+cam_mul=4.00073242,2.00012207,1,0, pre_mul=4.00073242,2.00012207,1,2.00012207, dng_white=4095,8191,16383,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=72
+opcode_list=2 id=8 flags=0 payload_bytes=52
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=3,2,44,34
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=11565728378823146853
+camera_processed channel=0 min=0.250110626 max=1 mean=0.334812421 below0=0 above1=0 zero=0 one=1 nonfinite=0
+camera_processed channel=1 min=0.125032425 max=0.732555151 mean=0.167439665 below0=0 above1=0 zero=0 one=0 nonfinite=0
+camera_processed channel=2 min=0.0625009537 max=0.366231799 mean=0.0837123072 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 fingerprint_fnv64=2844816505131201231
+linear_rec2020 channel=0 min=0.34632051 max=1.26987541 mean=0.463569316 below0=0 above1=1 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=1 min=0.0446939878 max=0.556777596 mean=0.0599343115 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=2 min=0.0629699528 max=0.361177534 mean=0.0843385666 below0=0 above1=0 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=1.009508 total_after_identify_ms=1.302747
+ORACLE max_camera_error=0.633699634 tolerance=6.10360876e-05
+
+ERROR: Independent normalized/polynomial pixel oracle failed
+
+PASS: restored conditional stage bug is caught by independent pixel expectations

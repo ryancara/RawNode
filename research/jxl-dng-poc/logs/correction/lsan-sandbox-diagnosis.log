@@ -1,0 +1,514 @@
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept '__isoc99_printf'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept '__isoc99_sprintf'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept '__isoc99_snprintf'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept '__isoc99_fprintf'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept '__isoc99_vprintf'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept '__isoc99_vsprintf'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept '__isoc99_vsnprintf'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept '__isoc99_vfprintf'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept '__b64_ntop'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept '__b64_pton'
+==12831==Registered root region at 0x7f922d4016e0 of size 96
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d4016e0 of size 96
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'pthread_mutexattr_getrobust_np'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdrmem_create'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdrstdio_create'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_short'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_u_short'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_int'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_u_int'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_long'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_u_long'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_hyper'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_u_hyper'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_longlong_t'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_u_longlong_t'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_int8_t'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_uint8_t'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_int16_t'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_uint16_t'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_int32_t'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_uint32_t'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_int64_t'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_uint64_t'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_quad_t'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_u_quad_t'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_bool'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_enum'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_char'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_u_char'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_float'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_double'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_bytes'
+==12831==Registered root region at 0x7f922d600f40 of size 64
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922d600f40 of size 64
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_string'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdrrec_create'
+==12831==Registered root region at 0x7f922dc01310 of size 80
+==12831==Registered root region at 0x7f922d8007a0 of size 32
+==12831==Unregistered root region at 0x7f922dc01310 of size 80
+==12831==Unregistered root region at 0x7f922d8007a0 of size 32
+==12831==AddressSanitizer: failed to intercept 'xdr_destroy'
+==12831==AddressSanitizer: libc interceptors initialized
+|| `[0x10007fff8000, 0x7fffffffffff]` || HighMem    ||
+|| `[0x02008fff7000, 0x10007fff7fff]` || HighShadow ||
+|| `[0x00008fff7000, 0x02008fff6fff]` || ShadowGap  ||
+|| `[0x00007fff8000, 0x00008fff6fff]` || LowShadow  ||
+|| `[0x000000000000, 0x00007fff7fff]` || LowMem     ||
+MemToShadow(shadow): 0x00008fff7000 0x000091ff6dff 0x004091ff6e00 0x02008fff6fff
+redzone=16
+max_redzone=2048
+quarantine_size_mb=256M
+thread_local_quarantine_size_kb=1024K
+malloc_context_size=30
+SHADOW_SCALE: 3
+SHADOW_GRANULARITY: 8
+SHADOW_OFFSET: 0x7fff8000
+==12831==Installed the sigaction for signal 11
+==12831==Installed the sigaction for signal 7
+==12831==Installed the sigaction for signal 8
+==12831==T0: FakeStack created: 0x7f922c0f7000 -- 0x7f922cc00000 stack_size_log: 20; mmapped 11300K, noreserve=0 
+==12831==T0: stack [0x7fffa27f6000,0x7fffa2ff6000) size 0x800000; local=0x7fffa2ff3bac
+==12831==AddressSanitizer Init done
+==12831==poisoning: 0x7fffa2e7b040 bba00
+==12831==unpoisoning: 0x7fffa2f36b40 bba00
+==12831==unpoisoning: 0x7f922c6039c0 280
+==12831==unpoisoning: 0x7f922c9044e0 2adc
+==12831==unpoisoning: 0x7f922c9041e0 280
+==12831==unpoisoning: 0x7f922c9044e0 2adc
+==12831==unpoisoning: 0x7f922c9041e0 280
+==12831==poisoning: 0x7fffa2f36b40 bba00
+==12831==unpoisoning: 0x7fffa2f36b40 bba00
+==12831==unpoisoning: 0x7f922c9084e0 2adc
+==12831==unpoisoning: 0x7f922c9081e0 280
+==12831==unpoisoning: 0x7f922c9084e0 2adc
+==12831==unpoisoning: 0x7f922c9081e0 280
+==12831==poisoning: 0x7fffa2f36b40 bba00
+==12831==unpoisoning: 0x7f922c60b9c0 280
+==12831==unpoisoning: 0x7f922c90c4e0 2adc
+==12831==unpoisoning: 0x7f922c90c1e0 280
+==12831==unpoisoning: 0x7f922c90c4e0 2adc
+==12831==unpoisoning: 0x7f922c90c1e0 280
+==12831==unpoisoning: 0x7f922c60f9c0 280
+==12831==unpoisoning: 0x7f922c9104e0 2adc
+==12831==unpoisoning: 0x7f922c9101e0 280
+==12831==unpoisoning: 0x7f922c9104e0 2adc
+==12831==unpoisoning: 0x7f922c9101e0 280
+libraw=0.22.3-Release capabilities=194 sdk_compiled=1
+openmp=1 max_threads=3
+adobe_sdk=1.7.1 (2768) libjxl_version_number=11002
+PASS malformed input rejected without SDK retry
+PASS classification compression=1 (header only; JXL payload is NOT valid)
+PASS classification compression=52546 (header only; JXL payload is NOT valid)
+phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+jxl_selected=0 host_attached=0 stage=auto options=2
+phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+unpack_ms=0.374969 sdk_processed=0 stage2_applied=0 stage3_applied=0
+unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=2,1,4,1, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=12413173887322845272
+camera_processed channel=0 min=0 max=1 mean=0.746353169 below0=0 above1=0 zero=47 one=1537 nonfinite=0
+camera_processed channel=1 min=0 max=0.999984741 mean=0.499992132 below0=0 above1=0 zero=48 one=0 nonfinite=0
+camera_processed channel=2 min=0 max=1 mean=0.869045406 below0=0 above1=0 zero=48 one=2304 nonfinite=0
+linear_rec2020 fingerprint_fnv64=7327521263969554687
+linear_rec2020 channel=0 min=0 max=1.63131166 mean=0.80009647 below0=0 above1=1729 zero=47 one=0 nonfinite=0
+linear_rec2020 channel=1 min=-0.63371706 max=0.999975324 mean=0.350209053 below0=1 above1=0 zero=47 one=0 nonfinite=0
+linear_rec2020 channel=2 min=0 max=1.02368474 mean=0.882786061 below0=0 above1=2304 zero=47 one=0 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.374969 total_after_identify_ms=2.2653
+phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+jxl_selected=0 host_attached=0 stage=auto options=2
+phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+unpack_ms=0.173935 sdk_processed=0 stage2_applied=0 stage3_applied==12831==unpoisoning: 0x7f922c6139c0 280
+==12831==unpoisoning: 0x7f922c9144e0 2adc
+==12831==unpoisoning: 0x7f922c9141e0 280
+==12831==unpoisoning: 0x7f922c9144e0 2adc
+==12831==unpoisoning: 0x7f922c9141e0 280
+=0
+unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=0.5,0.25,1,0.25, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=1789058419561786585
+camera_processed channel=0 min=0 max=0.499992371 mean=0.250155367 below0=0 above1=0 zero=47 one=0 nonfinite=0
+camera_processed channel=1 min=0 max=0.249988556 mean=0.124992847 below0=0 above1=0 zero=48 one=0 nonfinite=0
+camera_processed channel=2 min=0 max=0.999984741 mean=0.499992132 below0=0 above1=0 zero=48 one=0 nonfinite=0
+linear_rec2020 fingerprint_fnv64=13708847772198587716
+linear_rec2020 channel=0 min=0 max=0.81564337 mean=0.225744722 below0=0 above1=0 zero=47 one=0 nonfinite=0
+linear_rec2020 channel=1 min=-0.316853702 max=0.104441345 mean=0.0521174853 below0=1 above1=0 zero=47 one=0 nonfinite=0
+linear_rec2020 channel=2 min=0 max=1.02370584 mean=0.51185541 below0=0 above1=96 zero=47 one=0 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.173935 total_after_identify_ms=1.483404
+phase=identified raw=64x48 active=64x48 margins=0,0 flip=6 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+jxl_selected=0 host_attached=0 stage=auto options=2
+phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=6 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+unpack_ms=0.176729 sdk_processed=0 stage2_applied=0 stage3_applied=0
+unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=64x48 active=64x48 margins=0,0 flip=6 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=2,1,4,1, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=12357011543958994312
+camera_processed channel=0 min=0 max=1 mean=0.746353169 below0=0 above1=0 zero=47 one=1537 nonfinite=0
+camera_processed channel=1 min=0 max=0.999984741 mean=0.499992132 below0=0 above1=0 zero=48 one=0 nonfinite=0
+camera_processed channel=2 min=0 max=1 mean=0.869045406 below0=0 above1=0 zero=48 one=2304 nonfinite=0
+linear_rec2020 fingerprint_fnv64=4867170736685254051
+linear_rec2020 channel=0 min=0 max=1.63131166 mean=0.80009647 below0=0 above1=1729 zero=47 one=0 nonfinite=0
+linear_rec2020 channel=1 min=-0.63371706 max=0.999975324 mean=0.350209053 below0=1 above1=0 zero=47 one=0 nonfinite=0
+linear_rec2020 channel=2 min=0 max=1.02368474 mean=0.882786061 below0=0 above1=2304 zero=47 one=0 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+bitmap=48x64 channels=3 bits=16 fl==12831==unpoisoning: 0x7f922c6179c0 280
+==12831==unpoisoning: 0x7f922c9184e0 2adc
+==12831==unpoisoning: 0x7f922c9181e0 280
+==12831==unpoisoning: 0x7f922c9184e0 2adc
+==12831==unpoisoning: 0x7f922c9181e0 280
+==12831==unpoisoning: 0x7f922c61c1c0 280
+==12831==unpoisoning: 0x7f922c91c4e0 2adc
+==12831==unpoisoning: 0x7f922c91c1e0 280
+==12831==unpoisoning: 0x7f922c91c4e0 2adc
+==12831==unpoisoning: 0x7f922c91c1e0 280
+oat_rgba_bytes=49152 unpack_ms=0.176729 total_after_identify_ms=1.871393
+phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+jxl_selected=0 host_attached=0 stage=auto options=2
+phase=unpacked raw=64x48 active=60x44 margins=2,2 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+unpack_ms=0.171001 sdk_processed=0 stage2_applied=0 stage3_applied=0
+unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=64x48 active=60x44 margins=2,2 flip=0 filters=0 channels=3 black=0 maximum=3965 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=2,1,4,1, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=7940425242582841773
+camera_processed channel=0 min=0.065568015 max=1 mean=0.770214897 below0=0 above1=0 zero=0 one=1364 nonfinite=0
+camera_processed channel=1 min=0.0327763781 max=1 mean=0.516385899 below0=0 above1=0 zero=0 one=44 nonfinite=0
+camera_processed channel=2 min=0.13113603 max=1 mean=0.896719564 below0=0 above1=0 zero=0 one=2024 nonfinite=0
+linear_rec2020 fingerprint_fnv64=16495705931504646757
+linear_rec2020 channel=0 min=0.059141539 max=1.17484236 mean=0.82556161 below0=0 above1=1496 zero=0 one=0 nonfinite=0
+linear_rec2020 channel=1 min=0.0136855142 max=1 mean=0.362064038 below0=0 above1=0 zero=0 one=44 nonfinite=0
+linear_rec2020 channel=2 min=0.13424705 max=1.02360749 mean=0.910879174 below0=0 above1=2024 zero=0 one=44 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=2640 nonfinite=0
+bitmap=60x44 channels=3 bits=16 float_rgba_bytes=42240 unpack_ms=0.171001 total_after_identify_ms=1.982956
+PASS default dimensions 64x48, orientation6 48x64, explicit crop 60x44; float_min=-0.63371706 float_max=1.63131166
+phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,512,2048,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+jxl_selected=0 host_attached=0 stage=auto options=2
+phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,512,2048,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+unpack_ms=0.222977 sdk_processed=0 stage2_applied=0 stage3_applied=0
+unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=64x48 active=64x4==12831==unpoisoning: 0x7f922c6201c0 280
+==12831==unpoisoning: 0x7f922c9204e0 2adc
+==12831==unpoisoning: 0x7f922c9201e0 280
+==12831==unpoisoning: 0x7f922c9204e0 2adc
+==12831==unpoisoning: 0x7f922c9201e0 280
+8 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=2,1,4,1, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,512,2048,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=12774042287221236952
+camera_processed channel=0 min=0 max=1 mean=0.869370927 below0=0 above1=0 zero=47 one=2305 nonfinite=0
+camera_processed channel=1 min=0 max=1 mean=0.746027648 below0=0 above1=0 zero=48 one=1536 nonfinite=0
+camera_processed channel=2 min=0 max=1 mean=0.930554523 below0=0 above1=0 zero=48 one=2688 nonfinite=0
+linear_rec2020 fingerprint_fnv64=908801828902385355
+linear_rec2020 channel=0 min=0 max=1.63131166 mean=0.896345234 below0=0 above1=865 zero=47 one=0 nonfinite=0
+linear_rec2020 channel=1 min=-0.63371706 max=1 mean=0.671032969 below0=1 above1=0 zero=47 one=1536 nonfinite=0
+linear_rec2020 channel=2 min=0 max=1.02368474 mean=0.937427585 below0=0 above1=1152 zero=47 one=1536 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.222977 total_after_identify_ms=1.629849
+phase=identified raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=64 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+jxl_selected=0 host_attached=0 stage=auto options=2
+phase=unpacked raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=64 maximum=4095 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=1.05211103,0.999999881,0.918417037,0, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+unpack_ms=0.189958 sdk_processed=0 stage2_applied=0 stage3_applied=0
+unpacked_buffers u16_rgb=0 u16_rgba=1 float=0 float_rgb=0 float_rgba=0
+phase=processed raw=64x48 active=64x48 margins=0,0 flip=0 filters=0 channels=3 black=0 maximum=4031 warnings=0 float_source=0
+cam_mul=2,1,4,0, pre_mul=2,1,4,1, dng_white=4095,0,0,0, baseline_exposure=-999
+cblack=0,0,0 curve=0,256,1024,65535
+rgb_cam[0]=3.0799551,-1.53713906,-0.542816103,0, opcode1_bytes=0
+rgb_cam[1]=-0.921258628,1.87601113,0.0452475101,0, opcode2_bytes=0
+rgb_cam[2]=0.0528874025,-0.20402588,1.15113842,0, opcode3_bytes=0
+inset=2,2,60,44
+inset=65535,65535,0,0
+camera_processed fingerprint_fnv64=6513641087828631704
+camera_processed channel=0 min=0 max=1 mean=0.734879815 below0=0 above1=0 zero=47 one=1537 nonfinite=0
+camera_processed channel=1 min=0 max=1 mean=0.4923023 below0=0 above1=0 zero=48 one=48 nonfinite=0
+camera_processed channel=2 min=0 max=1 mean=0.855560244 below0=0 above1=0 zero=48 one=2256 nonfinite=0
+linear_rec2020 fingerprint_fnv64=13305456685628039359
+linear_rec2020 channel=0 min=0 max=1.63131166 mean=0.787832935 below0=0 above1=1633 zero=47 one=0 nonfinite=0
+linear_rec2020 channel=1 min=-0.63371706 max=1 mean=0.344817345 below0=1 above1=0 zero=47 one=48 nonfinite=0
+linear_rec2020 channel=2 min=0 max=1.02364469 mean=0.869086559 below0=0 above1=2208 zero=47 one=48 nonfinite=0
+linear_rec2020 channel=3 min=1 max=1 mean=1 below0=0 above1=0 zero=0 one=3072 nonfinite=0
+bitmap=64x48 channels=3 bits=16 float_rgba_bytes=49152 unpack_ms=0.189958 total_after_identify_ms=1.583882
+PASS exact unpacked lookup 2080 -> 4160; normalized green=0.50792706; default blue=1;==12831==LeakSanitizer: checking for leaks==12832==Could not attach to thread 12831 (errno 1).
+==12832==Failed suspending threads.
+==12831==LeakSanitizer has encountered a fatal error.
+==12831==HINT: For debugging, try setting environment variable LSAN_OPTIONS=verbosity=1:log_threads=1
+==12831==HINT: LeakSanitizer does not work under ptrace (strace, gdb, etc)

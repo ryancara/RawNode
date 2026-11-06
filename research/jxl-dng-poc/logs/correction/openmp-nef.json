@@ -1,0 +1,99 @@
+{
+  "threads": 3,
+  "runs": {
+    "serial": [
+      {
+        "unpack_ms": 229.417083,
+        "total_after_identify_ms": 1850.92088,
+        "fingerprints": [
+          [
+            "camera_processed",
+            "17678123939841825433"
+          ],
+          [
+            "linear_rec2020",
+            "5443951636652481966"
+          ]
+        ]
+      },
+      {
+        "unpack_ms": 186.973472,
+        "total_after_identify_ms": 1744.41156,
+        "fingerprints": [
+          [
+            "camera_processed",
+            "17678123939841825433"
+          ],
+          [
+            "linear_rec2020",
+            "5443951636652481966"
+          ]
+        ]
+      },
+      {
+        "unpack_ms": 180.003313,
+        "total_after_identify_ms": 1662.82241,
+        "fingerprints": [
+          [
+            "camera_processed",
+            "17678123939841825433"
+          ],
+          [
+            "linear_rec2020",
+            "5443951636652481966"
+          ]
+        ]
+      }
+    ],
+    "openmp": [
+      {
+        "unpack_ms": 205.414293,
+        "total_after_identify_ms": 1515.23327,
+        "fingerprints": [
+          [
+            "camera_processed",
+            "17678123939841825433"
+          ],
+          [
+            "linear_rec2020",
+            "5443951636652481966"
+          ]
+        ]
+      },
+      {
+        "unpack_ms": 226.644278,
+        "total_after_identify_ms": 1505.26579,
+        "fingerprints": [
+          [
+            "camera_processed",
+            "17678123939841825433"
+          ],
+          [
+            "linear_rec2020",
+            "5443951636652481966"
+          ]
+        ]
+      },
+      {
+        "unpack_ms": 181.253184,
+        "total_after_identify_ms": 1459.289,
+        "fingerprints": [
+          [
+            "camera_processed",
+            "17678123939841825433"
+          ],
+          [
+            "linear_rec2020",
+            "5443951636652481966"
+          ]
+        ]
+      }
+    ]
+  },
+  "scope": "Single-host diagnostics, not a controlled benchmark",
+  "matching_fingerprints": true,
+  "median_total_ms": {
+    "serial": 1744.41156,
+    "openmp": 1505.26579
+  }
+}
