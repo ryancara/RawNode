@@ -4,6 +4,7 @@
 #include "PreviewInteractionTests.h"
 #include "ExportSafetyTests.h"
 #include "PngColorTests.h"
+#include "RawImageTests.h"
 #include "OfxThreadPoolTests.h"
 #include "OfxImageHandleTests.h"
 #include "OfxCoordinateTests.h"
@@ -2102,6 +2103,7 @@ static int runSelfTestsImpl() {
   if (!testNativeRadialMask()) return fail("Native Radial Mask");
   if (!testMaskOverlay()) return fail("Mask Overlay alignment");
   if (!testPreviewInteraction()) return fail("Preview interaction");
+  if (!testRawImages()) return fail("RAW/JPEG XL image loading");
   if (!testPngColor()) return fail("PNG colour correctness");
   if (!testExportSafety()) return fail("export safety");
   if (!testPreferences()) return fail("Step 7 preferences");

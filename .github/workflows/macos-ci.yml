@@ -25,10 +25,10 @@ jobs:
 
       # Keep dependencies and build invocation aligned with release.yml.
       - name: Install build dependencies
-        run: brew install cmake libraw libtiff little-cms2 openexr
+        run: brew install cmake jpeg-turbo libtiff little-cms2 openexr
 
       - name: Build
-        run: ARCHS=arm64 ./build.sh
+        run: CMAKE_PREFIX_PATH="$(brew --prefix jpeg-turbo)" ARCHS=arm64 ./build.sh
 
       - name: Verify Apple Silicon executable
         run: |

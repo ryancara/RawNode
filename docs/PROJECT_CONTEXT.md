@@ -1065,3 +1065,12 @@ contains implementation details.
 If this document conflicts with newer architecture/decision documentation, use
 the newer explicit decision and update this file so the conflict does not
 persist.
+
+## Draft JPEG XL DNG integration
+
+The integration branch pins one LibRaw 0.22.3 for all RAW loading.
+`RAWNODE_ENABLE_JXL_DNG` defaults OFF and adds only Adobe SDK/JPEG XL support;
+there is no older/system-LibRaw compatibility path. Integer JPEG XL support is
+limited to the reviewed stage/geometry policy; float development is rejected.
+See [JPEG_XL_DNG.md](JPEG_XL_DNG.md) for dependency provenance, validation and the
+macOS/Windows/PureRAW gates still required before merge or default enablement.

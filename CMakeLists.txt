@@ -44,23 +44,9 @@ FetchContent_Declare(ctl
 )
 FetchContent_MakeAvailable(ctl)
 
-# --- LibRaw ---
+# --- One pinned LibRaw 0.22.3, optionally with Adobe/JPEG XL support ---
 find_package(PkgConfig QUIET)
-if(PkgConfig_FOUND)
-  pkg_check_modules(LIBRAW IMPORTED_TARGET libraw)
-endif()
-if(NOT LIBRAW_FOUND)
-  find_path(LIBRAW_INCLUDE_DIR libraw/libraw.h)
-  find_library(LIBRAW_LIBRARY NAMES raw raw_r)
-  if(LIBRAW_INCLUDE_DIR AND LIBRAW_LIBRARY)
-    set(LIBRAW_FOUND TRUE)
-  endif()
-endif()
-if(NOT LIBRAW_FOUND)
-  message(FATAL_ERROR "LibRaw not found. Install libraw (e.g. brew install libraw / apt install libraw-dev).")
-endif()
-
-find_package(ZLIB REQUIRED)
+include(cmake/RawDependencies.cmake)
 
 # --- libtiff ---
 if(PkgConfig_FOUND)
@@ -98,6 +84,7 @@ add_executable(OfxRawHost
   tests/SelfTest.cpp
   tests/ExportSafetyTests.cpp
   tests/PngColorTests.cpp
+  tests/RawImageTests.cpp
   tests/OfxThreadPoolTests.cpp
   tests/OfxImageHandleTests.cpp
   tests/OfxCoordinateTests.cpp
@@ -223,12 +210,7 @@ add_custom_command(TARGET OfxRawHost POST_BUILD
     $<TARGET_FILE_DIR:OfxRawHost>/fa-solid-900.ttf
 )
 
-if(TARGET PkgConfig::LIBRAW)
-  target_link_libraries(OfxRawHost PRIVATE PkgConfig::LIBRAW)
-else()
-  target_include_directories(OfxRawHost PRIVATE ${LIBRAW_INCLUDE_DIR})
-  target_link_libraries(OfxRawHost PRIVATE ${LIBRAW_LIBRARY})
-endif()
+target_link_libraries(OfxRawHost PRIVATE RawNodeRaw)
 
 if(TARGET PkgConfig::LIBTIFF)
   target_link_libraries(OfxRawHost PRIVATE PkgConfig::LIBTIFF)
@@ -333,6 +315,9 @@ if(APPLE)
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       ${OFX_BUNDLE}
       ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/PlugIns/OfxRawHost.ofx.bundle
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      ${rawnode_notices}
+      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/RawDependencyNotices
     COMMAND ${CMAKE_COMMAND} -E echo "Built ${CMAKE_BINARY_DIR}/OfxRawHost.app"
     DEPENDS OfxRawHost OfxRawHostCrop
   )
