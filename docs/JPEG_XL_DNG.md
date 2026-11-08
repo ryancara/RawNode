@@ -76,7 +76,9 @@ Require SDK_PROCESSED and the expected Stage 2/3 warning state after unpacking.
 
 The host is constructed only for positively classified JPEG XL input and outlives
 LibRaw's borrowed buffers. Forced Stage 2 rejects Stage 1 TrimBounds and malformed
-opcode lists. Its accepted geometry is the reviewed ActiveArea trim: final stored
+opcode lists. A separate OpcodeList2 TrimBounds fixture verifies the post-Stage-2
+dimension guard; removing that guard makes the fixture load and the rejection
+assertion fail. Its accepted geometry is the reviewed ActiveArea trim: final stored
 and active dimensions must equal the original active dimensions, with zero
 margins. Other changes fail explicitly. Production continues to ignore DefaultCrop;
 it neither applies nor rebases those unused inset-crop fields.
@@ -125,9 +127,9 @@ check photographs into the repository. Full self-tests also exercise the existin
 raster loading, colour transforms, preview/export, graph and persistence paths.
 
 The available Linux x86_64 runs use GCC 14.2 and Clang 19.1.7. The production
-loader's 18 synthetic cases comprise three ordinary DNG checks, eleven successful
-JPEG XL checks and four expected failures (missing host, two float inputs and
-TrimBounds). Measured errors against the independent all-pixel oracle:
+loader's 19 synthetic cases comprise three ordinary DNG checks, eleven successful
+JPEG XL checks and five expected failures (missing host, two float inputs,
+Stage 1 TrimBounds and Stage 2 TrimBounds). Measured errors against the independent all-pixel oracle:
 
 | Fixture | Maximum absolute channel error | Assertion bound |
 | --- | ---: | ---: |
@@ -167,7 +169,7 @@ finite RGB values (approximately [0.003127, 0.485421]), working RGBA fingerprint
 explicitly rejected, as is the integer sample in an OFF build. These sample
 files remain outside Git and are not PureRAW fixtures.
 
-For these GCC Release builds, executables including the repository's self-tests
+At reviewed head `27e482a`, GCC Release executables including the repository's self-tests
 are 9,666,144 bytes OFF and 17,104,048 bytes ON. The complete ON suite including
 the 60-megapixel Adobe sample peaks at 2,171,328 KiB RSS. This measures the whole
 process/suite, not decoder-only allocation or a controlled performance benchmark.
@@ -182,8 +184,17 @@ Instrumentation of both the host and OFX module was checked, and all four
 independent deliberate-failure probes (use-after-free, signed overflow, negative
 shift and leak) produced the expected symbolized diagnostics.
 
-Clang 19.1.7 **TSan** (RelWithDebInfo, `-O1 -gline-tables-only`, JPEG XL ON,
-`-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE`) also passes the complete suite,
+The targeted review correction re-ran Linux Release OFF/ON and Clang
+ASan/UBSan with leak detection after adding the Stage 2 TrimBounds case; all
+19 synthetic cases and the complete suites pass. Removing only the production
+Stage 2 geometry rejection in a temporary source copy makes that new test fail
+because the unsupported trimmed image loads. Stage 1 rejection and the existing
+pixel/colour expectations remain intact. The unused `LIBRAW_DNGSDK_CONFLICT`
+defines were removed after both translation units produced byte-identical
+preprocessed output with and without the define against the pinned headers.
+
+At reviewed head `27e482a`, Clang 19.1.7 **TSan** (RelWithDebInfo, `-O1 -gline-tables-only`, JPEG XL ON,
+`-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE`) passed its complete suite,
 NEF/ordinary DNG and JPEG XL cases, with no suppressions. This checks the serial
 LibRaw configuration and host concurrency; it does not claim TSan validation of
 OpenMP. No new sanitizer findings were observed. Sanitizer executables were run
@@ -208,20 +219,50 @@ platform support. Linux CI covers OFF/ON Release and Clang ASan/UBSan with JPEG 
 ON. The existing narrow stb JPEG UBSan suppression is unchanged; none is added
 for RAW, SDK or JPEG XL.
 
-For macOS Apple Silicon:
+The macOS CI matrix explicitly configures OFF and ON in separate clean
+`build-jxl-OFF` / `build-jxl-ON` directories, builds with two parallel jobs, verifies
+arm64 host/archive architecture and runs full self-tests for both. It installs
+Homebrew libomp and passes AppleClang's compile flags, include directory and
+runtime library through FindOpenMP. When OpenMP is found on Apple platforms,
+`LIBRAW_FORCE_OPENMP` keeps LibRaw's `_REENTRANT` guard from silently disabling it;
+the definition propagates to users of LibRaw's public inline allocator as well.
+Serial fallback on platforms without OpenMP is unchanged. CI checks the actual
+LibRaw flags, undefined OpenMP runtime symbols in its compiled archive, the host
+link command and `otool -L`, rather than inferring OpenMP use from installation.
+
+The previous macOS job on `27e482a` was cancelled before runner assignment
+(empty runner name, no executed steps). Its workflow-level failure does not
+establish a compilation failure. New workflow outcomes must likewise distinguish
+runner scheduling from executed build/test failures; configuration alone is not
+a successful macOS validation.
+
+Release remains JPEG XL **OFF**. Apple Silicon now uses `macos-15`; Intel keeps
+`macos-15-intel`. Release preconfigures the CMake cache explicitly before calling
+`build.sh`, which does not forward arbitrary options. It copies `libomp.dylib`
+and its installed licence into the app, changes the executable's load command to
+`@executable_path/../Frameworks/libomp.dylib`, repairs ad-hoc signatures, checks
+runtime architecture/linkage and runs self-tests before creating the DMG.
+This packaging change still needs an executed macOS release build. It addresses
+libomp only: other existing Homebrew runtime dependencies are not newly bundled,
+and relocation to a Mac without Homebrew, signing/notarization and minimum-OS
+compatibility (including the Homebrew libomp deployment target) remain release
+validation requirements. It is not a claim that the existing app bundle is
+fully portable.
+
+For macOS Apple Silicon manual checks:
 
 1. Install Xcode command-line tools and `brew install cmake pkg-config jpeg-turbo libtiff little-cms2 openexr python libomp`.
 2. Configure fresh OFF and ON Release directories with `-DCMAKE_OSX_ARCHITECTURES=arm64`.
    If necessary pass Homebrew's `jpeg-turbo` prefix in `CMAKE_PREFIX_PATH`.
    For Apple Clang OpenMP, use `-DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp"`,
-   `-DOpenMP_CXX_LIB_NAMES=omp` and `-DOpenMP_omp_LIBRARY="$(brew --prefix libomp)/lib/libomp.dylib"`;
-   add the libomp include directory to the compiler's include search if required.
+   `-DOpenMP_CXX_INCLUDE_DIR="$(brew --prefix libomp)/include"`,
+   `-DOpenMP_CXX_LIB_NAMES=omp` and `-DOpenMP_omp_LIBRARY="$(brew --prefix libomp)/lib/libomp.dylib"`.
    Confirm the resulting compile/link flags actually enable OpenMP; otherwise
    report the serial build, rather than claiming OpenMP is enabled.
 3. Build and run full self-tests, then actual NEF/ordinary DNG/JPEG XL samples.
    Check rotated dimensions, previews, thumbnails, selected working space/transfer
    and export against trusted references. Run Clang ASan/UBSan with leak detection.
-4. Check `file`, `lipo -archs` and `otool -L`; confirm arm64, exactly one static
+4. Check `file`, `lipo -archs`, `nm -u` and `otool -L`; confirm arm64, exactly one static
    LibRaw implementation and all external runtime libraries packaged/resolvable.
    Repeat serial/OpenMP numerical and timing checks on the same 0.22.3 sources.
 

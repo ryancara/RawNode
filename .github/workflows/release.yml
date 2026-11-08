@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           # arm64 (Apple Silicon)
-          - os: macos-14
+          - os: macos-15
             arch: arm64
           # x86_64 (Intel) — macos-13 is retired; use macos-15-intel
           - os: macos-15-intel
@@ -26,11 +26,45 @@ jobs:
         with:
           submodules: true
       - name: Install dependencies
-        run: brew install cmake jpeg-turbo libtiff little-cms2 openexr
+        run: brew install cmake jpeg-turbo libtiff little-cms2 openexr libomp
       - name: Build and package DMG
         run: |
           rm -rf build
-          CMAKE_PREFIX_PATH="$(brew --prefix jpeg-turbo)" ARCHS=${{ matrix.arch }} VERSION="${GITHUB_REF_NAME#v}" ./build.sh
+          # build.sh preserves this CMake cache but does not forward arbitrary options.
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix jpeg-turbo)" \
+            -DRAWNODE_ENABLE_JXL_DNG=OFF \
+            -DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp" \
+            -DOpenMP_CXX_INCLUDE_DIR="$(brew --prefix libomp)/include" \
+            -DOpenMP_CXX_LIB_NAMES=omp \
+            -DOpenMP_omp_LIBRARY="$(brew --prefix libomp)/lib/libomp.dylib"
+          ARCHS=${{ matrix.arch }} VERSION="${GITHUB_REF_NAME#v}" ./build.sh
+          grep -x 'RAWNODE_ENABLE_JXL_DNG:BOOL=OFF' build/CMakeCache.txt
+          cat build/CMakeFiles/RawNodeRaw.dir/flags.make
+          grep -F -- '-Xpreprocessor -fopenmp' build/CMakeFiles/RawNodeRaw.dir/flags.make
+          grep -F -- '-DLIBRAW_FORCE_OPENMP' build/CMakeFiles/RawNodeRaw.dir/flags.make
+          nm -u build/libRawNodeRaw.a | grep -E '___kmpc_fork_call|_omp_get_'
+          grep -F 'libomp.dylib' build/CMakeFiles/OfxRawHost.dir/link.txt
+          # Bundle the newly explicit OpenMP runtime, then repair its load path/signatures.
+          app=build/OfxRawHost.app
+          binary="$app/Contents/MacOS/OfxRawHost"
+          omp_prefix="$(brew --prefix libomp)"
+          omp_ref="$(otool -L "$binary" | awk '$1 ~ /libomp[.]dylib$/ {print $1}')"
+          test -n "$omp_ref"
+          mkdir -p "$app/Contents/Frameworks"
+          cp -L "$omp_prefix/lib/libomp.dylib" "$app/Contents/Frameworks/libomp.dylib"
+          cp "$omp_prefix/LICENSE.TXT" "$app/Contents/Resources/RawDependencyNotices/libomp-LICENSE.TXT"
+          chmod u+w "$app/Contents/Frameworks/libomp.dylib"
+          install_name_tool -id '@rpath/libomp.dylib' "$app/Contents/Frameworks/libomp.dylib"
+          install_name_tool -change "$omp_ref" '@executable_path/../Frameworks/libomp.dylib' "$binary"
+          codesign --force --sign - "$app/Contents/Frameworks/libomp.dylib"
+          codesign --force --sign - "$binary"
+          codesign --force --deep --sign - "$app"
+          test "$(lipo -archs "$app/Contents/Frameworks/libomp.dylib")" = '${{ matrix.arch }}'
+          otool -L "$binary" | grep -F '@executable_path/../Frameworks/libomp.dylib'
+          otool -L "$app/Contents/Frameworks/libomp.dylib"
+          "$binary" --selftest
           # Verify binary arch matches the matrix target
           lipo -info build/OfxRawHost.app/Contents/MacOS/OfxRawHost | tee /dev/stderr | grep -q "${{ matrix.arch }}"
           mkdir -p build/dmg

@@ -4,7 +4,6 @@
 #include "imgio/ImageIOPriv.h"
 #include "perf.h"
 
-#define LIBRAW_DNGSDK_CONFLICT 1
 #include <libraw/libraw.h>
 #if RAWNODE_ENABLE_JXL_DNG
 // Keep SDK typedefs before libtiff's deprecated aliases.

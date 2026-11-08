@@ -22,6 +22,10 @@ target_compile_definitions(RawNodeRaw PUBLIC LIBRAW_NODLL RAWNODE_ENABLE_JXL_DNG
 target_link_libraries(RawNodeRaw PUBLIC JPEG::JPEG ZLIB::ZLIB Threads::Threads)
 if(OpenMP_CXX_FOUND)
   target_link_libraries(RawNodeRaw PUBLIC OpenMP::OpenMP_CXX)
+  if(APPLE)
+    # LibRaw otherwise disables OpenMP when Apple builds also define _REENTRANT.
+    target_compile_definitions(RawNodeRaw PUBLIC LIBRAW_FORCE_OPENMP)
+  endif()
 else()
   message(STATUS "OpenMP unavailable: LibRaw 0.22.3 will use serial processing")
 endif()

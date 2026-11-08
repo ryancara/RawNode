@@ -1,7 +1,6 @@
 #include "RawImageTests.h"
 #include "imgio/ImageIO.h"
 
-#define LIBRAW_DNGSDK_CONFLICT 1
 #include <libraw/libraw.h>
 #if RAWNODE_ENABLE_JXL_DNG
 #include <jxl/encode.h>
@@ -37,7 +36,7 @@ struct Files {
 };
 struct Fixture {
   bool jxl = false, floating = false, unequal = false, opcode2 = false, opcode3 = false;
-  bool active = false, trim = false, lossy = false;
+  bool active = false, trim = false, trim2 = false, lossy = false;
   uint16_t orientation = 1;
 };
 uint32_t white(const Fixture &f, int c) { return f.lossy ? 65535 : (f.unequal ? (4096u << c) - 1 : 4095); }
@@ -124,6 +123,11 @@ Bytes polynomial(double slope) {
   }
   return b;
 }
+Bytes trimBounds() {
+  Bytes b;
+  for (auto v : {1u, 6u, 0x01030000u, 0u, 16u, 6u, 8u, 42u, 56u}) big(b, v);
+  return b;
+}
 // A small TIFF/DNG wrapper authored here, independent of the SDK image writer.
 // No photograph, converter, checked-in binary fixture or image export is used.
 std::string writeFixture(const Files &files, const char *name, const Fixture &f) {
@@ -173,14 +177,13 @@ std::string writeFixture(const Files &files, const char *name, const Fixture &f)
   tag(50778, 3, 1, little({21}, 2));
   if (f.active) tag(50829, 4, 4, little({4, 6, 44, 58}, 4));
   if (f.trim) {
-    Bytes b;
-    for (auto v : {1u, 6u, 0x01030000u, 0u, 16u, 6u, 8u, 42u, 56u}) big(b, v);
+    auto b = trimBounds();
     const auto n = uint32_t(b.size());
     tag(51008, 7, n, std::move(b));
   }
   for (const auto stage : {2, 3})
     if (stage == 2 ? f.opcode2 : f.opcode3) {
-      auto b = polynomial(stage == 2 ? .5 : .25);
+      auto b = stage == 2 && f.trim2 ? trimBounds() : polynomial(stage == 2 ? .5 : .25);
       const auto n = uint32_t(b.size());
       tag(stage == 2 ? 51009 : 51022, 7, n, std::move(b));
     }
@@ -333,6 +336,12 @@ bool testRawImages() {
     require(!loadImage(writeFixture(files, "trim", f), image, detected, decodedRaw) && image.px.empty(),
             "unmapped Stage 1 geometry must be rejected");
     std::fprintf(stderr, "PASS RAW TrimBounds rejection\n");
+    f = Fixture{};
+    f.jxl = f.opcode2 = f.trim2 = true;
+    require(!loadImage(writeFixture(files, "trim-stage2", f), image, detected, decodedRaw) &&
+                image.px.empty(),
+            "unsupported Stage 2 TrimBounds geometry must be rejected");
+    std::fprintf(stderr, "PASS RAW Stage 2 TrimBounds rejection\n");
 #endif
     // Optional private fixtures exercise the same public loader without
     // committing photos.
