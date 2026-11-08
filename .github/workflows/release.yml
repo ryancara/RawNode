@@ -39,11 +39,16 @@ jobs:
             -DOpenMP_CXX_INCLUDE_DIR="$(brew --prefix libomp)/include" \
             -DOpenMP_CXX_LIB_NAMES=omp \
             -DOpenMP_omp_LIBRARY="$(brew --prefix libomp)/lib/libomp.dylib"
-          ARCHS=${{ matrix.arch }} VERSION="${GITHUB_REF_NAME#v}" ./build.sh
+          app_version=0.0.0
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            app_version="${GITHUB_REF_NAME#v}"
+          fi
+          ARCHS=${{ matrix.arch }} VERSION="$app_version" ./build.sh
           grep -x 'RAWNODE_ENABLE_JXL_DNG:BOOL=OFF' build/CMakeCache.txt
           cat build/CMakeFiles/RawNodeRaw.dir/flags.make
           grep -F -- '-Xpreprocessor -fopenmp' build/CMakeFiles/RawNodeRaw.dir/flags.make
           grep -F -- '-DLIBRAW_FORCE_OPENMP' build/CMakeFiles/RawNodeRaw.dir/flags.make
+          grep -F -- '-DRAWNODE_ENABLE_JXL_DNG=0' build/CMakeFiles/RawNodeRaw.dir/flags.make
           nm -u build/libRawNodeRaw.a | grep -E '___kmpc_fork_call|_omp_get_'
           grep -F 'libomp.dylib' build/CMakeFiles/OfxRawHost.dir/link.txt
           # Bundle the newly explicit OpenMP runtime, then repair its load path/signatures.
@@ -72,6 +77,23 @@ jobs:
           ln -sf /Applications build/dmg/Applications
           hdiutil create -volname "OFX Raw Host" -srcfolder build/dmg -format UDZO -ov \
             "build/OfxRawHost-macOS-${{ matrix.arch }}.dmg"
+          # Validate the application inside the finished image, not only build/.
+          mountpoint="$(mktemp -d)"
+          hdiutil attach "build/OfxRawHost-macOS-${{ matrix.arch }}.dmg" \
+            -readonly -nobrowse -mountpoint "$mountpoint"
+          trap 'hdiutil detach "$mountpoint"' EXIT
+          packaged_app="$mountpoint/OfxRawHost.app"
+          packaged_binary="$packaged_app/Contents/MacOS/OfxRawHost"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$packaged_app/Contents/Info.plist")" = "$app_version"
+          test -f "$packaged_app/Contents/Frameworks/libomp.dylib"
+          test -f "$packaged_app/Contents/Resources/RawDependencyNotices/libomp-LICENSE.TXT"
+          test "$(lipo -archs "$packaged_binary")" = '${{ matrix.arch }}'
+          test "$(lipo -archs "$packaged_app/Contents/Frameworks/libomp.dylib")" = '${{ matrix.arch }}'
+          otool -L "$packaged_binary" | grep -F '@executable_path/../Frameworks/libomp.dylib'
+          "$packaged_binary" --selftest
+          hdiutil detach "$mountpoint"
+          trap - EXIT
+          rmdir "$mountpoint"
       - uses: actions/upload-artifact@v4
         with:
           name: OfxRawHost-macOS-${{ matrix.arch }}
