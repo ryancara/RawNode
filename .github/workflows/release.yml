@@ -64,8 +64,11 @@ jobs:
           install_name_tool -id '@rpath/libomp.dylib' "$app/Contents/Frameworks/libomp.dylib"
           install_name_tool -change "$omp_ref" '@executable_path/../Frameworks/libomp.dylib' "$binary"
           codesign --force --sign - "$app/Contents/Frameworks/libomp.dylib"
-          codesign --force --sign - "$binary"
-          codesign --force --deep --sign - "$app"
+          codesign --verify --strict --verbose=2 "$app/Contents/Frameworks/libomp.dylib"
+          # build.sh signed the nested OFX bundle; verify it before re-signing the parent.
+          codesign --verify --strict --verbose=2 "$app/Contents/PlugIns/OfxRawHost.ofx.bundle"
+          codesign --force --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
           test "$(lipo -archs "$app/Contents/Frameworks/libomp.dylib")" = '${{ matrix.arch }}'
           otool -L "$binary" | grep -F '@executable_path/../Frameworks/libomp.dylib'
           otool -L "$app/Contents/Frameworks/libomp.dylib"
@@ -87,6 +90,9 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$packaged_app/Contents/Info.plist")" = "$app_version"
           test -f "$packaged_app/Contents/Frameworks/libomp.dylib"
           test -f "$packaged_app/Contents/Resources/RawDependencyNotices/libomp-LICENSE.TXT"
+          codesign --verify --strict --verbose=2 "$packaged_app/Contents/PlugIns/OfxRawHost.ofx.bundle"
+          codesign --verify --strict --verbose=2 "$packaged_app/Contents/Frameworks/libomp.dylib"
+          codesign --verify --deep --strict --verbose=2 "$packaged_app"
           test "$(lipo -archs "$packaged_binary")" = '${{ matrix.arch }}'
           test "$(lipo -archs "$packaged_app/Contents/Frameworks/libomp.dylib")" = '${{ matrix.arch }}'
           otool -L "$packaged_binary" | grep -F '@executable_path/../Frameworks/libomp.dylib'

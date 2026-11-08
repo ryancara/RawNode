@@ -51,8 +51,12 @@ EOF
   if [ -d "$BUILD/Plugins/OfxRawHost.ofx.bundle" ]; then
     rm -rf "$APP/Contents/PlugIns/OfxRawHost.ofx.bundle"
     cp -R "$BUILD/Plugins/OfxRawHost.ofx.bundle" "$APP/Contents/PlugIns/"
+    # Intel does not receive the linker's automatic arm64 ad-hoc signature.
+    codesign --force --sign - "$APP/Contents/PlugIns/OfxRawHost.ofx.bundle"
+    codesign --verify --strict --verbose=2 "$APP/Contents/PlugIns/OfxRawHost.ofx.bundle"
   fi
-  codesign --force --sign - "$APP" 2>/dev/null || true
+  codesign --force --sign - "$APP"
+  codesign --verify --deep --strict --verbose=2 "$APP"
   echo "Built $(pwd)/$APP"
 else
   echo "Built $(pwd)/$BUILD/OfxRawHost"
