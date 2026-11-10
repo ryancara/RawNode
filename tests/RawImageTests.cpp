@@ -253,8 +253,8 @@ void checkPixels(const Image &image, const Fixture &f, RgbGamut gamut) {
   // Quantization plus published matrix rounding (LibRaw's XYZ->709 constants
   // have ~4 decimal digits). The lossy bound also covers distance .01 XYB
   // compression.
-  // This fixture measures <.000346 in Rec.2020 and <.000573 in Rec.709.
-  // Allow modest compiler/SIMD variation, not a generic one-percent lossy bound.
+  // Measured lossy maxima (Rec.2020/Rec.709): x86_64 .000345/.000573,
+  // arm64 .000402/.000663; bounds allow compiler/SIMD variation.
   const double tolerance = f.lossy ? (gamut == RgbGamut::Rec709 ? .0008 : .0005) : .0001;
   std::fprintf(stderr, "RAW oracle max_error=%.9g bound=%.9g\n", maximum, tolerance);
   require(maximum <= tolerance, "independent RAW colour/pixel oracle");

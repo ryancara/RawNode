@@ -812,6 +812,25 @@ coverage through the inverse for display only. Unknown/singular, conflicting or
 absent placement cannot establish alignment. Outward feathering remains separately
 scoped work.
 
+## D057 — One pinned LibRaw with optional JPEG XL DNG support
+
+**Status:** Accepted; established by PR #111.
+
+All configurations use one pinned LibRaw 0.22.3 implementation. System LibRaw and
+second LibRaw implementations are not supported. `RAWNODE_ENABLE_JXL_DNG` controls
+only optional codec support, never the LibRaw version.
+
+When enabled, the vendored Adobe DNG SDK subset and pinned libjxl decode integer
+JPEG XL DNGs through the existing loader. LibRaw remains responsible for RAW
+development, using the existing image, colour and rendering architecture.
+Unsupported floating-point JPEG XL development fails explicitly; integer decoding
+retains the documented stage and geometry limits.
+
+JPEG XL remains OFF by default and in normal release builds. Default enablement
+and JPEG XL integration into distributed releases are deferred. Dependency,
+validation, licensing and distribution details belong in
+[JPEG_XL_DNG.md](JPEG_XL_DNG.md).
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:

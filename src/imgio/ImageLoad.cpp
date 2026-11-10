@@ -194,8 +194,8 @@ static bool loadRaw(const std::string &path, Image &out, RgbGamut workingGamut, 
       return jxlDngError("SDK did not perform the requested decoding stages");
     if (stage2) {
       const auto &size = raw.imgdata.sizes;
-      // Only the reviewed ActiveArea trim is supported. RawNode does not request
-      // DefaultCrop, so no unused inset-crop metadata is rebased here.
+      // Stage 2 must preserve the identified active geometry. Unmapped bounds
+      // changes such as TrimBounds can otherwise return incorrectly positioned pixels.
       if (size.raw_width != active.width || size.raw_height != active.height ||
           size.width != active.width || size.height != active.height ||
           size.left_margin != 0 || size.top_margin != 0)

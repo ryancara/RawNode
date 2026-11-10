@@ -1,20 +1,22 @@
-# Integer JPEG XL DNG integration (draft)
+# Integer JPEG XL DNG decoding
 
 Every configuration builds one pinned LibRaw **0.22.3** static library, `RawNodeRaw`.
 No system LibRaw is linked or supported. Upgrading from an older LibRaw can change
 ordinary RAW pixels; reproducing historical output is not a requirement.
+See [D057](DECISIONS.md#d057--one-pinned-libraw-with-optional-jpeg-xl-dng-support).
 
-`RAWNODE_ENABLE_JXL_DNG` defaults to **OFF**. It adds Adobe DNG SDK/JPEG XL support
-to that same LibRaw target when ON; it does not select a LibRaw version. OFF needs
-JPEG/zlib development libraries but neither the SDK, libjxl nor Python. OpenMP is
-enabled when CMake finds it; otherwise LibRaw runs serially. Never link a second
+`RAWNODE_ENABLE_JXL_DNG` defaults to **OFF**, including normal release builds.
+It adds Adobe DNG SDK/JPEG XL support to that same LibRaw target when ON; it does
+not select a LibRaw version. OFF needs JPEG/zlib development libraries but neither
+the SDK, libjxl nor Python. OpenMP is enabled when CMake finds it; otherwise LibRaw
+runs serially. Never link a second
 LibRaw into the host to implement dispatch.
 
 ## Build
 
 Use the normal dependencies listed in the root README, a C++17 compiler, Git and
-CMake 3.16+. ON additionally requires Python 3 to prepare the two reviewed source
-adjustments. Configure an out-of-tree build:
+CMake 3.16+. ON additionally requires Python 3 for the source compatibility
+adjustments; no original Adobe ZIP is required. Use a separate build directory:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DRAWNODE_ENABLE_JXL_DNG=ON
@@ -26,10 +28,30 @@ On macOS the executable is also copied into `build/OfxRawHost.app/Contents/MacOS
 A fresh OFF build uses the same commands with `-DRAWNODE_ENABLE_JXL_DNG=OFF`.
 Use separate build directories when comparing configurations.
 
-The reviewed reference is research commit
-`588b95a2093431007a0771883d367cdb3253cc53`; its branch is unchanged. Only the SDK
-subset and necessary build/decoding rules are carried over, without research
-executables, logs, float diagnostics or unused DefaultCrop rebasing.
+### macOS Apple Silicon
+
+Install Xcode command-line tools and the Homebrew dependencies, then pass the
+keg-only JPEG/libomp locations explicitly:
+
+```sh
+brew install cmake pkg-config jpeg-turbo libtiff little-cms2 openexr python libomp
+cmake -S . -B build-jxl-on -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DCMAKE_PREFIX_PATH="$(brew --prefix jpeg-turbo)" \
+  -DRAWNODE_ENABLE_JXL_DNG=ON \
+  -DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp" \
+  -DOpenMP_CXX_INCLUDE_DIR="$(brew --prefix libomp)/include" \
+  -DOpenMP_CXX_LIB_NAMES=omp \
+  -DOpenMP_omp_LIBRARY="$(brew --prefix libomp)/lib/libomp.dylib"
+cmake --build build-jxl-on --parallel 2
+build-jxl-on/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
+```
+
+When OpenMP is found on Apple platforms, `LIBRAW_FORCE_OPENMP` prevents LibRaw's
+`_REENTRANT` guard from silently disabling it. The definition propagates to users
+of LibRaw's public inline allocator. The macOS CI checks actual compile flags,
+OpenMP references in the compiled archive, executable linkage and architecture;
+installing libomp alone does not establish that OpenMP is active.
 
 ### Dependency provenance
 
@@ -55,11 +77,11 @@ JPEG/XMP definitions propagate consistently into LibRaw and the host.
 
 `prepare_libjxl.py` verifies and applies the reviewed one-line initialization of
 `EntropyEncodingData::use_prefix_code`. libjxl's encoder moves this member before
-assignment; UBSan found an invalid bool read in the prototype's fixture encoder.
+assignment; UBSan found an invalid bool read while encoding synthetic fixtures.
 This is a concrete initialization fix, not a sanitizer suppression or decoder
 change. Patch files document both adjustments; unknown source hashes fail configuration.
 
-## Loader policy and colour boundary
+## Decoding policy and limitations
 
 `src/imgio/ImageLoad.cpp` positively identifies the selected main image using
 LibRaw 0.22.3's `jxl_dng_load_raw_placeholder()` decoder name plus DNG identity.
@@ -76,16 +98,17 @@ Require SDK_PROCESSED and the expected Stage 2/3 warning state after unpacking.
 
 The host is constructed only for positively classified JPEG XL input and outlives
 LibRaw's borrowed buffers. Forced Stage 2 rejects Stage 1 TrimBounds and malformed
-opcode lists. A separate OpcodeList2 TrimBounds fixture verifies the post-Stage-2
-dimension guard; removing that guard makes the fixture load and the rejection
-assertion fail. Its accepted geometry is the reviewed ActiveArea trim: final stored
-and active dimensions must equal the original active dimensions, with zero
-margins. Other changes fail explicitly. Production continues to ignore DefaultCrop;
-it neither applies nor rebases those unused inset-crop fields.
+opcode lists. Supported geometry preserves the identified ActiveArea dimensions,
+with zero margins after the SDK's ActiveArea trim. Other changes, including
+unsupported Stage 2 TrimBounds, fail explicitly: unmapped bounds changes can
+produce incorrectly positioned pixels. DefaultCrop remains unapplied, and its
+unused inset-crop fields are not rebased.
 
 Floating-point JPEG XL development is unsupported and rejected before unpacking.
 The integer development path must not silently quantize float input or produce
-black pixels. The research branch retains its separate float diagnostic experiment.
+black pixels.
+
+### Colour and precision boundary
 
 SDK Stage 2 handles linearization, black/white normalization and pre-demosaic
 opcodes for those inputs. It does not replace LibRaw's subsequent development.
@@ -99,10 +122,23 @@ General photographic DNG profile rendering, look tables and highlight recovery
 are not solved by this integration.
 
 Unsupported cases print an identifiable `JPEG XL DNG:` diagnostic and return the
-loader's existing failure result. This uses the existing UI failure convention;
-there are no new controls or appearance changes beyond the requested decoding.
+loader's existing failure result. OFF builds reject identified JPEG XL input.
 
-## Tests
+## Validation
+
+Completed executable validation includes the local fixture/sanitizer checks
+below and [Linux CI](https://github.com/ryancara/RawNode/actions/runs/42535180397),
+[macOS CI](https://github.com/ryancara/RawNode/actions/runs/42535180372) and the
+[manual Release run](https://github.com/ryancara/RawNode/actions/runs/42721710437):
+
+| Configuration | Completed checks |
+| --- | --- |
+| Linux x86_64 Release OFF/ON | Full builds/self-tests and one-LibRaw linkage audit; local NEF/Adobe DNG checks |
+| Linux Clang ASan/UBSan, JPEG XL ON, OpenMP ON | Local/CI full suites with leak detection; host/OFX instrumentation and four deliberate-failure probes |
+| macOS arm64 Release OFF/ON | Full builds/self-tests, JPEG XL numerical regressions, architecture and actual LibRaw OpenMP/linkage checks |
+| macOS arm64 and Intel release builds, JPEG XL OFF | DMG creation, bundled libomp/licence, app-relative load path, architecture, nested/app signatures and mounted-DMG self-tests |
+
+### Numerical regressions
 
 `tests/RawImageTests.cpp` is part of the existing `--selftest` executable. It
 writes temporary, authored DNG wrappers and uses the pinned libjxl encoder to
@@ -120,86 +156,65 @@ fixtures exercise lossy colour conversion. DefaultCrop is deliberately different
 from ActiveArea to detect accidental cropping. No historical LibRaw pixel baseline
 is part of acceptance.
 
+The 19 cases comprise three ordinary DNG checks, eleven successful JPEG XL checks
+and five expected failures: missing host, two float inputs, Stage 1 TrimBounds and
+Stage 2 TrimBounds.
+
+Observed maximum absolute channel errors against the independent oracle:
+
+| Fixture | Linux x86_64 | macOS arm64 | Assertion bound |
+| --- | ---: | ---: | ---: |
+| Ordinary/lossless, across both working gamuts | 0.000055669 | 0.000055669 | 0.0001 |
+| Unequal whites plus OpcodeList2 | 0.000026922 | 0.000026922 | 0.0001 |
+| Lossy linear Rec.2100, output Rec.2020 | 0.000345440 | 0.000401966 | 0.0005 |
+| Same lossy fixture, output Rec.709 | 0.000572794 | 0.000662977 | 0.0008 |
+
+The Linux measurements use GCC 14.2/Clang 19.1.7; the arm64 measurements use
+AppleClang. Bounds allow 16-bit quantization, published matrix rounding and
+compiler/SIMD variation for this distance-.01 fixture. They are not a general
+error guarantee for lossy photographs. White reference pixels stay inside
+ActiveArea to avoid LibRaw's automatic maximum adjustment in the oracle.
+Upstream libjxl remains in use without Adobe-specific skcms changes; this test
+does not establish behaviour for every PureRAW ICC profile or JPEG XL encoding.
+
+Independent mutation checks detect the incorrect conditional Stage 2/3 policy
+(approximately 0.5 error in the unequal-white oracle) and removal of the Stage 2
+geometry rejection (the unsupported image loads, failing its rejection assertion).
+These checks supplement the all-pixel expectations rather than comparing only
+two paths through the same SDK.
+
+### Real-file checks
+
+The available local NEF decodes to 4284x2844 with RGB range approximately
+[-0.390947, 1.21029]; the ordinary Adobe DNG to 1000x1000. Loading and thumbnails
+succeed. Serial and OpenMP LibRaw 0.22.3 builds from identical sources give matching
+full-buffer fingerprints for these NEF/DNG samples; no historical LibRaw pixel
+baseline is required.
+
+An ON build also decodes Adobe's real integer JPEG XL DNG to **9504x6336**, with
+finite RGB values and a successful thumbnail. Adobe's real float JPEG XL DNG is
+explicitly rejected, as is the integer sample in an OFF build. These sample
+files remain outside Git and are not PureRAW fixtures.
+
 Private optional fixture paths can be supplied as `RAWNODE_TEST_NEF`,
 `RAWNODE_TEST_DNG` and `RAWNODE_TEST_JXL`. These run the same public loader and
 thumbnail path, checking dimensions, finite pixels and numerical sanity. Do not
 check photographs into the repository. Full self-tests also exercise the existing
 raster loading, colour transforms, preview/export, graph and persistence paths.
 
-The available Linux x86_64 runs use GCC 14.2 and Clang 19.1.7. The production
-loader's 19 synthetic cases comprise three ordinary DNG checks, eleven successful
-JPEG XL checks and five expected failures (missing host, two float inputs,
-Stage 1 TrimBounds and Stage 2 TrimBounds). Measured errors against the independent all-pixel oracle:
-
-| Fixture | Maximum absolute channel error | Assertion bound |
-| --- | ---: | ---: |
-| Ordinary/lossless, across both working gamuts | 0.000055669 | 0.0001 |
-| Unequal whites plus OpcodeList2 | 0.000026922 | 0.0001 |
-| Saturated lossy linear Rec.2100, output Rec.2020 | 0.000345440 | 0.0005 |
-| Same lossy fixture, output Rec.709 | 0.000572794 | 0.0008 |
-
-Upstream libjxl remains in use; no Adobe-specific skcms changes are imported.
-This linear Rec.2100/XYB test does not establish behaviour for every PureRAW ICC
-profile or JPEG XL colour encoding.
-
-These bounds concern this authored distance-.01 fixture, not arbitrary lossy
-photographs. The modest allowance covers quantization, published matrix rounding
-and compiler/SIMD variation. White reference pixels stay inside ActiveArea to
-avoid triggering LibRaw's existing automatic maximum adjustment in the oracle.
-
-A temporary copy of the production loader with the original
-`DNG_STAGE23_IFPRESENT_JPGJXL` policy restored fails the unequal-white OpcodeList2
-oracle with maximum error **0.499998**, versus the 0.0001 bound. The working source
-is not mutated. The corrected source passes. This reproduces the genuine WB
-error rather than merely asserting two paths through the same SDK agree.
-
-The available NEF decodes to 4284x2844 with RGB range approximately
-[-0.390947, 1.21029]; the ordinary Adobe DNG to 1000x1000. Loading and thumbnails
-succeed. Serial and OpenMP LibRaw 0.22.3 builds, verified against identical source
-bytes, give identical entire-float-RGBA FNV64 fingerprints: NEF
-`4b8ccd2b9513ddae`, ordinary DNG `cb1b7a418cf015a5`. The comparison reuses the same
-production-loader objects; it creates no alternate production build path or
-historical pixel baseline. Private-fixture timing also includes pixel validation,
-fingerprinting and thumbnails; concurrent-build timings are not benchmark results.
-
-GCC Release OFF and ON full builds and `--selftest` pass with the final bounds.
-ON additionally decodes Adobe's real integer JPEG XL DNG to **9504x6336**, with
-finite RGB values (approximately [0.003127, 0.485421]), working RGBA fingerprint
-`21e9744e679140ab` and a successful thumbnail. Adobe's real float JPEG XL DNG is
-explicitly rejected, as is the integer sample in an OFF build. These sample
-files remain outside Git and are not PureRAW fixtures.
-
-At reviewed head `27e482a`, GCC Release executables including the repository's self-tests
-are 9,666,144 bytes OFF and 17,104,048 bytes ON. The complete ON suite including
-the 60-megapixel Adobe sample peaks at 2,171,328 KiB RSS. This measures the whole
-process/suite, not decoder-only allocation or a controlled performance benchmark.
-Link-command and dynamic-library audits find exactly one static `RawNodeRaw`
-implementation and no dynamic/system LibRaw in either executable.
+### Sanitizer checks
 
 Clang 19.1.7 **ASan/UBSan + leak detection** (Debug, JPEG XL ON, OpenMP ON)
-passes the complete self-test suite, the available NEF/ordinary DNG and all new
+passes the complete self-test suite, the available NEF/ordinary DNG and the synthetic
 JPEG XL fixtures. The existing narrowly scoped `stbiw__jpg_writeBits` shift-base
 suppression is unchanged; no suppression is added for LibRaw, SDK or libjxl.
 Instrumentation of both the host and OFX module was checked, and all four
 independent deliberate-failure probes (use-after-free, signed overflow, negative
 shift and leak) produced the expected symbolized diagnostics.
 
-The targeted review correction re-ran Linux Release OFF/ON and Clang
-ASan/UBSan with leak detection after adding the Stage 2 TrimBounds case; all
-19 synthetic cases and the complete suites pass. Removing only the production
-Stage 2 geometry rejection in a temporary source copy makes that new test fail
-because the unsupported trimmed image loads. Stage 1 rejection and the existing
-pixel/colour expectations remain intact. The unused `LIBRAW_DNGSDK_CONFLICT`
-defines were removed after both translation units produced byte-identical
-preprocessed output with and without the define against the pinned headers.
-
-At reviewed head `27e482a`, Clang 19.1.7 **TSan** (RelWithDebInfo, `-O1 -gline-tables-only`, JPEG XL ON,
-`-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE`) passed its complete suite,
-NEF/ordinary DNG and JPEG XL cases, with no suppressions. This checks the serial
-LibRaw configuration and host concurrency; it does not claim TSan validation of
-OpenMP. No new sanitizer findings were observed. Sanitizer executables were run
-with process-inspection access required by their runtimes, without disabling
-leak detection.
+Clang 19.1.7 TSan checked serial LibRaw and host concurrency without suppressions.
+This is not OpenMP TSan coverage. Sanitizer executables had the process-inspection
+access required by their runtimes; leak detection was not disabled.
 
 Reproduce ASan/UBSan by configuring a fresh Clang build with
 `-DCMAKE_BUILD_TYPE=Debug -DRAWNODE_ENABLE_JXL_DNG=ON` and setting both
@@ -207,70 +222,45 @@ Reproduce ASan/UBSan by configuring a fresh Clang build with
 `-fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls`.
 Run `--selftest` with `ASAN_OPTIONS=detect_leaks=1:halt_on_error=1` and
 `UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1:suppressions=$PWD/.github/sanitizers/ubsan.supp`.
-Use the corresponding `-fsanitize=thread` flags in a separate build for TSan;
-never combine the ASan and TSan runtimes. The normal Linux CI records the complete
-ASan command, instrumentation checks and independent failure probes.
+Use `-fsanitize=thread` in a separate build with
+`-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE` for serial TSan; never combine ASan and
+TSan runtimes. Linux CI records the complete ASan command, instrumentation checks
+and independent failure probes.
 
-## Platform and release gates
+## Release configuration and remaining validation
 
-Linux is the available development platform. macOS Apple Silicon and Windows
-must be built and executed independently; source configuration is not proof of
-platform support. Linux CI covers OFF/ON Release and Clang ASan/UBSan with JPEG XL
-ON. The existing narrow stb JPEG UBSan suppression is unchanged; none is added
-for RAW, SDK or JPEG XL.
+Normal release builds explicitly keep JPEG XL **OFF**. The workflow tests arm64
+on `macos-15` and Intel on `macos-15-intel`; branch dispatches use app version
+0.0.0 and tag builds retain their tagged version. It bundles libomp and its
+licence, rewrites the executable load command to
+`@executable_path/../Frameworks/libomp.dylib`, signs nested code before the parent
+and verifies signatures before packaging and inside each mounted DMG. Both
+architectures have completed these checks and packaged self-tests successfully;
+no public release is needed for this branch validation.
 
-The macOS CI matrix explicitly configures OFF and ON in separate clean
-`build-jxl-OFF` / `build-jxl-ON` directories, builds with two parallel jobs, verifies
-arm64 host/archive architecture and runs full self-tests for both. It installs
-Homebrew libomp and passes AppleClang's compile flags, include directory and
-runtime library through FindOpenMP. When OpenMP is found on Apple platforms,
-`LIBRAW_FORCE_OPENMP` keeps LibRaw's `_REENTRANT` guard from silently disabling it;
-the definition propagates to users of LibRaw's public inline allocator as well.
-Serial fallback on platforms without OpenMP is unchanged. CI checks the actual
-LibRaw flags, undefined OpenMP runtime symbols in its compiled archive, the host
-link command and `otool -L`, rather than inferring OpenMP use from installation.
+This validates the packages on runners with Homebrew dependencies available.
+Other existing Homebrew runtime libraries are not newly bundled. Dependency-free
+DMG distribution, relocation to a Mac without Homebrew, Developer ID/notarization
+and minimum-OS compatibility (including Homebrew libomp's deployment target)
+remain unverified. Current signatures are ad-hoc.
 
-The previous macOS job on `27e482a` was cancelled before runner assignment
-(empty runner name, no executed steps). Its workflow-level failure does not
-establish a compilation failure. New workflow outcomes must likewise distinguish
-runner scheduling from executed build/test failures; configuration alone is not
-a successful macOS validation.
+Before default enablement or distributing JPEG XL-enabled binaries, retain these
+separate validation requirements:
 
-Release remains JPEG XL **OFF**. Apple Silicon now uses `macos-15`; Intel keeps
-`macos-15-intel`. Release preconfigures the CMake cache explicitly before calling
-`build.sh`, which does not forward arbitrary options. It copies `libomp.dylib`
-and its installed licence into the app, changes the executable's load command to
-`@executable_path/../Frameworks/libomp.dylib`, repairs ad-hoc signatures, checks
-runtime architecture/linkage and runs self-tests before creating the DMG.
-This packaging change still needs an executed macOS release build. It addresses
-libomp only: other existing Homebrew runtime dependencies are not newly bundled,
-and relocation to a Mac without Homebrew, signing/notarization and minimum-OS
-compatibility (including the Homebrew libomp deployment target) remain release
-validation requirements. It is not a claim that the existing app bundle is
-fully portable.
+- Compare paired PureRAW High-Fidelity JPEG XL and ordinary DNGs from the same RAW
+  with a trusted external render. Verify WB/as-shot metadata, matrices/profiles,
+  black/white/exposure, highlight/shadow retention, dimensions/orientation and
+  OpcodeList1/2/3 behaviour. Separate compression loss from decoding error.
+  Synthetic/Adobe tests do not establish this photographic reference comparison.
+- Execute Windows builds/runtime/packaging and macOS sanitizer checks. Windows
+  currently has only configuration support: C++17, CMake/Git/Python, normal
+  JPEG/zlib/TIFF/lcms2/OpenEXR/Imath/OpenGL dependencies, SDK `qWinOS=1`,
+  `LIBRAW_NODLL` and User32 linkage. Intel JPEG XL ON is also not covered by the
+  release checks, which use OFF.
+- Complete portable packaging and the binary licensing/redistribution review
+  below. Passing hosted-runner DMG tests does not complete these requirements.
 
-For macOS Apple Silicon manual checks:
-
-1. Install Xcode command-line tools and `brew install cmake pkg-config jpeg-turbo libtiff little-cms2 openexr python libomp`.
-2. Configure fresh OFF and ON Release directories with `-DCMAKE_OSX_ARCHITECTURES=arm64`.
-   If necessary pass Homebrew's `jpeg-turbo` prefix in `CMAKE_PREFIX_PATH`.
-   For Apple Clang OpenMP, use `-DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp"`,
-   `-DOpenMP_CXX_INCLUDE_DIR="$(brew --prefix libomp)/include"`,
-   `-DOpenMP_CXX_LIB_NAMES=omp` and `-DOpenMP_omp_LIBRARY="$(brew --prefix libomp)/lib/libomp.dylib"`.
-   Confirm the resulting compile/link flags actually enable OpenMP; otherwise
-   report the serial build, rather than claiming OpenMP is enabled.
-3. Build and run full self-tests, then actual NEF/ordinary DNG/JPEG XL samples.
-   Check rotated dimensions, previews, thumbnails, selected working space/transfer
-   and export against trusted references. Run Clang ASan/UBSan with leak detection.
-4. Check `file`, `lipo -archs`, `nm -u` and `otool -L`; confirm arm64, exactly one static
-   LibRaw implementation and all external runtime libraries packaged/resolvable.
-   Repeat serial/OpenMP numerical and timing checks on the same 0.22.3 sources.
-
-Windows requires a C++17 toolchain, CMake/Git/Python and the normal JPEG, zlib,
-TIFF, lcms2, OpenEXR/Imath/OpenGL dependencies. SDK `qWinOS=1`, `LIBRAW_NODLL` and
-User32 linkage are configured, but MSVC/Clang-cl, OpenMP and packaging are untested.
-No new dependency manager is imposed. Check generated patches with LF checkout
-and verify Release, float/geometry failure diagnostics and sanitizers where supported.
+## Licensing and security
 
 Adobe software source redistribution is permitted by the actual SDK agreement,
 with notices preserved; separately licensed Apache/RSA/IJG-derived files are
@@ -285,11 +275,3 @@ reproducible source availability. Never ship an optional SDK binary without that
 review and the required acknowledgements. No externally fetched parser is a
 security guarantee; retain malformed-input/memory-safety validation and monitor
 upstream security fixes when updating these exact pins.
-
-**Before merging or enabling JPEG XL by default:** validate real DxO PureRAW
-High-Fidelity JPEG XL DNGs against ordinary PureRAW DNGs from the same RAW plus a
-trusted external render. Check WB/as-shot metadata, camera matrices/profiles,
-black/white/exposure, highlight/shadow retention, lossy error versus decoder error,
-float rejection, dimensions/orientation and any OpcodeList1/2/3. Neither Adobe's
-sample DNGs nor these synthetic colour tests establish PureRAW photographic
-colour correctness. PureRAW samples are currently unavailable.

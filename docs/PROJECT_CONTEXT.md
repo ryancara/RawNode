@@ -194,6 +194,23 @@ These fixes are the safe baseline for the architecture audit. A refactor may
 replace their implementation, but it must preserve their behavioural and
 lifetime guarantees.
 
+### RAW loading and JPEG XL DNG
+
+Every build uses one pinned LibRaw 0.22.3, with no system or second LibRaw path.
+`RAWNODE_ENABLE_JXL_DNG` defaults **OFF**; ON adds the vendored Adobe DNG SDK
+subset and pinned libjxl for native integer JPEG XL DNG decoding. LibRaw still
+owns RAW development, followed by RawNode's existing working-colour conversion
+and float RGBA image path. Floating-point JPEG XL development and unsupported
+TrimBounds geometry are explicitly rejected; DefaultCrop is not applied.
+
+Linux and Apple Silicon Release OFF/ON builds and full self-tests are validated,
+including JPEG XL numerical checks and actual LibRaw OpenMP linkage. macOS arm64
+and Intel release DMGs pass signature, architecture, libomp/load-path and packaged
+self-test checks with JPEG XL **OFF**. Enabling JPEG XL by default or in distributed
+releases remains deferred. PureRAW photographic reference comparisons, Windows,
+macOS sanitizers, portable dependency packaging and redistribution review remain
+open; see [JPEG_XL_DNG.md](JPEG_XL_DNG.md) for the supported limits and evidence.
+
 ## Current renderer shape
 
 Step 4, renderer ownership encapsulation, is complete. PR #45 was independently
@@ -584,7 +601,8 @@ suppressions. The normal application shutdown still needs a focused correction.
 These are known but are not reasons to expand unrelated focused PRs:
 
 - the production OpenFX plugin descriptor shutdown leak described above;
-- JPEG XL DNG decoding is not yet supported in the current image-loading path;
+- JPEG XL default enablement and portable binary distribution remain deferred;
+  see [JPEG_XL_DNG.md](JPEG_XL_DNG.md);
 - TIFF SubIFD handling is incomplete for some RAW-like TIFF structures;
 - some default bundled Crops produce a black boundary row from floating-point
   sampling at the Source edge, also on merged main. A pixel-rendering correction
@@ -1065,12 +1083,3 @@ contains implementation details.
 If this document conflicts with newer architecture/decision documentation, use
 the newer explicit decision and update this file so the conflict does not
 persist.
-
-## Draft JPEG XL DNG integration
-
-The integration branch pins one LibRaw 0.22.3 for all RAW loading.
-`RAWNODE_ENABLE_JXL_DNG` defaults OFF and adds only Adobe SDK/JPEG XL support;
-there is no older/system-LibRaw compatibility path. Integer JPEG XL support is
-limited to the reviewed stage/geometry policy; float development is rejected.
-See [JPEG_XL_DNG.md](JPEG_XL_DNG.md) for dependency provenance, validation and the
-macOS/Windows/PureRAW gates still required before merge or default enablement.
