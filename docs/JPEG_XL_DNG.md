@@ -185,7 +185,7 @@ two paths through the same SDK.
 
 ### Real-file checks
 
-The available local NEF decodes to 4284x2844 with RGB range approximately
+In the local Linux checks, the NEF decodes to 4284x2844 with RGB range approximately
 [-0.390947, 1.21029]; the ordinary Adobe DNG to 1000x1000. Loading and thumbnails
 succeed. Serial and OpenMP LibRaw 0.22.3 builds from identical sources give matching
 full-buffer fingerprints for these NEF/DNG samples; no historical LibRaw pixel
@@ -196,11 +196,29 @@ finite RGB values and a successful thumbnail. Adobe's real float JPEG XL DNG is
 explicitly rejected, as is the integer sample in an OFF build. These sample
 files remain outside Git and are not PureRAW fixtures.
 
+**Owner-reported macOS PureRAW photographic validation:** an actual DxO PureRAW
+integer JPEG XL DNG decoded successfully at full resolution (**8256 × 5504**),
+with successful thumbnail decoding and a passing numerical-sanity self-test.
+The owner reported a visual match against a conventional PureRAW DNG and
+correct-looking full-resolution exports from both versions. This is photographic
+validation reported by the owner, not an independently reproduced numerical or
+trusted-reference comparison. Independent reference-colour validation remains open.
+
 Private optional fixture paths can be supplied as `RAWNODE_TEST_NEF`,
 `RAWNODE_TEST_DNG` and `RAWNODE_TEST_JXL`. These run the same public loader and
 thumbnail path, checking dimensions, finite pixels and numerical sanity. Do not
 check photographs into the repository. Full self-tests also exercise the existing
 raster loading, colour transforms, preview/export, graph and persistence paths.
+
+For manual macOS NEF validation, compare separate clean serial and OpenMP builds
+from the same LibRaw 0.22.3 sources, keeping other settings identical. Use
+`-DCMAKE_DISABLE_FIND_PACKAGE_OpenMP=TRUE` for serial and the Apple OpenMP flags
+above for OpenMP. Run full self-tests and load the same real NEF in both builds;
+compare numerical values and decoding time. Check dimensions/orientation, selected
+working gamut/transfer, previews, thumbnails and full-resolution exports against
+references. These are manual validation steps, not newly reported results.
+Current macOS CI verifies OpenMP compilation/linkage and runs synthetic linear-DNG
+tests, but does not exercise real multithreaded mosaic demosaicing.
 
 ### Sanitizer checks
 
@@ -251,7 +269,8 @@ separate validation requirements:
   with a trusted external render. Verify WB/as-shot metadata, matrices/profiles,
   black/white/exposure, highlight/shadow retention, dimensions/orientation and
   OpcodeList1/2/3 behaviour. Separate compression loss from decoding error.
-  Synthetic/Adobe tests do not establish this photographic reference comparison.
+  Synthetic/Adobe tests and the owner-reported photographic checks above do not
+  establish this independent reference-colour comparison.
 - Execute Windows builds/runtime/packaging and macOS sanitizer checks. Windows
   currently has only configuration support: C++17, CMake/Git/Python, normal
   JPEG/zlib/TIFF/lcms2/OpenEXR/Imath/OpenGL dependencies, SDK `qWinOS=1`,

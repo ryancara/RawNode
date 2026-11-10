@@ -30,15 +30,14 @@ The current codebase is a clean base for feature development. New work should re
 
 These priorities sequence focused work without reopening completed architecture milestones:
 
-1. **Investigate JPEG XL-compressed DNG support immediately.** DxO PureRAW
-   high-fidelity DNG is a primary photo input format and is not currently
-   supported by RawNode's image-loading path. First validate real PureRAW
-   samples and compare the smallest viable decode options, especially LibRaw
-   built with Adobe DNG SDK 1.7.x, before approving implementation. Check
-   licensing/distribution, macOS and Windows builds, decoding, linear-DNG
-   colour/metadata interpretation, previews and export against references.
-   This is a focused compatibility investigation, **not** approval to
-   replace LibRaw or rewrite RAW development.
+1. **JPEG XL DNG decoder implemented, validated and ready to merge.** PR #111
+   adds optional integer JPEG XL DNG decoding through the existing LibRaw
+   path, with independent review, numerical regressions, Linux/Apple Silicon
+   validation and owner-reported PureRAW photographic checks. Remaining work
+   is independent PureRAW reference-colour validation, default enablement,
+   Windows and Intel JPEG XL ON validation, self-contained packaging and
+   binary redistribution/licensing review. JPEG XL remains OFF by default
+   and in release builds; see [the support and validation record](docs/JPEG_XL_DNG.md).
 2. **Enable/bypass directly in Graph View.** Reuse the existing node
    enabled state, edit/history command and protections already exposed in
    List View; avoid a second bypass mechanism.
@@ -357,8 +356,8 @@ Evaluate LibRaw, Rawler, and RawSpeed using real criteria:
 - cross-platform build complexity;
 - compressed DNG / JPEG XL support where relevant.
 
-Do not replace LibRaw without a measured benefit. The near-term JPEG XL DNG
-compatibility investigation above is distinct from this later broad RAW
+Do not replace LibRaw without a measured benefit. The completed integer JPEG XL
+DNG implementation above is distinct from this later broad RAW
 architecture evaluation.
 
 ## Masks and local adjustments
