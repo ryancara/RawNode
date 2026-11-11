@@ -1,0 +1,5 @@
+--- a/lib/jxl/enc_ans.h
++++ b/lib/jxl/enc_ans.h
+@@ -83 +83 @@
+-  bool use_prefix_code;
++  bool use_prefix_code = false;

@@ -1,0 +1,12 @@
+--- dng_sdk/source/dng_jxl.cpp
++++ dng_sdk/source/dng_jxl.cpp
+@@ -1539,0 +1540 @@
++		#if qDNGUseXMP
+@@ -1576,0 +1578 @@
++		#endif // qDNGUseXMP
+@@ -3841,0 +3844,2 @@
++	#if qDNGUseXMP
++
+@@ -3907,0 +3912,2 @@
++	#endif // qDNGUseXMP
++

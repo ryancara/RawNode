@@ -1,0 +1,4 @@
+# Preserve the official archive bytes and UPSTREAM.json hashes on every host.
+source/* -text
+LICENSE.txt -text
+licenses/* -text

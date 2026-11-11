@@ -12,6 +12,10 @@ jobs:
   gcc-build-selftest:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        jxl: ["OFF", "ON"]
 
     steps:
       - name: Check out repository
@@ -26,7 +30,8 @@ jobs:
             cmake \
             g++ \
             pkg-config \
-            libraw-dev \
+            python3 \
+            libjpeg-dev \
             libtiff-dev \
             liblcms2-dev \
             libopenexr-dev \
@@ -38,7 +43,7 @@ jobs:
             extra-cmake-modules
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DRAWNODE_ENABLE_JXL_DNG=${{ matrix.jxl }}
 
       - name: Build
         run: cmake --build build --parallel 2
@@ -76,7 +81,8 @@ jobs:
             llvm \
             libomp-dev \
             pkg-config \
-            libraw-dev \
+            python3 \
+            libjpeg-dev \
             libtiff-dev \
             liblcms2-dev \
             libopenexr-dev \
@@ -89,7 +95,7 @@ jobs:
 
       - name: Configure sanitizers
         run: |
-          cmake -S . -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug \
+          cmake -S . -B build-sanitizers -DCMAKE_BUILD_TYPE=Debug -DRAWNODE_ENABLE_JXL_DNG=ON \
             -DCMAKE_C_FLAGS="$SANITIZER_FLAGS" \
             -DCMAKE_CXX_FLAGS="$SANITIZER_FLAGS"
 

@@ -15,7 +15,13 @@ jobs:
   arm64-build-selftest:
     # Standard GitHub-hosted Apple Silicon runner; no Intel/Rosetta build.
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        jxl: ["OFF", "ON"]
+    env:
+      BUILD_DIR: build-jxl-${{ matrix.jxl }}
 
     steps:
       - name: Check out repository
@@ -23,19 +29,43 @@ jobs:
         with:
           submodules: recursive
 
-      # Keep dependencies and build invocation aligned with release.yml.
       - name: Install build dependencies
-        run: brew install cmake libraw libtiff little-cms2 openexr
+        run: brew install cmake pkg-config jpeg-turbo libtiff little-cms2 openexr python libomp
+
+      - name: Configure clean Release build
+        run: |
+          rm -rf "$BUILD_DIR"
+          cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix jpeg-turbo)" \
+            -DRAWNODE_ENABLE_JXL_DNG=${{ matrix.jxl }} \
+            -DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp" \
+            -DOpenMP_CXX_INCLUDE_DIR="$(brew --prefix libomp)/include" \
+            -DOpenMP_CXX_LIB_NAMES=omp \
+            -DOpenMP_omp_LIBRARY="$(brew --prefix libomp)/lib/libomp.dylib"
+          grep -x 'RAWNODE_ENABLE_JXL_DNG:BOOL=${{ matrix.jxl }}' "$BUILD_DIR/CMakeCache.txt"
 
       - name: Build
-        run: ARCHS=arm64 ./build.sh
+        run: cmake --build "$BUILD_DIR" --parallel 2
 
-      - name: Verify Apple Silicon executable
+      - name: Verify Apple Silicon and actual LibRaw OpenMP linkage
         run: |
           test "$(uname -m)" = arm64
-          binary=build/OfxRawHost.app/Contents/MacOS/OfxRawHost
+          binary="$BUILD_DIR/OfxRawHost.app/Contents/MacOS/OfxRawHost"
           file "$binary"
           test "$(lipo -archs "$binary")" = arm64
+          test "$(lipo -archs "$BUILD_DIR/libRawNodeRaw.a")" = arm64
+          cat "$BUILD_DIR/CMakeFiles/RawNodeRaw.dir/flags.make"
+          grep -F -- '-Xpreprocessor -fopenmp' "$BUILD_DIR/CMakeFiles/RawNodeRaw.dir/flags.make"
+          grep -F -- '-DLIBRAW_FORCE_OPENMP' "$BUILD_DIR/CMakeFiles/RawNodeRaw.dir/flags.make"
+          # References from compiled LibRaw objects prove its OpenMP code was enabled.
+          nm -u "$BUILD_DIR/libRawNodeRaw.a" | grep -E '___kmpc_fork_call|_omp_get_'
+          grep -F 'libomp.dylib' "$BUILD_DIR/CMakeFiles/OfxRawHost.dir/link.txt"
+          test "$(grep -o 'libRawNodeRaw.a' "$BUILD_DIR/CMakeFiles/OfxRawHost.dir/link.txt" | wc -l | tr -d ' ')" = 1
+          otool -L "$binary"
+          otool -L "$binary" | grep -F libomp.dylib
+          if otool -L "$binary" | grep -iE '/libraw[._]'; then exit 1; fi
 
       - name: Self-test
-        run: build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
+        run: |
+          "$BUILD_DIR/OfxRawHost.app/Contents/MacOS/OfxRawHost" --selftest
