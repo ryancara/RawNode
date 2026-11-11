@@ -30,33 +30,40 @@ The current codebase is a clean base for feature development. New work should re
 
 These priorities sequence focused work without reopening completed architecture milestones:
 
-1. **JPEG XL DNG decoder implemented, validated and ready to merge.** PR #111
-   adds optional integer JPEG XL DNG decoding through the existing LibRaw
-   path, with independent review, numerical regressions, Linux/Apple Silicon
-   validation and owner-reported PureRAW photographic checks. Remaining work
-   is independent PureRAW reference-colour validation, default enablement,
-   Windows and Intel JPEG XL ON validation, self-contained packaging and
-   binary redistribution/licensing review. JPEG XL remains OFF by default
-   and in release builds; see [the support and validation record](docs/JPEG_XL_DNG.md).
-2. **Enable/bypass directly in Graph View.** Reuse the existing node
-   enabled state, edit/history command and protections already exposed in
-   List View; avoid a second bypass mechanism.
-3. **Close the practical Step 8 masking core.** Agree the exit gate, then
+1. **JPEG XL DNG decoding — merged (#111).** Optional integer JPEG XL
+   decoding is integrated through the existing LibRaw path, with independent
+   review, numerical regressions, Linux/Apple Silicon validation and
+   owner-reported PureRAW photographic checks. It remains OFF by default and in
+   normal releases. Default enablement, independent PureRAW reference-colour
+   validation, Windows and Intel JPEG XL ON checks, portable packaging and
+   binary redistribution/licensing review remain separate rollout work; see
+   [the support and validation record](docs/JPEG_XL_DNG.md).
+2. **Enable/bypass directly in Graph View.** Reuse the existing node enabled
+   state, edit/history command and protections already exposed in List View;
+   avoid a second bypass mechanism.
+3. **Pick / Unmarked / Reject while editing.** Add photo-specific culling state
+   with keyboard actions, filmstrip navigation/filtering and independent
+   sidecar metadata, without a catalogue. This supports decisions made while
+   editing, not high-volume first-pass culling; do not introduce a separate
+   fast-RAW browsing or decode-skipping pipeline for it.
+4. **Multi-photo selection and batch export.** Select photos in the filmstrip
+   and export a selected or filtered set using the existing single-image
+   export path and execution ownership, initially sequentially. Multi-photo
+   grade/preset application can follow separately.
+5. **Close the practical Step 8 masking core.** Agree the exit gate, then
    deliver Mask Combine, upstream geometry/Overlay placement through Mask
    modifiers, a Linear Gradient generator and an initial Blur modifier in
    focused slices. Defer Brush, Bézier, advanced qualifiers and AI masks
-   unless the exit-gate discussion establishes a concrete necessity.
-4. **Pick / Unmarked / Reject.** Expose photo-specific culling state with
-   keyboard actions, filmstrip navigation/filtering and independent sidecar
-   metadata, without adding a catalogue.
-5. **Multi-photo selection and batch export.** Select photos in the
-   filmstrip and export a selected or filtered set using the existing
-   single-image export path and its execution ownership, initially
-   sequentially. Multi-photo grade/preset application can follow separately.
-6. **Step 9 whole-codebase audit.** Schedule the approved D055 audit after
-   the agreed Step 8 exit gate and the initial practical photo workflow
-   improvements. The formal Step 9 entry criterion remains Step 8 closure,
-   not completion of every unrelated workflow feature.
+   unless a concrete exit-gate requirement justifies them.
+6. **Performance and responsiveness checkpoint.** After the initial photo
+   workflows and Step 8 exit gate, profile real workloads on macOS and decide
+   whether JPEG XL area-task parallelism, RAW pixel conversion or interactive
+   graph processing warrants focused optimisation. The investigations below
+   are evidence, not approval to implement them.
+7. **Step 9 whole-codebase audit.** Start the approved D055 audit after the
+   agreed Step 8 exit gate and initial practical photo workflow improvements,
+   using the performance checkpoint as input. The formal Step 9 entry
+   criterion remains Step 8 closure, not completion of every unrelated feature.
 
 **Deferred:** Multiple-node selection in Graph/List View is low priority.
 It is distinct from the filmstrip multi-photo selection needed for batch
@@ -383,6 +390,49 @@ Outward feathering remains a separate product change.
 **Step 8 candidate follow-ups (not yet a mandatory checklist):** Mask Overlay, on-image geometry controls, Linear Gradient and Rectangle masks, Pen/Bézier and Brush masks, Mask Combine, Invert/Blur, and basic Image-to-Mask/qualifier tools. Reusable/grouped masks, advanced compositing and specialised tools remain separately evaluated. **Agree the exact "Step 8 exit gate"**, including required functionality and test/native-validation evidence, and record it in `docs/STEP8_MASKING_CONTRACT.md` before scheduling the bulk of remaining slices. Continue focused PRs and proportionate readability reviews in the meantime.
 
 SAM and other AI-generated masks are explicitly **not** Step 8 or Step 9 prerequisites, and no numbered step is reserved for them. Revisit only when a concrete product need justifies their complexity.
+
+## Deferred performance and responsiveness checkpoint
+
+**Timing:** After the initial in-editor culling and batch-export workflows and
+the agreed Step 8 exit gate; immediately before the Step 9 baseline. This is a
+bounded measurement and prioritisation task, **not** a promise to implement
+optimisations or a new architecture milestone. Revisit earlier only if a
+measured bottleneck materially impairs a current workflow.
+
+- **RAW load/decode:** Benchmark real macOS DxO PureRAW JPEG XL and conventional
+  NEF opening, RAW-working-encoding changes and output preparation. Separate
+  Adobe SDK unpack/Stage 2, LibRaw development and RawNode's float RGBA
+  conversion from whole-operation latency, memory and thumbnail costs.
+- **Prior JPEG XL research (November 2026):** Independent Codex and Claude
+  investigations found that advertising more SDK host threads can accelerate
+  single-codestream JPEG XL files or files with a compressed tile over 1 MiB.
+  When all compressed tiles are at most 1 MiB, the SDK instead selects a
+  per-tile path; effective parallelism requires a parallel
+  `PerformAreaTask()`, not just a thread-count override. Experimental area-task
+  implementations reduced complete loads by approximately 16–21% on a real
+  9504×6336 Adobe JPEG XL DNG in a two-core-constrained Linux VM (Codex),
+  and by 29–43% on synthetic SDK-style tiled fixtures in a four-core Linux VM
+  (Claude). Claude's prototype used `std::thread` workers; Codex reported
+  using libjxl's runner, but its adapter source was not independently inspected
+  for this roadmap entry. Neither benchmark establishes real PureRAW/macOS
+  gains. Before choosing an implementation, inspect actual PureRAW IFD tile
+  counts, compressed byte sizes and opcode lists. Existing 64×48 numerical
+  fixtures do not exercise the threaded paths. Neither prototype was merged
+  or archived in this repository; these findings are the durable research
+  record, not a substitute for new platform validation.
+- **RawNode conversion:** The existing serial camera-to-working float RGBA
+  conversion took approximately one second in those Linux investigations.
+  Row-based parallelism could benefit ordinary RAW as well as JPEG XL, but
+  no parallel conversion speedup has yet been measured.
+- **Interactive editing:** Profile actual node parameter edits, preview latency,
+  CTL/OFX/native processing and repeated graph evaluation separately from RAW
+  loading. Do not assume decoder optimisations improve slider responsiveness.
+- **Decision gate:** Prefer representative user-visible improvements and the
+  least justified complexity. Require numerical/colour equivalence, sensible
+  thread and memory behaviour, and independent concurrency review. Approve
+  only focused, separately validated PRs. Do not introduce speculative
+  schedulers, caches or broad optimisation infrastructure; any such proposal
+  needs its own evidence and explicit owner approval.
 
 ## Step 9 — Comprehensive readability, simplicity and architecture audit (planned)
 
