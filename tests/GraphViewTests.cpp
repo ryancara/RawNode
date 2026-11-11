@@ -1049,6 +1049,137 @@ ImVec2 lastPopupItem() {
       return {window->DC.CursorStartPos.x + 30, window->DC.CursorPosPrevLine.y + 6};
   return {};
 }
+ImVec2 firstPopupItem() {
+  for (const auto *window : ImGui::GetCurrentContext()->Windows)
+    if (window->Active && (window->Flags & ImGuiWindowFlags_Popup))
+      return {window->DC.CursorStartPos.x + 30, window->DC.CursorStartPos.y + 6};
+  return {};
+}
+
+bool processingMenuFrames() {
+  for (const bool mask : {false, true}) {
+    Files files; const auto path = (files.dir / "processing.png").string(); std::ofstream(path) << "synthetic";
+    document_detail::ActionTestOptions options; options.decode = syntheticPhoto;
+    App app; Ui ui; ui.captureLog = true;
+    CHECK(document_detail::openPhoto(app, path, {}, options));
+    CHECK(mask ? addNativeRadialMaskNode(app) : addNativeExposureNode(app));
+    const auto id = *app.selectedNodeId();
+    if (!mask) CHECK(setNodeParameterValue(app, id, "exposure", 1.0) && app.history.recordCompletedEdit(app));
+    app.nodesView = NodesView::Graph; ui.tick(app); ui.tick(app);
+    app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 40}, 1}; ui.tick(app);
+    const auto position = app.nodePositions.at(id.value);
+    const auto header = ui.screen(app, {position.x + 60, position.y + 16});
+    const auto enabledGraph = graphJson(app);
+    const auto historySize = app.history.size();
+    // +1 EV doubles the synthetic 0.25 Image. The 1x1 Radial samples its
+    // centre, giving coverage 1; bypass must instead have no Mask raster.
+    const auto evaluate = [&](bool enabled) {
+      for (const auto purpose : {EvaluationPurpose::Preview, EvaluationPurpose::Export}) {
+        const auto result = app.renderer.evaluateOwned({id, mask ? ports::mask : ports::image},
+            {purpose, 1, 1, 1, 1}, app.preview);
+        CHECK(result.diagnostics.empty());
+        CHECK(result.state == (mask && !enabled ? EvaluationState::Inactive : EvaluationState::Available));
+        if (mask && enabled) CHECK(std::get<MaskValue>(result.value)->px[0] == 1.0f);
+        if (!mask) CHECK(std::get<ImageValue>(result.value)->px[0] == (enabled ? 0.5f : 0.25f));
+      }
+      return true;
+    };
+    CHECK(evaluate(true));
+    rightClick(ui, app, header);
+    CHECK(ui.nodesLog.find("Disable Processing") != std::string::npos);
+    CHECK(ui.nodesLog.find("Delete Node") != std::string::npos);
+    const auto demand = app.renderer.previewDemand();
+    ui.click(app, firstPopupItem());
+    CHECK(!findNode(app, id)->enabled && app.history.size() == historySize + 1 && evaluate(false));
+    CHECK(app.renderer.previewDemand() > demand);
+    CHECK(app.history.undo(app) && findNode(app, id)->enabled && evaluate(true));
+    CHECK(app.history.redo(app) && !findNode(app, id)->enabled && evaluate(false));
+    rightClick(ui, app, header);
+    CHECK(ui.nodesLog.find("Enable Processing") != std::string::npos);
+    ui.click(app, firstPopupItem());
+    CHECK(findNode(app, id)->enabled && graphJson(app) == enabledGraph && evaluate(true));
+    // The same node is the only List processor row in either case. Click its
+    // existing eye control, then check Graph reflects the List edit and vice versa.
+    ui.click(app, ui.listButton); CHECK(app.nodesView == NodesView::List);
+    auto eye = ui.listProcessorFromEnd();
+    eye.x = ui.listRight - 3.5f * ImGui::GetFrameHeight() - 3 * ImGui::GetStyle().ItemSpacing.x;
+    ui.click(app, eye); CHECK(!findNode(app, id)->enabled && evaluate(false));
+    ui.click(app, ui.graphButton); CHECK(app.nodesView == NodesView::Graph);
+    rightClick(ui, app, header);
+    CHECK(ui.nodesLog.find("Enable Processing") != std::string::npos);
+    key(ui, app, ImGuiKey_Escape);
+    CHECK(saveCurrentInputSidecar(app));
+    CHECK(document_detail::openPhoto(app, path, {}, options)); ui.tick(app); ui.tick(app);
+    CHECK(!findNode(app, id)->enabled && evaluate(false));
+    rightClick(ui, app, ui.screen(app, {position.x + 60, position.y + 16}));
+    CHECK(ui.nodesLog.find("Enable Processing") != std::string::npos);
+    ui.click(app, firstPopupItem());
+    ui.click(app, ui.listButton);
+    CHECK(findNode(app, id)->enabled && evaluate(true));
+    CHECK(saveCurrentInputSidecar(app) && document_detail::openPhoto(app, path, {}, options));
+    CHECK(findNode(app, id)->enabled && graphJson(app) == enabledGraph);
+  }
+  return true;
+}
+
+bool processingMenuSafety() {
+  for (const bool mask : {false, true}) for (const bool enabled : {false, true}) {
+    Files files; const auto path = (files.dir / "protected-processing.png").string(); std::ofstream(path) << "synthetic";
+    document_detail::ActionTestOptions options; options.decode = syntheticPhoto;
+    App app; Ui ui;
+    CHECK(document_detail::openPhoto(app, path, {}, options));
+    CHECK(mask ? addNativeRadialMaskNode(app) : addNativeExposureNode(app));
+    const auto id = *app.selectedNodeId(); setNodeEnabled(app, id, enabled);
+    app.nodesView = NodesView::Graph; ui.tick(app); ui.tick(app);
+    app.graphCanvas.framePending = false; app.graphCanvas.view = {{20, 40}, 1}; ui.tick(app);
+    const auto position = app.nodePositions.at(id.value);
+    const auto header = ui.screen(app, {position.x + 60, position.y + 16});
+    const auto size = app.history.size(), cursor = app.history.cursor(), memory = app.history.bytes();
+    const auto topology = graphJson(app);
+    const auto unchanged = [&] {
+      CHECK(findNode(app, id)->enabled == enabled && graphJson(app) == topology);
+      CHECK(app.history.size() == size && app.history.cursor() == cursor && app.history.bytes() == memory);
+      CHECK(!app.history.hasUnrecordedEdit());
+      return true;
+    };
+    // No-op and rejected API calls preserve history, as do opening/dismissing
+    // the menu and right-clicks owned by Source, Output or ports.
+    setNodeEnabled(app, id, enabled); setNodeEnabled(app, app.primarySource, false);
+    setNodeEnabled(app, NodeId{"absent"}, false);
+    rightClick(ui, app, header); key(ui, app, ImGuiKey_Escape);
+    const auto source = app.nodePositions.at(app.primarySource.value);
+    const auto output = ui::layoutGraph(graph(app), app.nodePositions).output;
+    for (const auto point : {PersistPosition{source.x + 60, source.y + 16},
+                            PersistPosition{output.x + 60, output.y + 16},
+                            PersistPosition{position.x + ui::graphNodeWidth, position.y + 44}}) {
+      rightClick(ui, app, ui.screen(app, point));
+      CHECK(ui.context->OpenPopupStack.Size == 0);
+    }
+    CHECK(unchanged());
+    const auto blockedAttempt = [&] {
+      CHECK(!app.renderer.canEditParameters());
+      CHECK(ui.context->OpenPopupStack.Size == 0);
+      const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+      rightClick(ui, app, header); CHECK(firstPopupItem().x > 0);
+      ui.click(app, firstPopupItem());
+      CHECK(ui.context->OpenPopupStack.Size == 1); // Disabled items cannot activate or dismiss the menu.
+      CHECK(unchanged());
+      const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+      CHECK(after.epoch == before.epoch && after.mutationDepth == before.mutationDepth);
+      CHECK(after.previewPending == before.previewPending && after.displayPending == before.displayPending);
+      ui.click(app, {ui.canvasOrigin.x + ui.canvasSize.x - 10, ui.canvasOrigin.y + ui.canvasSize.y - 10});
+      CHECK(ui.context->OpenPopupStack.Size == 0);
+      return true;
+    };
+    app.sidecarWriteBlockedPath = app.path;
+    CHECK(blockedAttempt());
+    app.sidecarWriteBlockedPath.clear();
+    {
+      auto owner = app.renderer.acquireExport(); CHECK(owner && blockedAttempt());
+    }
+  }
+  return true;
+}
 
 bool overlappingPortFrames() {
   Ui ui; App app; app.path = "overlapping-ports"; app.nodesView = NodesView::Graph;
@@ -1736,6 +1867,8 @@ bool failedMetadataSurvivesReturnToStart() {
 
 bool testGraphView() {
   for (const auto &test : {
+       std::make_pair("Image/Mask processing menus, List parity, history and grade restoration", processingMenuFrames),
+       std::make_pair("processing menu protection/export gates, endpoint/port exclusion and no-op history", processingMenuSafety),
        std::make_pair("Preview toolbar fits narrow panels and both controls remain usable without changing zoom/pan", narrowPreviewToolbar),
        std::make_pair("return-to-start drag retains unrelated failed Output metadata", failedMetadataSurvivesReturnToStart),
        std::make_pair("grouped position-only history, return/no-op, interruptions and pending parameters", groupedPositionHistory),
