@@ -34,9 +34,9 @@ These priorities sequence focused work without reopening completed architecture 
    decoding is integrated through the existing LibRaw path, with independent
    review, numerical regressions, Linux/Apple Silicon validation and
    owner-reported PureRAW photographic checks. It remains OFF by default and in
-   normal releases. Independent PureRAW reference-colour validation, Windows
-   and Intel JPEG XL ON checks, portable packaging and binary redistribution/
-   licensing review remain separate rollout work; see
+   normal releases. Default enablement, independent PureRAW reference-colour
+   validation, Windows and Intel JPEG XL ON checks, portable packaging and
+   binary redistribution/licensing review remain separate rollout work; see
    [the support and validation record](docs/JPEG_XL_DNG.md).
 2. **Enable/bypass directly in Graph View.** Reuse the existing node enabled
    state, edit/history command and protections already exposed in List View;
@@ -404,14 +404,22 @@ measured bottleneck materially impairs a current workflow.
   Adobe SDK unpack/Stage 2, LibRaw development and RawNode's float RGBA
   conversion from whole-operation latency, memory and thumbnail costs.
 - **Prior JPEG XL research (November 2026):** Independent Codex and Claude
-  investigations found that increasing only the Adobe SDK host's thread-count
-  report provides little benefit for small tiled DNGs. A parallel
-  `PerformAreaTask()` adapter using libjxl's existing runner improved full loads
-  by approximately 16–21% on a real 9504×6336 Adobe JPEG XL DNG in a
-  two-core-constrained Linux VM (Codex), and by 29–43% on synthetic
-  SDK-style tiled fixtures in a four-core Linux VM (Claude). Neither establishes
-  gains for real PureRAW images on macOS. These prototypes were experimental,
-  not merged; recover the investigation reports/source before restarting work.
+  investigations found that advertising more SDK host threads can accelerate
+  single-codestream JPEG XL files or files with a compressed tile over 1 MiB.
+  When all compressed tiles are at most 1 MiB, the SDK instead selects a
+  per-tile path; effective parallelism requires a parallel
+  `PerformAreaTask()`, not just a thread-count override. Experimental area-task
+  implementations reduced complete loads by approximately 16–21% on a real
+  9504×6336 Adobe JPEG XL DNG in a two-core-constrained Linux VM (Codex),
+  and by 29–43% on synthetic SDK-style tiled fixtures in a four-core Linux VM
+  (Claude). Claude's prototype used `std::thread` workers; Codex reported
+  using libjxl's runner, but its adapter source was not independently inspected
+  for this roadmap entry. Neither benchmark establishes real PureRAW/macOS
+  gains. Before choosing an implementation, inspect actual PureRAW IFD tile
+  counts, compressed byte sizes and opcode lists. Existing 64×48 numerical
+  fixtures do not exercise the threaded paths. Neither prototype was merged
+  or archived in this repository; these findings are the durable research
+  record, not a substitute for new platform validation.
 - **RawNode conversion:** The existing serial camera-to-working float RGBA
   conversion took approximately one second in those Linux investigations.
   Row-based parallelism could benefit ordinary RAW as well as JPEG XL, but
@@ -422,8 +430,9 @@ measured bottleneck materially impairs a current workflow.
 - **Decision gate:** Prefer representative user-visible improvements and the
   least justified complexity. Require numerical/colour equivalence, sensible
   thread and memory behaviour, and independent concurrency review. Approve
-  only focused, separately validated PRs; leave speculative schedulers, caches
-  and substantial refactors for an evidence-based Step 9 decision.
+  only focused, separately validated PRs. Do not introduce speculative
+  schedulers, caches or broad optimisation infrastructure; any such proposal
+  needs its own evidence and explicit owner approval.
 
 ## Step 9 — Comprehensive readability, simplicity and architecture audit (planned)
 
