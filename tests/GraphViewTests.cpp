@@ -1090,34 +1090,34 @@ bool processingMenuFrames() {
     CHECK(ui.nodesLog.find("Delete Node") != std::string::npos);
     const auto demand = app.renderer.previewDemand();
     ui.click(app, firstPopupItem());
-    CHECK(!findNode(app, id)->enabled && app.history.size() == historySize + 1 && evaluate(false));
+    CHECK(findNode(app, id) && !findNode(app, id)->enabled && app.history.size() == historySize + 1 && evaluate(false));
     CHECK(app.renderer.previewDemand() > demand);
-    CHECK(app.history.undo(app) && findNode(app, id)->enabled && evaluate(true));
-    CHECK(app.history.redo(app) && !findNode(app, id)->enabled && evaluate(false));
+    CHECK(app.history.undo(app) && findNode(app, id) && findNode(app, id)->enabled && evaluate(true));
+    CHECK(app.history.redo(app) && findNode(app, id) && !findNode(app, id)->enabled && evaluate(false));
     rightClick(ui, app, header);
     CHECK(ui.nodesLog.find("Enable Processing") != std::string::npos);
     ui.click(app, firstPopupItem());
-    CHECK(findNode(app, id)->enabled && graphJson(app) == enabledGraph && evaluate(true));
+    CHECK(findNode(app, id) && findNode(app, id)->enabled && graphJson(app) == enabledGraph && evaluate(true));
     // The same node is the only List processor row in either case. Click its
     // existing eye control, then check Graph reflects the List edit and vice versa.
     ui.click(app, ui.listButton); CHECK(app.nodesView == NodesView::List);
     auto eye = ui.listProcessorFromEnd();
     eye.x = ui.listRight - 3.5f * ImGui::GetFrameHeight() - 3 * ImGui::GetStyle().ItemSpacing.x;
-    ui.click(app, eye); CHECK(!findNode(app, id)->enabled && evaluate(false));
+    ui.click(app, eye); CHECK(findNode(app, id) && !findNode(app, id)->enabled && evaluate(false));
     ui.click(app, ui.graphButton); CHECK(app.nodesView == NodesView::Graph);
     rightClick(ui, app, header);
     CHECK(ui.nodesLog.find("Enable Processing") != std::string::npos);
     key(ui, app, ImGuiKey_Escape);
     CHECK(saveCurrentInputSidecar(app));
     CHECK(document_detail::openPhoto(app, path, {}, options)); ui.tick(app); ui.tick(app);
-    CHECK(!findNode(app, id)->enabled && evaluate(false));
+    CHECK(findNode(app, id) && !findNode(app, id)->enabled && evaluate(false));
     rightClick(ui, app, ui.screen(app, {position.x + 60, position.y + 16}));
     CHECK(ui.nodesLog.find("Enable Processing") != std::string::npos);
     ui.click(app, firstPopupItem());
     ui.click(app, ui.listButton);
-    CHECK(findNode(app, id)->enabled && evaluate(true));
+    CHECK(findNode(app, id) && findNode(app, id)->enabled && evaluate(true));
     CHECK(saveCurrentInputSidecar(app) && document_detail::openPhoto(app, path, {}, options));
-    CHECK(findNode(app, id)->enabled && graphJson(app) == enabledGraph);
+    CHECK(findNode(app, id) && findNode(app, id)->enabled && graphJson(app) == enabledGraph);
   }
   return true;
 }
@@ -1137,7 +1137,7 @@ bool processingMenuSafety() {
     const auto size = app.history.size(), cursor = app.history.cursor(), memory = app.history.bytes();
     const auto topology = graphJson(app);
     const auto unchanged = [&] {
-      CHECK(findNode(app, id)->enabled == enabled && graphJson(app) == topology);
+      CHECK(findNode(app, id) && findNode(app, id)->enabled == enabled && graphJson(app) == topology);
       CHECK(app.history.size() == size && app.history.cursor() == cursor && app.history.bytes() == memory);
       CHECK(!app.history.hasUnrecordedEdit());
       return true;
@@ -1146,11 +1146,16 @@ bool processingMenuSafety() {
     // the menu and right-clicks owned by Source, Output or ports.
     setNodeEnabled(app, id, enabled); setNodeEnabled(app, app.primarySource, false);
     setNodeEnabled(app, NodeId{"absent"}, false);
-    rightClick(ui, app, header); key(ui, app, ImGuiKey_Escape);
+    rightClick(ui, app, header);
+    CHECK(ui.context->OpenPopupStack.Size == 1);
+    ui.click(app, {ui.canvasOrigin.x + ui.canvasSize.x - 10, ui.canvasOrigin.y + ui.canvasSize.y - 10});
+    CHECK(ui.context->OpenPopupStack.Size == 0);
     const auto source = app.nodePositions.at(app.primarySource.value);
     const auto output = ui::layoutGraph(graph(app), app.nodePositions).output;
-    for (const auto point : {PersistPosition{source.x + 60, source.y + 16},
-                            PersistPosition{output.x + 60, output.y + 16},
+    rightClick(ui, app, ui.screen(app, {source.x + 60, source.y + 16}));
+    CHECK(app.selectedNodeId() == app.primarySource);
+    CHECK(ui.context->OpenPopupStack.Size == 0);
+    for (const auto point : {PersistPosition{output.x + 60, output.y + 16},
                             PersistPosition{position.x + ui::graphNodeWidth, position.y + 44}}) {
       rightClick(ui, app, ui.screen(app, point));
       CHECK(ui.context->OpenPopupStack.Size == 0);
