@@ -195,6 +195,8 @@ bool photoMarkActions() {
 
 bool photoMarkFailures() {
   Files files;
+  // Folder opening canonicalizes aliases such as macOS /var -> /private/var.
+  files.dir = fs::canonical(files.dir);
   const auto a = photo(files, "a.png"), b = photo(files, "b.png");
   App app; CHECK(openFolder(app, files.dir.string()));
   CHECK(assignPhotoMark(app, a, PhotoMark::Pick));
@@ -251,6 +253,7 @@ bool photoMarkFailures() {
 
 bool photoMarkFiltersAndRefresh() {
   Files files;
+  files.dir = fs::canonical(files.dir);
   const auto a = photo(files, "a.png"), b = photo(files, "b.png");
   const auto raw = files.path("c.NEF"); write(raw, "RAW discovery fixture");
   const auto bad = photo(files, "d.png"); write(inputSidecarPath(bad), "invalid");
@@ -292,7 +295,8 @@ bool photoMarkFiltersAndRefresh() {
   CHECK(app.filmstrip[0].mark == PhotoMark::Pick && app.filmstrip[2].mark == PhotoMark::Reject);
   CHECK(fs::remove(inputSidecarPath(raw))); refreshFilmstrip(app);
   CHECK(app.filmstrip[2].mark == PhotoMark::Unmarked);
-  Files next; const auto nextPhoto = photo(next, "a.png");
+  Files next; next.dir = fs::canonical(next.dir);
+  const auto nextPhoto = photo(next, "a.png");
   CHECK(openFolder(app, next.dir.string()));
   CHECK(app.filmstrip.size() == 1 && app.filmstrip[0].mark == PhotoMark::Unmarked && app.path == nextPhoto);
   app.folderDir.clear(); refreshFilmstrip(app);
