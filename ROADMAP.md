@@ -38,9 +38,9 @@ These priorities sequence focused work without reopening completed architecture 
    validation, Windows and Intel JPEG XL ON checks, portable packaging and
    binary redistribution/licensing review remain separate rollout work; see
    [the support and validation record](docs/JPEG_XL_DNG.md).
-2. **Enable/bypass directly in Graph View.** Reuse the existing node enabled
-   state, edit/history command and protections already exposed in List View;
-   avoid a second bypass mechanism.
+2. **Enable/bypass directly in Graph View — implemented in draft PR #113.**
+   The node context menu reuses the existing enabled state, edit/history command
+   and protections exposed in List View, without a second bypass mechanism.
 3. **Pick / Unmarked / Reject while editing.** Add photo-specific culling state
    with keyboard actions, filmstrip navigation/filtering and independent
    sidecar metadata, without a catalogue. This supports decisions made while

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace ui {
 namespace {
@@ -351,7 +352,8 @@ std::optional<InputAddress> portContextMenu(App &app, const Canvas &canvas, cons
   return disconnect;
 }
 
-std::optional<NodeId> nodeContextMenu(App &app, const Canvas &canvas, const GraphLayout &layout, bool hovered) {
+std::optional<NodeId> nodeContextMenu(App &app, const Canvas &canvas, const GraphLayout &layout, bool hovered,
+                                    std::optional<std::pair<NodeId, bool>> &enable) {
   auto &state = app.graphCanvas;
   if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
     const auto &mouse = ImGui::GetIO().MousePos;
@@ -370,9 +372,12 @@ std::optional<NodeId> nodeContextMenu(App &app, const Canvas &canvas, const Grap
   if (ImGui::BeginPopup("##nodeContext")) {
     const Node *node = state.contextNode ? findNode(app, *state.contextNode) : nullptr;
     if (!node || app.selectedNodeId() != state.contextNode) ImGui::CloseCurrentPopup();
-    else if (ImGui::MenuItem("Delete Node", nullptr, false,
-                             node->operation != NodeOperation::Source && app.renderer.canEditParameters()))
-      remove = node->id;
+    else {
+      const bool editable = node->operation != NodeOperation::Source && app.renderer.canEditParameters();
+      if (ImGui::MenuItem(node->enabled ? "Disable Processing" : "Enable Processing", nullptr, false, editable))
+        enable = std::make_pair(node->id, !node->enabled);
+      if (ImGui::MenuItem("Delete Node", nullptr, false, editable)) remove = node->id;
+    }
     ImGui::EndPopup();
   }
   return remove;
@@ -465,11 +470,13 @@ void drawGraphCanvas(App &app) {
   drawWireGesture(app, canvas, layout, hovered);
   canvas.draw.PopClipRect();
   const auto disconnect = portContextMenu(app, canvas, layout, hovered);
-  if (const auto menuRemove = nodeContextMenu(app, canvas, layout, hovered)) remove = menuRemove;
+  std::optional<std::pair<NodeId, bool>> enable;
+  if (const auto menuRemove = nodeContextMenu(app, canvas, layout, hovered, enable)) remove = menuRemove;
   ImGui::EndChild();
   finishGraphDrag(app);
   // All frame-local geometry borrows live nodes. Dispatch after drawing/menus.
   if (remove && app.renderer.canEditParameters()) destroyNode(app, *remove);
+  else if (enable && app.renderer.canEditParameters()) setNodeEnabled(app, enable->first, enable->second);
   else if (drop) commitWire(app, drop->first, drop->second);
   else if (disconnect && app.renderer.canEditParameters()) {
     const auto result = graph::disconnect(app, *disconnect);
