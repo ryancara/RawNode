@@ -147,6 +147,159 @@ std::string file(const std::string &nodes = source, const std::string &output = 
 const std::string missing = R"({"id":"unavailable","kind":"image-processor","backend":"ctl","identifier":"/unavailable/photograph.ctl","label":"Keep me","enabled":false,"inputs":{"image":{"node":"camera-root","port":"image"}},"params":{"huge":9007199254740993,"precise":0.12345678901234567890123456789,"nested":{"x":[true,null,"\u00e9"]}}})";
 const std::string exposure = R"({"id":"gain","kind":"image-processor","backend":"native","identifier":"rawnode.native.exposure","enabled":true,"inputs":{"image":{"node":"camera-root","port":"image"}},"params":{"exposure":1.0}})";
 
+bool photoMarkActions() {
+  Files files;
+  const auto a = photo(files, "a.png");
+  const auto unopened = files.path("b.NEF");
+  write(unopened, "Intentionally undecodable: metadata actions must not open this photograph");
+  App app; app.folderDir = files.dir.string(); refreshFilmstrip(app);
+  CHECK(app.filmstrip[0].mark == PhotoMark::Unmarked && app.filmstrip[1].mark == PhotoMark::Unmarked);
+  CHECK(!fs::exists(inputSidecarPath(a)) && !fs::exists(inputSidecarPath(unopened)));
+  // Public semantic action works without an open document, widgets or decoder.
+  for (auto mark : {PhotoMark::Pick, PhotoMark::Reject, PhotoMark::Unmarked}) {
+    CHECK(assignPhotoMark(app, unopened, mark));
+    CHECK(!read(inputSidecarPath(unopened)).grade && photoMark(read(inputSidecarPath(unopened))) == mark);
+    CHECK(app.filmstrip[1].mark == mark && app.path.empty() && app.full.px.empty());
+    CHECK(app.nodes.size() == 1 && app.history.size() == 0);
+    refreshFilmstrip(app);
+    CHECK(app.filmstrip[1].mark == mark);
+  }
+  CHECK(section(inputSidecarPath(unopened), "metadata") == "{}");
+
+  // Independent hand-authored complete grade: exact formatting, opaque nested
+  // parameters, >53-bit integers, positions and non-default colours must survive.
+  write(inputSidecarPath(a), file(missing + ',' + exposure + ',' + source, "gain",
+      R"(,"positions":{"gain":{"x":-3.25,"y":19}})"));
+  CHECK(openPath(app, a));
+  const auto grade = section(inputSidecarPath(a), "grade");
+  CHECK(setOutputEncoding(app, {RgbGamut::Rec2020, TransferFunction::Linear}));
+  const auto live = capturedGrade(app);  // Unsaved live edits remain authoritative.
+  const auto historySize = app.history.size(), cursor = app.history.cursor(), historyBytes = app.history.bytes();
+  const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+  const auto preview = app.preview;
+  for (auto mark : {PhotoMark::Pick, PhotoMark::Reject, PhotoMark::Unmarked}) {
+    CHECK(assignPhotoMark(app, a, mark));
+    CHECK(section(inputSidecarPath(a), "grade") == grade && photoMark(read(inputSidecarPath(a))) == mark);
+    CHECK(app.filmstrip[0].mark == mark && app.filmstripIndex == 0 && app.path == a);
+    CHECK(app.history.size() == historySize && app.history.cursor() == cursor && app.history.bytes() == historyBytes);
+    CHECK(app.preview == preview && capturedGrade(app) == live);
+    const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(after.epoch == before.epoch && after.previewPending == before.previewPending &&
+          after.displayPending == before.displayPending && after.mutationDepth == before.mutationDepth);
+  }
+  CHECK(saveCurrentInputSidecar(app));
+  CHECK(photoMark(read(inputSidecarPath(a))) == PhotoMark::Unmarked);
+  CHECK(read(inputSidecarPath(a)).grade->color.outputColorSpace == "rec2020");
+  return true;
+}
+
+bool photoMarkFailures() {
+  Files files;
+  const auto a = photo(files, "a.png"), b = photo(files, "b.png");
+  App app; CHECK(openFolder(app, files.dir.string()));
+  CHECK(assignPhotoMark(app, a, PhotoMark::Pick));
+  const auto original = bytes(inputSidecarPath(a));
+  app.persistenceWarning = "Existing grade save warning";
+  for (auto fault : {Fault::Read, Fault::PermissionStat, Fault::PermissionCheck, Fault::TempCreate,
+                     Fault::Write, Fault::Flush, Fault::PermissionCopy, Fault::Close, Fault::Replace}) {
+    Options options; options.beforeSave = [fault] { return fault; };
+    const auto directory = entries(files.dir);
+    CHECK(!document_detail::assignPhotoMark(app, a, PhotoMark::Reject, options));
+    CHECK(bytes(inputSidecarPath(a)) == original && entries(files.dir) == directory);
+    CHECK(app.filmstrip[0].mark == PhotoMark::Pick && app.path == a && app.filmstripIndex == 0);
+    CHECK(!app.photoMarkWarning.empty() && app.persistenceWarning == "Existing grade save warning");
+    app.setStatus("Ordinary renderer status");
+    CHECK(!app.photoMarkWarning.empty());
+  }
+  CHECK(assignPhotoMark(app, a, PhotoMark::Reject) && app.photoMarkWarning.empty());
+  CHECK(app.persistenceWarning == "Existing grade save warning");
+  const auto rejected = bytes(inputSidecarPath(a));
+  fs::permissions(inputSidecarPath(a), fs::perms::owner_read);
+  CHECK(!assignPhotoMark(app, a, PhotoMark::Unmarked));
+  CHECK(app.filmstrip[0].mark == PhotoMark::Reject && bytes(inputSidecarPath(a)) == rejected);
+  fs::permissions(inputSidecarPath(a), fs::perms::owner_read | fs::perms::owner_write);
+  const auto sidecar = inputSidecarPath(b);
+  for (const auto &invalid : {std::string("broken JSON"), std::string(R"({"format":"rawnode","version":999})"),
+                              std::string(R"({"format":"rawnode","version":1,"metadata":{"mark":"unknown"}})")}) {
+    write(sidecar, invalid); refreshFilmstrip(app);
+    CHECK(!app.filmstrip[1].mark && !app.filmstrip[1].markError.empty());
+    CHECK(!assignPhotoMark(app, b, PhotoMark::Unmarked));
+    CHECK(bytes(sidecar) == invalid && !app.filmstrip[1].mark);
+  }
+  CHECK(openPath(app, b) && app.isPhotoProtected());
+  // Active protection still refuses after the disk file is repaired. Reopening
+  // is the established way to leave read-only source viewing.
+  write(sidecar, R"({"format":"rawnode","version":1})");
+  const auto repaired = bytes(sidecar);
+  refreshFilmstrip(app);
+  CHECK(!app.filmstrip[1].mark && !app.filmstrip[1].markError.empty());
+  CHECK(!assignPhotoMark(app, b, PhotoMark::Pick) && bytes(sidecar) == repaired);
+  CHECK(openPath(app, b) && !app.isPhotoProtected());
+  CHECK(assignPhotoMark(app, b, PhotoMark::Pick));
+  CHECK(fs::remove(sidecar));
+  write(legacyInputSidecarPath(b), "protected legacy bytes");
+  refreshFilmstrip(app);
+  CHECK(!app.filmstrip[1].mark && !app.filmstrip[1].markError.empty());
+  CHECK(!assignPhotoMark(app, b, PhotoMark::Pick));
+  CHECK(bytes(legacyInputSidecarPath(b)) == "protected legacy bytes" && !fs::exists(sidecar));
+  CHECK(fs::remove(legacyInputSidecarPath(b)));
+  fs::create_directory(sidecar); refreshFilmstrip(app);
+  CHECK(!app.filmstrip[1].mark && !assignPhotoMark(app, b, PhotoMark::Unmarked));
+  CHECK(fs::is_directory(sidecar));
+  return true;
+}
+
+bool photoMarkFiltersAndRefresh() {
+  Files files;
+  const auto a = photo(files, "a.png"), b = photo(files, "b.png");
+  const auto raw = files.path("c.NEF"); write(raw, "RAW discovery fixture");
+  const auto bad = photo(files, "d.png"); write(inputSidecarPath(bad), "invalid");
+  write(inputSidecarPath(a), R"({"format":"rawnode","version":1,"metadata":{"mark":"\u0070ick"}})");
+  write(inputSidecarPath(b), R"({"format":"rawnode","version":1,"metadata":{"mark":"unmarked"}})");
+  App app; CHECK(openFolder(app, files.dir.string()));
+  CHECK(assignPhotoMark(app, raw, PhotoMark::Reject));
+  auto visible = [&] {
+    std::vector<std::string> paths;
+    for (const auto &entry : app.filmstrip) if (filmstripEntryVisible(app, entry)) paths.push_back(entry.path);
+    return paths;
+  };
+  CHECK(visible() == (std::vector<std::string>{a, b, raw, bad}));
+  for (auto mark : {PhotoMark::Pick, PhotoMark::Unmarked, PhotoMark::Reject}) {
+    app.filmstripMarkFilter = mark;
+    const auto expected = mark == PhotoMark::Pick ? a : mark == PhotoMark::Unmarked ? b : raw;
+    CHECK(visible() == std::vector<std::string>{expected});
+    app.filmstripTab = 1;
+    CHECK(visible() == (mark == PhotoMark::Reject ? std::vector<std::string>{raw} : std::vector<std::string>{}));
+    app.filmstripTab = 2;
+    CHECK(visible() == (mark == PhotoMark::Reject ? std::vector<std::string>{} : std::vector<std::string>{expected}));
+    app.filmstripTab = 0;
+  }
+  app.filmstripMarkFilter = PhotoMark::Pick;
+  CHECK(assignPhotoMark(app, a, PhotoMark::Reject));
+  CHECK(visible().empty() && app.path == a && app.filmstripIndex == 0);  // No auto-advance.
+  app.filmstripMarkFilter = PhotoMark::Unmarked;
+  CHECK(visible() == std::vector<std::string>{b});
+  Options failSave; failSave.beforeSave = [] { return Fault::Replace; };
+  CHECK(!document_detail::openPhoto(app, visible().front(), {}, failSave));
+  CHECK(app.path == a && app.filmstripIndex == 0);  // Normal departure protection.
+  CHECK(openPath(app, visible().front()) && app.path == b && app.filmstripIndex == 1);
+  CHECK(photoMark(read(inputSidecarPath(a))) == PhotoMark::Reject);
+
+  // No per-frame reads: visibility uses the snapshot until an explicit refresh.
+  write(inputSidecarPath(a), R"({"format":"rawnode","version":1,"metadata":{"mark":"pick"}})");
+  CHECK(app.filmstrip[0].mark == PhotoMark::Reject);
+  refreshFilmstrip(app);
+  CHECK(app.filmstrip[0].mark == PhotoMark::Pick && app.filmstrip[2].mark == PhotoMark::Reject);
+  CHECK(fs::remove(inputSidecarPath(raw))); refreshFilmstrip(app);
+  CHECK(app.filmstrip[2].mark == PhotoMark::Unmarked);
+  Files next; const auto nextPhoto = photo(next, "a.png");
+  CHECK(openFolder(app, next.dir.string()));
+  CHECK(app.filmstrip.size() == 1 && app.filmstrip[0].mark == PhotoMark::Unmarked && app.path == nextPhoto);
+  app.folderDir.clear(); refreshFilmstrip(app);
+  CHECK(app.filmstrip.empty() && app.filmstripIndex == -1);
+  return true;
+}
+
 bool scanAndInitialGrades() {
   Files files;
   const auto a = photo(files, "a.png"), b = photo(files, "b.png", 0.5f);
@@ -899,6 +1052,9 @@ bool twoPhotoColourOwnership() {
 
 bool testPhotoDocuments() {
   for (const auto &test : {
+       std::make_pair("UI-independent photo mark transitions preserve exact grades, history and render demand", photoMarkActions),
+       std::make_pair("failed/protected mark writes preserve bytes, displayed marks and grade warnings", photoMarkFailures),
+       std::make_pair("independent mark/type filters, normal navigation and folder refresh", photoMarkFiltersAndRefresh),
 #if defined(__linux__)
        std::make_pair("Linux dialog exit mapping and safe helper absence", linuxDialogDecisions),
 #endif

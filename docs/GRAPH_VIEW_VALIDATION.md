@@ -132,8 +132,7 @@ merge; fresh PR 2A platform checks remain separately pending.
 Graph provides single selection and header movement, with typed wiring,
 input Disconnect, virtual Output rewiring and focused deletion merged in
 PR #82. Reordering remains List-only. Node processing can be enabled or disabled
-in both List View and the Graph View node context menu (implemented in draft
-PR #113, not yet merged). Add Processor is
+in both List View and the Graph View node context menu (merged PR #113). Add Processor is
 available in both modes and follows D051's selection-aware insertion policy:
 Source/main-chain selection inserts before the next main-chain consumer;
 off-chain Image selection creates a downstream branch without changing Output

@@ -228,6 +228,16 @@ void refreshFilmstrip(App &app) {
   for (const std::string &p : paths) {
     FilmstripEntry e;
     e.path = p;
+    PersistFile file;
+    const auto status = readGraphSidecar(inputSidecarPath(p), file, e.markError);
+    if (status != SidecarReadStatus::Error) e.mark = photoMark(file);
+    std::error_code ec;
+    if (app.isPhotoProtected() && fs::equivalent(p, app.path, ec)) {
+      // A valid file on disk cannot clear active source protection; only a
+      // successful reopen has validated the saved processor settings too.
+      e.mark.reset();
+      e.markError = app.persistenceWarning;
+    }
     app.filmstrip.push_back(std::move(e));
   }
   app.filmstripIndex = -1;
@@ -240,4 +250,10 @@ void refreshFilmstrip(App &app) {
       }
     }
   }
+}
+
+bool filmstripEntryVisible(const App &app, const FilmstripEntry &entry) {
+  if (app.filmstripTab == 1 && !isRawImagePath(entry.path)) return false;
+  if (app.filmstripTab == 2 && isRawImagePath(entry.path)) return false;
+  return !app.filmstripMarkFilter || entry.mark == app.filmstripMarkFilter;
 }

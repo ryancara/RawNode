@@ -85,6 +85,9 @@ bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &er
 enum class SidecarReadStatus { Absent, Loaded, Error };
 enum class PhotoMark { Unmarked, Pick, Reject };
 
+// Read the mark from a validated file record; absent metadata means Unmarked.
+PhotoMark photoMark(const PersistFile &file);
+
 // Graph-native sidecar file operations used by the live editor.
 // Paths name the destination sidecar (normally inputSidecarPath(photo)). A lone
 // sibling .ofxrawhost.json protects an absent .rawnode.json from creation.

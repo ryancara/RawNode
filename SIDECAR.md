@@ -17,6 +17,12 @@ Windows atomic writes remain explicitly unsupported. Backend identities, paths
 and parameter strings must be valid UTF-8 to save: invalid bytes cause a useful
 error, preserving live state and original files rather than converting values.
 
+Filmstrip Pick / Unmarked / Reject actions immediately update only photo metadata
+through the existing atomic writer. The complete grade JSON remains byte-for-byte
+unchanged; unopened photos receive metadata-only sidecars. Absent marks mean
+Unmarked. Invalid/protected files refuse changes, with a persistent mark warning
+and no false displayed success. See [photo marking](docs/PHOTO_MARKING.md).
+
 ## Presets and clipboard
 
 **Save Preset** writes the complete editable grade to `.rawnode.json`, including

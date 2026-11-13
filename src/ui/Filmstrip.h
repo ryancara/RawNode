@@ -22,4 +22,5 @@ void invalidateFilmstripThumbs(App &app);
 void requestFilmstripThumb(App &app, int index, bool front);
 void pumpFilmstripThumbs(App &app);
 void refreshFilmstrip(App &app);
+bool filmstripEntryVisible(const App &app, const FilmstripEntry &entry);
 std::thread startFilmstripThumbThread(App *app);
