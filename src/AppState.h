@@ -156,7 +156,10 @@ struct App {
   std::string folderDir;
   std::string preferencesWarning;
   std::vector<FilmstripEntry> filmstrip;
-  int filmstripIndex = -1;
+  int filmstripIndex = -1;  // Photograph open in the editor, independent of selection.
+  // Transient UI-thread identities, using the paths already owned by filmstrip.
+  std::unordered_set<std::string> filmstripSelection;
+  std::string filmstripAnchor;
   bool showFilmstrip = true;
   float filmstripH = 96.0f;
   int filmstripTab = 0;  // 0=All, 1=RAW, 2=Compressed

@@ -41,17 +41,20 @@ These priorities sequence focused work without reopening completed architecture 
 2. **Enable/bypass directly in Graph View — merged (#113).**
    The node context menu reuses the existing enabled state, edit/history command
    and protections exposed in List View, without a second bypass mechanism.
-3. **Pick / Unmarked / Reject while editing — implemented, under review.**
+3. **Pick / Unmarked / Reject while editing — merged (#114).**
    Compact filmstrip actions, indicators and independent mark/type filters use
    existing sidecar metadata and normal photo opening. The semantic document
    action accepts a photo path and mark; assignable shortcuts remain a separate
    milestone, with no fixed marking bindings in this slice. This supports
    decisions made while editing, not high-volume first-pass culling; do not introduce a separate
    fast-RAW browsing or decode-skipping pipeline for it.
-4. **Multi-photo selection and batch export.** Select photos in the filmstrip
-   and export a selected or filtered set using the existing single-image
-   export path and execution ownership, initially sequentially. Multi-photo
-   grade/preset application can follow separately.
+4. **Multi-photo selection — implemented, under review.** Transient path-based
+   selection supports plain/Command/Shift clicks and focused visible Select All,
+   independently of the open photograph. See [behaviour and native checks](docs/FILMSTRIP_SELECTION.md).
+   Moving selected photographs and sidecars to the operating system Trash is
+   the next separate PR. Batch export follows using the existing single-image
+   path and execution ownership, initially sequentially. Multi-photo grade/preset
+   application can follow separately.
 5. **Close the practical Step 8 masking core.** Agree the exit gate, then
    deliver Mask Combine, upstream geometry/Overlay placement through Mask
    modifiers, a Linear Gradient generator and an initial Blur modifier in
@@ -212,7 +215,7 @@ CLF should be treated as a richer transform format rather than assumed to be onl
 
 ## Pick / reject workflow
 
-The initial in-editor photo-marking slice is implemented, under review:
+The initial in-editor photo-marking slice is merged as #114:
 
 - Pick (Flag) / Reject / Unmarked as minimal optional per-photo sidecar metadata,
   independently of whether the source has a saved processing grade;
@@ -223,7 +226,8 @@ The initial in-editor photo-marking slice is implemented, under review:
 
 Keep this folder-based with no catalogue/database or automatic deletion. Step 7's
 metadata-only writer preserves complete grades. File actions and multi-photo
-selection remain separate future work. See [behaviour and validation](docs/PHOTO_MARKING.md).
+selection have separate scopes; selection is now implemented for review in
+[filmstrip selection](docs/FILMSTRIP_SELECTION.md). See [marking behaviour and validation](docs/PHOTO_MARKING.md).
 Later, moving rejected photos and their sidecars to the operating system Trash
 would require an explicit, confirmed user action; this slice implements no file actions.
 

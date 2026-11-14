@@ -23,4 +23,7 @@ void requestFilmstripThumb(App &app, int index, bool front);
 void pumpFilmstripThumbs(App &app);
 void refreshFilmstrip(App &app);
 bool filmstripEntryVisible(const App &app, const FilmstripEntry &entry);
+// Selection only: callers open plain-click targets before committing selection.
+void selectFilmstripEntry(App &app, int index, bool toggle = false, bool range = false);
+void selectAllVisibleFilmstripEntries(App &app);
 std::thread startFilmstripThumbThread(App *app);

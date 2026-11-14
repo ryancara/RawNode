@@ -221,11 +221,15 @@ void refreshFilmstrip(App &app) {
   freeFilmstripTextures(app.filmstrip);
   if (app.folderDir.empty()) {
     app.filmstripIndex = -1;
+    app.filmstripSelection.clear();
+    app.filmstripAnchor.clear();
     return;
   }
   const auto paths = listFolderImages(app.folderDir);
+  std::unordered_set<std::string> survivingSelection;
   app.filmstrip.reserve(paths.size());
   for (const std::string &p : paths) {
+    if (app.filmstripSelection.count(p)) survivingSelection.insert(p);
     FilmstripEntry e;
     e.path = p;
     PersistFile file;
@@ -240,6 +244,8 @@ void refreshFilmstrip(App &app) {
     }
     app.filmstrip.push_back(std::move(e));
   }
+  app.filmstripSelection.swap(survivingSelection);
+  if (std::find(paths.begin(), paths.end(), app.filmstripAnchor) == paths.end()) app.filmstripAnchor.clear();
   app.filmstripIndex = -1;
   if (!app.path.empty()) {
     for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
@@ -256,4 +262,33 @@ bool filmstripEntryVisible(const App &app, const FilmstripEntry &entry) {
   if (app.filmstripTab == 1 && !isRawImagePath(entry.path)) return false;
   if (app.filmstripTab == 2 && isRawImagePath(entry.path)) return false;
   return !app.filmstripMarkFilter || entry.mark == app.filmstripMarkFilter;
+}
+
+void selectFilmstripEntry(App &app, int index, bool toggle, bool range) {
+  if (index < 0 || index >= (int)app.filmstrip.size() || !filmstripEntryVisible(app, app.filmstrip[index])) return;
+  const auto &path = app.filmstrip[index].path;
+  if (range) {
+    for (int anchor = 0; anchor < (int)app.filmstrip.size(); ++anchor) {
+      if (app.filmstrip[anchor].path != app.filmstripAnchor || !filmstripEntryVisible(app, app.filmstrip[anchor])) continue;
+      if (!toggle) app.filmstripSelection.clear();
+      for (int i = std::min(anchor, index); i <= std::max(anchor, index); ++i)
+        if (filmstripEntryVisible(app, app.filmstrip[i])) app.filmstripSelection.insert(app.filmstrip[i].path);
+      return;
+    }
+  }
+  // A hidden/absent anchor starts a new range at the clicked photograph.
+  if (!toggle) app.filmstripSelection.clear();
+  if (toggle && !range && app.filmstripSelection.count(path)) app.filmstripSelection.erase(path);
+  else app.filmstripSelection.insert(path);
+  app.filmstripAnchor = path;
+}
+
+void selectAllVisibleFilmstripEntries(App &app) {
+  app.filmstripSelection.clear();
+  app.filmstripAnchor.clear();
+  for (const auto &entry : app.filmstrip) {
+    if (!filmstripEntryVisible(app, entry)) continue;
+    app.filmstripSelection.insert(entry.path);
+    if (app.filmstripAnchor.empty()) app.filmstripAnchor = entry.path;
+  }
 }
