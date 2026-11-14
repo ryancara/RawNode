@@ -424,6 +424,7 @@ struct FilmstripFrame {
   ImGuiWindow *window = nullptr;
   ImGuiTable *toolbar = nullptr;
   ImRect thumbnail;
+  std::string renderedText;
   FilmstripFrame() {
     auto &io = ImGui::GetIO(); io.IniFilename = nullptr; io.ConfigInputTrickleEventQueue = false;
     unsigned char *pixels; int width, height; io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
@@ -435,7 +436,10 @@ struct FilmstripFrame {
     ImGui::NewFrame();
     ImGui::SetNextWindowPos(position); ImGui::SetNextWindowSize({width, height});
     ImGui::Begin("Filmstrip test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
+    ImGui::LogToBuffer(0);
     drawFilmstripPanel(app);
+    renderedText = context->LogBuffer.c_str();
+    ImGui::LogFinish();
     window = ImGui::GetCurrentWindow();
     thumbnail = context->LastItemData.Rect;
     toolbar = context->Tables.GetByKey(window->GetID("##filmstripToolbar"));
@@ -482,6 +486,7 @@ bool photoMarkToolbarFrames() {
         app.photoMarkWarning = warning ? std::string(500, 'w') : "";
         // Moving the floating window also exercises non-origin clipping.
         ui.tick(app, width, height, scale, {110, 130}); ui.tick(app, width, height, scale, {110, 130});
+        CHECK((ui.renderedText.find('!') != std::string::npos) == warning);
         CHECK(ui.toolbar && ui.toolbar->ColumnsCount == 3);
         CHECK(ui.toolbar->WorkRect.GetHeight() <= ImGui::GetFrameHeight() + 2);
         CHECK(ui.thumbnail.Min.y >= ui.toolbar->WorkRect.Max.y);
@@ -508,7 +513,20 @@ bool photoMarkToolbarFrames() {
     app.currentPhotoMark.reset(); ui.tick(app);
     CHECK(!ui.highlighted(PhotoMark::Pick) && !ui.highlighted(PhotoMark::Unmarked) && !ui.highlighted(PhotoMark::Reject));
   }
-  applyTheme(2); app.photoMarkWarning.clear(); ui.tick(app); ui.tick(app);
+  applyTheme(2);
+  const std::string warningText = "Could not save photo mark: /photos/current.png.rawnode.json: permission denied";
+  app.photoMarkWarning = warningText; ui.tick(app); ui.tick(app);
+  // Hover the rendered indicator at the end of the filter cell, then observe
+  // tooltip text through the same ImGui logging used for widget labels.
+  const auto &warningColumn = ui.toolbar->Columns[2];
+  ImGui::GetIO().AddMousePosEvent(warningColumn.ContentMaxXUnfrozen - ImGui::CalcTextSize("!").x * 0.5f,
+                                 ui.toolbar->WorkRect.GetCenter().y);
+  ui.tick(app); ui.tick(app);
+  CHECK(ui.renderedText.find(warningText) != std::string::npos);
+  app.photoMarkWarning.clear(); ImGui::GetIO().AddMousePosEvent(-1, -1);
+  ui.tick(app); ui.tick(app);
+  CHECK(ui.renderedText.find('!') == std::string::npos);
+  CHECK(ui.renderedText.find(warningText) == std::string::npos);
   // Select each existing type tab through real input after moving it into the table.
   for (const int tab : {1, 2, 0}) {
     const auto *bar = ui.context->TabBars.GetByKey(ImHashStr("##filmstripTabs", 0, ui.toolbar->ID));
