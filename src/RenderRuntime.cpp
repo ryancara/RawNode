@@ -64,6 +64,12 @@ bool RenderRuntime::canCaptureSnapshot() const {
   return !stopping_ && !exportBusy_ && mutationDepth_ == 0 && !app_.isPhotoProtected();
 }
 
+bool RenderRuntime::exportInProgress() const {
+  assertControlThread();
+  std::lock_guard<std::mutex> lock(mutex_);
+  return exportBusy_;
+}
+
 bool RenderRuntime::canEditParameters() const {
   assertControlThread();
   std::lock_guard<std::mutex> lock(mutex_);

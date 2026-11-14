@@ -31,6 +31,7 @@ jobs:
             g++ \
             pkg-config \
             python3 \
+            libglib2.0-dev \
             libjpeg-dev \
             libtiff-dev \
             liblcms2-dev \
@@ -82,6 +83,7 @@ jobs:
             libomp-dev \
             pkg-config \
             python3 \
+            libglib2.0-dev \
             libjpeg-dev \
             libtiff-dev \
             liblcms2-dev \

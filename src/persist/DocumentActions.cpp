@@ -8,6 +8,7 @@
 #include "color/TransferFunction.h"
 #include "NodeGraph.h"
 #include "DocumentMutation.h"
+#include "RenderPipeline.h"
 
 #include <algorithm>
 #include <cassert>
@@ -388,7 +389,7 @@ bool prepareShutdown(App &app, const ConfigPaths &config, bool preferencesLoaded
 namespace document_detail {
 // Caller has resolved departure before reading the incoming file. This is also
 // used by folder auto-open so explicit Discard does not trigger a second save.
-static bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOptions &options) {
+bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOptions &options) {
   DocumentMutation mutation(app);
   try {
     std::string json, error;
@@ -498,6 +499,46 @@ static bool openPreparedPhoto(App &app, const std::string &path, const ActionTes
     app.setStatus("Could not open " + path + ": " + failure.what());
     return false;
   }
+}
+
+void clearPhoto(App &app, DocumentMutation &mutation) {
+  assert(mutation.owns(app));
+  app.path.clear();
+  app.sidecarWriteBlockedPath.clear();
+  app.persistenceWarning.clear();
+  app.photoMarkWarning.clear();
+  app.currentPhotoMark.reset();
+  app.parameterGesture.reset();
+  app.previewInteraction = {};
+  app.graphCanvas.cancelInteraction();
+  app.full = {};
+  app.preview.reset();
+  {
+    std::lock_guard<std::mutex> lock(app.colorMutex);
+    app.inputIsRaw = false;
+    app.inputEncoding = app.rawWorkingEncoding;
+    app.photoRawWorkingEncoding = app.rawWorkingEncoding;
+    app.outputEncoding = app.defaultOutputEncoding;
+  }
+  app.nodes.clear();
+  Node source(NodeOperation::Source);
+  source.id = app.primarySource;
+  app.nodes.push_back(std::move(source));
+  app.documentOutput = {app.primarySource, ports::image};
+  app.nodePositions.clear();
+  selectNode(app, std::nullopt);
+  app.paramFilter[0] = '\0';
+  app.history.clear();
+  app.renderer.resetInspection();
+  display_detail::clearPresentation(app);
+  {
+    std::lock_guard<std::mutex> lock(app.displayMutex);
+    app.processed = {0, 0, {}, EvaluationResult{app.documentOutput}};
+  }
+  app.filmstripIndex = -1;
+  app.previewZoom = 1.0f;
+  app.previewPanX = app.previewPanY = 0.0f;
+  mutation.changed();
 }
 
 bool openPhoto(App &app, const std::string &path, const SaveFailurePrompt &prompt,

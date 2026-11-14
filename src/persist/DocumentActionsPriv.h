@@ -1,6 +1,7 @@
 #pragma once
 
 #include "persist/DocumentActions.h"
+#include "persist/PhotoTrash.h"
 #include "persist/ProjectPersistPriv.h"
 #include "DocumentMutation.h"
 
@@ -10,6 +11,7 @@ namespace document_detail {
 // synthetic RAW decoding exercises colour publication without claiming NEF coverage.
 struct ActionTestOptions {
   bool testOperations = false;
+  TrashOperation moveToTrash = moveFileToTrash;
   persist_detail::FileFault readFault = persist_detail::FileFault::None;
   std::function<persist_detail::FileFault()> beforeSave;
   decltype(&loadImage) decode = loadImage;
@@ -31,6 +33,11 @@ bool leavePhoto(App &app, const SaveFailurePrompt &prompt, const ActionTestOptio
 bool prepareShutdown(App &app, const ConfigPaths &config, bool preferencesLoaded,
                      const SaveFailurePrompt &prompt,
                      const ActionTestOptions &options);
+// Departure is already resolved. These transitions retain DocumentMutation ownership.
+bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOptions &options);
+void clearPhoto(App &app, DocumentMutation &mutation);
+PhotoTrashResult trashPhotographs(App &app, const PhotoTrashRequest &request,
+                                  const SaveFailurePrompt &prompt, const ActionTestOptions &options);
 bool openPhoto(App &app, const std::string &path, const SaveFailurePrompt &prompt,
                const ActionTestOptions &options);
 bool openFolder(App &app, const std::string &dir, const SaveFailurePrompt &prompt,

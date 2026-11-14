@@ -1,8 +1,8 @@
 # Filmstrip multi-photo selection
 
-Implemented for review on main including merged PR #114. Selection is transient
-and independent of the photograph open in the editor. Move to Trash and batch
-export remain separate PRs.
+Merged as PR #115 (`8845e77`). Selection is transient and independent of the
+photograph open in the editor. [Move to Trash](FILMSTRIP_TRASH.md) extends these
+identities in the next focused milestone; batch export remains separate.
 
 ## Interactions and visible changes
 
@@ -20,8 +20,9 @@ export remain separate PRs.
 - Command+A / Control+A replaces selection with all visible photographs and
   sets the anchor to the first visible path, or clears it when none are visible.
   It runs only with filmstrip window focus and no active widget or text input.
-  Graph/List and text shortcuts retain their existing ownership. Delete and
-  Backspace behaviour is unchanged; this PR adds no photograph deletion.
+  Graph/List and text shortcuts retain their existing ownership. Focused Delete
+  and Backspace now request the confirmed [Trash operation](FILMSTRIP_TRASH.md),
+  including hidden selections.
 - Selected thumbnail frames use the existing theme's HeaderActive colour. An
   independent Text-colour outline identifies the open photograph, which can
   be selected or unselected. The toolbar, thumbnail dimensions, filters and
@@ -66,7 +67,14 @@ filmstrip widget/text capture, including the frame text input deactivates.
 Filmstrip Delete/Backspace checks retain a selected, deletable node as well as
 the photograph selection.
 
-## Visual review limitation
+## Selection colours and completed PR #115 native checks
+
+The owner reports that PR #115's native macOS checks below were completed and
+directs retaining the existing theme-based selection colours: HeaderActive for
+selected frames and Text for the open-photo outline. No styling change is part
+of the Trash milestone. This is owner-reported native evidence, separate from
+headless vertex checks and CI. The original visual observation remains useful
+context for future reviews:
 
 The open-photo outline can obscure much of the selected frame at 1x, particularly
 with small theme padding. Existing vertex checks prove both shapes are drawn;
@@ -77,7 +85,8 @@ styling adjustment. No new styling system or thumbnail-size change is introduced
 
 ## Required native macOS checks
 
-Pending; headless tests and macOS CI do not establish native GUI results.
+Historical PR #115 checklist, completed per the owner's milestone instructions.
+New Trash checks are tracked separately in [FILMSTRIP_TRASH.md](FILMSTRIP_TRASH.md).
 
 1. In docked, floating, narrow and Retina filmstrips, verify selected frames and
    open-photo outlines independently, including both states on the same image,
@@ -89,7 +98,8 @@ Pending; headless tests and macOS CI do not establish native GUI results.
 3. Verify Command+A affects only Filmstrip focus; text fields, processor search,
    Graph and List retain their shortcuts. Verify Control-click keeps native
    macOS behaviour. Graph/List Delete/Backspace still deletes only nodes;
-   Filmstrip Delete/Backspace has no photo action.
+   At the PR #115 baseline Filmstrip Delete/Backspace had no photo action; the
+   subsequent Trash milestone adds only its focused, confirmed action.
 4. With an unwritable outgoing sidecar, exercise the native Retry / Discard /
    Cancel dialog during plain clicks and folder switching. Cancel and failed
    image decode must retain the document and prior selection. Select protected

@@ -95,6 +95,7 @@ add_executable(OfxRawHost
   tests/SidecarFileTests.cpp
   tests/PreferencesTests.cpp
   tests/PhotoDocumentTests.cpp
+  tests/PhotoTrashTests.cpp
   tests/HistoryTests.cpp
   tests/HistoryUiTests.cpp
   tests/PresetClipboardTests.cpp
@@ -133,6 +134,8 @@ add_executable(OfxRawHost
   src/Export.cpp
   src/persist/Preferences.cpp
   src/persist/DocumentActions.cpp
+  src/persist/PhotoTrash.cpp
+  src/platform/FileTrash.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp
   src/persist/Json.cpp
@@ -157,7 +160,7 @@ add_executable(OfxRawHost
 )
 
 if(APPLE)
-  target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m src/ofx/OfxMetal.mm)
+  target_sources(OfxRawHost PRIVATE src/ui/MacPinch.m src/ofx/OfxMetal.mm src/platform/FileTrashMac.mm)
 else()
   target_sources(OfxRawHost PRIVATE src/ofx/OfxMetalStub.cpp)
 endif()
@@ -231,10 +234,15 @@ endif()
 target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB IlmCtlSimd Imath::Imath OpenEXR::Iex)
 
 if(APPLE)
-  target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework IOKit" "-framework CoreVideo" "-framework Metal")
+  target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework Foundation" "-framework IOKit" "-framework CoreVideo" "-framework Metal")
 elseif(WIN32)
-  target_link_libraries(OfxRawHost PRIVATE opengl32)
+  target_link_libraries(OfxRawHost PRIVATE opengl32 ole32 shell32 uuid)
 else()
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
+    target_link_libraries(OfxRawHost PRIVATE PkgConfig::GIO)
+  endif()
   find_package(OpenGL REQUIRED)
   target_link_libraries(OfxRawHost PRIVATE OpenGL::GL)
 endif()

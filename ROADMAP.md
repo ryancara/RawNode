@@ -48,11 +48,16 @@ These priorities sequence focused work without reopening completed architecture 
    milestone, with no fixed marking bindings in this slice. This supports
    decisions made while editing, not high-volume first-pass culling; do not introduce a separate
    fast-RAW browsing or decode-skipping pipeline for it.
-4. **Multi-photo selection — implemented, under review.** Transient path-based
+4. **Multi-photo selection — merged (#115).** Transient path-based
    selection supports plain/Command/Shift clicks and focused visible Select All,
    independently of the open photograph. See [behaviour and native checks](docs/FILMSTRIP_SELECTION.md).
-   Moving selected photographs and sidecars to the operating system Trash is
-   the next separate PR. Batch export follows using the existing single-image
+   The next focused milestone implements [native Trash](docs/FILMSTRIP_TRASH.md):
+   focused Delete/Backspace, one immutable confirmation including hidden photos,
+   exact current/legacy sidecars, explicit partial failures, safe current-document
+   departure/transition and preserved surviving thumbnails/filters. PR #115's
+   native macOS selection checks are owner-reported complete; retain existing
+   theme-based selection colours. New macOS/Windows Trash recovery checks remain
+   required. Batch export follows using the existing single-image
    path and execution ownership, initially sequentially. Multi-photo grade/preset
    application can follow separately.
 5. **Close the practical Step 8 masking core.** Agree the exit gate, then

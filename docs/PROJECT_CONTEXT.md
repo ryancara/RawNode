@@ -459,15 +459,24 @@ the unchanged default height. Unknown sidecars remain distinct from Unmarked.
 Assignable shortcuts and multi-photo operations are separate milestones; see
 [photo marking](PHOTO_MARKING.md) for scope and validation.
 
-Filmstrip multi-photo selection is implemented for review, independently of
+Filmstrip multi-photo selection is merged as PR #115, independently of
 the open editor photograph. App owns a transient set of entry paths and one
 anchor; plain clicks publish selection only after normal photo opening succeeds.
 Command/Control toggles, visible-order Shift ranges and focused visible Select
 All never open photos or request rendering. Filters and marking preserve hidden
 selections, refresh prunes removed paths, and changing folders clears selection.
 Selected frames and the open-photo outline are distinct existing theme colours.
-Move to Trash and batch export are separate follow-ups; see
-[selection behaviour and native validation](FILMSTRIP_SELECTION.md).
+The owner reports PR #115's native macOS checks completed and retains the
+existing theme-based selection colours; see [the selection record](FILMSTRIP_SELECTION.md).
+The next focused milestone implements [confirmed native Trash](FILMSTRIP_TRASH.md)
+for the complete path selection, including hidden photographs and both exact
+current/legacy sidecar names. Current-photo removal reuses departure saving and
+DocumentMutation, refuses active export, retires the removed save target, and
+uses prepared opening or a usable empty editor. Non-current removal preserves
+the live grade/history/preview. Partial sidecar failures report exact orphan
+paths without rollback or overwrite. Native macOS/Windows Trash recovery checks
+remain separate from PR #115's completed selection validation. Batch export
+remains a later PR.
 
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,

@@ -2,6 +2,7 @@
 
 #include "AppState.h"
 #include "persist/DocumentActions.h"
+#include "persist/PhotoTrash.h"
 
 void drawProcessorPicker(App &app);
 void drawInspector(App &app);
@@ -9,7 +10,13 @@ void drawNodesPanel(App &app);
 // Headless interaction tests replace only the GL upload boundary.
 void drawPreviewPanel(App &app, void (*upload)(App &) = nullptr);
 SaveFailureDecision promptSaveFailure(const std::string &error);
-void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt = promptSaveFailure);
+bool promptPhotoTrash(const std::string &message);
+void reportPhotoTrash(const PhotoTrashResult &result);
+// Operation-local confirmation/Trash seams keep real native Trash out of self-tests.
+void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt = promptSaveFailure,
+                        const PhotoTrashConfirmation &confirm = promptPhotoTrash,
+                        const TrashOperation &move = moveFileToTrash,
+                        const std::function<void(const PhotoTrashResult &)> &report = reportPhotoTrash);
 void doExport(App &app);  // Choose a destination, then start the export job.
 void DrawUiFrame(App &app);
 bool canUndoGrade(const App &app);

@@ -1,4 +1,5 @@
 #include "PhotoDocumentTests.h"
+#include "PhotoTrashTests.h"
 
 #include "AppState.h"
 #include "DocumentMutation.h"
@@ -426,6 +427,9 @@ struct FilmstripFrame {
   ImRect thumbnail;
   std::string renderedText;
   SaveFailurePrompt prompt = [](const std::string &) { return Decision::Cancel; };
+  PhotoTrashConfirmation confirm = [](const std::string &) { return false; };
+  TrashOperation move = [](const std::string &, std::string &) -> bool { throw std::runtime_error("unexpected UI Trash call"); };
+  bool showModal = false;
   bool showOther = false;
   bool showFilmstripWidgets = false;
   ImRect filmstripButton, filmstripInput;
@@ -449,7 +453,13 @@ struct FilmstripFrame {
       ImGui::InputText("Filmstrip text", text, sizeof text); filmstripInput = context->LastItemData.Rect;
     }
     ImGui::LogToBuffer(0);
-    drawFilmstripPanel(app, prompt);
+    if (showModal) ImGui::OpenPopup("Other modal");
+    drawFilmstripPanel(app, prompt, confirm, move, {});
+    if (ImGui::BeginPopupModal("Other modal")) {
+      if (!showModal) ImGui::CloseCurrentPopup();
+      ImGui::TextUnformatted("Other modal owns keyboard input");
+      ImGui::EndPopup();
+    }
     renderedText = context->LogBuffer.c_str();
     ImGui::LogFinish();
     window = ImGui::GetCurrentWindow();
@@ -526,6 +536,101 @@ struct FilmstripFrame {
     return false;
   }
 };
+
+bool filmstripTrashKeyboardFrames() {
+  for (const bool mac : {false, true}) {
+    Files files;
+    const auto a = photo(files, "a.png"), b = photo(files, "b.png"), c = photo(files, "c.png");
+    App app; app.folderDir = files.dir.string(); refreshFilmstrip(app);
+    CHECK(openPath(app, a));
+    FilmstripFrame ui; auto &io = ImGui::GetIO(); io.ConfigMacOSXBehaviors = mac;
+    int confirmations = 0, moves = 0;
+    bool accept = false;
+    std::string message;
+    ui.confirm = [&](const std::string &text) { ++confirmations; message = text; return accept; };
+    const auto held = files.dir / "controlled-moves"; fs::create_directory(held);
+    ui.move = [&](const std::string &path, std::string &error) {
+      if (fs::path(path).parent_path() != files.dir) throw std::runtime_error("UI Trash escaped fixture");
+      ++moves; std::error_code ec; fs::rename(path, held / fs::path(path).filename(), ec);
+      error = ec.message(); return !ec;
+    };
+    const auto key = [&](ImGuiKey key) {
+      io.AddKeyEvent(key, true); ui.tick(app); io.AddKeyEvent(key, false); ui.tick(app);
+    };
+    ui.tick(app); ui.tick(app); ui.select(app, 1, true);
+    // Both Delete and physical macOS Backspace reach confirmation, once per
+    // press. Cancel performs no edit completion, save, move or refresh.
+    const auto preview = app.preview; const auto sidecar = bytes(inputSidecarPath(a));
+    const auto generation = app.filmstripGen.load();
+    for (const auto button : {ImGuiKey_Delete, ImGuiKey_Backspace}) key(button);
+    CHECK(confirmations == 2 && moves == 0 && app.path == a && app.preview == preview);
+    CHECK(bytes(inputSidecarPath(a)) == sidecar && app.filmstripGen == generation);
+    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{b}));
+    app.filmstripSelection.clear(); key(ImGuiKey_Delete); CHECK(confirmations == 2);
+    app.filmstripSelection = {b};
+    // A control in the same filmstrip window consumes the keyboard.
+    ui.showFilmstripWidgets = true; ui.tick(app); ui.tick(app);
+    const auto point = ui.filmstripButton.GetCenter();
+    io.AddMousePosEvent(point.x, point.y); io.AddMouseButtonEvent(0, true); ui.tick(app);
+    CHECK(ImGui::IsAnyItemActive()); key(ImGuiKey_Delete); CHECK(confirmations == 2);
+    io.AddMouseButtonEvent(0, false); ui.tick(app);
+    ui.click(app, ui.filmstripInput.GetCenter()); key(ImGuiKey_Backspace);
+    CHECK(confirmations == 2 && moves == 0);
+    // Enter and Delete arriving together still belong to the text control.
+    io.AddKeyEvent(ImGuiKey_Enter, true); io.AddKeyEvent(ImGuiKey_Delete, true); ui.tick(app);
+    CHECK(io.WantTextInput && confirmations == 2);
+    io.AddKeyEvent(ImGuiKey_Delete, false); io.AddKeyEvent(ImGuiKey_Enter, false); ui.tick(app);
+    ui.showFilmstripWidgets = false; ui.tick(app); ui.tick(app);
+    ui.showModal = true; ui.tick(app); key(ImGuiKey_Delete);
+    CHECK(confirmations == 2 && moves == 0);
+    ui.showModal = false; ui.tick(app); ui.tick(app);
+    // Valid real photo selection is present while both editors delete nodes.
+    ui.showOther = true;
+    for (const auto view : {NodesView::Graph, NodesView::List}) {
+      app.nodesView = view;
+      for (const auto button : {ImGuiKey_Delete, ImGuiKey_Backspace}) {
+        CHECK(addNativeExposureNode(app)); const auto node = *app.selectedNodeId();
+        ui.tick(app); ui.tick(app);
+        ImGuiWindow *child = nullptr;
+        for (auto *window : ui.context->Windows)
+          if (std::string(window->Name).find(view == NodesView::Graph ? "Other test/##graphCanvasRegion" :
+                                                                      "Other test/nodeList") != std::string::npos) child = window;
+        CHECK(child);
+        ui.click(app, {child->InnerRect.Max.x - 20, child->InnerRect.Max.y - 20});
+        selectNode(app, node); key(button);
+        CHECK(!findNode(app, node) && confirmations == 2 && moves == 0 && fs::exists(b));
+      }
+    }
+    ui.click(app, ui.textInput.GetCenter()); key(ImGuiKey_Delete);
+    CHECK(confirmations == 2 && moves == 0);
+    ui.showOther = false; ui.tick(app); ui.tick(app);
+    ui.select(app, 2, true); // Focus filmstrip, then select a hidden photo too.
+    app.filmstripSelection = {b, c}; app.filmstripMarkFilter = PhotoMark::Pick;
+    app.filmstrip[1].mark = PhotoMark::Pick; ui.tick(app); ui.tick(app);
+    ui.confirm = [&](const std::string &text) {
+      ++confirmations; message = text;
+      app.filmstripSelection = {a}; // A re-entrant selection change cannot substitute A.
+      return true;
+    };
+    key(ImGuiKey_Backspace);
+    CHECK(confirmations == 3 && moves == 2 && app.path == a && fs::exists(a));
+    CHECK(!fs::exists(b) && !fs::exists(c));
+    CHECK(message.find("2 photographs") != std::string::npos && message.find("1 hidden") != std::string::npos);
+    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{a}) && app.filmstripMarkFilter == PhotoMark::Pick);
+    CHECK(addNativeExposureNode(app));
+    const auto node = *app.selectedNodeId();
+    app.parameterGesture = ui::ParameterGesture{0, app.path, node, "exposure", ParameterValue{1.25}};
+    ui.confirm = [](const std::string &) { return false; };
+    key(ImGuiKey_Delete);
+    CHECK(app.parameterGesture && moves == 2 && fs::exists(a));
+    CHECK(findNode(app, node)->processor->parameters()[0].value == ParameterValue{0.0});
+    ui.confirm = [](const std::string &) { return true; };
+    key(ImGuiKey_Delete);
+    CHECK(app.path.empty() && !app.parameterGesture && moves == 4 && !fs::exists(inputSidecarPath(a)));
+    CHECK(read((held / fs::path(inputSidecarPath(a)).filename()).string()).grade->graph.nodes[1].paramsJson.at("exposure") == "1.25");
+  }
+  return true;
+}
 
 bool filmstripSelectionFrames() {
   for (const bool mac : {false, true}) {
@@ -1653,7 +1758,9 @@ bool twoPhotoColourOwnership() {
 }  // namespace
 
 bool testPhotoDocuments() {
+  if (!testPhotoTrash()) return false;
   for (const auto &test : {
+       std::make_pair("filmstrip Trash confirmation snapshot, cancel and Graph/List/text/modal keyboard ownership", filmstripTrashKeyboardFrames),
        std::make_pair("filmstrip plain/toggle/range/visible-all selection with native modifiers and no editing/render effects", filmstripSelectionFrames),
        std::make_pair("plain-click opening selects the clicked path even when refreshed marks hide it", filmstripPlainClickChangedMark),
        std::make_pair("filmstrip selection survives failed/cancelled navigation, marking and refresh; clears on folder changes", filmstripSelectionLifecycle),

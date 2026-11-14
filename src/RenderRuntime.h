@@ -40,6 +40,7 @@ class RenderRuntime {
   void requestDisplayRefresh();
   // A new capture may drain preview, but must not nest mutation or wait on export.
   bool canCaptureSnapshot() const;
+  bool exportInProgress() const;       // Control-thread source-removal guard.
   bool canEditParameters() const;      // Same control thread as export acquisition.
   // Control-thread query: advances only on accepted Preview/inspection/document requests.
   uint64_t previewDemand() const;
