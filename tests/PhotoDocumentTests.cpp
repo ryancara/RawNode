@@ -13,7 +13,11 @@
 #include "persist/Json.h"
 #include "ui/Filmstrip.h"
 #include "ui/UiContext.h"
+#include "ui/Themes.h"
 #include "color/TransferFunction.h"
+
+#include "imgui.h"
+#include "imgui_internal.h"
 
 #include <chrono>
 #include <cmath>
@@ -25,6 +29,9 @@
 
 #if defined(__linux__)
 #include "portable-file-dialogs.h"
+#endif
+#ifndef _WIN32
+#include <grp.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -146,6 +153,408 @@ std::string file(const std::string &nodes = source, const std::string &output = 
 }
 const std::string missing = R"({"id":"unavailable","kind":"image-processor","backend":"ctl","identifier":"/unavailable/photograph.ctl","label":"Keep me","enabled":false,"inputs":{"image":{"node":"camera-root","port":"image"}},"params":{"huge":9007199254740993,"precise":0.12345678901234567890123456789,"nested":{"x":[true,null,"\u00e9"]}}})";
 const std::string exposure = R"({"id":"gain","kind":"image-processor","backend":"native","identifier":"rawnode.native.exposure","enabled":true,"inputs":{"image":{"node":"camera-root","port":"image"}},"params":{"exposure":1.0}})";
+
+bool photoMarkActions() {
+  Files files;
+  const auto a = photo(files, "a.png");
+  const auto unopened = files.path("b.NEF");
+  write(unopened, "Intentionally undecodable: metadata actions must not open this photograph");
+  App app; app.folderDir = files.dir.string(); refreshFilmstrip(app);
+  CHECK(app.filmstrip[0].mark == PhotoMark::Unmarked && app.filmstrip[1].mark == PhotoMark::Unmarked);
+  CHECK(!fs::exists(inputSidecarPath(a)) && !fs::exists(inputSidecarPath(unopened)));
+  // Public semantic action works without an open document, widgets or decoder.
+  for (auto mark : {PhotoMark::Pick, PhotoMark::Reject, PhotoMark::Unmarked}) {
+    CHECK(assignPhotoMark(app, unopened, mark));
+    CHECK(!read(inputSidecarPath(unopened)).grade && photoMark(read(inputSidecarPath(unopened))) == mark);
+    CHECK(app.filmstrip[1].mark == mark && app.path.empty() && app.full.px.empty());
+    CHECK(app.nodes.size() == 1 && app.history.size() == 0);
+    CHECK(!app.currentPhotoMark);
+    refreshFilmstrip(app);
+    CHECK(app.filmstrip[1].mark == mark);
+  }
+  CHECK(section(inputSidecarPath(unopened), "metadata") == "{}");
+
+  // Independent hand-authored complete grade: exact formatting, opaque nested
+  // parameters, >53-bit integers, positions and non-default colours must survive.
+  write(inputSidecarPath(a), file(missing + ',' + exposure + ',' + source, "gain",
+      R"(,"positions":{"gain":{"x":-3.25,"y":19}})"));
+  CHECK(openPath(app, a));
+  CHECK(app.currentPhotoMark == PhotoMark::Unmarked);
+  const auto grade = section(inputSidecarPath(a), "grade");
+  CHECK(setOutputEncoding(app, {RgbGamut::Rec2020, TransferFunction::Linear}));
+  const auto live = capturedGrade(app);  // Unsaved live edits remain authoritative.
+  const auto historySize = app.history.size(), cursor = app.history.cursor(), historyBytes = app.history.bytes();
+  const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+  const auto preview = app.preview;
+  for (auto mark : {PhotoMark::Pick, PhotoMark::Reject, PhotoMark::Unmarked}) {
+    CHECK(assignPhotoMark(app, a, mark));
+    CHECK(section(inputSidecarPath(a), "grade") == grade && photoMark(read(inputSidecarPath(a))) == mark);
+    CHECK(app.filmstrip[0].mark == mark && app.filmstripIndex == 0 && app.path == a);
+    CHECK(app.currentPhotoMark == mark);
+    CHECK(app.history.size() == historySize && app.history.cursor() == cursor && app.history.bytes() == historyBytes);
+    CHECK(app.preview == preview && capturedGrade(app) == live);
+    const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+    CHECK(after.epoch == before.epoch && after.previewPending == before.previewPending &&
+          after.displayPending == before.displayPending && after.mutationDepth == before.mutationDepth);
+  }
+  CHECK(saveCurrentInputSidecar(app));
+  CHECK(photoMark(read(inputSidecarPath(a))) == PhotoMark::Unmarked);
+  CHECK(read(inputSidecarPath(a)).grade->color.outputColorSpace == "rec2020");
+  return true;
+}
+
+bool photoMarkFailures() {
+  Files files;
+  // Folder opening canonicalizes aliases such as macOS /var -> /private/var.
+  files.dir = fs::canonical(files.dir);
+  const auto a = photo(files, "a.png"), b = photo(files, "b.png");
+  App app; CHECK(openFolder(app, files.dir.string()));
+  CHECK(assignPhotoMark(app, a, PhotoMark::Pick));
+  const auto original = bytes(inputSidecarPath(a));
+  app.persistenceWarning = "Existing grade save warning";
+  for (auto fault : {Fault::Read, Fault::PermissionStat, Fault::PermissionCheck, Fault::TempCreate,
+                     Fault::Write, Fault::Flush, Fault::PermissionCopy, Fault::Close, Fault::Replace}) {
+    Options options; options.beforeSave = [fault] { return fault; };
+    const auto directory = entries(files.dir);
+    CHECK(!document_detail::assignPhotoMark(app, a, PhotoMark::Reject, options));
+    CHECK(bytes(inputSidecarPath(a)) == original && entries(files.dir) == directory);
+    CHECK(app.filmstrip[0].mark == PhotoMark::Pick && app.path == a && app.filmstripIndex == 0);
+    CHECK(app.currentPhotoMark == PhotoMark::Pick);
+    CHECK(!app.photoMarkWarning.empty() && app.persistenceWarning == "Existing grade save warning");
+    app.setStatus("Ordinary renderer status");
+    CHECK(!app.photoMarkWarning.empty());
+  }
+  CHECK(assignPhotoMark(app, a, PhotoMark::Reject) && app.photoMarkWarning.empty());
+  CHECK(app.persistenceWarning == "Existing grade save warning");
+  const auto sidecar = inputSidecarPath(b);
+  for (const auto &invalid : {std::string("broken JSON"), std::string(R"({"format":"rawnode","version":999})"),
+                              std::string(R"({"format":"rawnode","version":1,"metadata":{"mark":"unknown"}})")}) {
+    write(sidecar, invalid); refreshFilmstrip(app);
+    CHECK(!app.filmstrip[1].mark && !app.filmstrip[1].markError.empty());
+    CHECK(!assignPhotoMark(app, b, PhotoMark::Unmarked));
+    CHECK(bytes(sidecar) == invalid && !app.filmstrip[1].mark);
+  }
+  CHECK(openPath(app, b) && app.isPhotoProtected());
+  CHECK(!app.currentPhotoMark && !app.filmstrip[1].mark);
+  // Active protection still refuses after the disk file is repaired. Reopening
+  // is the established way to leave read-only source viewing.
+  write(sidecar, R"({"format":"rawnode","version":1})");
+  const auto repaired = bytes(sidecar);
+  refreshFilmstrip(app);
+  CHECK(!app.filmstrip[1].mark && !app.filmstrip[1].markError.empty());
+  CHECK(!assignPhotoMark(app, b, PhotoMark::Pick) && bytes(sidecar) == repaired);
+  CHECK(openPath(app, b) && !app.isPhotoProtected());
+  CHECK(assignPhotoMark(app, b, PhotoMark::Pick));
+  CHECK(fs::remove(sidecar));
+  write(legacyInputSidecarPath(b), "protected legacy bytes");
+  refreshFilmstrip(app);
+  CHECK(!app.filmstrip[1].mark && !app.filmstrip[1].markError.empty());
+  CHECK(!assignPhotoMark(app, b, PhotoMark::Pick));
+  CHECK(bytes(legacyInputSidecarPath(b)) == "protected legacy bytes" && !fs::exists(sidecar));
+  CHECK(fs::remove(legacyInputSidecarPath(b)));
+  fs::create_directory(sidecar); refreshFilmstrip(app);
+  CHECK(!app.filmstrip[1].mark && !assignPhotoMark(app, b, PhotoMark::Unmarked));
+  CHECK(fs::is_directory(sidecar));
+  return true;
+}
+
+bool photoMarkFiltersAndRefresh() {
+  Files files;
+  files.dir = fs::canonical(files.dir);
+  const auto a = photo(files, "a.png"), b = photo(files, "b.png");
+  const auto raw = files.path("c.NEF"); write(raw, "RAW discovery fixture");
+  const auto bad = photo(files, "d.png"); write(inputSidecarPath(bad), "invalid");
+  write(inputSidecarPath(a), R"({"format":"rawnode","version":1,"metadata":{"mark":"\u0070ick"}})");
+  write(inputSidecarPath(b), R"({"format":"rawnode","version":1,"metadata":{"mark":"unmarked"}})");
+  App app; CHECK(openFolder(app, files.dir.string()));
+  CHECK(assignPhotoMark(app, raw, PhotoMark::Reject));
+  auto visible = [&] {
+    std::vector<std::string> paths;
+    for (const auto &entry : app.filmstrip) if (filmstripEntryVisible(app, entry)) paths.push_back(entry.path);
+    return paths;
+  };
+  CHECK(visible() == (std::vector<std::string>{a, b, raw, bad}));
+  for (auto mark : {PhotoMark::Pick, PhotoMark::Unmarked, PhotoMark::Reject}) {
+    app.filmstripMarkFilter = mark;
+    const auto expected = mark == PhotoMark::Pick ? a : mark == PhotoMark::Unmarked ? b : raw;
+    CHECK(visible() == std::vector<std::string>{expected});
+    app.filmstripTab = 1;
+    CHECK(visible() == (mark == PhotoMark::Reject ? std::vector<std::string>{raw} : std::vector<std::string>{}));
+    app.filmstripTab = 2;
+    CHECK(visible() == (mark == PhotoMark::Reject ? std::vector<std::string>{} : std::vector<std::string>{expected}));
+    app.filmstripTab = 0;
+  }
+  app.filmstripMarkFilter = PhotoMark::Pick;
+  CHECK(assignPhotoMark(app, a, PhotoMark::Reject));
+  CHECK(visible().empty() && app.path == a && app.filmstripIndex == 0);  // No auto-advance.
+  CHECK(app.currentPhotoMark == PhotoMark::Reject);
+  app.filmstripMarkFilter = PhotoMark::Unmarked;
+  CHECK(visible() == std::vector<std::string>{b});
+  Options failSave; failSave.beforeSave = [] { return Fault::Replace; };
+  CHECK(!document_detail::openPhoto(app, visible().front(), {}, failSave));
+  CHECK(app.path == a && app.filmstripIndex == 0);  // Normal departure protection.
+  CHECK(app.currentPhotoMark == PhotoMark::Reject);
+  CHECK(openPath(app, visible().front()) && app.path == b && app.filmstripIndex == 1);
+  CHECK(app.currentPhotoMark == PhotoMark::Unmarked);
+  CHECK(photoMark(read(inputSidecarPath(a))) == PhotoMark::Reject);
+
+  // No per-frame reads: visibility uses the snapshot until an explicit refresh.
+  write(inputSidecarPath(a), R"({"format":"rawnode","version":1,"metadata":{"mark":"pick"}})");
+  CHECK(app.filmstrip[0].mark == PhotoMark::Reject);
+  refreshFilmstrip(app);
+  CHECK(app.filmstrip[0].mark == PhotoMark::Pick && app.filmstrip[2].mark == PhotoMark::Reject);
+  CHECK(fs::remove(inputSidecarPath(raw))); refreshFilmstrip(app);
+  CHECK(app.filmstrip[2].mark == PhotoMark::Unmarked);
+  Files next; next.dir = fs::canonical(next.dir);
+  const auto nextPhoto = photo(next, "a.png");
+  CHECK(openFolder(app, next.dir.string()));
+  CHECK(app.filmstrip.size() == 1 && app.filmstrip[0].mark == PhotoMark::Unmarked && app.path == nextPhoto);
+  app.folderDir.clear(); refreshFilmstrip(app);
+  CHECK(app.filmstrip.empty() && app.filmstripIndex == -1);
+  return true;
+}
+
+bool photoMarkOpeningAndIdentity() {
+  Files files;
+  const auto a = photo(files, "a.png"), b = photo(files, "b.png");
+  App app; app.folderDir = files.dir.string(); refreshFilmstrip(app);
+  CHECK(!app.currentPhotoMark && app.filmstrip[0].mark == PhotoMark::Unmarked);
+  // Change the fixture after scanning, so opening must replace a stale snapshot.
+  write(inputSidecarPath(a), R"({"format":"rawnode","version":1,"metadata":{"mark":"pick"}})");
+  app.photoMarkWarning = "Previous mark save failure";
+  CHECK(openPath(app, a));
+  CHECK(app.currentPhotoMark == PhotoMark::Pick && app.filmstrip[0].mark == PhotoMark::Pick);
+  CHECK(app.photoMarkWarning.empty());
+  CHECK(assignPhotoMark(app, b, PhotoMark::Reject));
+  CHECK(app.currentPhotoMark == PhotoMark::Pick && app.filmstrip[1].mark == PhotoMark::Reject);
+  app.photoMarkWarning = "Keep on failed navigation";
+  Options failDecode;
+  failDecode.decode = [](const std::string &, Image &, ColorEncoding &, bool &, ColorEncoding) { return false; };
+  CHECK(!document_detail::openPhoto(app, b, {}, failDecode));
+  CHECK(app.path == a && app.currentPhotoMark == PhotoMark::Pick && app.filmstripIndex == 0);
+  CHECK(app.filmstrip[0].mark == PhotoMark::Pick && app.photoMarkWarning == "Keep on failed navigation");
+  // A known mark in a syntactically valid but incompatible grade is still Unknown
+  // after protected opening. Refresh alone need not instantiate processors.
+  write(inputSidecarPath(b), file(exposure + ',' + source, "gain", "", R"({"mark":"reject"})"));
+  auto incompatible = bytes(inputSidecarPath(b));
+  incompatible.replace(incompatible.find("\"exposure\":1.0"), 14, "\"exposure\":true");
+  write(inputSidecarPath(b), incompatible);
+  refreshFilmstrip(app);
+  CHECK(app.filmstrip[1].mark == PhotoMark::Reject);
+  CHECK(openPath(app, b) && app.isPhotoProtected());
+  CHECK(!app.currentPhotoMark && !app.filmstrip[1].mark && !app.filmstrip[1].markError.empty());
+  CHECK(app.photoMarkWarning.empty() && bytes(inputSidecarPath(b)) == incompatible);
+  const auto spelling = (files.dir / "." / "b.png").string();
+  CHECK(!assignPhotoMark(app, spelling, PhotoMark::Unmarked));
+  CHECK(!app.currentPhotoMark && bytes(inputSidecarPath(b)) == incompatible);
+
+  CHECK(openPath(app, a));
+  const auto aliasSpelling = (files.dir / "." / "a.png").string();
+  CHECK(assignPhotoMark(app, aliasSpelling, PhotoMark::Reject));
+  CHECK(app.currentPhotoMark == PhotoMark::Reject && app.filmstrip[0].mark == PhotoMark::Reject);
+  CHECK(photoMark(read(inputSidecarPath(a))) == PhotoMark::Reject);
+  // A directory symlink changes the spelling without changing sidecar identity.
+  std::error_code ec;
+  fs::create_directory_symlink(files.dir, files.path("alias"), ec);
+  if (!ec) {
+    const auto alias = files.path("alias/a.png");
+    CHECK(assignPhotoMark(app, alias, PhotoMark::Pick));
+    CHECK(app.currentPhotoMark == PhotoMark::Pick && app.filmstrip[0].mark == PhotoMark::Pick);
+    CHECK(openPath(app, alias) && app.filmstripIndex == 0 && app.currentPhotoMark == PhotoMark::Pick);
+    CHECK(app.filmstrip[0].mark == PhotoMark::Pick);
+    CHECK(openPath(app, b) && app.isPhotoProtected());
+    CHECK(!assignPhotoMark(app, files.path("alias/b.png"), PhotoMark::Unmarked));
+    CHECK(!app.currentPhotoMark && bytes(inputSidecarPath(b)) == incompatible);
+    CHECK(openPath(app, alias) && app.currentPhotoMark == PhotoMark::Pick);
+    CHECK(assignPhotoMark(app, a, PhotoMark::Unmarked));
+    CHECK(app.currentPhotoMark == PhotoMark::Unmarked && app.filmstrip[0].mark == PhotoMark::Unmarked);
+  } else std::printf("SKIP photo mark directory alias: %s\n", ec.message().c_str());
+
+  const auto unsupported = files.path("unsupported.txt"); write(unsupported, "not a photograph");
+  const auto before = entries(files.dir);
+  for (const auto &path : {files.path("missing.png"), unsupported, files.dir.string()}) {
+    const auto mark = app.currentPhotoMark;
+    CHECK(!assignPhotoMark(app, path, PhotoMark::Pick));
+    CHECK(app.currentPhotoMark == mark && entries(files.dir) == before);
+    CHECK(!fs::exists(inputSidecarPath(path)) && !app.photoMarkWarning.empty());
+  }
+  // Direct opening needs no folder entry to display the current mark.
+  App direct;
+  CHECK(openPath(direct, a) && direct.currentPhotoMark == PhotoMark::Unmarked && direct.filmstrip.empty());
+  CHECK(assignPhotoMark(direct, a, PhotoMark::Reject) && direct.currentPhotoMark == PhotoMark::Reject);
+  CHECK(app.currentPhotoMark == PhotoMark::Unmarked);  // Separate App presentation is transient.
+  return true;
+}
+
+#ifndef _WIN32
+bool readOnlyPhotoMark() {
+  Files files;
+  const auto path = photo(files, "readonly.png");
+  App app; app.folderDir = files.dir.string(); refreshFilmstrip(app);
+  CHECK(openPath(app, path) && assignPhotoMark(app, path, PhotoMark::Pick));
+  const auto original = bytes(inputSidecarPath(path));
+  fs::permissions(inputSidecarPath(path), fs::perms::owner_read);
+  CHECK(access(inputSidecarPath(path).c_str(), W_OK) != 0);
+  CHECK(!assignPhotoMark(app, path, PhotoMark::Reject));
+  CHECK(app.currentPhotoMark == PhotoMark::Pick && app.filmstrip[0].mark == PhotoMark::Pick);
+  CHECK(bytes(inputSidecarPath(path)) == original && !app.photoMarkWarning.empty());
+  return true;
+}
+
+bool photoMarkReadOnlyPermissions() {
+  if (geteuid() != 0) return readOnlyPhotoMark();
+  // Same ordinary-user contract as SidecarFileTests: root runs a child with
+  // its own fixtures after dropping privileges, rather than skipping refusal.
+  const pid_t child = fork();
+  CHECK(child >= 0);
+  if (child == 0) {
+    if (setgroups(0, nullptr) != 0 || setgid(65534) != 0 || setuid(65534) != 0) _exit(2);
+    _exit(readOnlyPhotoMark() ? 0 : 1);
+  }
+  int status = 0;
+  CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+  return true;
+}
+#endif
+
+// Real ImGui frames, following the existing UI tests; thumbnail IDs are drawing
+// tokens only. No GL upload, worker or alternative input path is involved.
+struct FilmstripFrame {
+  ImGuiContext *previous = ImGui::GetCurrentContext(), *context = ImGui::CreateContext();
+  ImGuiWindow *window = nullptr;
+  ImGuiTable *toolbar = nullptr;
+  ImRect thumbnail;
+  std::string renderedText;
+  FilmstripFrame() {
+    auto &io = ImGui::GetIO(); io.IniFilename = nullptr; io.ConfigInputTrickleEventQueue = false;
+    unsigned char *pixels; int width, height; io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+  }
+  ~FilmstripFrame() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
+  void tick(App &app, float width = 800, float height = 96, float scale = 1, ImVec2 position = {20, 20}) {
+    auto &io = ImGui::GetIO(); io.DisplaySize = {1600, 900}; io.DeltaTime = 1.0f / 60;
+    io.DisplayFramebufferScale = {scale, scale};
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos(position); ImGui::SetNextWindowSize({width, height});
+    ImGui::Begin("Filmstrip test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
+    ImGui::LogToBuffer(0);
+    drawFilmstripPanel(app);
+    renderedText = context->LogBuffer.c_str();
+    ImGui::LogFinish();
+    window = ImGui::GetCurrentWindow();
+    thumbnail = context->LastItemData.Rect;
+    toolbar = context->Tables.GetByKey(window->GetID("##filmstripToolbar"));
+    ImGui::End(); ImGui::EndFrame();
+  }
+  void click(App &app, ImVec2 point) {
+    ImGui::GetIO().AddMousePosEvent(point.x, point.y); tick(app);
+    ImGui::GetIO().AddMouseButtonEvent(0, true); tick(app);
+    ImGui::GetIO().AddMouseButtonEvent(0, false); tick(app); tick(app);
+  }
+  ImRect markButton(PhotoMark mark) const {
+    float x = toolbar->Columns[1].WorkMinX;
+    const char *labels[] = {"Pick", "Unmarked", "Reject"};
+    const PhotoMark marks[] = {PhotoMark::Pick, PhotoMark::Unmarked, PhotoMark::Reject};
+    for (int i = 0; i < 3; ++i) {
+      const float width = ImGui::CalcTextSize(labels[i]).x + 2 * ImGui::GetStyle().FramePadding.x;
+      if (mark == marks[i]) return {{x, toolbar->WorkRect.Min.y},
+                                    {x + width, toolbar->WorkRect.Max.y}};
+      x += width + ImGui::GetStyle().ItemSpacing.x;
+    }
+    return {};
+  }
+  bool highlighted(PhotoMark mark) const {
+    const auto rect = markButton(mark);
+    for (const auto &vertex : window->DrawList->VtxBuffer)
+      if (rect.Contains(vertex.pos) && vertex.col == ImGui::GetColorU32(ImGuiCol_HeaderActive)) return true;
+    return false;
+  }
+};
+
+bool photoMarkToolbarFrames() {
+  App app; app.folderDir = "filmstrip-fixture"; app.path = "current.png";
+  for (const auto mark : {std::optional<PhotoMark>(PhotoMark::Pick), std::optional<PhotoMark>(PhotoMark::Unmarked),
+                          std::optional<PhotoMark>(PhotoMark::Reject), std::optional<PhotoMark>()}) {
+    FilmstripEntry entry; entry.path = "thumbnail.png"; entry.mark = mark;
+    entry.tex = 1; entry.tw = entry.th = 16; entry.thumbPending = false;
+    app.filmstrip.push_back(std::move(entry));
+  }
+  FilmstripFrame ui;
+  for (int theme = 0; theme < themeCount(); ++theme) {
+    applyTheme(theme);
+    for (const float width : {360.0f, 800.0f, 1280.0f}) for (const float height : {96.0f, 160.0f})
+      for (const float scale : {1.0f, 2.0f}) for (const bool warning : {false, true}) {
+        app.photoMarkWarning = warning ? std::string(500, 'w') : "";
+        // Moving the floating window also exercises non-origin clipping.
+        ui.tick(app, width, height, scale, {110, 130}); ui.tick(app, width, height, scale, {110, 130});
+        CHECK((ui.renderedText.find('!') != std::string::npos) == warning);
+        CHECK(ui.toolbar && ui.toolbar->ColumnsCount == 3);
+        CHECK(ui.toolbar->WorkRect.GetHeight() <= ImGui::GetFrameHeight() + 2);
+        CHECK(ui.thumbnail.Min.y >= ui.toolbar->WorkRect.Max.y);
+        CHECK(ui.thumbnail.Max.y <= ui.window->InnerClipRect.Max.y + 0.5f);
+        if (ui.thumbnail.GetHeight() < ImGui::GetTextLineHeight() + 4)
+          std::fprintf(stderr, "filmstrip theme=%d size=%.0fx%.0f scale=%.0f warning=%d toolbar=%.1f thumbnail=%.1f\n",
+                       theme, width, height, scale, warning, ui.toolbar->WorkRect.GetHeight(), ui.thumbnail.GetHeight());
+        CHECK(ui.thumbnail.GetHeight() >= ImGui::GetTextLineHeight() + 4);
+        CHECK(ui.markButton(PhotoMark::Reject).Max.x < ui.toolbar->Columns[2].WorkMinX);
+        CHECK(ui.toolbar->Columns[2].WorkMaxX <= ui.window->InnerClipRect.Max.x + 0.5f);
+        CHECK(ui.window->ScrollMax.y == 0);  // No vertical scroll hiding footers.
+      }
+    for (const auto mark : {PhotoMark::Pick, PhotoMark::Unmarked, PhotoMark::Reject}) {
+      app.currentPhotoMark = mark;
+      ui.tick(app); ui.tick(app);
+      for (const auto choice : {PhotoMark::Pick, PhotoMark::Unmarked, PhotoMark::Reject}) {
+        if (ui.highlighted(choice) != (choice == mark))
+          std::fprintf(stderr, "filmstrip highlight theme=%d mark=%d choice=%d actual=%d header=%x button=%x\n",
+                       theme, int(mark), int(choice), ui.highlighted(choice), ImGui::GetColorU32(ImGuiCol_HeaderActive),
+                       ImGui::GetColorU32(ImGuiCol_Button));
+        CHECK(ui.highlighted(choice) == (choice == mark));
+      }
+    }
+    app.currentPhotoMark.reset(); ui.tick(app);
+    CHECK(!ui.highlighted(PhotoMark::Pick) && !ui.highlighted(PhotoMark::Unmarked) && !ui.highlighted(PhotoMark::Reject));
+  }
+  applyTheme(2);
+  const std::string warningText = "Could not save photo mark: /photos/current.png.rawnode.json: permission denied";
+  app.photoMarkWarning = warningText; ui.tick(app); ui.tick(app);
+  // Hover the rendered indicator at the end of the filter cell, then observe
+  // tooltip text through the same ImGui logging used for widget labels.
+  const auto &warningColumn = ui.toolbar->Columns[2];
+  ImGui::GetIO().AddMousePosEvent(warningColumn.ContentMaxXUnfrozen - ImGui::CalcTextSize("!").x * 0.5f,
+                                 ui.toolbar->WorkRect.GetCenter().y);
+  ui.tick(app); ui.tick(app);
+  CHECK(ui.renderedText.find(warningText) != std::string::npos);
+  app.photoMarkWarning.clear(); ImGui::GetIO().AddMousePosEvent(-1, -1);
+  ui.tick(app); ui.tick(app);
+  CHECK(ui.renderedText.find('!') == std::string::npos);
+  CHECK(ui.renderedText.find(warningText) == std::string::npos);
+  // Select each existing type tab through real input after moving it into the table.
+  for (const int tab : {1, 2, 0}) {
+    const auto *bar = ui.context->TabBars.GetByKey(ImHashStr("##filmstripTabs", 0, ui.toolbar->ID));
+    CHECK(bar && bar->Tabs.Size == 3);
+    const auto point = ImVec2(bar->BarRect.Min.x + bar->Tabs[tab].Offset + bar->Tabs[tab].Width * 0.5f,
+                              bar->BarRect.GetCenter().y);
+    ui.click(app, point); CHECK(app.filmstripTab == tab);
+  }
+  // The same controls remain highlighted without a folder or any visible entry.
+  app.folderDir.clear(); app.filmstrip.clear(); app.currentPhotoMark = PhotoMark::Reject;
+  ui.tick(app); ui.tick(app); CHECK(ui.highlighted(PhotoMark::Reject));
+  app.folderDir = "filmstrip-fixture"; app.filmstripMarkFilter = PhotoMark::Pick;
+  FilmstripEntry hidden; hidden.path = app.path; hidden.mark = PhotoMark::Reject;
+  app.filmstrip.push_back(hidden);
+  CHECK(!filmstripEntryVisible(app, app.filmstrip[0]));
+  ui.tick(app); ui.tick(app); CHECK(ui.highlighted(PhotoMark::Reject));
+  Files files; const auto target = photo(files, "direct.png");
+  App direct; CHECK(openPath(direct, target));
+  ui.tick(direct); ui.tick(direct); CHECK(ui.highlighted(PhotoMark::Unmarked));
+  ui.click(direct, ui.markButton(PhotoMark::Pick).GetCenter());
+  CHECK(direct.currentPhotoMark == PhotoMark::Pick && ui.highlighted(PhotoMark::Pick));
+  CHECK(photoMark(read(inputSidecarPath(target))) == PhotoMark::Pick);
+  write(inputSidecarPath(target), "invalid sidecar: force UI mark failure");
+  ui.click(direct, ui.markButton(PhotoMark::Reject).GetCenter());
+  CHECK(direct.currentPhotoMark == PhotoMark::Pick && ui.highlighted(PhotoMark::Pick));
+  CHECK(!direct.photoMarkWarning.empty());
+  return true;
+}
 
 bool scanAndInitialGrades() {
   Files files;
@@ -899,6 +1308,14 @@ bool twoPhotoColourOwnership() {
 
 bool testPhotoDocuments() {
   for (const auto &test : {
+       std::make_pair("single-row filmstrip geometry, warning footprint and active marks across themes/DPI", photoMarkToolbarFrames),
+       std::make_pair("photo opening, Unknown protection, warnings, aliases and invalid mark targets", photoMarkOpeningAndIdentity),
+#ifndef _WIN32
+       std::make_pair("ordinary-user read-only photo marking, including a root test runner", photoMarkReadOnlyPermissions),
+#endif
+       std::make_pair("UI-independent photo mark transitions preserve exact grades, history and render demand", photoMarkActions),
+       std::make_pair("failed/protected mark writes preserve bytes, displayed marks and grade warnings", photoMarkFailures),
+       std::make_pair("independent mark/type filters, normal navigation and folder refresh", photoMarkFiltersAndRefresh),
 #if defined(__linux__)
        std::make_pair("Linux dialog exit mapping and safe helper absence", linuxDialogDecisions),
 #endif

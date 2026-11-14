@@ -27,6 +27,10 @@ bool savePreset(App &app, const std::string &path, const OverwritePrompt &confir
 enum class SaveFailureDecision { Retry, Discard, Cancel };
 using SaveFailurePrompt = std::function<SaveFailureDecision(const std::string &error)>;
 bool saveCurrentInputSidecar(App &app, std::string *error = nullptr);
+// Control-thread metadata action for an explicit photo identity, open or not.
+// Persists immediately; publishes filmstrip state only on success. Does not
+// decode, touch the live grade/history or request rendering.
+bool assignPhotoMark(App &app, const std::string &photoPath, PhotoMark mark);
 // Resolve before replacement or shutdown intent. An absent prompt cancels a
 // failed departure; only an explicit Discard permits leaving without saving.
 bool preparePhotoDeparture(App &app, const SaveFailurePrompt &prompt = {});

@@ -25,6 +25,8 @@ bool applyGrade(App &app, const PersistGrade &grade,
 bool savePreset(App &app, const std::string &path, const OverwritePrompt &confirm,
                 const ActionTestOptions &options);
 bool savePhoto(App &app, std::string &error, const ActionTestOptions &options);
+bool assignPhotoMark(App &app, const std::string &photoPath, PhotoMark mark,
+                     const ActionTestOptions &options);
 bool leavePhoto(App &app, const SaveFailurePrompt &prompt, const ActionTestOptions &options);
 bool prepareShutdown(App &app, const ConfigPaths &config, bool preferencesLoaded,
                      const SaveFailurePrompt &prompt,

@@ -440,11 +440,25 @@ its implementation milestone.
 The same sidecar supports logically independent processing-grade data and
 minimal photo metadata. Grade data includes the graph, parameters, RAW/Output
 colour settings and optional Graph View node positions (D048). Photo metadata
-includes future Pick/Reject/Unmarked status and other photo-specific information
+includes Pick/Reject/Unmarked status and other photo-specific information
 only when needed. Grade-only, metadata-only and combined sidecars are all valid.
 An absent grade remains valid for unopened photos; absent metadata.mark is the
 canonical Unmarked representation. Metadata-only updates do not open a photo.
 Metadata updates preserve the grade; grade updates preserve photo metadata.
+
+The initial in-editor marking slice adds current-photo filmstrip actions and
+independent All/Pick/Unmarked/Reject filtering. `assignPhotoMark` accepts an
+explicit photo path and intended mark without opening/decoding it, changing
+grade history or requesting rendering. Filmstrip entries retain a small
+control-thread mark/error snapshot, reloaded on folder refresh and updated only
+after successful writes. One transient current-photo mark drives the active
+button even without a folder or visible thumbnail; protected opening leaves it
+Unknown. Failed saves/navigation never change the selected mark. A single-row
+filmstrip toolbar and inline mark-warning tooltip preserve thumbnail space at
+the unchanged default height. Unknown sidecars remain distinct from Unmarked.
+Assignable shortcuts and multi-photo operations are separate milestones; see
+[photo marking](PHOTO_MARKING.md) for scope and validation.
+
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,
 decode no photo and build no live graph. External modification/conflict tracking
@@ -950,7 +964,7 @@ behaviour and photo/global settings ownership in "Persistence direction" above.
 Editor opening establishes a grade; unopened metadata-only photos remain valid.
 No live dirty/presence tracking is required for lifecycle saves (D050).
 Step 7 completed the preset/clipboard transition and workspace-persistence
-cleanup. Default-preset UI/application, culling UI, multi-photo operations
+cleanup. Default-preset UI/application, assignable shortcuts, multi-photo operations
 and batch/workspace export remain separate focused workflow milestones.
 
 **Accepted sidecar/layout direction (D048):** each editable source photograph

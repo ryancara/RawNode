@@ -327,6 +327,45 @@ bool saveCurrentInputSidecar(App &app, std::string *failure) {
   return saved;
 }
 
+bool document_detail::assignPhotoMark(App &app, const std::string &photoPath, PhotoMark mark,
+                                     const ActionTestOptions &options) {
+  DocumentMutation::assertControlThread(app);
+  std::string error;
+  std::error_code ec;
+  const bool protectedPhoto = app.isPhotoProtected() && fs::equivalent(photoPath, app.path, ec);
+  if (protectedPhoto) error = "This photograph is read-only; reopen it after fixing its sidecar";
+  else if (!isSupportedImagePath(photoPath) || !fs::is_regular_file(photoPath, ec))
+    error = "Not a photograph: " + photoPath;
+  else {
+    const auto fault = options.beforeSave ? options.beforeSave() : persist_detail::FileFault::None;
+    const bool saved = fault == persist_detail::FileFault::None && !options.testOperations
+        ? updateSidecarMark(inputSidecarPath(photoPath), mark, error)
+        : persist_detail::updateGraphSidecar(inputSidecarPath(photoPath), nullptr, mark, error,
+                                              fault, options.testOperations);
+    if (saved) {
+      ec.clear();
+      if (!app.path.empty() && fs::equivalent(photoPath, app.path, ec)) app.currentPhotoMark = mark;
+      for (auto &entry : app.filmstrip) {
+        ec.clear();
+        if (entry.path == photoPath || fs::equivalent(entry.path, photoPath, ec)) {
+          entry.mark = mark;
+          entry.markError.clear();
+        }
+      }
+      app.photoMarkWarning.clear();
+      app.setStatus("Saved photo mark");
+      return true;
+    }
+  }
+  app.photoMarkWarning = "Could not save photo mark: " + photoPath + ": " + error;
+  app.setStatus(app.photoMarkWarning);
+  return false;
+}
+
+bool assignPhotoMark(App &app, const std::string &photoPath, PhotoMark mark) {
+  return document_detail::assignPhotoMark(app, photoPath, mark, {});
+}
+
 bool preparePhotoDeparture(App &app, const SaveFailurePrompt &prompt) {
   return document_detail::leavePhoto(app, prompt, {});
 }
@@ -407,6 +446,8 @@ static bool openPreparedPhoto(App &app, const std::string &path, const ActionTes
     std::string blockedPath = protectedSource ? path : "";
     std::string warning = protectedSource ? "Saved grade was not loaded; this photo is read-only: " + error
         : app.path == path ? app.persistenceWarning : std::string();
+    const auto loadedMark = protectedSource ? std::nullopt : std::optional<PhotoMark>(photoMark(file));
+    std::string markError = protectedSource ? warning : std::string();
     auto loaded = "Loaded " + fs::path(path).filename().string() + " (" + colorEncodingName(detected) + ")";
     int filmstripIndex = -1;
     for (size_t i = 0; i < app.filmstrip.size(); ++i) {
@@ -425,6 +466,8 @@ static bool openPreparedPhoto(App &app, const std::string &path, const ActionTes
     app.preview.swap(preview);
     app.sidecarWriteBlockedPath.swap(blockedPath);
     app.persistenceWarning.swap(warning);
+    app.photoMarkWarning.clear();
+    app.currentPhotoMark = loadedMark;
     {
       std::lock_guard<std::mutex> lock(app.colorMutex);
       app.inputEncoding = detected;
@@ -438,6 +481,11 @@ static bool openPreparedPhoto(App &app, const std::string &path, const ActionTes
     app.previewZoom = 1.0f;
     app.previewPanX = app.previewPanY = 0.0f;
     app.filmstripIndex = filmstripIndex;
+    if (filmstripIndex >= 0) {
+      auto &entry = app.filmstrip[filmstripIndex];
+      entry.mark = loadedMark;
+      entry.markError.swap(markError);
+    }
     {
       std::lock_guard<std::mutex> lock(app.statusMutex);
       app.status.swap(loaded);

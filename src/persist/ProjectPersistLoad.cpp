@@ -671,6 +671,19 @@ SidecarReadStatus readGraphSidecar(const std::string &path, PersistFile &out, st
   return SidecarReadStatus::Error;
 }
 
+PhotoMark photoMark(const PersistFile &file) {
+  if (!file.metadataJson) return PhotoMark::Unmarked;
+  persist_json::Value metadata;
+  std::string error;
+  if (!persist_json::read(*file.metadataJson, metadata, error)) throw std::runtime_error(error);
+  const auto found = metadata.object.find("mark");
+  if (found == metadata.object.end()) return PhotoMark::Unmarked;
+  if (found->second.string == "pick") return PhotoMark::Pick;
+  if (found->second.string == "reject") return PhotoMark::Reject;
+  if (found->second.string == "unmarked") return PhotoMark::Unmarked;
+  throw std::runtime_error("Unsupported metadata mark");
+}
+
 bool decodeTransferPayload(const std::string &json, PersistTransfer &out, std::string &error) {
   return persist_detail::decodeTransferPayload(json, out, error, false);
 }

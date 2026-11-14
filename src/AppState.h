@@ -35,6 +35,10 @@ struct ThumbReady {
 
 struct FilmstripEntry {
   std::string path;
+  // Control-thread snapshot, loaded on folder refresh or successful marking.
+  // Unknown/error is distinct from Unmarked and excluded from mark filters.
+  std::optional<PhotoMark> mark;
+  std::string markError;
   unsigned int tex = 0;
   int tw = 0, th = 0;
   bool thumbPending = true;
@@ -90,6 +94,10 @@ struct App {
   // Control-thread presentation only. Save eligibility always uses path and
   // protection, never this text; render/export status cannot erase it.
   std::string persistenceWarning;
+  std::string photoMarkWarning;
+  // Current-document presentation; Unknown for no photo or protected opening.
+  // Filmstrip entries retain separate folder snapshots for filtering.
+  std::optional<PhotoMark> currentPhotoMark;
   PersistPositions nodePositions;
   GradeHistory history;
   std::optional<ui::ParameterGesture> parameterGesture;
@@ -152,6 +160,7 @@ struct App {
   bool showFilmstrip = true;
   float filmstripH = 96.0f;
   int filmstripTab = 0;  // 0=All, 1=RAW, 2=Compressed
+  std::optional<PhotoMark> filmstripMarkFilter;  // disengaged = All
   bool showAbout = false;
   bool showDonate = false;
 

@@ -38,13 +38,15 @@ These priorities sequence focused work without reopening completed architecture 
    validation, Windows and Intel JPEG XL ON checks, portable packaging and
    binary redistribution/licensing review remain separate rollout work; see
    [the support and validation record](docs/JPEG_XL_DNG.md).
-2. **Enable/bypass directly in Graph View — implemented in draft PR #113.**
+2. **Enable/bypass directly in Graph View — merged (#113).**
    The node context menu reuses the existing enabled state, edit/history command
    and protections exposed in List View, without a second bypass mechanism.
-3. **Pick / Unmarked / Reject while editing.** Add photo-specific culling state
-   with keyboard actions, filmstrip navigation/filtering and independent
-   sidecar metadata, without a catalogue. This supports decisions made while
-   editing, not high-volume first-pass culling; do not introduce a separate
+3. **Pick / Unmarked / Reject while editing — implemented, under review.**
+   Compact filmstrip actions, indicators and independent mark/type filters use
+   existing sidecar metadata and normal photo opening. The semantic document
+   action accepts a photo path and mark; assignable shortcuts remain a separate
+   milestone, with no fixed marking bindings in this slice. This supports
+   decisions made while editing, not high-volume first-pass culling; do not introduce a separate
    fast-RAW browsing or decode-skipping pipeline for it.
 4. **Multi-photo selection and batch export.** Select photos in the filmstrip
    and export a selected or filtered set using the existing single-image
@@ -118,8 +120,8 @@ are non-blocking follow-ups.
 The completed stabilisation tasks are not extra migration steps.
 
 Detailed persistence behaviour is in `docs/PROJECT_CONTEXT.md` under
-"Persistence direction". Default-preset UI/automatic application, culling,
-multi-photo actions and other photography workflows are later focused milestones;
+"Persistence direction". Default-preset UI/automatic application, multi-photo
+actions and other photography workflows are later focused milestones;
 they can proceed independently without changing the architecture sequence.
 
 Post-Step-6 code quality, CI, verification and milestone readability follow-ups
@@ -210,17 +212,20 @@ CLF should be treated as a richer transform format rather than assumed to be onl
 
 ## Pick / reject workflow
 
-Add a simple photo-culling workflow:
+The initial in-editor photo-marking slice is implemented, under review:
 
 - Pick (Flag) / Reject / Unmarked as minimal optional per-photo sidecar metadata,
   independently of whether the source has a saved processing grade;
-- filmstrip filtering and efficient navigation between images;
-- later, hide rejects or move rejected photos (and associated sidecars) to the
-  operating system Trash through an explicit, confirmed user action.
+- current-photo buttons, visible filmstrip indicators and All / Pick / Unmarked /
+  Reject filtering composed with All / RAW / Compressed;
+- ordinary single-photo navigation through document opening, with no automatic
+  advance after marking. Future assignable inputs invoke the same document action.
 
-Keep this folder-based with no catalogue/database or automatic deletion. Step 7
-establishes minimal photo-metadata persistence support; the culling UI
-and file actions can follow later.
+Keep this folder-based with no catalogue/database or automatic deletion. Step 7's
+metadata-only writer preserves complete grades. File actions and multi-photo
+selection remain separate future work. See [behaviour and validation](docs/PHOTO_MARKING.md).
+Later, moving rejected photos and their sidecars to the operating system Trash
+would require an explicit, confirmed user action; this slice implements no file actions.
 
 ## Batch / workspace export
 
@@ -399,6 +404,11 @@ bounded measurement and prioritisation task, **not** a promise to implement
 optimisations or a new architecture milestone. Revisit earlier only if a
 measured bottleneck materially impairs a current workflow.
 
+- **Filmstrip refresh observation (PR #114 review):** Claude measured roughly
+  410–450 ms to refresh 2,000 graded photo sidecars. Record this as review evidence,
+  not a cross-platform performance guarantee; remeasure representative macOS
+  folders at this checkpoint before considering optimization. This PR adds no
+  background metadata loading or cache infrastructure.
 - **RAW load/decode:** Benchmark real macOS DxO PureRAW JPEG XL and conventional
   NEF opening, RAW-working-encoding changes and output preparation. Separate
   Adobe SDK unpack/Stage 2, LibRaw development and RawNode's float RGBA
