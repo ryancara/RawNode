@@ -404,6 +404,11 @@ bounded measurement and prioritisation task, **not** a promise to implement
 optimisations or a new architecture milestone. Revisit earlier only if a
 measured bottleneck materially impairs a current workflow.
 
+- **Filmstrip refresh observation (PR #114 review):** Claude measured roughly
+  410–450 ms to refresh 2,000 graded photo sidecars. Record this as review evidence,
+  not a cross-platform performance guarantee; remeasure representative macOS
+  folders at this checkpoint before considering optimization. This PR adds no
+  background metadata loading or cache infrastructure.
 - **RAW load/decode:** Benchmark real macOS DxO PureRAW JPEG XL and conventional
   NEF opening, RAW-working-encoding changes and output preparation. Separate
   Adobe SDK unpack/Stage 2, LibRaw development and RawNode's float RGBA

@@ -95,6 +95,9 @@ struct App {
   // protection, never this text; render/export status cannot erase it.
   std::string persistenceWarning;
   std::string photoMarkWarning;
+  // Current-document presentation; Unknown for no photo or protected opening.
+  // Filmstrip entries retain separate folder snapshots for filtering.
+  std::optional<PhotoMark> currentPhotoMark;
   PersistPositions nodePositions;
   GradeHistory history;
   std::optional<ui::ParameterGesture> parameterGesture;

@@ -451,7 +451,11 @@ independent All/Pick/Unmarked/Reject filtering. `assignPhotoMark` accepts an
 explicit photo path and intended mark without opening/decoding it, changing
 grade history or requesting rendering. Filmstrip entries retain a small
 control-thread mark/error snapshot, reloaded on folder refresh and updated only
-after successful writes. Unknown sidecars remain distinct from Unmarked.
+after successful writes. One transient current-photo mark drives the active
+button even without a folder or visible thumbnail; protected opening leaves it
+Unknown. Failed saves/navigation never change the selected mark. A single-row
+filmstrip toolbar and inline mark-warning tooltip preserve thumbnail space at
+the unchanged default height. Unknown sidecars remain distinct from Unmarked.
 Assignable shortcuts and multi-photo operations are separate milestones; see
 [photo marking](PHOTO_MARKING.md) for scope and validation.
 

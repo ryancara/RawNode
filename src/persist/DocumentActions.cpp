@@ -343,6 +343,8 @@ bool document_detail::assignPhotoMark(App &app, const std::string &photoPath, Ph
         : persist_detail::updateGraphSidecar(inputSidecarPath(photoPath), nullptr, mark, error,
                                               fault, options.testOperations);
     if (saved) {
+      ec.clear();
+      if (!app.path.empty() && fs::equivalent(photoPath, app.path, ec)) app.currentPhotoMark = mark;
       for (auto &entry : app.filmstrip) {
         ec.clear();
         if (entry.path == photoPath || fs::equivalent(entry.path, photoPath, ec)) {
@@ -465,6 +467,7 @@ static bool openPreparedPhoto(App &app, const std::string &path, const ActionTes
     app.sidecarWriteBlockedPath.swap(blockedPath);
     app.persistenceWarning.swap(warning);
     app.photoMarkWarning.clear();
+    app.currentPhotoMark = loadedMark;
     {
       std::lock_guard<std::mutex> lock(app.colorMutex);
       app.inputEncoding = detected;

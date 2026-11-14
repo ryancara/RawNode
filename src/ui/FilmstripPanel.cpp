@@ -7,7 +7,6 @@
 #include "imgui.h"
 
 #include <algorithm>
-#include <cctype>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -19,43 +18,68 @@ void drawFilmstripPanel(App &app) {
     PhotoMark mark;
   } markChoices[] = {{"Pick", "P", PhotoMark::Pick}, {"Unmarked", "U", PhotoMark::Unmarked},
                      {"Reject", "R", PhotoMark::Reject}};
-  ImGui::TextUnformatted("Mark current:");
-  ImGui::BeginDisabled(app.path.empty() || app.isPhotoProtected());
-  for (const auto &choice : markChoices) {
-    ImGui::SameLine();
-    if (ImGui::SmallButton(choice.label)) assignPhotoMark(app, app.path, choice.mark);
-  }
-  ImGui::EndDisabled();
-  ImGui::SameLine();
-  ImGui::SetNextItemWidth(120.0f);
-  const char *filterLabel = "All";
-  for (const auto &choice : markChoices)
-    if (app.filmstripMarkFilter == choice.mark) filterLabel = choice.label;
-  if (ImGui::BeginCombo("Mark filter", filterLabel)) {
-    if (ImGui::Selectable("All", !app.filmstripMarkFilter)) app.filmstripMarkFilter.reset();
+  const auto &style = ImGui::GetStyle();
+  // Keep this toolbar compact even in themes with tall ordinary controls.
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 1));
+  const float filterWidth = ImGui::CalcTextSize("Unmarked").x + ImGui::GetFrameHeight() * 1.5f;
+  ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(style.CellPadding.x, 0));
+  if (ImGui::BeginTable("##filmstripToolbar", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_NoSavedSettings)) {
+    ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("Mark", ImGuiTableColumnFlags_WidthFixed);
+    ImGui::TableSetupColumn("Filter", ImGuiTableColumnFlags_WidthFixed,
+                            filterWidth + style.ItemSpacing.x + ImGui::CalcTextSize("!").x);
+    ImGui::TableNextColumn();
+    static const char *tabLabels[] = {"All", "RAW", "Compressed"};
+    if (ImGui::BeginTabBar("##filmstripTabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
+      for (int t = 0; t < 3; ++t) {
+        if (ImGui::BeginTabItem(tabLabels[t])) {
+          app.filmstripTab = t;
+          ImGui::EndTabItem();
+        }
+      }
+      ImGui::EndTabBar();
+    }
+    ImGui::TableNextColumn();
+    ImGui::BeginDisabled(app.path.empty() || app.isPhotoProtected());
+    for (const auto &choice : markChoices) {
+      if (choice.mark != PhotoMark::Pick) ImGui::SameLine();
+      const bool selected = app.currentPhotoMark == choice.mark;
+      if (selected) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+      }
+      if (ImGui::SmallButton(choice.label)) assignPhotoMark(app, app.path, choice.mark);
+      if (selected) ImGui::PopStyleColor(2);
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mark current photograph: %s", choice.label);
+    }
+    ImGui::EndDisabled();
+    ImGui::TableNextColumn();
+    ImGui::SetNextItemWidth(filterWidth);
+    const char *filterLabel = "All";
     for (const auto &choice : markChoices)
-      if (ImGui::Selectable(choice.label, app.filmstripMarkFilter == choice.mark)) app.filmstripMarkFilter = choice.mark;
-    ImGui::EndCombo();
+      if (app.filmstripMarkFilter == choice.mark) filterLabel = choice.label;
+    if (ImGui::BeginCombo("##filmstripMarkFilter", filterLabel)) {
+      if (ImGui::Selectable("All", !app.filmstripMarkFilter)) app.filmstripMarkFilter.reset();
+      for (const auto &choice : markChoices)
+        if (ImGui::Selectable(choice.label, app.filmstripMarkFilter == choice.mark)) app.filmstripMarkFilter = choice.mark;
+      ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mark filter");
+    if (!app.photoMarkWarning.empty()) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("!");
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", app.photoMarkWarning.c_str());
+    }
+    ImGui::EndTable();
   }
-  if (!app.photoMarkWarning.empty()) ImGui::TextWrapped("%s", app.photoMarkWarning.c_str());
+  ImGui::PopStyleVar(2);
 
   if (app.folderDir.empty() || app.filmstrip.empty()) {
     ImGui::TextDisabled("Open a folder to browse images.");
     return;
   }
 
-  static const char *tabLabels[] = {"All", "RAW", "Compressed"};
-  if (ImGui::BeginTabBar("##filmstripTabs")) {
-    for (int t = 0; t < 3; ++t) {
-      if (ImGui::BeginTabItem(tabLabels[t])) {
-        app.filmstripTab = t;
-        ImGui::EndTabItem();
-      }
-    }
-    ImGui::EndTabBar();
-  }
-
-  const float thumbH = std::max(24.0f, ImGui::GetContentRegionAvail().y - ImGui::GetStyle().FramePadding.y * 2.0f);
+  const float thumbH = std::max(1.0f, ImGui::GetContentRegionAvail().y - style.FramePadding.y * 2.0f);
   const float fbScale = std::max(1.0f, ImGui::GetIO().DisplayFramebufferScale.y);
   const int wantEdge = snapFilmstripThumbEdge(thumbH * fbScale);
   if (app.filmstripThumbEdge.exchange(wantEdge) != wantEdge) invalidateFilmstripThumbs(app);
