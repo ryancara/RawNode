@@ -9,6 +9,8 @@ export remain separate PRs.
 - Plain click selects only that photograph after `finishUiEdits` / `openPath`
   succeeds. Retry / Discard / Cancel retains the existing save policy. Cancelled
   departure or failed opening preserves the previous selection, anchor and photo.
+  The clicked path is captured before opening: if reading its current sidecar
+  changes its mark and hides it under the active filter, it is still selected.
 - Command-click on macOS, Control-click on Windows/Linux, toggles selection and
   sets the anchor to the clicked path, including when deselecting it.
 - Shift-click replaces selection with the inclusive range from the anchor in
@@ -57,6 +59,21 @@ It also checks protected selection, real failed decode/save with Cancel/Retry/
 Discard, folder refresh/removal/switching, marking, Graph/List focus and continued
 node deletion, native text Select All, and all eight existing themes. Existing
 toolbar geometry tests continue across widths, heights and framebuffer scales.
+Targeted review regressions cover external mark changes during real opening,
+additive hidden/missing-anchor fallback, anchor updates on deselection, a
+first-visible Select All anchor distinct from the previous anchor, and focused
+filmstrip widget/text capture, including the frame text input deactivates.
+Filmstrip Delete/Backspace checks retain a selected, deletable node as well as
+the photograph selection.
+
+## Visual review limitation
+
+The open-photo outline can obscure much of the selected frame at 1x, particularly
+with small theme padding. Existing vertex checks prove both shapes are drawn;
+they do not establish their final visible separation. Styling and hover behaviour
+are unchanged by the targeted correction. Compare open only, selected only and
+both states, hovered and idle, during the native checks below before choosing a
+styling adjustment. No new styling system or thumbnail-size change is introduced.
 
 ## Required native macOS checks
 
@@ -64,7 +81,8 @@ Pending; headless tests and macOS CI do not establish native GUI results.
 
 1. In docked, floating, narrow and Retina filmstrips, verify selected frames and
    open-photo outlines independently, including both states on the same image,
-   across themes. Confirm the one-row toolbar and visible P/U/R/? footers.
+   across themes, especially at 1x with small padding. Compare hovered and idle
+   states. Confirm the one-row toolbar and visible P/U/R/? footers.
 2. Exercise plain, Command, Shift, Command+Shift and Command+A with both filters,
    hidden anchors, reverse/shrinking ranges and selected photographs hidden by
    marking. Modifier selection must leave the editor/preview/active grade alone.
@@ -75,6 +93,8 @@ Pending; headless tests and macOS CI do not establish native GUI results.
 4. With an unwritable outgoing sidecar, exercise the native Retry / Discard /
    Cancel dialog during plain clicks and folder switching. Cancel and failed
    image decode must retain the document and prior selection. Select protected
-   photographs without opening or changing their sidecars.
+   photographs without opening or changing their sidecars. With Pick filtering,
+   change an unopened photograph's sidecar mark to Reject externally without
+   refreshing; a successful plain click must select it even as its thumbnail hides.
 5. Refresh after removing a selected image, switch folders, and restart. Check
    stale selections are pruned, folder switches clear them and nothing persists.

@@ -135,9 +135,12 @@ void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt) {
       if (io.KeyCtrl || io.KeyShift) {
         selectFilmstripEntry(app, i, io.KeyCtrl, io.KeyShift);
       } else {
+        const std::string path = e.path;
         finishUiEdits(app);
-        if (openPath(app, e.path, prompt)) {
-          selectFilmstripEntry(app, i);
+        if (openPath(app, path, prompt)) {
+          // Opening refreshes the mark and may hide this path under the filter.
+          app.filmstripSelection = {path};
+          app.filmstripAnchor = path;
           app.parameterGesture.reset();
         }
       }

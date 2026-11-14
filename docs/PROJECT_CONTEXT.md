@@ -633,6 +633,10 @@ These are known but are not reasons to expand unrelated focused PRs:
   is a separate quality follow-up for owner consideration; PR #107's final
   Identity metadata correction deliberately retains those legacy samples;
 - export UX can block/wait on a non-cancellable full-resolution export;
+- plain-clicking the already-open filmstrip photograph reloads it, resetting
+  undo history and zoom/pan. This predates multi-photo selection; evaluate a
+  focused same-photo-click follow-up without changing document lifecycle in the
+  selection correction;
 - thumbnail worker exceptional-unwind lifetime, the macOS pthread-to-joiner
   exception gap, and `makePreview` partial helper-thread launch remain focused
   lifetime/exception-safety follow-ups; normal thumbnail shutdown is safe.

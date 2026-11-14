@@ -427,6 +427,8 @@ struct FilmstripFrame {
   std::string renderedText;
   SaveFailurePrompt prompt = [](const std::string &) { return Decision::Cancel; };
   bool showOther = false;
+  bool showFilmstripWidgets = false;
+  ImRect filmstripButton, filmstripInput;
   ImRect textInput;
   char text[32] = "editable text";
   FilmstripFrame() {
@@ -438,8 +440,14 @@ struct FilmstripFrame {
     auto &io = ImGui::GetIO(); io.DisplaySize = {1600, 900}; io.DeltaTime = 1.0f / 60;
     io.DisplayFramebufferScale = {scale, scale};
     ImGui::NewFrame();
-    ImGui::SetNextWindowPos(position); ImGui::SetNextWindowSize({width, height});
+    ImGui::SetNextWindowPos(position);
+    ImGui::SetNextWindowSize({width, showFilmstripWidgets ? std::max(height, 180.0f) : height});
     ImGui::Begin("Filmstrip test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove);
+    if (showFilmstripWidgets) {
+      ImGui::Button("Held widget"); filmstripButton = context->LastItemData.Rect;
+      ImGui::SameLine();
+      ImGui::InputText("Filmstrip text", text, sizeof text); filmstripInput = context->LastItemData.Rect;
+    }
     ImGui::LogToBuffer(0);
     drawFilmstripPanel(app, prompt);
     renderedText = context->LogBuffer.c_str();
@@ -549,6 +557,13 @@ bool filmstripSelectionFrames() {
     app.parameterGesture->photoPath = a; app.parameterGesture->node = app.primarySource;
     ui.select(app, 1, true);
     CHECK(app.filmstripSelection == (std::unordered_set<std::string>{a, b}) && app.filmstripAnchor == b);
+    ui.select(app, 4, true); // Move the anchor away before deselecting b.
+    CHECK(app.filmstripAnchor == e);
+    ui.select(app, 1, true);
+    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{a, e}) && app.filmstripAnchor == b);
+    ui.select(app, 4, true);
+    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{a}) && app.filmstripAnchor == e);
+    ui.select(app, 1, true);
     ui.select(app, 1, true);
     CHECK(app.filmstripSelection == (std::unordered_set<std::string>{a}) && app.filmstripAnchor == b);
     ui.select(app, 4, false, true);
@@ -575,8 +590,10 @@ bool filmstripSelectionFrames() {
     ui.selectAll(app, mac ? ImGuiMod_Super : ImGuiMod_Ctrl);
     CHECK(app.filmstripSelection == (std::unordered_set<std::string>{c}) && app.filmstripAnchor == c);
     app.filmstripMarkFilter.reset(); ui.tick(app); ui.tick(app);
+    ui.select(app, 4, true); // First visible is c; the previous anchor is e.
+    CHECK(app.filmstripAnchor == e);
     ui.selectAll(app, mac ? ImGuiMod_Super : ImGuiMod_Ctrl);
-    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{c, e}));
+    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{c, e}) && app.filmstripAnchor == c);
     const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
     CHECK(app.path == a && app.filmstripIndex == 0 && app.full.px.data() == pixels && app.preview->px.data() == previewPixels);
     CHECK(capturedGrade(app) == grade && bytes(inputSidecarPath(a)) == saved && entries(files.dir) == beforeFiles);
@@ -605,6 +622,39 @@ bool filmstripSelectionFrames() {
     CHECK(app.path == d && app.filmstripIndex == 3);
     ui.select(app, 1); // Protected photograph still opens through the usual path.
     CHECK(app.path == b && app.isPhotoProtected() && app.filmstripSelection == (std::unordered_set<std::string>{b}));
+    // An absent anchor adds a new click; a hidden anchor also retains an
+    // already selected click, rather than toggling it off or clearing others.
+    app.filmstripSelection = {a, e}; app.filmstripAnchor.clear();
+    ui.select(app, 2, true, true);
+    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{a, c, e}) && app.filmstripAnchor == c);
+    app.filmstripMarkFilter = PhotoMark::Pick; app.filmstripAnchor = b;
+    ui.tick(app); ui.tick(app);
+    CHECK(!filmstripEntryVisible(app, app.filmstrip[1]));
+    ui.select(app, 4, true, true);
+    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{a, c, e}) && app.filmstripAnchor == e);
+  }
+  return true;
+}
+
+bool filmstripPlainClickChangedMark() {
+  for (const bool mac : {false, true}) {
+    Files files;
+    const auto a = photo(files, "a.png"), b = photo(files, "b.png"), c = photo(files, "c.png");
+    App app; app.folderDir = files.dir.string(); refreshFilmstrip(app);
+    CHECK(openPath(app, a));
+    CHECK(assignPhotoMark(app, b, PhotoMark::Pick) && assignPhotoMark(app, c, PhotoMark::Pick));
+    app.filmstripMarkFilter = PhotoMark::Pick;
+    FilmstripFrame ui; ImGui::GetIO().ConfigMacOSXBehaviors = mac;
+    ui.tick(app); ui.tick(app); ui.select(app, 2, true);
+    CHECK(app.path == a && app.filmstripSelection == (std::unordered_set<std::string>{c}));
+    // Change the unopened photo on disk without refreshing the visible snapshot.
+    write(inputSidecarPath(b), R"({"format":"rawnode","version":1,"metadata":{"mark":"reject"}})");
+    CHECK(app.filmstrip[1].mark == PhotoMark::Pick && filmstripEntryVisible(app, app.filmstrip[1]));
+    ui.select(app, 1);
+    CHECK(app.path == b && app.filmstripIndex == 1 && app.currentPhotoMark == PhotoMark::Reject);
+    CHECK(!filmstripEntryVisible(app, app.filmstrip[1]));
+    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{b}) && app.filmstripAnchor == b);
+    CHECK(read(inputSidecarPath(b)).grade && photoMark(read(inputSidecarPath(b))) == PhotoMark::Reject);
   }
   return true;
 }
@@ -676,6 +726,31 @@ bool filmstripSelectionFocusAndThemes() {
     CHECK(app.filmstripSelection == (std::unordered_set<std::string>{"a.png"}));
     ui.selectAll(app, mac ? ImGuiMod_Super : ImGuiMod_Ctrl);
     CHECK(app.filmstripSelection.size() == 3);
+    ui.showFilmstripWidgets = true; ui.tick(app); ui.tick(app);
+    app.filmstripSelection = {"a.png"};
+    const auto held = ui.filmstripButton.GetCenter();
+    io.AddMousePosEvent(held.x, held.y); ui.tick(app);
+    io.AddMouseButtonEvent(0, true); ui.tick(app);
+    CHECK(ui.context->NavWindow == ui.window && ImGui::IsAnyItemActive() && !io.WantTextInput);
+    ui.selectAll(app, mac ? ImGuiMod_Super : ImGuiMod_Ctrl);
+    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{"a.png"}));
+    io.AddMouseButtonEvent(0, false); ui.tick(app);
+    ui.click(app, ui.filmstripInput.GetCenter());
+    CHECK(ui.context->NavWindow == ui.window && ImGui::GetInputTextState(ImGui::GetActiveID()));
+    ui.selectAll(app, mac ? ImGuiMod_Super : ImGuiMod_Ctrl);
+    const auto *filmstripTextState = ImGui::GetInputTextState(ImGui::GetActiveID());
+    CHECK(filmstripTextState && filmstripTextState->HasSelection());
+    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{"a.png"}));
+    // Text capture remains true on the frame Enter deactivates the input.
+    // This isolates the text guard from the independently tested active-item guard.
+    io.AddKeyEvent(ImGuiKey_Enter, true);
+    const auto modifier = mac ? ImGuiMod_Super : ImGuiMod_Ctrl;
+    io.AddKeyEvent(modifier, true); io.AddKeyEvent(ImGuiKey_A, true); ui.tick(app);
+    CHECK(ui.context->NavWindow == ui.window && !ImGui::IsAnyItemActive() && io.WantTextInput);
+    CHECK(app.filmstripSelection == (std::unordered_set<std::string>{"a.png"}));
+    io.AddKeyEvent(ImGuiKey_A, false); io.AddKeyEvent(modifier, false);
+    io.AddKeyEvent(ImGuiKey_Enter, false); ui.tick(app);
+    ui.showFilmstripWidgets = false; ui.tick(app); ui.tick(app);
     // Both selected/open states are independent, including their combination.
     for (int theme = 0; theme < themeCount(); ++theme) {
       applyTheme(theme);
@@ -725,12 +800,16 @@ bool filmstripSelectionFocusAndThemes() {
     CHECK(app.filmstripSelection == (std::unordered_set<std::string>{"a.png"}));
     io.AddInputCharacter('x'); ui.tick(app);
     CHECK(std::string(ui.text) == "x"); // Native text Select All was preserved.
+    CHECK(addNativeExposureNode(app));
+    const auto selectedNode = *app.selectedNodeId();
     ui.select(app, 2, true); // Mouse focus transfers back to Filmstrip.
     ui.selectAll(app, mac ? ImGuiMod_Super : ImGuiMod_Ctrl);
     CHECK(app.filmstripSelection.size() == 3);
     const auto nodes = app.nodes.size();
     for (const auto key : {ImGuiKey_Delete, ImGuiKey_Backspace}) {
       io.AddKeyEvent(key, true); ui.tick(app); io.AddKeyEvent(key, false); ui.tick(app);
+      CHECK(findNode(app, selectedNode) && app.selectedNodeId() == selectedNode);
+      CHECK(app.filmstripSelection == (std::unordered_set<std::string>{"a.png", "b.NEF", "c.png"}));
     }
     CHECK(app.filmstripSelection.size() == 3 && app.filmstrip.size() == 3 && app.nodes.size() == nodes);
   }
@@ -1576,6 +1655,7 @@ bool twoPhotoColourOwnership() {
 bool testPhotoDocuments() {
   for (const auto &test : {
        std::make_pair("filmstrip plain/toggle/range/visible-all selection with native modifiers and no editing/render effects", filmstripSelectionFrames),
+       std::make_pair("plain-click opening selects the clicked path even when refreshed marks hide it", filmstripPlainClickChangedMark),
        std::make_pair("filmstrip selection survives failed/cancelled navigation, marking and refresh; clears on folder changes", filmstripSelectionLifecycle),
        std::make_pair("filmstrip selected/open theme states and keyboard isolation from Graph/List/text", filmstripSelectionFocusAndThemes),
        std::make_pair("single-row filmstrip geometry, warning footprint and active marks across themes/DPI", photoMarkToolbarFrames),
