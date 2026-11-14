@@ -21,8 +21,10 @@ and filmstrip paths. It starts from main `5316a03` (merged PR #113).
 - Marking persists immediately and updates matching filmstrip entries only
   after success. If a new mark excludes the current photo, its thumbnail hides
   while the document stays open. The marking controls still address that photo.
-- Thumbnail clicks retain `finishUiEdits` and `openPath` with the existing
+- Plain thumbnail clicks retain `finishUiEdits` and `openPath` with the existing
   save-failure prompt. Marking never advances selection or alters source files.
+  [Multi-photo selection](FILMSTRIP_SELECTION.md) now defines modifier clicks and
+  focused Select All independently of the open photograph; marking preserves it.
 - Failed marking leaves the last confirmed displayed mark intact and shows a
   persistent inline `!` indicator with the full error in a hover tooltip; even a
   long error consumes no extra row. A successful mark save or successful photo

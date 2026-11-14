@@ -518,6 +518,10 @@ bool openFolder(App &app, const std::string &dir, const SaveFailurePrompt &promp
   auto folder = fs::weakly_canonical(fs::path(dir), ec).string();
   if (ec) { app.setStatus("Could not open folder: " + ec.message()); return false; }
   if (!leavePhoto(app, prompt, options)) return false;
+  if (app.folderDir != folder) {
+    app.filmstripSelection.clear();
+    app.filmstripAnchor.clear();
+  }
   app.folderDir.swap(folder);
   refreshFilmstrip(app);
   std::string toOpen;
