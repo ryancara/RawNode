@@ -1,5 +1,8 @@
 # Native Windows Trash investigation
 
+See [the native findings report](REPORT.md) for reproduced permanent deletion,
+callback evidence and remaining tests.
+
 Diagnostic-only branch for RawNode PR #116. The production branch remains at
 8eb251a9827133bd22e7e756070114e8e50c5949. No production adapter changes and no merge.
 
