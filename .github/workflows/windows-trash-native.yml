@@ -1,0 +1,48 @@
+name: Windows Trash native investigation
+on:
+  push:
+    branches: [codex/windows-trash-native-probe]
+    paths: ['.github/workflows/windows-trash-native.yml', 'probe/**']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  native-windows:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record native Windows capabilities
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force results | Out-Null
+          $os = Get-CimInstance Win32_OperatingSystem
+          $info = [ordered]@{
+            baseline = '8eb251a9827133bd22e7e756070114e8e50c5949'
+            runUrl = "https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+            runId = $env:GITHUB_RUN_ID
+            os = $os.Caption
+            version = $os.Version
+            build = $os.BuildNumber
+            nativeWindows = $IsWindows
+            processSessionId = (Get-Process -Id $PID).SessionId
+            userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            powershell = $PSVersionTable.PSVersion.ToString()
+            admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+            volumes = @(Get-Volume | Select-Object DriveLetter,FileSystem,DriveType,FileSystemLabel,Size,SizeRemaining)
+            mountDiskImage = [bool](Get-Command Mount-DiskImage -ErrorAction SilentlyContinue)
+            diskpart = [bool](Get-Command diskpart.exe -ErrorAction SilentlyContinue)
+            fixturesSubmitted = 0
+          }
+          $info | ConvertTo-Json -Depth 6 | Set-Content results/native-environment.json -Encoding utf8
+          Get-Content results/native-environment.json
+      - name: Preserve capability evidence on diagnostic branch
+        if: always()
+        shell: pwsh
+        run: |
+          if (!(Test-Path results/native-environment.json)) { throw 'No native Windows evidence was produced' }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- results
+          git commit -m 'Record native Windows runner capabilities'
+          git push origin HEAD:codex/windows-trash-native-probe
