@@ -3,6 +3,7 @@
 #include "persist/DocumentActionsPriv.h"
 #include "ui/Filmstrip.h"
 
+#include <cassert>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -83,13 +84,12 @@ PhotoTrashRequest capturePhotoTrashRequest(const App &app) {
     if (fs::path(entry.path).parent_path() != fs::path(request.folder) || !isSupportedImagePath(entry.path))
       target.error = "Not a photograph in the current folder";
     else inspectTrashPath(entry.path, false, target.identity, target.error);
+    if (target.error.empty() && !filmstripEntryVisible(app, entry)) ++request.hiddenCount;
     request.photographs.push_back(std::move(target));
-    if (!filmstripEntryVisible(app, entry)) ++request.hiddenCount;
   }
   for (const auto &path : app.filmstripSelection) {
     if (std::any_of(request.photographs.begin(), request.photographs.end(), [&](const auto &photo) { return photo.path == path; })) continue;
     request.photographs.push_back({path, {}, "Not a photograph in the current filmstrip folder"});
-    ++request.hiddenCount;
   }
   return request;
 }
@@ -99,15 +99,27 @@ bool photoTrashIncludesCurrent(const App &app, const PhotoTrashRequest &request)
       [&](const auto &photo) { return currentPhoto(app, photo.path); });
 }
 
+static std::string photographCount(size_t count) {
+  return std::to_string(count) + (count == 1 ? " photograph" : " photographs");
+}
+
 std::string photoTrashConfirmationText(const PhotoTrashRequest &request) {
-  const auto count = std::to_string(request.photographs.size());
-  return "Move " + count + " photographs to Trash?\n\n" + count + " selected photographs" +
-      (request.hiddenCount ? ", including " + std::to_string(request.hiddenCount) + " hidden by current filters," : "") +
-      " and their associated RawNode sidecars will be moved to Trash.";
+  const auto total = request.photographs.size();
+  const size_t ineligible = std::count_if(request.photographs.begin(), request.photographs.end(),
+                                         [](const auto &photo) { return !photo.error.empty(); });
+  const auto eligible = total - ineligible;
+  std::string details = ineligible
+      ? std::to_string(total) + (total == 1 ? " selected item: " : " selected items: ") + std::to_string(eligible) +
+          (eligible == 1 ? " eligible photograph" : " eligible photographs")
+      : std::to_string(total) + " selected" + (total == 1 ? " photograph" : " photographs");
+  if (request.hiddenCount) details += ", including " + std::to_string(request.hiddenCount) + " hidden by current filters";
+  if (ineligible) details += "; " + std::to_string(ineligible) + " already ineligible";
+  return "Move " + photographCount(eligible) + " to Trash?\n\n" + details +
+      ". Associated RawNode sidecars will also be moved.";
 }
 
 std::string PhotoTrashResult::message() const {
-  std::string text = "Moved " + std::to_string(moved) + " photographs to Trash; " + std::to_string(failed) + " failed.";
+  std::string text = "Moved " + photographCount(moved) + " to Trash; " + std::to_string(failed) + " failed.";
   for (const auto &error : errors) text += "\n" + error;
   return text;
 }
@@ -164,6 +176,7 @@ PhotoTrashResult document_detail::trashPhotographs(App &app, const PhotoTrashReq
         (!ec || ec == std::errc::no_such_file_or_directory);
     if (wasCurrent && (result.moved != movedBefore || currentMissing)) {
       // Retire the save identity immediately, including when a sidecar failed.
+      assert(mutation && mutation->owns(app));
       clearPhoto(app, *mutation);
       movedCurrent = true;
     }
@@ -172,6 +185,8 @@ PhotoTrashResult document_detail::trashPhotographs(App &app, const PhotoTrashReq
   if (movedCurrent) {
     // Reuse the prepared-open path: the outgoing photo was already saved or
     // explicitly discarded. Never save it again during this transition.
+    // openPreparedPhoto intentionally nests DocumentMutation: mutation depth
+    // keeps preview dispatch closed until this outer removal/transition ends.
     for (const auto &entry : app.filmstrip) {
       if (openPreparedPhoto(app, entry.path, options)) break;
     }

@@ -134,10 +134,6 @@ void pumpFilmstripThumbs(App &app) {
       ready = std::move(app.thumbReady.front());
       app.thumbReady.pop_front();
     }
-    if (ready.kind == ThumbReady::Kind::Canceled) {
-      finishFilmstripThumbJob(app, ready.path, false);
-      continue;
-    }
     const int index = filmstripIndexForPath(app, ready.path);
     if (index < 0) continue;
     if (ready.edge != wantEdge) {

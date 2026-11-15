@@ -99,7 +99,8 @@ void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt,
   if (ImGui::IsWindowFocused() && !ImGui::IsAnyItemActive() && !io.WantTextInput &&
       !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_A)) selectAllVisibleFilmstripEntries(app);
-    if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) {
+    if (!io.KeyShift && !io.KeyCtrl && !io.KeyAlt && !io.KeySuper &&
+        (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))) {
       const auto request = capturePhotoTrashRequest(app);
       const bool valid = std::any_of(request.photographs.begin(), request.photographs.end(),
                                      [](const auto &photo) { return photo.error.empty(); });

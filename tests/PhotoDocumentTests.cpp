@@ -568,6 +568,20 @@ bool filmstripTrashKeyboardFrames() {
     CHECK(app.filmstripSelection == (std::unordered_set<std::string>{b}));
     app.filmstripSelection.clear(); key(ImGuiKey_Delete); CHECK(confirmations == 2);
     app.filmstripSelection = {b};
+    // Every modifier combination is reserved: neither key may confirm or move
+    // photos. Exercise both ImGui native mappings, including the other platform's
+    // Command/Ctrl key, while the filmstrip owns focus and selection is valid.
+    for (int mask = 1; mask < 16; ++mask) {
+      const ImGuiKey modifiers[] = {ImGuiMod_Shift, ImGuiMod_Ctrl, ImGuiMod_Alt, ImGuiMod_Super};
+      for (int bit = 0; bit < 4; ++bit) if (mask & (1 << bit)) io.AddKeyEvent(modifiers[bit], true);
+      ui.tick(app);
+      CHECK(ui.context->NavWindow == ui.window && !ImGui::IsAnyItemActive() && !io.WantTextInput);
+      for (const auto button : {ImGuiKey_Delete, ImGuiKey_Backspace}) key(button);
+      for (int bit = 0; bit < 4; ++bit) if (mask & (1 << bit)) io.AddKeyEvent(modifiers[bit], false);
+      ui.tick(app);
+      CHECK(confirmations == 2 && moves == 0 && fs::exists(b));
+      CHECK(app.filmstripSelection == (std::unordered_set<std::string>{b}));
+    }
     // A control in the same filmstrip window consumes the keyboard.
     ui.showFilmstripWidgets = true; ui.tick(app); ui.tick(app);
     const auto point = ui.filmstripButton.GetCenter();

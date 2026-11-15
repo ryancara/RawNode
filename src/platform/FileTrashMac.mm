@@ -9,7 +9,8 @@ bool moveFileToTrash(const std::string &path, std::string &error) {
     [name release];
     NSError *failure = nil;
     const bool moved = [[NSFileManager defaultManager] trashItemAtURL:url resultingItemURL:nullptr error:&failure];
-    error = moved ? "" : failure ? [[failure localizedDescription] UTF8String] : "Native Trash is unavailable";
+    const char *description = failure ? [[failure localizedDescription] UTF8String] : nullptr;
+    error = moved ? "" : description ? description : "Native Trash is unavailable";
     return moved;
   }
 }

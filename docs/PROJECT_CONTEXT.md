@@ -475,8 +475,13 @@ DocumentMutation, refuses active export, retires the removed save target, and
 uses prepared opening or a usable empty editor. Non-current removal preserves
 the live grade/history/preview. Partial sidecar failures report exact orphan
 paths without rollback or overwrite. Native macOS/Windows Trash recovery checks
-remain separate from PR #115's completed selection validation. Batch export
-remains a later PR.
+remain separate from PR #115's completed selection validation. PR #116 remains
+draft after independent CHANGES REQUIRED review: the Windows shell adapter's
+strict recoverability guarantee is unresolved. Shared/macOS/Linux corrections
+preserve the lifecycle; unmodified deletion keys and confirmation eligibility
+wording are covered. The [Windows source/API research](WINDOWS_TRASH_RESEARCH.md)
+recommends temporary explicit refusal pending an approved solution; that
+recommendation is not implemented in this pass. Batch export remains a later PR.
 
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,
@@ -646,6 +651,10 @@ These are known but are not reasons to expand unrelated focused PRs:
   undo history and zoom/pan. This predates multi-photo selection; evaluate a
   focused same-photo-click follow-up without changing document lifecycle in the
   selection correction;
+- large-folder filmstrip capture/refresh uses repeated linear membership and
+  surviving-thumbnail searches, with repeated canonical-path checks during Trash.
+  Profile before a separate performance change; this review pass does not alter
+  photo navigation or introduce indexing/caching;
 - thumbnail worker exceptional-unwind lifetime, the macOS pthread-to-joiner
   exception gap, and `makePreview` partial helper-thread launch remain focused
   lifetime/exception-safety follow-ups; normal thumbnail shutdown is safe.

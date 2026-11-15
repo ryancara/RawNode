@@ -30,7 +30,7 @@ struct ThumbReady {
   std::vector<unsigned char> rgba;
   int w = 0, h = 0;
   int edge = 0;  // long-edge cap the job was rendered at
-  enum class Kind { Ok, Fail, Canceled } kind = Kind::Fail;
+  enum class Kind { Ok, Fail } kind = Kind::Fail;
 };
 
 struct FilmstripEntry {

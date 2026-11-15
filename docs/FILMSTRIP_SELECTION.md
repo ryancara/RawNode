@@ -20,8 +20,8 @@ identities in the next focused milestone; batch export remains separate.
 - Command+A / Control+A replaces selection with all visible photographs and
   sets the anchor to the first visible path, or clears it when none are visible.
   It runs only with filmstrip window focus and no active widget or text input.
-  Graph/List and text shortcuts retain their existing ownership. Focused Delete
-  and Backspace now request the confirmed [Trash operation](FILMSTRIP_TRASH.md),
+  Graph/List and text shortcuts retain their existing ownership. Only focused,
+  unmodified Delete and Backspace request the confirmed [Trash operation](FILMSTRIP_TRASH.md),
   including hidden selections.
 - Selected thumbnail frames use the existing theme's HeaderActive colour. An
   independent Text-colour outline identifies the open photograph, which can

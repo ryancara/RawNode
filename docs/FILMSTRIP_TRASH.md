@@ -4,22 +4,33 @@ This focused milestone starts at main `8845e776af5b5a3d07fe49df894a16efbc884b77`
 (merged multi-photo selection PR #115). It adds no catalogue, culling mode,
 filesystem Undo, permanent deletion or new filmstrip controls.
 
+**Review status:** Claude returned CHANGES REQUIRED because the Windows adapter's
+strict recoverability guarantee has not been established. This corrective pass
+preserves that deletion strategy and does not resolve the merge blocker. See the
+[source/API research and recommendation](WINDOWS_TRASH_RESEARCH.md). The macOS
+and Linux paths were assessed as sound; native GUI/restore checks remain separate.
+
 ## Interaction and visible changes
 
-Delete or Backspace, without key repetition, requests Trash only in the focused
-Filmstrip window. GLFW maps the physical macOS Delete key to Backspace; both keys
+Only unmodified Delete or Backspace, without key repetition, requests Trash in
+the focused Filmstrip window. Shift, Control, Command/Super and Alt combinations
+do not trigger photo Trash. GLFW maps the physical macOS Delete key to Backspace; both keys
 are accepted. Graph/List retain their node-deletion bindings. Active controls,
 text capture, open popups/modals and absent/invalid selection block the action.
 
-One native confirmation shows the total selected photograph count, selected
-photographs hidden by mark/type filters when nonzero, and that associated RawNode
-sidecars will move too. Cancel/dismissal or an unavailable dialog helper performs
+One concise native confirmation uses singular/plural wording and shows the
+eligible photograph count, total selection and known-ineligible count when
+nonzero, eligible photographs hidden by mark/type filters, and sidecar inclusion.
+Stale, missing, invalid and unrelated paths are not counted as hidden photographs.
+For a mixed selection it distinguishes selected items from eligible photographs;
+those already known to be ineligible remain in the snapshot for failure reporting.
+Cancel/dismissal or an unavailable dialog helper performs
 no edit completion, grade save, refresh or Trash operation. A value snapshot of
 paths and non-symlink file identities is captured before opening confirmation;
 subsequent selection/filter changes cannot substitute other photographs.
 
 Confirm processes that complete snapshot, including hidden selections. The final
-status reports photographs moved and failed. Errors also open a result dialog,
+status reports photographs moved and selected-item failures. Errors also open a result dialog,
 with exact photo/remaining-sidecar paths and native errors. Sidecar failures do
 not count as failed photograph moves. This feedback is necessary to expose
 non-atomic outcomes; no toolbar/layout/theme changes are included.
@@ -73,7 +84,9 @@ that same ownership contract: path/save protection, pixels, graph/history,
 selection/inspection and presentation are retired. Its save identity is never
 retained for shutdown or navigation. The existing prepared-open operation opens
 the first decodable remaining photograph in folder order, independently of
-filters, without another outgoing save. If none opens, the Source-only empty
+filters, without another outgoing save. Its nested DocumentMutation is intentional:
+mutation depth keeps preview dispatch closed until the outer Trash scope ends;
+current-source clearing asserts that the outer mutation owns this App. If none opens, the Source-only empty
 editor remains usable. A failed current-photo move normally retains its grade,
 history and preview; if the native call reports failure but the source has
 actually disappeared, detach it conservatively and report the failure.
@@ -87,19 +100,22 @@ nothing, including cancellation notifications for a new same-path job.
 ## Native support and build requirements
 
 `platform/FileTrash` exposes `moveFileToTrash(path, error)` and no-follow identity
-inspection. There is no permanent-delete fallback on any platform.
+inspection. Its required contract is recoverable Trash or failure. macOS/Linux
+use their native Trash operations; the unchanged Windows implementation is still
+blocked because strict fallback prevention is not established.
 
 - macOS: Foundation `NSFileManager trashItemAtURL:resultingItemURL:error:` in an
   Objective-C++ source, compiled only on Apple. Existing Cocoa linkage supplies
   Foundation. Unsupported volumes return the native error.
-- Windows 8+: Shell `IFileOperation`, linked only on Windows with `ole32`,
-  `shell32`, `uuid`. `FOFX_RECYCLEONDELETE` explicitly requests Recycle Bin
-  semantics. The progress sink vetoes deletion without recycle intent before
-  execution, and requires an actual per-item success plus a Recycle Bin item.
-  Shell cancellation, skipped files and partial completion are not inferred from
-  `PerformOperations`' HRESULT. One file is submitted per operation, so a
-  completed recycle remains a success even if the shell subsequently reports
-  cancellation. There is no option to approve permanent deletion.
+- Windows 8+: the current draft uses Shell IFileOperation with conditional
+  ole32/shell32/uuid linkage, RECYCLEONDELETE and a recycle-intent callback check.
+  It verifies per-item results, including a newly created Recycle Bin item, and
+  accounts for cancellation/partial completion. However, detecting permanent
+  deletion afterwards would be too late; neither the intent flag nor the current
+  checks establish refusal for every unsupported-bin case. This strategy is
+  unchanged in the corrective pass and remains a merge blocker. No new Windows
+  dependency or proposed replacement was implemented; consult the
+  [research report](WINDOWS_TRASH_RESEARCH.md) before native experiments.
 - Linux: GIO `g_file_trash()`, with required `gio-2.0` through pkg-config
   (`libglib2.0-dev` on Debian/Ubuntu, added to Linux CI only). GIO mount policy,
   filesystem permissions and desktop Trash availability may refuse a move;
@@ -133,7 +149,12 @@ missing, malformed/newer/protected/read-only/symlink sidecars; photo failure and
 post-photo sidecar failure; missing/replaced sources/folders; current versus
 non-current transitions; Retry / Discard / Cancel; export source refusal;
 last-photo/failed replacement opening; history/save/presentation cleanup;
-retained thumbnails, queue/anchor/selection cleanup and stale worker rejection.
+retained thumbnails, queue/anchor/selection cleanup and stale worker rejection. Modifier regressions exercise every nonempty
+combination of Shift/Ctrl/Alt/Super with both keys under both ImGui native
+mappings. Exact-text cases distinguish eligible/hidden/ineligible counts and
+singular/plural wording while preserving the execution snapshot. The obsolete
+cancelled-result enum/consumer was removed: no producer remains; generation
+mismatches already discard results before publication.
 
 Exact-head Release/sanitizer/CI outcomes and the scope/readability audit are
 recorded in the draft PR and implementation report. Native GUI verification
@@ -144,9 +165,12 @@ below is separate from headless tests and CI compilation.
 Use only disposable photographs and sidecars in a temporary folder. Keep original
 copies for comparison; never test on a user's photo collection.
 
-1. Verify physical Delete/Backspace, held-key behaviour and one confirmation in
+1. Verify unmodified physical Delete/Backspace, held-key behaviour, refusal for
+   Shift/Ctrl/Command/Alt combinations and one confirmation in
    docked/floating filmstrips. Check total/hidden counts under both filters.
-   Cancel must preserve files, selection, current document and pending edits.
+   Check mixed invalid/stale selections are identified separately and excluded
+   from hidden-photo counts. Cancel must preserve files, selection, current
+   document and pending edits.
 2. Move one and multiple photographs, with missing/current/legacy sidecars,
    malformed/newer/read-only sidecars, Unicode/spaced names and same-stem RAW/JPEG
    pairs. Inspect the native Trash/Recycle Bin, original-path information and

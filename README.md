@@ -144,7 +144,7 @@ brew install cmake jpeg-turbo libtiff little-cms2 openexr
 export CMAKE_PREFIX_PATH="$(brew --prefix jpeg-turbo)${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
 
 # Debian/Ubuntu
-sudo apt install cmake pkg-config libjpeg-dev libtiff-dev liblcms2-dev libopenexr-dev libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+sudo apt install cmake pkg-config libglib2.0-dev libjpeg-dev libtiff-dev liblcms2-dev libopenexr-dev libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
 
 git clone --recursive https://github.com/ryancara/RawNode.git
 cd RawNode

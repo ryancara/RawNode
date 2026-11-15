@@ -52,12 +52,16 @@ These priorities sequence focused work without reopening completed architecture 
    selection supports plain/Command/Shift clicks and focused visible Select All,
    independently of the open photograph. See [behaviour and native checks](docs/FILMSTRIP_SELECTION.md).
    The next focused milestone implements [native Trash](docs/FILMSTRIP_TRASH.md):
-   focused Delete/Backspace, one immutable confirmation including hidden photos,
+   focused unmodified Delete/Backspace, one immutable confirmation distinguishing
+   eligible/hidden photographs from already-ineligible selected paths,
    exact current/legacy sidecars, explicit partial failures, safe current-document
    departure/transition and preserved surviving thumbnails/filters. PR #115's
    native macOS selection checks are owner-reported complete; retain existing
    theme-based selection colours. New macOS/Windows Trash recovery checks remain
-   required. Batch export follows using the existing single-image
+   required. PR #116 remains merge-blocked on Windows recoverability; the
+   [source/API research](docs/WINDOWS_TRASH_RESEARCH.md) recommends temporary
+   refusal pending owner agreement, without changing that strategy in this pass.
+   Batch export follows using the existing single-image
    path and execution ownership, initially sequentially. Multi-photo grade/preset
    application can follow separately.
 5. **Close the practical Step 8 masking core.** Agree the exit gate, then

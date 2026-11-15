@@ -61,6 +61,53 @@ PhotoTrashResult execute(App &app, const PhotoTrashRequest &request, Files &file
   return document_detail::trashPhotographs(app, request, prompt, files.options());
 }
 
+bool confirmationEligibilityAndWording() {
+  Files files;
+  const auto a = files.photo("a.png"), b = files.photo("b.png"), missing = files.photo("missing.png");
+  App app; scan(app, files);
+  app.filmstripSelection = {a};
+  const auto single = capturePhotoTrashRequest(app);
+  CHECK(photoTrashConfirmationText(single) ==
+      "Move 1 photograph to Trash?\n\n1 selected photograph. Associated RawNode sidecars will also be moved.");
+  app.filmstripSelection = {a, b};
+  CHECK(photoTrashConfirmationText(capturePhotoTrashRequest(app)) ==
+      "Move 2 photographs to Trash?\n\n2 selected photographs. Associated RawNode sidecars will also be moved.");
+  app.filmstripMarkFilter = PhotoMark::Pick;
+  app.filmstrip[0].mark = PhotoMark::Pick;
+  app.filmstrip[1].mark = PhotoMark::Reject;
+  app.filmstrip[2].mark = PhotoMark::Reject;
+  fs::rename(missing, files.path("moved-away.png"));
+  const auto stale = files.path("not-in-filmstrip.png");
+  write(stale, "unrelated file added after the scan");
+  app.filmstripSelection = {a, b, missing, stale};
+  const auto mixed = capturePhotoTrashRequest(app);
+  CHECK(mixed.photographs.size() == 4 && mixed.hiddenCount == 1);
+  CHECK(photoTrashConfirmationText(mixed) ==
+      "Move 2 photographs to Trash?\n\n4 selected items: 2 eligible photographs, including 1 hidden by current filters; "
+      "2 already ineligible. Associated RawNode sidecars will also be moved.");
+  app.filmstripSelection = {a, missing, stale};
+  const auto oneEligible = capturePhotoTrashRequest(app);
+  CHECK(oneEligible.photographs.size() == 3 && oneEligible.hiddenCount == 0);
+  CHECK(photoTrashConfirmationText(oneEligible) ==
+      "Move 1 photograph to Trash?\n\n3 selected items: 1 eligible photograph; "
+      "2 already ineligible. Associated RawNode sidecars will also be moved.");
+  app.filmstripSelection = {missing};
+  const auto ineligibleOnly = capturePhotoTrashRequest(app);
+  CHECK(ineligibleOnly.hiddenCount == 0);
+  CHECK(photoTrashConfirmationText(ineligibleOnly) ==
+      "Move 0 photographs to Trash?\n\n1 selected item: 0 eligible photographs; "
+      "1 already ineligible. Associated RawNode sidecars will also be moved.");
+  // Wording is based on the immutable capture. Execution still processes and
+  // reports the two ineligible entries; it cannot substitute the new selection.
+  app.filmstripSelection = {stale};
+  const auto result = execute(app, mixed, files);
+  CHECK(result.moved == 2 && result.failed == 2 && result.errors.size() == 2);
+  CHECK(files.calls == (std::vector<std::string>{a, b}) && bytes(stale) == "unrelated file added after the scan");
+  PhotoTrashResult singleResult; singleResult.moved = 1;
+  CHECK(singleResult.message() == "Moved 1 photograph to Trash; 0 failed.");
+  return true;
+}
+
 bool sidecarsAndIndependentDocument() {
   Files files;
   const auto a = files.photo("a.png"), b = files.photo("b.png"), c = files.photo("c.png");
@@ -93,7 +140,7 @@ bool sidecarsAndIndependentDocument() {
   CHECK(request.photographs.size() == 3 && request.hiddenCount == 2);
   const auto text = photoTrashConfirmationText(request);
   CHECK(text.find("3 photographs") != std::string::npos && text.find("2 hidden") != std::string::npos);
-  CHECK(text.find("associated RawNode sidecars") != std::string::npos);
+  CHECK(text.find("Associated RawNode sidecars") != std::string::npos);
   // Selection/filter changes after confirmation must not substitute new paths.
   app.filmstripSelection = {a, b, c, d}; app.filmstripMarkFilter = PhotoMark::Reject;
   const auto result = execute(app, request, files);
@@ -388,6 +435,7 @@ bool protectedAndFailedReplacement() {
 
 bool testPhotoTrash() {
   for (const auto &test : {
+      std::make_pair("singular/plural confirmation separates eligible, ineligible and filter-hidden paths", confirmationEligibilityAndWording),
       std::make_pair("opaque exact sidecars, hidden snapshot, non-current document and thumbnail invariants", sidecarsAndIndependentDocument),
       std::make_pair("photo/sidecar partial failures, continuation and remaining selection", partialFailures),
       std::make_pair("missing/replaced paths, symlinks and changed folder refuse unrelated files", changedAndSymlinkPaths),
