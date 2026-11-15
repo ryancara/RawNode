@@ -4,11 +4,13 @@ This focused milestone starts at main `8845e776af5b5a3d07fe49df894a16efbc884b77`
 (merged multi-photo selection PR #115). It adds no catalogue, culling mode,
 filesystem Undo, permanent deletion or new filmstrip controls.
 
-**Review status:** Claude returned CHANGES REQUIRED because the Windows adapter's
-strict recoverability guarantee has not been established. This corrective pass
-preserves that deletion strategy and does not resolve the merge blocker. See the
-[source/API research and recommendation](WINDOWS_TRASH_RESEARCH.md). The macOS
-and Linux paths were assessed as sound; native GUI/restore checks remain separate.
+**Platform status:** macOS/Linux Move to Trash is implemented in draft PR #116,
+subject to final validation and merge. Native Windows tests reproduced silent
+permanent deletion through the old adapter; Windows now explicitly returns an
+unsupported-operation error without invoking deletion. Safe Windows support is
+an unfinished, deferred [roadmap milestone](../ROADMAP.md). See the
+[research and native evidence](WINDOWS_TRASH_RESEARCH.md). Final independent
+review and native macOS GUI/restore checks remain separate from automated tests.
 
 ## Interaction and visible changes
 
@@ -101,21 +103,19 @@ nothing, including cancellation notifications for a new same-path job.
 
 `platform/FileTrash` exposes `moveFileToTrash(path, error)` and no-follow identity
 inspection. Its required contract is recoverable Trash or failure. macOS/Linux
-use their native Trash operations; the unchanged Windows implementation is still
-blocked because strict fallback prevention is not established.
+use their native Trash operations. Windows explicitly refuses before any
+filesystem mutation or shell deletion call.
 
 - macOS: Foundation `NSFileManager trashItemAtURL:resultingItemURL:error:` in an
   Objective-C++ source, compiled only on Apple. Existing Cocoa linkage supplies
   Foundation. Unsupported volumes return the native error.
-- Windows 8+: the current draft uses Shell IFileOperation with conditional
-  ole32/shell32/uuid linkage, RECYCLEONDELETE and a recycle-intent callback check.
-  It verifies per-item results, including a newly created Recycle Bin item, and
-  accounts for cancellation/partial completion. However, detecting permanent
-  deletion afterwards would be too late; neither the intent flag nor the current
-  checks establish refusal for every unsupported-bin case. This strategy is
-  unchanged in the corrective pass and remains a merge blocker. No new Windows
-  dependency or proposed replacement was implemented; consult the
-  [research report](WINDOWS_TRASH_RESEARCH.md) before native experiments.
+- Windows: temporarily unsupported. `moveFileToTrash()` returns false with an
+  explanatory error for every path. The old IFileOperation callback/operation and
+  its COM linkage are removed. No shell prompt, permanent-delete fallback,
+  custom Trash or recovery system is used. Photograph failure leaves sidecars
+  alone through the existing batch failure handling. Re-enablement requires a
+  separately reviewed and natively validated recycle-or-preserve solution; see
+  the [research report](WINDOWS_TRASH_RESEARCH.md).
 - Linux: GIO `g_file_trash()`, with required `gio-2.0` through pkg-config
   (`libglib2.0-dev` on Debian/Ubuntu, added to Linux CI only). GIO mount policy,
   filesystem permissions and desktop Trash availability may refuse a move;
@@ -142,6 +142,11 @@ These expectations and the proportionate design were recorded before coding.
 Both are included in full `--selftest`. Test moves only rename test-owned files
 inside their own temporary fixtures; self-tests never call the real OS Trash.
 Barrier tests exercise actual preview/thumbnail workers without sleeps.
+`tests/WindowsTrashTests.cpp` is a separate native Windows regression, compiled
+with the actual production adapter by Windows Trash safety CI. It verifies
+false/error, byte-identical originals and independent test copies, unchanged file
+identity, repeated refusal and a missing-path refusal. It invokes the production
+Windows stub only; macOS/Linux self-tests still never call native Trash.
 
 Coverage includes single/multiple and hidden selection; immutable confirmation
 and Cancel; real Graph/List/text/active-control/modal focus; exact current/legacy,
@@ -160,7 +165,7 @@ Exact-head Release/sanitizer/CI outcomes and the scope/readability audit are
 recorded in the draft PR and implementation report. Native GUI verification
 below is separate from headless tests and CI compilation.
 
-## Native macOS and Windows checklist
+## Remaining native macOS checklist
 
 Use only disposable photographs and sidecars in a temporary folder. Keep original
 copies for comparison; never test on a user's photo collection.
@@ -173,7 +178,7 @@ copies for comparison; never test on a user's photo collection.
    document and pending edits.
 2. Move one and multiple photographs, with missing/current/legacy sidecars,
    malformed/newer/read-only sidecars, Unicode/spaced names and same-stem RAW/JPEG
-   pairs. Inspect the native Trash/Recycle Bin, original-path information and
+   pairs. Inspect the native Trash, original-path information and
    exact contents; restore every disposable file successfully.
 3. With photo selection retained, delete nodes via both keys in Graph and List,
    edit text, use search/filter controls and another modal. No photo confirmation
@@ -191,13 +196,13 @@ copies for comparison; never test on a user's photo collection.
    cannot decode. Verify an empty usable editor, cleared preview/history and no
    recreated source sidecar after navigation/restart. Refresh during active
    thumbnails and verify no removed/stale results return.
-7. Windows specifically: cancel/skip shell operations; exercise disabled/full
-   Recycle Bin, non-recyclable/removable/network volumes, denied files and files
-   exceeding Recycle Bin limits. Every unsupported recycle must refuse safely,
-   including any permanent-delete fallback proposed by the shell. Confirm actual
-   recovery in Explorer on supported volumes. Cross-compilation cannot establish
-   these shell behaviours.
-8. macOS specifically: check native Save Retry / Discard / Cancel, unsupported/
-   read-only/external volumes, Retina/narrow/floating filmstrips and theme
-   selection visibility. Confirm recovery in Finder. The completed PR #115
-   selection checks do not establish new Trash/lifecycle behaviour.
+7. Check native Save Retry / Discard / Cancel, unsupported/read-only/external
+   volumes, Retina/narrow/floating filmstrips and theme selection visibility.
+   Confirm recovery in Finder. The completed PR #115 selection checks do not
+   establish new Trash/lifecycle behaviour.
+
+Windows currently requires refusal, not recycling. The native MSVC regression
+checks that interim behavior. The [Windows research checklist](WINDOWS_TRASH_RESEARCH.md#required-native-windows-evidence-before-enabling-an-implementation)
+tracks actual successful recycling/restoration, oversized/disabled/full bins,
+external/removable storage and cancellation required before support can return
+in a separate focused PR.

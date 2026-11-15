@@ -236,7 +236,7 @@ target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB IlmCtlSimd Im
 if(APPLE)
   target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework Foundation" "-framework IOKit" "-framework CoreVideo" "-framework Metal")
 elseif(WIN32)
-  target_link_libraries(OfxRawHost PRIVATE opengl32 ole32 shell32 uuid)
+  target_link_libraries(OfxRawHost PRIVATE opengl32)
 else()
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(PkgConfig REQUIRED)

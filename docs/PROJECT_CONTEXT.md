@@ -474,14 +474,17 @@ current/legacy sidecar names. Current-photo removal reuses departure saving and
 DocumentMutation, refuses active export, retires the removed save target, and
 uses prepared opening or a usable empty editor. Non-current removal preserves
 the live grade/history/preview. Partial sidecar failures report exact orphan
-paths without rollback or overwrite. Native macOS/Windows Trash recovery checks
-remain separate from PR #115's completed selection validation. PR #116 remains
-draft after independent CHANGES REQUIRED review: the Windows shell adapter's
-strict recoverability guarantee is unresolved. Shared/macOS/Linux corrections
-preserve the lifecycle; unmodified deletion keys and confirmation eligibility
-wording are covered. The [Windows source/API research](WINDOWS_TRASH_RESEARCH.md)
-recommends temporary explicit refusal pending an approved solution; that
-recommendation is not implemented in this pass. Batch export remains a later PR.
+paths without rollback or overwrite. PR #116 implements macOS/Linux Trash,
+subject to final validation and merge; native macOS GUI/restore checks remain
+separate from PR #115's selection validation. Windows Move to Trash now explicitly
+refuses without invoking deletion: native tests reproduced silent permanent
+loss through the previous IFileOperation adapter. Shared/macOS/Linux lifecycle,
+unmodified deletion keys and confirmation eligibility wording are preserved.
+The [Windows research and diagnostic evidence](WINDOWS_TRASH_RESEARCH.md) record
+the loss and separate HRESULT reporting bug. Windows support remains an
+unfinished [near-term roadmap milestone](../ROADMAP.md), requiring its own
+focused PR, independent review and native recycle-or-preserve validation. Batch
+export remains a later PR.
 
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,

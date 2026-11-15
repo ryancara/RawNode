@@ -1,24 +1,61 @@
 # Windows Trash: source and API review
 
-**Research snapshot: 15 November 2026.** PR #116 remains draft and merge-blocked.
-Its Windows deletion strategy is unchanged by the corrective pass. Do not use
-that adapter on user photographs until the recoverability issue is resolved.
+**Decision: Windows Move to Trash is temporarily unsupported in PR #116.**
+The Windows adapter now returns false with an explanatory error before any
+filesystem mutation or shell deletion call. The unsafe IFileOperation adapter
+and its COM linkage are removed. Native macOS/Linux implementations are retained.
+This is an interim safety decision; Windows support is deferred, not abandoned.
+It must return in its own focused PR with independent review and native evidence
+of a recycle-or-preserve guarantee. See the visible
+[near-term roadmap item](../ROADMAP.md#near-term-execution-priorities-november-2026).
+PR #116 remains draft and unmerged pending final validation and review.
 
-**Recommendation:** after owner agreement, temporarily refuse Windows Trash
-operations with a clear unsupported-operation error. Keep the native macOS/Linux
-paths. None of the implementations or Microsoft contracts inspected establishes
-the required Windows guarantee in every requested configuration. Adding Qt/GIO
-or restricting operations to local NTFS does not establish it. This refusal is a
-recommendation, **not implemented in this pass**. Do not merge the unchanged
-Windows adapter on the strength of this research or passing CI.
+## Native Windows evidence (T)
+
+The [diagnostic report][native-report] and its linked raw traces are retained at
+commit `b6cbafdd3d0255897417ca898a6eb8b2975aa6e4` on the separate diagnostic
+branch. Two isolated native Windows Server 2022 VMs (build 20348) each ran 30
+independently backed-up disposable fixtures against production commit
+`8eb251a9827133bd22e7e756070114e8e50c5949` and instrumented variants.
+
+- Enabled fixed NTFS and fixed virtual FAT32/exFAT volumes: 24 operations recycled
+  successfully and restored through the Shell with matching SHA-256.
+- Disabled per-volume bin settings: the existing callback refused safely when
+  recycle intent was absent. Unconditional-veto controls also preserved files.
+- Oversized fixtures (12 MiB file, 1 MiB bin quota): **four originals were silently
+  permanently deleted**, including two calls through the exact production
+  adapter. Original paths and bin entries were absent; the repeat also verified
+  no bin data/metadata files. Independent harness backups remained intact.
+- The oversized callback still had `TSF_DELETE_RECYCLE_IF_POSSIBLE` (`Pre` and
+  `Post` flags `0x282`). PreDeleteItem returned S_OK, PostDeleteItem returned
+  `0x00270008` with a null recycled item, PerformOperations returned S_OK, and
+  aborted was false. The existing intent check cannot reliably veto fallback;
+  post-operation detection cannot protect already-deleted data.
+- Removing only FOF_NOCONFIRMATION displayed “This file is too big to recycle …
+  Do you want to permanently delete it?” The harness clicked No, preserving the
+  original (`0x80270000`, aborted true). This prevented silent approval in the
+  reproduced case but still offered permanent deletion, so it does not meet
+  RawNode's automatic recycle-or-preserve requirement.
+
+**Separate reporting bug:** successful recycling also returned `0x00270008`, a
+successful HRESULT, with a non-null recycled item. The old `result == S_OK`
+condition incorrectly reported failure. Future implementations must use
+appropriate success classification, such as SUCCEEDED(result), together with
+proof of actual recycling. Correcting HRESULT classification alone cannot
+prevent permanent-deletion fallback.
+
+Physical external HDD/SSD, removable SD cards and Windows 10/11 clients were
+unavailable and remain unverified. Fixed virtual FAT32/exFAT results do not
+establish removable-media behavior. No custom Trash, hard-link protection or
+production backup strategy was developed or approved.
 
 ## Evidence and Microsoft contract
 
 **D** = official documentation; **S** = inspected source at a pinned commit;
-**T** = actual testing; **U** = unverified. No native Windows testing was performed
-for this report. Linux/macOS CI, injected tests and Windows cross-compilation do
-not establish Windows shell behaviour. No Explorer/Lightroom behaviour is claimed
-from observation or proprietary implementation details.
+**T** = actual testing; **U** = unverified. The native evidence above supplements
+the original source/API review below. Linux/macOS CI, injected tests and Windows
+cross-compilation do not establish Windows shell behaviour. No Lightroom
+behaviour or proprietary implementation details are inferred.
 
 | Microsoft API/flag | Documented meaning (D) and limit of the conclusion |
 | --- | --- |
@@ -35,9 +72,9 @@ from observation or proprietary implementation details.
 validation / callback combination guaranteeing “recycle or leave recoverable”
 for all the requested cases. The RECYCLEONDELETE wording is stronger than
 ALLOWUNDO, but neither a pre-operation intent flag nor post-operation detection
-fills that documentation gap. This is **not** a claim that permanent deletion
-was reproduced here, or that every Windows version necessarily falls back.
-The current adapter's stronger guarantee was not substantiated.
+fills that documentation gap. The subsequent native tests above reproduced
+permanent deletion through RawNode's old adapter. This does not establish that
+every Windows version or provider behaves identically.
 
 [ITransferSource::RecycleItem][recycle-item] also describes recycling into a
 provided recycle location, with dialog/status results including ignored/pending
@@ -71,11 +108,11 @@ recoverability guarantee for those cases that RawNode can simply inherit.
 
 | Option | Recoverability / disabled bin | External/network support | Dependencies and maintenance |
 | --- | --- | --- | --- |
-| **A. Adjust native shell flags/callbacks** | Good intent and outcome reporting; strict fallback prevention remains U. WANTNUKEWARNING is a prompt, not refusal; post-delete checks are too late. | Requires proof for each supported provider/volume/policy. | No new dependency; small code change, but the central safety claim remains unresolved. Do not approve merely from passing normal-bin tests. |
+| **A. Adjust native shell flags/callbacks** | Native tests reproduced oversized-file fallback despite recycle intent. Removing NOCONFIRMATION offered permanent deletion; post-delete checks are too late. | Requires proof for each supported provider/volume/policy. | No new dependency; small code change, but the central safety claim remains unresolved. Do not approve merely from passing normal-bin tests. |
 | **B. Adopt Qt or Windows GIO** | Inspected implementations do not add the missing guarantee. | Shell-dependent; not established here for unavailable bins or remote/removable files. | QtCore is a substantial new dependency; Windows GIO is also new platform baggage. Neither is justified by a proven safety improvement. digiKam/RawTherapee workflows are outside scope. |
 | **C. Only local NTFS** | NTFS supports required filesystem primitives, but users/policy can still disable the bin or impose capacity limits. Restriction alone does not guarantee recycling or refusal. | Excludes UNC/mapped shares and non-NTFS media; NTFS on an external drive is not proof of bin availability. | Small volume check, insufficient safety by itself. Registry/bin-capacity preflight is not an atomic reservation and should not become a new policy subsystem. |
 | **D. Protective hard link or full backup** | A retained NTFS hard link can preserve bytes after the original name is deleted (D), but the shell result still needs verification before releasing it. A copy can protect other filesystems at significant I/O/storage cost. Neither has been designed/tested for RawNode. | Hard links require same-volume NTFS files; do not promise network/removable support. A copy still requires writable space and durable recovery rules. | Collision-safe creation, identity checks, failed restore, crashes, orphan cleanup, preserved metadata/streams and user-visible recovery all need an approved contract. This can grow into the recovery machinery we are trying to avoid. |
-| **Preferred interim policy: refuse Windows Trash** | No destructive OS call, so disabled/full/unavailable bins cannot cause data loss. | Clear refusal on every Windows volume until a supported case is justified. | No new dependency or filesystem-management state; smallest safe interim behaviour. Requires owner agreement and a later implementation; unchanged adapter still blocks this PR. |
+| **Approved interim policy: refuse Windows Trash (implemented)** | No destructive OS call, so disabled/full/unavailable bins cannot cause data loss. | Clear refusal on every Windows volume until safe support is demonstrated. | No new dependency or filesystem-management state. Windows support remains a separate unfinished roadmap milestone after PR #116. |
 
 [CreateHardLinkW][hardlink] and [Hard Links and Junctions][hardlinks-overview]
 document NTFS file links, same-volume constraints and retention until links are
@@ -108,10 +145,13 @@ volumes/shares only. Record Windows build, filesystem, drive type and bin policy
    recovery without overwriting unrelated files and that no protection is removed
    before verified recoverability. No such strategy was implemented/tested here.
 
-**Merge blocker:** resolve Windows recoverability by an approved, validated
-implementation or an approved explicit refusal. The current Windows strategy
-remains unchanged. Part 1 tests/CI validate only the corrections and established
-macOS/Linux/shared behaviour.
+**Current safety correction:** the approved explicit Windows refusal is now
+implemented; no Windows deletion API remains reachable through moveFileToTrash.
+The standalone native MSVC regression in `tests/WindowsTrashTests.cpp` checks
+false/error and unchanged fixture bytes/identity. Linux/macOS full tests and
+remaining native macOS GUI/restore checks are separate. Do not re-enable the old
+IFileOperation implementation or mark Windows support complete when PR #116
+merges. No merge is authorised by this correction.
 
 [delete]: https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ifileoperation-deleteitem
 [flags]: https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-ifileoperation-setoperationflags
@@ -138,3 +178,5 @@ macOS/Linux/shared behaviour.
 [s2t-sink]: https://github.com/arsenetar/send2trash/blob/a0b16254fdb56d3df7363f52ea47f345e7a25ebd/send2trash/win/IFileOperationProgressSink.py
 [s2t-legacy]: https://github.com/arsenetar/send2trash/blob/a0b16254fdb56d3df7363f52ea47f345e7a25ebd/send2trash/win/legacy.py#L139-L190
 [hardlinks-overview]: https://learn.microsoft.com/en-us/windows/win32/fileio/hard-links-and-junctions
+
+[native-report]: https://github.com/ryancara/RawNode/blob/b6cbafdd3d0255897417ca898a6eb8b2975aa6e4/REPORT.md
