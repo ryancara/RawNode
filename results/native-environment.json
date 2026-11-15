@@ -1,7 +1,7 @@
 {
   "baseline": "8eb251a9827133bd22e7e756070114e8e50c5949",
-  "runUrl": "https://github.com/ryancara/RawNode/actions/runs/43665290956",
-  "runId": "43665290956",
+  "runUrl": "https://github.com/ryancara/RawNode/actions/runs/43665533196",
+  "runId": "43665533196",
   "os": "Microsoft Windows Server 2022 Datacenter",
   "version": "10.0.20348",
   "build": "20348",
@@ -17,15 +17,7 @@
       "DriveType": "Fixed",
       "FileSystemLabel": "Windows",
       "Size": 274284392448,
-      "SizeRemaining": 86422614016
-    },
-    {
-      "DriveLetter": "D",
-      "FileSystem": "NTFS",
-      "DriveType": "Fixed",
-      "FileSystemLabel": "Temporary Storage",
-      "Size": 161059172352,
-      "SizeRemaining": 157853003776
+      "SizeRemaining": 86431440896
     },
     {
       "DriveLetter": null,
@@ -42,6 +34,14 @@
       "FileSystemLabel": "",
       "Size": 99614720,
       "SizeRemaining": 65038336
+    },
+    {
+      "DriveLetter": "D",
+      "FileSystem": "NTFS",
+      "DriveType": "Fixed",
+      "FileSystemLabel": "Temporary Storage",
+      "Size": 161060220928,
+      "SizeRemaining": 157854003200
     }
   ],
   "mountDiskImage": true,
