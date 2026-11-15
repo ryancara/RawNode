@@ -1,0 +1,2266 @@
+{
+  "baseline": "8eb251a9827133bd22e7e756070114e8e50c5949",
+  "runUrl": "https://github.com/ryancara/RawNode/actions/runs/43665533196",
+  "observations": [
+    {
+      "id": "f57d3862afce4d74ac11469aa26ef7fb",
+      "scenario": "default-fixed-ntfs",
+      "mode": "production",
+      "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-f57d3862afce4d74ac11469aa26ef7fb.bmp",
+      "originalSha256": "B6C4C7C210B94E2D6B4C568FCD0804280C44C3290A0088D71FC4ED736184C08C",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "production",
+          "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-f57d3862afce4d74ac11469aa26ef7fb.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "production_result",
+          "moved": "false",
+          "error": "Recycle Bin operation failed or was cancelled (shell=0x0, item=0x270008, aborted=0)"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-f57d3862afce4d74ac11469aa26ef7fb",
+          "path": "C:\\$Recycle.Bin\\S-1-5-21-1280602335-643053282-3184619455-500\\$R29C03X.bmp",
+          "deletedFrom": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "0c7bc0f231964c0781c93010a6e99655",
+      "scenario": "default-fixed-ntfs",
+      "mode": "instrumented",
+      "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-0c7bc0f231964c0781c93010a6e99655.bmp",
+      "originalSha256": "8D614CE4995E37305839C81BD535D56A8BB1A5ECC9783A8F3EA24E071688C63D",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "instrumented",
+          "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-0c7bc0f231964c0781c93010a6e99655.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x00000000",
+          "item": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-0c7bc0f231964c0781c93010a6e99655.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x00270008",
+          "created": "true",
+          "recycled": "false",
+          "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-0c7bc0f231964c0781c93010a6e99655.bmp",
+          "createdPath": "C:\\$Recycle.Bin\\S-1-5-21-1280602335-643053282-3184619455-500\\$RD0CA1F.bmp",
+          "createdParsingName": "C:\\$Recycle.Bin\\S-1-5-21-1280602335-643053282-3184619455-500\\$RD0CA1F.bmp"
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x00000000"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x00270008"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-0c7bc0f231964c0781c93010a6e99655",
+          "path": "C:\\$Recycle.Bin\\S-1-5-21-1280602335-643053282-3184619455-500\\$RD0CA1F.bmp",
+          "deletedFrom": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "b644ede1a908451eaf5c37464bdd0730",
+      "scenario": "default-fixed-ntfs",
+      "mode": "without-noconfirmation",
+      "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-b644ede1a908451eaf5c37464bdd0730.bmp",
+      "originalSha256": "520F34C36F753ACAD59659E429B66009B3F55E0F5BD94DE6CD5542626D5B6BC6",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "without-noconfirmation",
+          "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-b644ede1a908451eaf5c37464bdd0730.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183404",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000280",
+          "recycleIntent": "true",
+          "decision": "0x00000000",
+          "item": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-b644ede1a908451eaf5c37464bdd0730.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000280",
+          "result": "0x00270008",
+          "created": "true",
+          "recycled": "false",
+          "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-b644ede1a908451eaf5c37464bdd0730.bmp",
+          "createdPath": "C:\\$Recycle.Bin\\S-1-5-21-1280602335-643053282-3184619455-500\\$RHHC04G.bmp",
+          "createdParsingName": "C:\\$Recycle.Bin\\S-1-5-21-1280602335-643053282-3184619455-500\\$RHHC04G.bmp"
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x00000000"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x00270008"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-b644ede1a908451eaf5c37464bdd0730",
+          "path": "C:\\$Recycle.Bin\\S-1-5-21-1280602335-643053282-3184619455-500\\$RHHC04G.bmp",
+          "deletedFrom": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "47ed9fc04ebe4659aa4804e99ceb0bd7",
+      "scenario": "default-fixed-ntfs",
+      "mode": "force-veto-control",
+      "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-47ed9fc04ebe4659aa4804e99ceb0bd7.bmp",
+      "originalSha256": "2AB01CA3D5A858BB0B307B5F0436B1CC28E5BF3DA445A4DC36C463D7E22952EC",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "force-veto-control",
+          "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-47ed9fc04ebe4659aa4804e99ceb0bd7.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x80004004",
+          "item": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-47ed9fc04ebe4659aa4804e99ceb0bd7.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-47ed9fc04ebe4659aa4804e99ceb0bd7.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "2d3006d193444effb98b249edd2f82dc",
+      "scenario": "default-fixed-ntfs",
+      "mode": "policy-intent-control",
+      "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2d3006d193444effb98b249edd2f82dc.bmp",
+      "originalSha256": "4A9E554C18115AC1BF15997DA15E3E06CA6BD54F79F24BFB3B1F3CE2834CBBDF",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "policy-intent-control",
+          "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2d3006d193444effb98b249edd2f82dc.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00103454",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x80004004",
+          "item": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2d3006d193444effb98b249edd2f82dc.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "C:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2d3006d193444effb98b249edd2f82dc.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "4017f302a935450c9e79c604273fef85",
+      "scenario": "enabled-virtual-ntfs",
+      "mode": "production",
+      "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-4017f302a935450c9e79c604273fef85.bmp",
+      "originalSha256": "A3AB135BD0163D1E15C1E596BF0EDBED2EF6FF79DA7388ED89511702C0AFFB72",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "production",
+          "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-4017f302a935450c9e79c604273fef85.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "production_result",
+          "moved": "false",
+          "error": "Recycle Bin operation failed or was cancelled (shell=0x0, item=0x270008, aborted=0)"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-4017f302a935450c9e79c604273fef85",
+          "path": "R:\\$RECYCLE.BIN\\S-1-5-21-1280602335-643053282-3184619455-500\\$RKVVXIZ.bmp",
+          "deletedFrom": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "bff0b97561a54ed88e7e446737cd2742",
+      "scenario": "enabled-virtual-ntfs",
+      "mode": "instrumented",
+      "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bff0b97561a54ed88e7e446737cd2742.bmp",
+      "originalSha256": "F83681789485BFB99CEE6B6C7B2AA74DC7AE3118CCF7D786F5FBC6FD521DFD75",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "instrumented",
+          "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bff0b97561a54ed88e7e446737cd2742.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x00000000",
+          "item": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bff0b97561a54ed88e7e446737cd2742.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x00270008",
+          "created": "true",
+          "recycled": "false",
+          "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bff0b97561a54ed88e7e446737cd2742.bmp",
+          "createdPath": "R:\\$RECYCLE.BIN\\S-1-5-21-1280602335-643053282-3184619455-500\\$RHZCSH9.bmp",
+          "createdParsingName": "R:\\$RECYCLE.BIN\\S-1-5-21-1280602335-643053282-3184619455-500\\$RHZCSH9.bmp"
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x00000000"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x00270008"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-bff0b97561a54ed88e7e446737cd2742",
+          "path": "R:\\$RECYCLE.BIN\\S-1-5-21-1280602335-643053282-3184619455-500\\$RHZCSH9.bmp",
+          "deletedFrom": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "6801d0316b7d4094816590d2ad1b1ec1",
+      "scenario": "enabled-virtual-ntfs",
+      "mode": "without-noconfirmation",
+      "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-6801d0316b7d4094816590d2ad1b1ec1.bmp",
+      "originalSha256": "08E88125B7F9F02BC54CAAF1722EB30CDA94E7A50062179BA830E91E3EABC60B",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "without-noconfirmation",
+          "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-6801d0316b7d4094816590d2ad1b1ec1.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183404",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000280",
+          "recycleIntent": "true",
+          "decision": "0x00000000",
+          "item": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-6801d0316b7d4094816590d2ad1b1ec1.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000280",
+          "result": "0x00270008",
+          "created": "true",
+          "recycled": "false",
+          "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-6801d0316b7d4094816590d2ad1b1ec1.bmp",
+          "createdPath": "R:\\$RECYCLE.BIN\\S-1-5-21-1280602335-643053282-3184619455-500\\$RTXN00A.bmp",
+          "createdParsingName": "R:\\$RECYCLE.BIN\\S-1-5-21-1280602335-643053282-3184619455-500\\$RTXN00A.bmp"
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x00000000"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x00270008"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-6801d0316b7d4094816590d2ad1b1ec1",
+          "path": "R:\\$RECYCLE.BIN\\S-1-5-21-1280602335-643053282-3184619455-500\\$RTXN00A.bmp",
+          "deletedFrom": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "c2f4aa6e14754e9fa991d1b44163246d",
+      "scenario": "enabled-virtual-ntfs",
+      "mode": "force-veto-control",
+      "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-c2f4aa6e14754e9fa991d1b44163246d.bmp",
+      "originalSha256": "E5DE44EC15657D937DA0A36149AC42AB45CC9D21F81D71AA99A809A1F74475DE",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "force-veto-control",
+          "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-c2f4aa6e14754e9fa991d1b44163246d.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x80004004",
+          "item": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-c2f4aa6e14754e9fa991d1b44163246d.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-c2f4aa6e14754e9fa991d1b44163246d.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "1fb3e3083ca94f27b06d5f40406b90bb",
+      "scenario": "enabled-virtual-ntfs",
+      "mode": "policy-intent-control",
+      "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-1fb3e3083ca94f27b06d5f40406b90bb.bmp",
+      "originalSha256": "3DC4035CE180F46F1C174FB26C452E5CCAF112BE36E27C026BDAF2962FCB6126",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "policy-intent-control",
+          "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-1fb3e3083ca94f27b06d5f40406b90bb.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00103454",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x80004004",
+          "item": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-1fb3e3083ca94f27b06d5f40406b90bb.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-1fb3e3083ca94f27b06d5f40406b90bb.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "bb36e26318184248a3b473d084454616",
+      "scenario": "configured-disabled-virtual-ntfs",
+      "mode": "production",
+      "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bb36e26318184248a3b473d084454616.bmp",
+      "originalSha256": "F61AD269025F40FD42E7424D1B3E5056DDDEDB70FD14135593D3CFECBE0E4D2B",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "production",
+          "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bb36e26318184248a3b473d084454616.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "production_result",
+          "moved": "false",
+          "error": "Recycle Bin operation failed or was cancelled (shell=0x80004004, item=0x80004004, aborted=0)"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "182040eed0e94ae6819232ba359d72e8",
+      "scenario": "configured-disabled-virtual-ntfs",
+      "mode": "instrumented",
+      "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-182040eed0e94ae6819232ba359d72e8.bmp",
+      "originalSha256": "31BC75795AF967D5353784FCC261D874DCE6C436E31294EF597DD62A4BCB0B61",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "instrumented",
+          "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-182040eed0e94ae6819232ba359d72e8.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000202",
+          "recycleIntent": "false",
+          "decision": "0x80004004",
+          "item": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-182040eed0e94ae6819232ba359d72e8.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000202",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-182040eed0e94ae6819232ba359d72e8.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "231106d0ddac43fd9a6e833f7cbd625a",
+      "scenario": "configured-disabled-virtual-ntfs",
+      "mode": "without-noconfirmation",
+      "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-231106d0ddac43fd9a6e833f7cbd625a.bmp",
+      "originalSha256": "6BB13C9A9B29CF10174FD108954BC704B87F09BC09B5C1F0771D2B6E9532EDA1",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "without-noconfirmation",
+          "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-231106d0ddac43fd9a6e833f7cbd625a.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183404",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000200",
+          "recycleIntent": "false",
+          "decision": "0x80004004",
+          "item": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-231106d0ddac43fd9a6e833f7cbd625a.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000200",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-231106d0ddac43fd9a6e833f7cbd625a.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "107fc9ff8d424564bb6e2f49dbf71b1a",
+      "scenario": "configured-disabled-virtual-ntfs",
+      "mode": "force-veto-control",
+      "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-107fc9ff8d424564bb6e2f49dbf71b1a.bmp",
+      "originalSha256": "9C0573CFB611C3D2A8A91DEC2F197AE21DAEE541DC0FD3F00071F2E3085B0507",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "force-veto-control",
+          "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-107fc9ff8d424564bb6e2f49dbf71b1a.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000202",
+          "recycleIntent": "false",
+          "decision": "0x80004004",
+          "item": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-107fc9ff8d424564bb6e2f49dbf71b1a.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000202",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-107fc9ff8d424564bb6e2f49dbf71b1a.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "d27627fb763c4e83837e8ef24b3d0cd6",
+      "scenario": "configured-disabled-virtual-ntfs",
+      "mode": "policy-intent-control",
+      "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-d27627fb763c4e83837e8ef24b3d0cd6.bmp",
+      "originalSha256": "B4DCACFBB6C449F3A90F10E9047EE57592C9A906D380CE34F96369CED0F1A3A2",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "policy-intent-control",
+          "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-d27627fb763c4e83837e8ef24b3d0cd6.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00103454",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000202",
+          "recycleIntent": "false",
+          "decision": "0x80004004",
+          "item": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-d27627fb763c4e83837e8ef24b3d0cd6.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000202",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-d27627fb763c4e83837e8ef24b3d0cd6.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "8fb330eadf73495393b685c2934be28c",
+      "scenario": "configured-oversized-virtual-ntfs",
+      "mode": "production",
+      "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-8fb330eadf73495393b685c2934be28c.bmp",
+      "originalSha256": "69CEEF0B5CE3B1106DDBFFDE2EB73DC5D781F6251E683B18CF6666AAD4249F7C",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "production",
+          "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-8fb330eadf73495393b685c2934be28c.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "production_result",
+          "moved": "false",
+          "error": "Recycle Bin operation failed or was cancelled (shell=0x0, item=0x270008, aborted=0)"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "ac8a7cf265a9446994094fd03d4dad25",
+      "scenario": "configured-oversized-virtual-ntfs",
+      "mode": "instrumented",
+      "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-ac8a7cf265a9446994094fd03d4dad25.bmp",
+      "originalSha256": "4A67A797FF5953F7ACA431F8719167F0AFD932B3DB602CC199E772A112C2026C",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "instrumented",
+          "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-ac8a7cf265a9446994094fd03d4dad25.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x00000000",
+          "item": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-ac8a7cf265a9446994094fd03d4dad25.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x00270008",
+          "created": "false",
+          "recycled": "false",
+          "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-ac8a7cf265a9446994094fd03d4dad25.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x00000000"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x00270008"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "616cafb271c14a9093f5f4db948f253c",
+      "scenario": "configured-oversized-virtual-ntfs",
+      "mode": "without-noconfirmation",
+      "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-616cafb271c14a9093f5f4db948f253c.bmp",
+      "originalSha256": "032BD86AEAB5C8700567B7CE290367F765EC56A86A1C17B3B8D1978E2C3E2912",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "without-noconfirmation",
+          "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-616cafb271c14a9093f5f4db948f253c.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183404",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000280",
+          "recycleIntent": "true",
+          "decision": "0x00000000",
+          "item": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-616cafb271c14a9093f5f4db948f253c.bmp"
+        },
+        {
+          "event": "dialog_cancelled_by_harness",
+          "title": "Delete File",
+          "button": "&No",
+          "buttonId": "2"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000280",
+          "result": "0x80270000",
+          "created": "false",
+          "recycled": "false",
+          "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-616cafb271c14a9093f5f4db948f253c.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80270000"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "true"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80270000"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "true"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "2f923d6f169c48ad99853958663e7eee",
+      "scenario": "configured-oversized-virtual-ntfs",
+      "mode": "force-veto-control",
+      "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2f923d6f169c48ad99853958663e7eee.bmp",
+      "originalSha256": "4BC1BBC25AD9697D236899CB771BB61AF509B6F2B273D10CFDA987619F07B90F",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "force-veto-control",
+          "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2f923d6f169c48ad99853958663e7eee.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x80004004",
+          "item": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2f923d6f169c48ad99853958663e7eee.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2f923d6f169c48ad99853958663e7eee.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "d19e1c4f80dc4d91bddcd98998fc11c9",
+      "scenario": "configured-oversized-virtual-ntfs",
+      "mode": "policy-intent-control",
+      "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-d19e1c4f80dc4d91bddcd98998fc11c9.bmp",
+      "originalSha256": "9B47451FB1807F5A72CDD002EADA8256A9C7B713E596B9007B94D6193D13C3B7",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "policy-intent-control",
+          "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-d19e1c4f80dc4d91bddcd98998fc11c9.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00103454",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x80004004",
+          "item": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-d19e1c4f80dc4d91bddcd98998fc11c9.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-d19e1c4f80dc4d91bddcd98998fc11c9.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "cdc86e48e51f4b0ba727a9efac249621",
+      "scenario": "virtual-fixed-fat32",
+      "mode": "production",
+      "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-cdc86e48e51f4b0ba727a9efac249621.bmp",
+      "originalSha256": "7C55B686E9AAB3A09300EC8AA3CE6D22398F88FE8FFD93087E7AF2F5B5F1B537",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "production",
+          "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-cdc86e48e51f4b0ba727a9efac249621.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "production_result",
+          "moved": "false",
+          "error": "Recycle Bin operation failed or was cancelled (shell=0x0, item=0x270008, aborted=0)"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-cdc86e48e51f4b0ba727a9efac249621",
+          "path": "U:\\$RECYCLE.BIN\\$RHNU600.bmp",
+          "deletedFrom": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "0ccac2fb1f70432c8bcfc7466532ffe9",
+      "scenario": "virtual-fixed-fat32",
+      "mode": "instrumented",
+      "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-0ccac2fb1f70432c8bcfc7466532ffe9.bmp",
+      "originalSha256": "318A0F4EA7B96B18DFDBE5CBC997B40F1251E72B77A973E9C9929C23489339EB",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "instrumented",
+          "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-0ccac2fb1f70432c8bcfc7466532ffe9.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x00000000",
+          "item": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-0ccac2fb1f70432c8bcfc7466532ffe9.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x00270008",
+          "created": "true",
+          "recycled": "false",
+          "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-0ccac2fb1f70432c8bcfc7466532ffe9.bmp",
+          "createdPath": "U:\\$RECYCLE.BIN\\$RA902W1.bmp",
+          "createdParsingName": "U:\\$RECYCLE.BIN\\$RA902W1.bmp"
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x00000000"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x00270008"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-0ccac2fb1f70432c8bcfc7466532ffe9",
+          "path": "U:\\$RECYCLE.BIN\\$RA902W1.bmp",
+          "deletedFrom": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "80388bf7891b453b943c0ebbe07df9a1",
+      "scenario": "virtual-fixed-fat32",
+      "mode": "without-noconfirmation",
+      "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-80388bf7891b453b943c0ebbe07df9a1.bmp",
+      "originalSha256": "325C69C8D02D34868E077BB17CD3B5FBB67A1E4DAB853F08252D622E50DED133",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "without-noconfirmation",
+          "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-80388bf7891b453b943c0ebbe07df9a1.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183404",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000280",
+          "recycleIntent": "true",
+          "decision": "0x00000000",
+          "item": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-80388bf7891b453b943c0ebbe07df9a1.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000280",
+          "result": "0x00270008",
+          "created": "true",
+          "recycled": "false",
+          "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-80388bf7891b453b943c0ebbe07df9a1.bmp",
+          "createdPath": "U:\\$RECYCLE.BIN\\$RJJBXY7.bmp",
+          "createdParsingName": "U:\\$RECYCLE.BIN\\$RJJBXY7.bmp"
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x00000000"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x00270008"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-80388bf7891b453b943c0ebbe07df9a1",
+          "path": "U:\\$RECYCLE.BIN\\$RJJBXY7.bmp",
+          "deletedFrom": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "bc0e811477c64e3c9a4fa1e4aa2b3107",
+      "scenario": "virtual-fixed-fat32",
+      "mode": "force-veto-control",
+      "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bc0e811477c64e3c9a4fa1e4aa2b3107.bmp",
+      "originalSha256": "9530440BB0266DBA4A17607CD388E9D965781C875C2908F8B5961F1831147E5A",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "force-veto-control",
+          "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bc0e811477c64e3c9a4fa1e4aa2b3107.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x80004004",
+          "item": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bc0e811477c64e3c9a4fa1e4aa2b3107.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bc0e811477c64e3c9a4fa1e4aa2b3107.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "ae1accd6a6ba404da29fc021d3cf6b0a",
+      "scenario": "virtual-fixed-fat32",
+      "mode": "policy-intent-control",
+      "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-ae1accd6a6ba404da29fc021d3cf6b0a.bmp",
+      "originalSha256": "2992C500A165B89433D7ADE26B4C78063CB95A9E00F25F2898D122B39B69B752",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "policy-intent-control",
+          "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-ae1accd6a6ba404da29fc021d3cf6b0a.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00103454",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x80004004",
+          "item": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-ae1accd6a6ba404da29fc021d3cf6b0a.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "U:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-ae1accd6a6ba404da29fc021d3cf6b0a.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "6948bda87913496eb32c29f94eef50f1",
+      "scenario": "virtual-fixed-exfat",
+      "mode": "production",
+      "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-6948bda87913496eb32c29f94eef50f1.bmp",
+      "originalSha256": "FD144A47A22DE6C907C6B90CDC2E51B6A988FCA45ED81E944B2B37B3386310F4",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "production",
+          "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-6948bda87913496eb32c29f94eef50f1.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "production_result",
+          "moved": "false",
+          "error": "Recycle Bin operation failed or was cancelled (shell=0x0, item=0x270008, aborted=0)"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-6948bda87913496eb32c29f94eef50f1",
+          "path": "V:\\$RECYCLE.BIN\\$RKGZZNS.bmp",
+          "deletedFrom": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "339f406975904865b2cb41c01b652b82",
+      "scenario": "virtual-fixed-exfat",
+      "mode": "instrumented",
+      "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-339f406975904865b2cb41c01b652b82.bmp",
+      "originalSha256": "CA0C00935DD04EC440BBEBB71A589495CBD71484AAF3C642C33CABE8E0B4C66F",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "instrumented",
+          "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-339f406975904865b2cb41c01b652b82.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x00000000",
+          "item": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-339f406975904865b2cb41c01b652b82.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x00270008",
+          "created": "true",
+          "recycled": "false",
+          "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-339f406975904865b2cb41c01b652b82.bmp",
+          "createdPath": "V:\\$RECYCLE.BIN\\$RRKZBNM.bmp",
+          "createdParsingName": "V:\\$RECYCLE.BIN\\$RRKZBNM.bmp"
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x00000000"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x00270008"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-339f406975904865b2cb41c01b652b82",
+          "path": "V:\\$RECYCLE.BIN\\$RRKZBNM.bmp",
+          "deletedFrom": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "8e20f38ee4674610b87b027023a0a04a",
+      "scenario": "virtual-fixed-exfat",
+      "mode": "without-noconfirmation",
+      "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-8e20f38ee4674610b87b027023a0a04a.bmp",
+      "originalSha256": "CE8933031CD4D233AB4C054336B4D7D765FD18AF96A3610D3900C4EB0A4E5F7D",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "without-noconfirmation",
+          "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-8e20f38ee4674610b87b027023a0a04a.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183404",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000280",
+          "recycleIntent": "true",
+          "decision": "0x00000000",
+          "item": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-8e20f38ee4674610b87b027023a0a04a.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000280",
+          "result": "0x00270008",
+          "created": "true",
+          "recycled": "false",
+          "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-8e20f38ee4674610b87b027023a0a04a.bmp",
+          "createdPath": "V:\\$RECYCLE.BIN\\$RXZCU62.bmp",
+          "createdParsingName": "V:\\$RECYCLE.BIN\\$RXZCU62.bmp"
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x00000000"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x00270008"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "false",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": false,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [
+        {
+          "name": "RawNodeProbe-8e20f38ee4674610b87b027023a0a04a",
+          "path": "V:\\$RECYCLE.BIN\\$RXZCU62.bmp",
+          "deletedFrom": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a"
+        }
+      ],
+      "restoreVerbInvoked": "undelete",
+      "originalExistsAfterRestore": true,
+      "restoreSha256Matches": true,
+      "binAfterRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "c810bb08a0e04643b0bc9bd5ef58455d",
+      "scenario": "virtual-fixed-exfat",
+      "mode": "force-veto-control",
+      "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-c810bb08a0e04643b0bc9bd5ef58455d.bmp",
+      "originalSha256": "3AF0667F0E3E3DD460188D8EAF6AF5B95CB606EA401A9FB5E5FF817183030208",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "force-veto-control",
+          "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-c810bb08a0e04643b0bc9bd5ef58455d.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00183414",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x80004004",
+          "item": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-c810bb08a0e04643b0bc9bd5ef58455d.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-c810bb08a0e04643b0bc9bd5ef58455d.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    },
+    {
+      "id": "2b38929b76e5452f93635f5c4ffa3b92",
+      "scenario": "virtual-fixed-exfat",
+      "mode": "policy-intent-control",
+      "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2b38929b76e5452f93635f5c4ffa3b92.bmp",
+      "originalSha256": "929AAFD26B5D1B89595024EBC8BF1644CC884109301B70579CCCF5B072328EA0",
+      "exitCode": 0,
+      "trace": [
+        {
+          "event": "begin",
+          "mode": "policy-intent-control",
+          "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2b38929b76e5452f93635f5c4ffa3b92.bmp",
+          "backupVerified": "true",
+          "driveTypeCode": "3"
+        },
+        {
+          "event": "CoInitializeEx",
+          "result": "0x00000000"
+        },
+        {
+          "event": "CoCreateInstance",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SetOperationFlags",
+          "flags": "0x00103454",
+          "result": "0x00000000"
+        },
+        {
+          "event": "SHCreateItemFromParsingName",
+          "result": "0x00000000"
+        },
+        {
+          "event": "DeleteItem",
+          "result": "0x00000000"
+        },
+        {
+          "event": "PreDeleteItem",
+          "flags": "0x00000282",
+          "recycleIntent": "true",
+          "decision": "0x80004004",
+          "item": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2b38929b76e5452f93635f5c4ffa3b92.bmp"
+        },
+        {
+          "event": "PostDeleteItem",
+          "flags": "0x00000282",
+          "result": "0x80004004",
+          "created": "false",
+          "recycled": "false",
+          "source": "V:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-2b38929b76e5452f93635f5c4ffa3b92.bmp",
+          "createdPath": "",
+          "createdParsingName": ""
+        },
+        {
+          "event": "PerformOperations",
+          "result": "0x80004004"
+        },
+        {
+          "event": "GetAnyOperationsAborted",
+          "result": "0x00000000",
+          "aborted": "false"
+        },
+        {
+          "event": "classification",
+          "moved": "false",
+          "itemResult": "0x80004004"
+        },
+        {
+          "event": "end",
+          "moved": "false",
+          "originalExists": "true",
+          "cancelledByHarness": "false"
+        }
+      ],
+      "stderr": null,
+      "originalExistsAfterOperation": true,
+      "originalIntactAfterOperation": true,
+      "binEnumerationSucceeded": true,
+      "binBeforeRestore": [],
+      "backupStillVerified": true
+    }
+  ]
+}

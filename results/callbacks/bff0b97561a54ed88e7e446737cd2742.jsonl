@@ -1,0 +1,12 @@
+{"event":"begin","mode":"instrumented","source":"R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bff0b97561a54ed88e7e446737cd2742.bmp","backupVerified":"true","driveTypeCode":"3"}
+{"event":"CoInitializeEx","result":"0x00000000"}
+{"event":"CoCreateInstance","result":"0x00000000"}
+{"event":"SetOperationFlags","flags":"0x00183414","result":"0x00000000"}
+{"event":"SHCreateItemFromParsingName","result":"0x00000000"}
+{"event":"DeleteItem","result":"0x00000000"}
+{"event":"PreDeleteItem","flags":"0x00000282","recycleIntent":"true","decision":"0x00000000","item":"R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bff0b97561a54ed88e7e446737cd2742.bmp"}
+{"event":"PostDeleteItem","flags":"0x00000282","result":"0x00270008","created":"true","recycled":"false","source":"R:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bff0b97561a54ed88e7e446737cd2742.bmp","createdPath":"R:\\$RECYCLE.BIN\\S-1-5-21-1280602335-643053282-3184619455-500\\$RHZCSH9.bmp","createdParsingName":"R:\\$RECYCLE.BIN\\S-1-5-21-1280602335-643053282-3184619455-500\\$RHZCSH9.bmp"}
+{"event":"PerformOperations","result":"0x00000000"}
+{"event":"GetAnyOperationsAborted","result":"0x00000000","aborted":"false"}
+{"event":"classification","moved":"false","itemResult":"0x00270008"}
+{"event":"end","moved":"false","originalExists":"false","cancelledByHarness":"false"}

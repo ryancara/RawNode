@@ -1,0 +1,12 @@
+{"event":"begin","mode":"policy-intent-control","source":"S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-d27627fb763c4e83837e8ef24b3d0cd6.bmp","backupVerified":"true","driveTypeCode":"3"}
+{"event":"CoInitializeEx","result":"0x00000000"}
+{"event":"CoCreateInstance","result":"0x00000000"}
+{"event":"SetOperationFlags","flags":"0x00103454","result":"0x00000000"}
+{"event":"SHCreateItemFromParsingName","result":"0x00000000"}
+{"event":"DeleteItem","result":"0x00000000"}
+{"event":"PreDeleteItem","flags":"0x00000202","recycleIntent":"false","decision":"0x80004004","item":"S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-d27627fb763c4e83837e8ef24b3d0cd6.bmp"}
+{"event":"PostDeleteItem","flags":"0x00000202","result":"0x80004004","created":"false","recycled":"false","source":"S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-d27627fb763c4e83837e8ef24b3d0cd6.bmp","createdPath":"","createdParsingName":""}
+{"event":"PerformOperations","result":"0x80004004"}
+{"event":"GetAnyOperationsAborted","result":"0x00000000","aborted":"false"}
+{"event":"classification","moved":"false","itemResult":"0x80004004"}
+{"event":"end","moved":"false","originalExists":"true","cancelledByHarness":"false"}

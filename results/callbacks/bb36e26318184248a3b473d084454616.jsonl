@@ -1,0 +1,3 @@
+{"event":"begin","mode":"production","source":"S:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-bb36e26318184248a3b473d084454616.bmp","backupVerified":"true","driveTypeCode":"3"}
+{"event":"production_result","moved":"false","error":"Recycle Bin operation failed or was cancelled (shell=0x80004004, item=0x80004004, aborted=0)"}
+{"event":"end","moved":"false","originalExists":"true","cancelledByHarness":"false"}

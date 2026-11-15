@@ -1,0 +1,12 @@
+{"event":"begin","mode":"instrumented","source":"T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-ac8a7cf265a9446994094fd03d4dad25.bmp","backupVerified":"true","driveTypeCode":"3"}
+{"event":"CoInitializeEx","result":"0x00000000"}
+{"event":"CoCreateInstance","result":"0x00000000"}
+{"event":"SetOperationFlags","flags":"0x00183414","result":"0x00000000"}
+{"event":"SHCreateItemFromParsingName","result":"0x00000000"}
+{"event":"DeleteItem","result":"0x00000000"}
+{"event":"PreDeleteItem","flags":"0x00000282","recycleIntent":"true","decision":"0x00000000","item":"T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-ac8a7cf265a9446994094fd03d4dad25.bmp"}
+{"event":"PostDeleteItem","flags":"0x00000282","result":"0x00270008","created":"false","recycled":"false","source":"T:\\RawNodeTrashProbe-43665533196-c7746f98c2f643aa98ae7766e1020d6a\\RawNodeProbe-ac8a7cf265a9446994094fd03d4dad25.bmp","createdPath":"","createdParsingName":""}
+{"event":"PerformOperations","result":"0x00000000"}
+{"event":"GetAnyOperationsAborted","result":"0x00000000","aborted":"false"}
+{"event":"classification","moved":"false","itemResult":"0x00270008"}
+{"event":"end","moved":"false","originalExists":"false","cancelledByHarness":"false"}
