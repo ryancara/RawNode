@@ -110,7 +110,7 @@ class Sink final : public IFileOperationProgressSink {
   bool forceVeto_;
 };
 
-static bool observedOperation(const fs::path &source, bool noConfirmation, bool forceVeto, Log &log) {
+static bool observedOperation(const fs::path &source, bool noConfirmation, bool forceVeto, bool policyControl, Log &log) {
   HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   log.event("CoInitializeEx",{{"result",hexValue(initialized)}});
   if (FAILED(initialized)) return false;
@@ -120,6 +120,7 @@ static bool observedOperation(const fs::path &source, bool noConfirmation, bool 
   DWORD flags = FOFX_RECYCLEONDELETE | FOFX_EARLYFAILURE | FOF_NOERRORUI | FOF_SILENT |
       FOF_NO_CONNECTED_ELEMENTS | FOF_NORECURSION;
   if (noConfirmation) flags |= FOF_NOCONFIRMATION;
+  if (policyControl) flags = (flags & ~FOFX_RECYCLEONDELETE) | FOF_ALLOWUNDO;
   if (SUCCEEDED(result)) {
     result = operation->SetOperationFlags(flags);
     log.event("SetOperationFlags",{{"flags",hexValue(flags)},{"result",hexValue(result)}});
@@ -141,7 +142,10 @@ static bool observedOperation(const fs::path &source, bool noConfirmation, bool 
   log.event("GetAnyOperationsAborted",{{"result",hexValue(abortResult)},{"aborted",yes(aborted != FALSE)}});
   bool moved = sink->recycled;
   log.event("classification",{{"moved",yes(moved)},{"itemResult",hexValue(sink->itemResult)}});
-  if (item) item->Release(); if (operation) operation->Release(); sink->Release(); CoUninitialize();
+  if (item) item->Release();
+  if (operation) operation->Release();
+  sink->Release();
+  CoUninitialize();
   return moved;
 }
 
@@ -183,7 +187,7 @@ int wmain(int argc, wchar_t **argv) {
       source.parent_path().wstring().find(L"RawNodeTrashProbe-") == std::wstring::npos || !sameBytes(source,backup)) return 65;
   Log log(argv[4]); if (!log.file) return 66;
   std::wstring mode(argv[1]);
-  if (mode != L"production" && mode != L"instrumented" && mode != L"without-noconfirmation" && mode != L"force-veto-control") return 67;
+  if (mode != L"production" && mode != L"instrumented" && mode != L"without-noconfirmation" && mode != L"force-veto-control" && mode != L"policy-intent-control") return 67;
   log.event("begin",{{"mode",utf8(mode)},{"source",utf8(source.wstring())},{"backupVerified","true"},{"driveTypeCode",std::to_string(GetDriveTypeW(source.root_path().c_str()))}});
   std::atomic<bool> stop{false};
   DialogMonitor monitor{GetCurrentProcessId(),log};
@@ -194,7 +198,8 @@ int wmain(int argc, wchar_t **argv) {
   if (mode == L"production") {
     std::string error; moved = moveFileToTrash(source.string(),error);
     log.event("production_result",{{"moved",yes(moved)},{"error",error}});
-  } else moved = observedOperation(source,mode != L"without-noconfirmation",mode == L"force-veto-control",log);
+  } else moved = observedOperation(source,mode != L"without-noconfirmation",
+      mode == L"force-veto-control" || mode == L"policy-intent-control",mode == L"policy-intent-control",log);
   stop = true; watcher.join();
   log.event("end",{{"moved",yes(moved)},{"originalExists",yes(fs::exists(source))},
       {"cancelledByHarness",yes(monitor.cancelled)}});

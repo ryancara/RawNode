@@ -65,7 +65,7 @@ jobs:
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          $command = "`"$vs\Common7\Tools\VsDevCmd.bat`" -arch=x64 && cl.exe /nologo /std:c++17 /EHsc /W4 /I `"$pwd\baseline\src`" `"$pwd\probe\TrashProbe.cpp`" `"$pwd\baseline\src\platform\FileTrash.cpp`" /Fe:`"$env:RUNNER_TEMP\RawNodeTrashEvidence\TrashProbe.exe`" /link ole32.lib shell32.lib uuid.lib"
+          $command = "`"$vs\Common7\Tools\VsDevCmd.bat`" -arch=x64 && cl.exe /nologo /std:c++17 /EHsc /W4 /I `"$pwd\baseline\src`" `"$pwd\probe\TrashProbe.cpp`" `"$pwd\baseline\src\platform\FileTrash.cpp`" /Fe:`"$env:RUNNER_TEMP\RawNodeTrashEvidence\TrashProbe.exe`" /link ole32.lib shell32.lib uuid.lib user32.lib"
           & cmd.exe /d /s /c $command
           if ($LASTEXITCODE -ne 0) { throw "Native compilation failed: $LASTEXITCODE" }
       - name: Run native operations and verify original, bin entry and actual restore

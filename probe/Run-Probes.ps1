@@ -97,7 +97,7 @@ if ($Phase -eq 'Prepare') {
         if ($scenario.skipped) { continue }
         $folder = Join-Path $scenario.root $rootName
         New-Item -ItemType Directory -Path $folder | Out-Null
-        foreach ($mode in @('production','instrumented','without-noconfirmation','force-veto-control')) {
+        foreach ($mode in @('production','instrumented','without-noconfirmation','force-veto-control','policy-intent-control')) {
             $id = [Guid]::NewGuid().ToString('N')
             $file = Join-Path $folder "RawNodeProbe-$id.bmp"
             $height = if ($scenario.name -eq 'configured-oversized-virtual-ntfs') { 16384 } else { 64 }

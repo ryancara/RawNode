@@ -14,3 +14,8 @@ control. Independent BMP backups are uploaded before any Trash calls. All bin
 policy changes are restricted to newly created, identity-checked virtual volumes.
 Only Cancel/No may be automated; UI timeouts are inconclusive. Fixed virtual
 FAT32/exFAT disks are not evidence for physical removable SD cards or USB devices.
+
+The policy-intent control uses ALLOWUNDO instead of RECYCLEONDELETE and always
+vetoes in PreDeleteItem. It tests whether a configured policy changes native
+recycle intent; it is not a proposed production strategy. Registry readback alone
+is not treated as proof that the shell honored a disabled-bin/size setting.
