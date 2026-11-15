@@ -1,0 +1,50 @@
+{
+  "baseline": "8eb251a9827133bd22e7e756070114e8e50c5949",
+  "runUrl": "https://github.com/ryancara/RawNode/actions/runs/43664619931",
+  "runId": "43664619931",
+  "os": "Microsoft Windows Server 2022 Datacenter",
+  "version": "10.0.20348",
+  "build": "20348",
+  "nativeWindows": true,
+  "processSessionId": 2,
+  "userSid": "S-1-5-21-1280602335-643053282-3184619455-500",
+  "powershell": "7.6.10",
+  "admin": true,
+  "volumes": [
+    {
+      "DriveLetter": "C",
+      "FileSystem": "NTFS",
+      "DriveType": "Fixed",
+      "FileSystemLabel": "Windows",
+      "Size": 274284392448,
+      "SizeRemaining": 83343622144
+    },
+    {
+      "DriveLetter": "D",
+      "FileSystem": "NTFS",
+      "DriveType": "Fixed",
+      "FileSystemLabel": "Temp",
+      "Size": 236205371392,
+      "SizeRemaining": 236097658880
+    },
+    {
+      "DriveLetter": null,
+      "FileSystem": "NTFS",
+      "DriveType": "Fixed",
+      "FileSystemLabel": "Recovery",
+      "Size": 471855104,
+      "SizeRemaining": 457297920
+    },
+    {
+      "DriveLetter": null,
+      "FileSystem": "FAT32",
+      "DriveType": "Fixed",
+      "FileSystemLabel": "",
+      "Size": 99614720,
+      "SizeRemaining": 65038336
+    }
+  ],
+  "mountDiskImage": true,
+  "diskpart": true,
+  "fixturesSubmitted": 0
+}
