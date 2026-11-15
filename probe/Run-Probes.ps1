@@ -75,6 +75,30 @@ function Bin-Matches([string]$Id) {
     return $matches
 }
 
+# Read-only corroboration of the shell namespace; never edits bin internals.
+function Bin-Files([string]$Source,[string]$ExpectedHash) {
+    $root = Join-Path ([IO.Path]::GetPathRoot($Source)) '$Recycle.Bin'
+    $present = Test-Path -LiteralPath $root
+    $entries = @()
+    if ($present) {
+        foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -Force -File -ErrorAction Stop) {
+            if ($file.Name -like '$I*' -or $file.Name -like '$R*') {
+                $entry = [ordered]@{ path=$file.FullName; bytes=$file.Length }
+                if ($file.Name -like '$R*') {
+                    $entry.sha256=(Get-FileHash -LiteralPath $file.FullName -ErrorAction Stop).Hash
+                    $entry.matchesFixture=$entry.sha256 -eq $ExpectedHash
+                } else {
+                    $bytes=[IO.File]::ReadAllBytes($file.FullName)
+                    $offset=if ([BitConverter]::ToInt64($bytes,0) -eq 2) { 28 } else { 24 }
+                    $entry.originalPath=[Text.Encoding]::Unicode.GetString($bytes,$offset,$bytes.Length-$offset).TrimEnd([char]0)
+                }
+                $entries += [pscustomobject]$entry
+            }
+        }
+    }
+    return [ordered]@{ succeeded=$true; rootExists=$present; entries=$entries }
+}
+
 if ($Phase -eq 'Prepare') {
     $rootName = 'RawNodeTrashProbe-' + $env:GITHUB_RUN_ID + '-' + [Guid]::NewGuid().ToString('N')
     $scenarios = [Collections.Generic.List[object]]::new()
@@ -150,6 +174,8 @@ foreach ($case in $manifest.cases) {
             $observation.binEnumerationSucceeded = $true
             $observation.binBeforeRestore = @($found | Select-Object name,path,deletedFrom)
         } catch { $observation.binEnumerationSucceeded=$false; $observation.binError=$_.Exception.Message }
+        try { $observation.binFilesBeforeRestore = Bin-Files $case.source $case.sha256 }
+        catch { $observation.binFilesBeforeRestore = @{succeeded=$false; error=$_.Exception.Message} }
         if (!$observation.originalExistsAfterOperation -and $found.Count -eq 1) {
             if ($found[0].deletedFrom.TrimEnd('\') -ne (Split-Path $case.source).TrimEnd('\')) { throw 'Bin original-path metadata did not match fixture; no restore invoked' }
             $observation.restoreVerbInvoked = 'undelete'

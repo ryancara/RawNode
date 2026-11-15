@@ -1,6 +1,7 @@
 // Diagnostic-only: exact production adapter is linked separately from baseline.
-// No permanent deletion is authorised by this harness. Only independent copies
-// of explicitly acknowledged, byte-verified disposable fixtures are accepted.
+// Only independently backed-up, explicitly acknowledged disposable fixtures
+// are accepted. Production flags can reproduce silent permanent deletion; the
+// dialog monitor never clicks an affirmative response.
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -155,6 +156,12 @@ struct DialogMonitor { DWORD process; Log &log; bool cancelled = false; };
 static std::wstring windowText(HWND window) {
   wchar_t buffer[2048]{}; GetWindowTextW(window,buffer,2048); return buffer;
 }
+static BOOL CALLBACK collectDialogText(HWND child, LPARAM context) {
+  auto &text = *reinterpret_cast<std::wstring *>(context);
+  auto value = windowText(child);
+  if (!value.empty()) { if (!text.empty()) text += L" | "; text += value; }
+  return TRUE;
+}
 static BOOL CALLBACK inspectDialog(HWND window, LPARAM context) {
   auto &monitor = *reinterpret_cast<DialogMonitor *>(context);
   DWORD process = 0; GetWindowThreadProcessId(window,&process);
@@ -164,7 +171,9 @@ static BOOL CALLBACK inspectDialog(HWND window, LPARAM context) {
   HWND button = GetDlgItem(window,IDCANCEL);
   if (!button || !IsWindowVisible(button) || !IsWindowEnabled(button)) button = GetDlgItem(window,IDNO);
   if (button && IsWindowVisible(button) && IsWindowEnabled(button) && !monitor.cancelled) {
-    monitor.log.event("dialog_cancelled_by_harness",{{"title",utf8(windowText(window))},
+    std::wstring contents;
+    EnumChildWindows(window,collectDialogText,reinterpret_cast<LPARAM>(&contents));
+    monitor.log.event("dialog_cancelled_by_harness",{{"title",utf8(windowText(window))},{"contents",utf8(contents)},
         {"button",utf8(windowText(button))},{"buttonId",std::to_string(GetDlgCtrlID(button))}});
     PostMessageW(button,BM_CLICK,0,0); monitor.cancelled = true;
   }
