@@ -32,11 +32,58 @@ jobs:
             volumes = @(Get-Volume | Select-Object DriveLetter,FileSystem,DriveType,FileSystemLabel,Size,SizeRemaining)
             mountDiskImage = [bool](Get-Command Mount-DiskImage -ErrorAction SilentlyContinue)
             diskpart = [bool](Get-Command diskpart.exe -ErrorAction SilentlyContinue)
-            fixturesSubmitted = 0
+            stage = 'capability-before-fixture-tests'
+            fixturesSubmittedAtCapabilityCapture = 0
           }
           $info | ConvertTo-Json -Depth 6 | Set-Content results/native-environment.json -Encoding utf8
           Get-Content results/native-environment.json
-      - name: Preserve capability evidence on diagnostic branch
+      - name: Record run identity before native probes
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- results/native-environment.json
+          git commit -m 'Record native Windows probe run identity'
+          git push origin HEAD:codex/windows-trash-native-probe
+      - uses: actions/checkout@v4
+        with:
+          ref: 8eb251a9827133bd22e7e756070114e8e50c5949
+          path: baseline
+          persist-credentials: false
+      - name: Prepare isolated disposable fixtures and test volumes
+        shell: pwsh
+        run: ./probe/Run-Probes.ps1 -Phase Prepare
+      - name: Preserve independent fixture backups before any native deletion call
+        id: backups
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-trash-independent-backups
+          path: ${{ runner.temp }}/RawNodeTrashEvidence/backups
+          retention-days: 7
+      - name: Compile harness and exact unchanged production adapter using native MSVC
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $command = "`"$vs\Common7\Tools\VsDevCmd.bat`" -arch=x64 && cl.exe /nologo /std:c++17 /EHsc /W4 /I `"$pwd\baseline\src`" `"$pwd\probe\TrashProbe.cpp`" `"$pwd\baseline\src\platform\FileTrash.cpp`" /Fe:`"$env:RUNNER_TEMP\RawNodeTrashEvidence\TrashProbe.exe`" /link ole32.lib shell32.lib uuid.lib"
+          & cmd.exe /d /s /c $command
+          if ($LASTEXITCODE -ne 0) { throw "Native compilation failed: $LASTEXITCODE" }
+      - name: Run native operations and verify original, bin entry and actual restore
+        shell: pwsh
+        run: |
+          ./probe/Run-Probes.ps1 -Phase Run
+          @{ fixtureBackupArtifact = '${{ steps.backups.outputs.artifact-url }}' } | ConvertTo-Json | Set-Content results/backup-artifact.json
+      - name: Preserve callback and observation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-trash-observations
+          path: |
+            results
+            ${{ runner.temp }}/RawNodeTrashEvidence/*.log
+            ${{ runner.temp }}/RawNodeTrashEvidence/*.stderr
+          retention-days: 7
+      - name: Preserve evidence on diagnostic branch
         if: always()
         shell: pwsh
         run: |
@@ -44,5 +91,5 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- results
-          git commit -m 'Record native Windows runner capabilities'
+          git commit -m 'Record native Windows Trash observations'
           git push origin HEAD:codex/windows-trash-native-probe

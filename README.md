@@ -7,3 +7,10 @@ The first run checks native Windows availability only. It submits no files to
 Trash and changes no Recycle Bin settings. Subsequent disposable-file probes
 must retain independent backups, limit settings to test-owned virtual volumes,
 and distinguish real hardware from fixed virtual disks.
+
+The harness compares the exact production adapter with an instrumented equivalent,
+a variant omitting only FOF_NOCONFIRMATION, and an unconditional PreDeleteItem veto
+control. Independent BMP backups are uploaded before any Trash calls. All bin
+policy changes are restricted to newly created, identity-checked virtual volumes.
+Only Cancel/No may be automated; UI timeouts are inconclusive. Fixed virtual
+FAT32/exFAT disks are not evidence for physical removable SD cards or USB devices.
