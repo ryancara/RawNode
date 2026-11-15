@@ -2,8 +2,9 @@
 
 **Decision: Windows Move to Trash is temporarily unsupported in PR #116.**
 The Windows adapter now returns false with an explanatory error before any
-filesystem mutation or shell deletion call. The unsafe IFileOperation adapter
-and its COM linkage are removed. Native macOS/Linux implementations are retained.
+filesystem mutation or shell deletion call. Capability guards also refuse before
+Trash confirmation, pending-edit completion or document departure. The unsafe
+IFileOperation adapter and its COM linkage are removed. Native macOS/Linux implementations are retained.
 This is an interim safety decision; Windows support is deferred, not abandoned.
 It must return in its own focused PR with independent review and native evidence
 of a recycle-or-preserve guarantee. See the visible
@@ -14,7 +15,10 @@ PR #116 remains draft and unmerged pending final validation and review.
 
 The [diagnostic report][native-report] and its linked raw traces are retained at
 commit `b6cbafdd3d0255897417ca898a6eb8b2975aa6e4` on the separate diagnostic
-branch. Two isolated native Windows Server 2022 VMs (build 20348) each ran 30
+branch and annotated tag
+[`windows-trash-evidence-2026-11-15`](https://github.com/ryancara/RawNode/tree/windows-trash-evidence-2026-11-15).
+The tag points to the reviewed evidence commit; all pinned links remain valid.
+Two isolated native Windows Server 2022 VMs (build 20348) each ran 30
 independently backed-up disposable fixtures against production commit
 `8eb251a9827133bd22e7e756070114e8e50c5949` and instrumented variants.
 

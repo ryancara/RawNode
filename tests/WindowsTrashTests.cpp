@@ -27,6 +27,7 @@ int main() {
   const auto dir = fs::temp_directory_path() /
       ("rawnode-windows-trash-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   try {
+    require(!fileTrashSupported(), "Windows must advertise unsupported Trash before document departure");
     require(fs::create_directory(dir), "Fixture directory must be new");
     // Only this directory is test-owned. Original bytes are also retained in
     // independent fixture copies; a regression must never risk user files.

@@ -52,6 +52,10 @@ jobs:
       - name: Self-test
         run: ./build/OfxRawHost --selftest
 
+      - name: Unsupported Trash UI and document refusal
+        if: matrix.jxl == 'OFF'
+        run: python3 tests/check_unsupported_trash.py build
+
   clang-sanitizers-selftest:
     runs-on: ubuntu-latest
     timeout-minutes: 30

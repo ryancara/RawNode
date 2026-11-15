@@ -77,17 +77,25 @@ These priorities sequence focused work without reopening completed architecture 
    and [PR #116](https://github.com/ryancara/RawNode/pull/116).
    **Keep this item visible here until implemented and validated; merging the
    macOS/Linux implementation does not complete Windows support.**
-6. **Close the practical Step 8 masking core.** Agree the exit gate, then
+6. **Native Windows atomic sidecar persistence — deferred, unfinished.**
+   `persist_detail::replaceFileAtomically()` in
+   [ProjectPersistSave.cpp](src/persist/ProjectPersistSave.cpp) currently returns
+   unsupported on Windows, so graph-native sidecar saves cannot complete there.
+   Implement and natively validate reliable atomic creation/replacement,
+   failure preservation and recovery before claiming Windows photo-editing
+   persistence is functional. This needs its own focused, independently reviewed
+   PR and is separate from Windows Move to Trash; PR #116 does not implement it.
+7. **Close the practical Step 8 masking core.** Agree the exit gate, then
    deliver Mask Combine, upstream geometry/Overlay placement through Mask
    modifiers, a Linear Gradient generator and an initial Blur modifier in
    focused slices. Defer Brush, Bézier, advanced qualifiers and AI masks
    unless a concrete exit-gate requirement justifies them.
-7. **Performance and responsiveness checkpoint.** After the initial photo
+8. **Performance and responsiveness checkpoint.** After the initial photo
    workflows and Step 8 exit gate, profile real workloads on macOS and decide
    whether JPEG XL area-task parallelism, RAW pixel conversion or interactive
    graph processing warrants focused optimisation. The investigations below
    are evidence, not approval to implement them.
-8. **Step 9 whole-codebase audit.** Start the approved D055 audit after the
+9. **Step 9 whole-codebase audit.** Start the approved D055 audit after the
    agreed Step 8 exit gate and initial practical photo workflow improvements,
    using the performance checkpoint as input. The formal Step 9 entry
    criterion remains Step 8 closure, not completion of every unrelated feature.

@@ -168,7 +168,8 @@ PhotoTrashResult document_detail::trashPhotographs(App &app, const PhotoTrashReq
   if (includesCurrent) mutation = std::make_unique<DocumentMutation>(app);
   bool movedCurrent = false;
   for (const auto &photo : request.photographs) {
-    const bool wasCurrent = currentPhoto(app, photo.path);
+    // request is const and no callback mutates its entries; current remains valid.
+    const bool wasCurrent = includesCurrent && &photo == &*current;
     const auto movedBefore = result.moved;
     movePhoto(app, request, photo, options.moveToTrash, result);
     std::error_code ec;
@@ -197,6 +198,13 @@ PhotoTrashResult document_detail::trashPhotographs(App &app, const PhotoTrashReq
 
 PhotoTrashResult trashPhotographs(App &app, const PhotoTrashRequest &request,
                                   const SaveFailurePrompt &prompt, const TrashOperation &move) {
+  if (!fileTrashSupported()) {
+    PhotoTrashResult result;
+    result.failed = request.photographs.size();
+    result.errors.push_back("Move to Trash is temporarily unsupported on this platform");
+    app.setStatus(result.errors.front());
+    return result;
+  }
   document_detail::ActionTestOptions options;
   options.moveToTrash = move;
   return document_detail::trashPhotographs(app, request, prompt, options);

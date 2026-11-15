@@ -16,6 +16,14 @@
 #endif
 #endif
 
+bool fileTrashSupported() {
+#if defined(__APPLE__) || defined(__linux__)
+  return true;
+#else
+  return false;
+#endif
+}
+
 bool inspectTrashPath(const std::string &path, bool directory, TrashFileIdentity &identity, std::string &error) {
 #if defined(_WIN32)
   const auto wide = std::filesystem::path(path).wstring();

@@ -101,13 +101,17 @@ void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt,
     if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_A)) selectAllVisibleFilmstripEntries(app);
     if (!io.KeyShift && !io.KeyCtrl && !io.KeyAlt && !io.KeySuper &&
         (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))) {
-      const auto request = capturePhotoTrashRequest(app);
-      const bool valid = std::any_of(request.photographs.begin(), request.photographs.end(),
-                                     [](const auto &photo) { return photo.error.empty(); });
-      if (valid && confirm && confirm(photoTrashConfirmationText(request))) {
-        if (photoTrashIncludesCurrent(app, request) && !app.renderer.exportInProgress()) finishUiEdits(app);
-        const auto result = trashPhotographs(app, request, prompt, move);
-        if (report) report(result);
+      if (!fileTrashSupported()) {
+        app.setStatus("Move to Trash is temporarily unsupported on this platform");
+      } else {
+        const auto request = capturePhotoTrashRequest(app);
+        const bool valid = std::any_of(request.photographs.begin(), request.photographs.end(),
+                                       [](const auto &photo) { return photo.error.empty(); });
+        if (valid && confirm && confirm(photoTrashConfirmationText(request))) {
+          if (photoTrashIncludesCurrent(app, request) && !app.renderer.exportInProgress()) finishUiEdits(app);
+          const auto result = trashPhotographs(app, request, prompt, move);
+          if (report) report(result);
+        }
       }
     }
   }

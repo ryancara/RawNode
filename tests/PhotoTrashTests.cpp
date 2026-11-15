@@ -422,11 +422,15 @@ bool protectedAndFailedReplacement() {
   CHECK(openPath(app, b) && !app.isPhotoProtected());
   const auto retryRequest = capturePhotoTrashRequest(app);
   options = files.options(); options.beforeSave = [] { return Fault::Replace; };
+  int retryPrompts = 0;
   const auto changedDuringPrompt = document_detail::trashPhotographs(app, retryRequest, [&](const std::string &) {
+    // A broken identity guard must fail below, not Retry forever.
+    if (++retryPrompts > 1) return Decision::Cancel;
     fs::rename(b, files.path("retry-original.png")); files.photo("b.png");
     write(inputSidecarPath(b), "new source owns this sidecar");
     return Decision::Retry;
   }, options);
+  CHECK(retryPrompts == 1);
   CHECK(changedDuringPrompt.cancelled && changedDuringPrompt.failed == 1 && files.calls.size() == before);
   CHECK(bytes(inputSidecarPath(b)) == "new source owns this sidecar");
   return true;

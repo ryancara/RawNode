@@ -537,7 +537,75 @@ struct FilmstripFrame {
   }
 };
 
+// Also exercised on Linux with only fileTrashSupported substituted to return
+// false at link time; native Windows separately checks the real capability.
+bool unsupportedTrashBeforeDeparture() {
+  if (fileTrashSupported()) return true;
+  for (const bool blockedSave : {false, true}) {
+    Files files;
+    const auto a = photo(files, "a.png"), b = photo(files, "b.png");
+    App app; app.folderDir = files.dir.string(); refreshFilmstrip(app);
+    CHECK(openPath(app, a) && addNativeExposureNode(app));
+    const auto node = *app.selectedNodeId();
+    write(legacyInputSidecarPath(a), "opaque legacy sidecar");
+    write(inputSidecarPath(b), "opaque unopened sidecar");
+    if (blockedSave) {
+      // A regression entering departure would prompt even without edit completion.
+      fs::remove(inputSidecarPath(a)); fs::create_directory(inputSidecarPath(a));
+      write((fs::path(inputSidecarPath(a)) / "sentinel").string(), "preserve blocked save");
+    }
+    FilmstripFrame ui; auto &io = ImGui::GetIO();
+    ui.tick(app); ui.tick(app); ui.select(app, 0, true);
+    CHECK(ui.context->NavWindow == ui.window && !ImGui::IsAnyItemActive() && !io.WantTextInput);
+    app.filmstripSelection = {a, b}; app.filmstripAnchor = b;
+    app.parameterGesture = ui::ParameterGesture{123, a, node, "exposure", ParameterValue{1.25}};
+    const auto selection = app.filmstripSelection;
+    const auto preview = app.preview; const auto pixels = app.full.px.data();
+    const auto grade = capturedGrade(app), saved = bytes(blockedSave ?
+        (fs::path(inputSidecarPath(a)) / "sentinel").string() : inputSidecarPath(a));
+    const auto historySize = app.history.size(), historyCursor = app.history.cursor();
+    const auto beforeFiles = entries(files.dir);
+    const auto originalA = bytes(a), originalB = bytes(b);
+    const auto generation = app.filmstripGen.load();
+    const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
+    const auto demand = app.renderer.previewDemand();
+    int confirmations = 0, prompts = 0, moves = 0;
+    ui.confirm = [&](const std::string &) { ++confirmations; return true; };
+    ui.prompt = [&](const std::string &) { ++prompts; return Decision::Cancel; };
+    ui.move = [&](const std::string &, std::string &) { ++moves; return false; };
+    const auto unchanged = [&] {
+      CHECK(confirmations == 0 && prompts == 0 && moves == 0);
+      CHECK(app.getStatus().find("unsupported") != std::string::npos);
+      CHECK(app.path == a && app.preview == preview && app.full.px.data() == pixels);
+      CHECK(app.filmstripSelection == selection && app.filmstripAnchor == b && app.filmstripGen == generation);
+      CHECK(app.history.size() == historySize && app.history.cursor() == historyCursor && capturedGrade(app) == grade);
+      CHECK(app.parameterGesture && app.parameterGesture->item == 123 && app.parameterGesture->photoPath == a &&
+            app.parameterGesture->node == node && app.parameterGesture->pendingValue == ParameterValue{1.25});
+      CHECK(findNode(app, node)->processor->parameters()[0].value == ParameterValue{0.0});
+      CHECK(bytes(a) == originalA && bytes(b) == originalB && entries(files.dir) == beforeFiles);
+      CHECK(bytes(legacyInputSidecarPath(a)) == "opaque legacy sidecar" &&
+            bytes(inputSidecarPath(b)) == "opaque unopened sidecar");
+      CHECK(bytes(blockedSave ? (fs::path(inputSidecarPath(a)) / "sentinel").string() : inputSidecarPath(a)) == saved);
+      const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
+      CHECK(before.epoch == after.epoch && before.mutationDepth == after.mutationDepth &&
+            app.renderer.previewDemand() == demand);
+      return true;
+    };
+    // Public callers must refuse too, even with a supplied operation callback.
+    const auto result = trashPhotographs(app, capturePhotoTrashRequest(app), ui.prompt, ui.move);
+    CHECK(!result.cancelled && result.moved == 0 && result.failed == 2 && result.errors.size() == 1);
+    CHECK(unchanged());
+    for (const auto key : {ImGuiKey_Delete, ImGuiKey_Backspace}) {
+      io.AddKeyEvent(key, true); ui.tick(app); io.AddKeyEvent(key, false); ui.tick(app);
+      CHECK(unchanged());
+    }
+    app.parameterGesture.reset();
+  }
+  return true;
+}
+
 bool filmstripTrashKeyboardFrames() {
+  if (!fileTrashSupported()) return true;
   for (const bool mac : {false, true}) {
     Files files;
     const auto a = photo(files, "a.png"), b = photo(files, "b.png"), c = photo(files, "c.png");
@@ -1774,6 +1842,7 @@ bool twoPhotoColourOwnership() {
 bool testPhotoDocuments() {
   if (!testPhotoTrash()) return false;
   for (const auto &test : {
+       std::make_pair("unsupported Trash refuses before confirmation, edits or departure and preserves the document", unsupportedTrashBeforeDeparture),
        std::make_pair("filmstrip Trash confirmation snapshot, cancel and Graph/List/text/modal keyboard ownership", filmstripTrashKeyboardFrames),
        std::make_pair("filmstrip plain/toggle/range/visible-all selection with native modifiers and no editing/render effects", filmstripSelectionFrames),
        std::make_pair("plain-click opening selects the clicked path even when refreshed marks hide it", filmstripPlainClickChangedMark),

@@ -4,6 +4,9 @@
 #include <functional>
 #include <string>
 
+// Platform capability only; individual volumes/operations may still refuse.
+bool fileTrashSupported();
+
 // Recoverable native Trash only. False leaves an explanation; no permanent
 // deletion fallback is permitted, including on unsupported volumes.
 bool moveFileToTrash(const std::string &path, std::string &error);

@@ -8,9 +8,11 @@ filesystem Undo, permanent deletion or new filmstrip controls.
 subject to final validation and merge. Native Windows tests reproduced silent
 permanent deletion through the old adapter; Windows now explicitly returns an
 unsupported-operation error without invoking deletion. Safe Windows support is
-an unfinished, deferred [roadmap milestone](../ROADMAP.md). See the
-[research and native evidence](WINDOWS_TRASH_RESEARCH.md). Final independent
-review and native macOS GUI/restore checks remain separate from automated tests.
+an unfinished, deferred [roadmap milestone](../ROADMAP.md). Unsupported platforms
+refuse before confirmation, pending-edit completion or document departure. See the
+[research and native evidence](WINDOWS_TRASH_RESEARCH.md). Claude
+independently reviewed `9f58d57` as SAFE AFTER NATIVE CHECKS; these corrections
+and native macOS GUI/restore checklist still require final verification.
 
 ## Interaction and visible changes
 
@@ -20,8 +22,8 @@ do not trigger photo Trash. GLFW maps the physical macOS Delete key to Backspace
 are accepted. Graph/List retain their node-deletion bindings. Active controls,
 text capture, open popups/modals and absent/invalid selection block the action.
 
-One concise native confirmation uses singular/plural wording and shows the
-eligible photograph count, total selection and known-ineligible count when
+On supported platforms, one concise native confirmation uses singular/plural
+wording and shows the eligible photograph count, total selection and known-ineligible count when
 nonzero, eligible photographs hidden by mark/type filters, and sidecar inclusion.
 Stale, missing, invalid and unrelated paths are not counted as hidden photographs.
 For a mixed selection it distinguishes selected items from eligible photographs;
@@ -101,10 +103,16 @@ nothing, including cancellation notifications for a new same-path job.
 
 ## Native support and build requirements
 
-`platform/FileTrash` exposes `moveFileToTrash(path, error)` and no-follow identity
-inspection. Its required contract is recoverable Trash or failure. macOS/Linux
+`platform/FileTrash` exposes `fileTrashSupported()`, `moveFileToTrash(path, error)`
+and no-follow identity inspection. Its required contract is recoverable Trash or failure. macOS/Linux
 use their native Trash operations. Windows explicitly refuses before any
-filesystem mutation or shell deletion call.
+filesystem mutation or shell deletion call. The capability is false on Windows
+and fallback platforms, true on macOS/Linux; it does not promise that every
+volume accepts recycling. The Delete handler checks it before capturing or
+confirming a request and before finishing UI edits. The public document wrapper
+checks it again before departure and reports unsupported status without invoking
+save/move callbacks. The private injected document-action path retains its
+existing behavior for lifecycle tests.
 
 - macOS: Foundation `NSFileManager trashItemAtURL:resultingItemURL:error:` in an
   Objective-C++ source, compiled only on Apple. Existing Cocoa linkage supplies
@@ -145,8 +153,14 @@ Barrier tests exercise actual preview/thumbnail workers without sleeps.
 `tests/WindowsTrashTests.cpp` is a separate native Windows regression, compiled
 with the actual production adapter by Windows Trash safety CI. It verifies
 false/error, byte-identical originals and independent test copies, unchanged file
-identity, repeated refusal and a missing-path refusal. It invokes the production
-Windows stub only; macOS/Linux self-tests still never call native Trash.
+identity, capability refusal, repeated refusal and a missing-path refusal. It
+invokes the production Windows stub only; macOS/Linux self-tests still never call native Trash.
+The Linux Release OFF CI step `tests/check_unsupported_trash.py build` relinks
+that same application with only `fileTrashSupported()` returning false. Real
+ImGui frames and public document actions then verify zero confirmation/save/move
+callbacks, unchanged pending gestures, document/history/preview/selection and
+byte-identical photographs/sidecars, including a blocked sidecar save. This tests
+the shared unsupported path without claiming native Windows filesystem behavior.
 
 Coverage includes single/multiple and hidden selection; immutable confirmation
 and Cancel; real Graph/List/text/active-control/modal focus; exact current/legacy,

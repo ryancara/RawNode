@@ -477,14 +477,20 @@ the live grade/history/preview. Partial sidecar failures report exact orphan
 paths without rollback or overwrite. PR #116 implements macOS/Linux Trash,
 subject to final validation and merge; native macOS GUI/restore checks remain
 separate from PR #115's selection validation. Windows Move to Trash now explicitly
-refuses without invoking deletion: native tests reproduced silent permanent
-loss through the previous IFileOperation adapter. Shared/macOS/Linux lifecycle,
+refuses before confirmation, edit completion, departure or deletion: native tests
+reproduced silent permanent loss through the previous IFileOperation adapter. Shared/macOS/Linux lifecycle,
 unmodified deletion keys and confirmation eligibility wording are preserved.
 The [Windows research and diagnostic evidence](WINDOWS_TRASH_RESEARCH.md) record
 the loss and separate HRESULT reporting bug. Windows support remains an
 unfinished [near-term roadmap milestone](../ROADMAP.md), requiring its own
 focused PR, independent review and native recycle-or-preserve validation. Batch
 export remains a later PR.
+
+Windows graph-native sidecar persistence is also unfinished:
+`persist_detail::replaceFileAtomically()` explicitly returns unsupported on
+Windows. Native atomic sidecar persistence must be implemented and validated
+before claiming Windows photo-editing persistence works. This is a separate
+visible near-term roadmap item, not part of PR #116 or Windows Trash support.
 
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,
