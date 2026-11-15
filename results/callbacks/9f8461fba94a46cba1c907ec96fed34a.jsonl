@@ -1,0 +1,12 @@
+{"event":"begin","mode":"without-noconfirmation","source":"U:\\RawNodeTrashProbe-43665759467-26af0495ebcc44aab1cf13ac373a2ab6\\RawNodeProbe-9f8461fba94a46cba1c907ec96fed34a.bmp","backupVerified":"true","driveTypeCode":"3"}
+{"event":"CoInitializeEx","result":"0x00000000"}
+{"event":"CoCreateInstance","result":"0x00000000"}
+{"event":"SetOperationFlags","flags":"0x00183404","result":"0x00000000"}
+{"event":"SHCreateItemFromParsingName","result":"0x00000000"}
+{"event":"DeleteItem","result":"0x00000000"}
+{"event":"PreDeleteItem","flags":"0x00000280","recycleIntent":"true","decision":"0x00000000","item":"U:\\RawNodeTrashProbe-43665759467-26af0495ebcc44aab1cf13ac373a2ab6\\RawNodeProbe-9f8461fba94a46cba1c907ec96fed34a.bmp"}
+{"event":"PostDeleteItem","flags":"0x00000280","result":"0x00270008","created":"true","recycled":"false","source":"U:\\RawNodeTrashProbe-43665759467-26af0495ebcc44aab1cf13ac373a2ab6\\RawNodeProbe-9f8461fba94a46cba1c907ec96fed34a.bmp","createdPath":"U:\\$RECYCLE.BIN\\$RO0TYNS.bmp","createdParsingName":"U:\\$RECYCLE.BIN\\$RO0TYNS.bmp"}
+{"event":"PerformOperations","result":"0x00000000"}
+{"event":"GetAnyOperationsAborted","result":"0x00000000","aborted":"false"}
+{"event":"classification","moved":"false","itemResult":"0x00270008"}
+{"event":"end","moved":"false","originalExists":"false","cancelledByHarness":"false"}
