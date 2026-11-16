@@ -108,6 +108,8 @@ void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt,
         const bool valid = std::any_of(request.photographs.begin(), request.photographs.end(),
                                        [](const auto &photo) { return photo.error.empty(); });
         if (valid && confirm && confirm(photoTrashConfirmationText(request))) {
+          // During export, current-source removal must be refused before any
+          // pending UI edit is committed to the live grade.
           if (photoTrashIncludesCurrent(app, request) && !app.renderer.exportInProgress()) finishUiEdits(app);
           const auto result = trashPhotographs(app, request, prompt, move);
           if (report) report(result);

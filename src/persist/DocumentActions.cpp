@@ -457,6 +457,8 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
     }
     // Every fallible decode, reconstruction and preview allocation precedes
     // publication. Old processors/pixels remain owned inside this mutation.
+    // This publication and clearPhoto both reset per-photo UI/view state under
+    // mutation ownership: one installs a replacement, the other an empty editor.
     app.previewInteraction = {};
     app.nodes.swap(restored.nodes);
     std::swap(app.primarySource, restored.primarySource);

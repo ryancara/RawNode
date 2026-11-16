@@ -11,7 +11,7 @@ unsupported-operation error without invoking deletion. Safe Windows support is
 an unfinished, deferred [roadmap milestone](../ROADMAP.md). Unsupported platforms
 refuse before confirmation, pending-edit completion or document departure. See the
 [research and native evidence](WINDOWS_TRASH_RESEARCH.md). Claude
-independently reviewed `9f58d57` as SAFE AFTER NATIVE CHECKS; these corrections
+independently reviewed `90e4fe2` as SAFE AFTER NATIVE CHECKS; this cleanup
 and native macOS GUI/restore checklist still require final verification.
 
 ## Interaction and visible changes
@@ -155,12 +155,18 @@ with the actual production adapter by Windows Trash safety CI. It verifies
 false/error, byte-identical originals and independent test copies, unchanged file
 identity, capability refusal, repeated refusal and a missing-path refusal. It
 invokes the production Windows stub only; macOS/Linux self-tests still never call native Trash.
-The Linux Release OFF CI step `tests/check_unsupported_trash.py build` relinks
-that same application with only `fileTrashSupported()` returning false. Real
-ImGui frames and public document actions then verify zero confirmation/save/move
-callbacks, unchanged pending gestures, document/history/preview/selection and
-byte-identical photographs/sidecars, including a blocked sidecar save. This tests
-the shared unsupported path without claiming native Windows filesystem behavior.
+
+**Unsupported-platform coverage gap:** current CI compiles/tests the Windows
+capability and platform adapter, but does not build/run the full Windows
+application. macOS/Linux implement Trash, so their UI tests exercise the
+supported path. Existing confirmation/move/save callbacks cannot bypass the
+platform capability guard. The CMake-command/object-file relink harness and its
+unsupported-path UI test were removed rather than adding production test hooks.
+Future full Windows application tests must verify Delete/Backspace and direct
+public document calls refuse before confirmation, save prompts or UI edit
+completion, preserving photographs, sidecars, selection, document/history/preview
+and pending edits, including a blocked current-photo save. Native Windows adapter
+success alone does not establish that UI/document coverage.
 
 Coverage includes single/multiple and hidden selection; immutable confirmation
 and Cancel; real Graph/List/text/active-control/modal focus; exact current/legacy,

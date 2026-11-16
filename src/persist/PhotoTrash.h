@@ -22,8 +22,13 @@ std::string photoTrashConfirmationText(const PhotoTrashRequest &request);
 using PhotoTrashConfirmation = std::function<bool(const std::string &message)>;
 
 struct PhotoTrashResult {
+  // moved counts photograph moves; failed counts refused/failed selected targets,
+  // including whole-batch refusal. Sidecar errors change neither count.
   size_t moved = 0, failed = 0;
+  // Departure stopped before any moves. An identity change found on Retry sets
+  // both failed and errors; ordinary user cancellation leaves failed zero and errors empty.
   bool cancelled = false;
+  // Photo/sidecar errors and whole-batch refusal reasons, not one entry per failure.
   std::vector<std::string> errors;
   std::string message() const;
 };

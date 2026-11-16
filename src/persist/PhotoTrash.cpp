@@ -147,6 +147,8 @@ PhotoTrashResult document_detail::trashPhotographs(App &app, const PhotoTrashReq
   }
   // The save-failure dialog can remain open while a file is replaced externally.
   // Retry must not save the old live grade onto that replacement's sidecar.
+  // eligiblePhoto fills departureError on an identity change; returning Cancel
+  // stops leavePhoto, and that error distinguishes it from user cancellation below.
   const auto guardedPrompt = [&](const std::string &error) {
     const auto decision = prompt ? prompt(error) : SaveFailureDecision::Cancel;
     if (decision == SaveFailureDecision::Retry && !eligiblePhoto(app, request, *current, departureError))
