@@ -1,0 +1,64 @@
+name: Windows atomic persistence research
+on:
+  push:
+    branches: [research/windows-atomic-persistence-2026-11-17]
+    paths:
+      - research/windows-atomic-persistence/**
+      - .github/workflows/windows-atomic-research.yml
+permissions:
+  contents: read
+jobs:
+  native-probe:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record environment and compile standalone MSVC C++17 probe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory evidence | Out-Null
+          Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsName, OsVersion, OsBuildNumber | ConvertTo-Json | Set-Content evidence/os.json
+          whoami /all > evidence/token.txt
+          Get-Volume | Select-Object DriveLetter, FileSystem, FileSystemLabel, HealthStatus, Size, SizeRemaining | ConvertTo-Json | Set-Content evidence/volumes.json
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          $command = "`"$vs\Common7\Tools\VsDevCmd.bat`" -arch=x64 && cl.exe /nologo /std:c++17 /EHsc /utf-8 /W4 /O2 research\windows-atomic-persistence\probe.cpp /Fe:probe.exe /link advapi32.lib bcrypt.lib"
+          & cmd.exe /d /s /c $command 2>&1 | Tee-Object evidence/compile.txt
+          if ($LASTEXITCODE -ne 0) { throw "MSVC compilation failed: $LASTEXITCODE" }
+      - name: Native local NTFS experiment matrix
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP ("rawnode-atomic-" + [guid]::NewGuid().ToString('N'))
+          $root | Set-Content evidence/disposable-root.txt
+          & ./probe.exe $root 2>&1 | Tee-Object evidence/native.jsonl
+          $probeExit = $LASTEXITCODE
+          Get-ChildItem -LiteralPath $root -Recurse -Force | Select-Object FullName, Length, Attributes, LinkType, Target | ConvertTo-Json -Depth 4 | Set-Content evidence/final-directory.json
+          Copy-Item -LiteralPath (Join-Path $root backups) -Destination evidence/backups -Recurse
+          Copy-Item "$root/child-*.json" evidence/ -ErrorAction SilentlyContinue
+          if ($probeExit -ne 0) { throw "Native probe failed: $probeExit; retain evidence" }
+      - name: Genuine disk-full write on disposable NTFS virtual disk
+        if: always()
+        shell: pwsh
+        run: |
+          $vhd = Join-Path $env:RUNNER_TEMP ("rawnode-full-" + [guid]::NewGuid().ToString('N') + '.vhd')
+          $drive = @('Z','Y','X','W','V') | Where-Object { -not (Test-Path "${_}:\") } | Select-Object -First 1
+          if (-not $drive -or -not (Test-Path ./probe.exe)) { 'Skipped: no free drive or probe binary' | Set-Content evidence/disk-full-status.txt; exit 0 }
+          @("create vdisk file=`"$vhd`" maximum=64 type=expandable", "select vdisk file=`"$vhd`"", 'attach vdisk', 'create partition primary', 'format fs=ntfs quick label=RawNodeDisposable', "assign letter=$drive") | Set-Content evidence/diskpart-create.txt
+          try {
+            & diskpart.exe /s evidence/diskpart-create.txt | Tee-Object evidence/diskpart-create.log
+            if (-not (Test-Path "${drive}:\")) { 'Skipped: disposable virtual disk setup unavailable' | Set-Content evidence/disk-full-status.txt; exit 0 }
+            & ./probe.exe --disk-full "${drive}:\probe" "$pwd\evidence" 2>&1 | Tee-Object evidence/disk-full.jsonl
+            if ($LASTEXITCODE -ne 0) { throw "Disk-full probe failed: $LASTEXITCODE" }
+            'Completed on disposable NTFS virtual disk' | Set-Content evidence/disk-full-status.txt
+          } finally {
+            @("select vdisk file=`"$vhd`"", 'detach vdisk') | Set-Content evidence/diskpart-detach.txt
+            & diskpart.exe /s evidence/diskpart-detach.txt | Tee-Object evidence/diskpart-detach.log
+            Remove-Item -LiteralPath $vhd -ErrorAction SilentlyContinue
+          }
+      - name: Upload complete native evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-atomic-persistence-evidence
+          path: evidence/
+          retention-days: 14
