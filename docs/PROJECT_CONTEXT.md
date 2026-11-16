@@ -459,15 +459,38 @@ the unchanged default height. Unknown sidecars remain distinct from Unmarked.
 Assignable shortcuts and multi-photo operations are separate milestones; see
 [photo marking](PHOTO_MARKING.md) for scope and validation.
 
-Filmstrip multi-photo selection is implemented for review, independently of
+Filmstrip multi-photo selection is merged as PR #115, independently of
 the open editor photograph. App owns a transient set of entry paths and one
 anchor; plain clicks publish selection only after normal photo opening succeeds.
 Command/Control toggles, visible-order Shift ranges and focused visible Select
 All never open photos or request rendering. Filters and marking preserve hidden
 selections, refresh prunes removed paths, and changing folders clears selection.
 Selected frames and the open-photo outline are distinct existing theme colours.
-Move to Trash and batch export are separate follow-ups; see
-[selection behaviour and native validation](FILMSTRIP_SELECTION.md).
+The owner reports PR #115's native macOS checks completed and retains the
+existing theme-based selection colours; see [the selection record](FILMSTRIP_SELECTION.md).
+The next focused milestone implements [confirmed native Trash](FILMSTRIP_TRASH.md)
+for the complete path selection, including hidden photographs and both exact
+current/legacy sidecar names. Current-photo removal reuses departure saving and
+DocumentMutation, refuses active export, retires the removed save target, and
+uses prepared opening or a usable empty editor. Non-current removal preserves
+the live grade/history/preview. Partial sidecar failures report exact orphan
+paths without rollback or overwrite. PR #116 implements macOS/Linux Trash,
+subject to final validation and merge; native macOS GUI/restore checks remain
+separate from PR #115's selection validation. Windows Move to Trash now explicitly
+refuses before confirmation, edit completion, departure or deletion: native tests
+reproduced silent permanent loss through the previous IFileOperation adapter. Shared/macOS/Linux lifecycle,
+unmodified deletion keys and confirmation eligibility wording are preserved.
+The [Windows research and diagnostic evidence](WINDOWS_TRASH_RESEARCH.md) record
+the loss and separate HRESULT reporting bug. Windows support remains an
+unfinished [near-term roadmap milestone](../ROADMAP.md), requiring its own
+focused PR, independent review and native recycle-or-preserve validation. Batch
+export remains a later PR.
+
+Windows graph-native sidecar persistence is also unfinished:
+`persist_detail::replaceFileAtomically()` explicitly returns unsupported on
+Windows. Native atomic sidecar persistence must be implemented and validated
+before claiming Windows photo-editing persistence works. This is a separate
+visible near-term roadmap item, not part of PR #116 or Windows Trash support.
 
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,
@@ -637,6 +660,10 @@ These are known but are not reasons to expand unrelated focused PRs:
   undo history and zoom/pan. This predates multi-photo selection; evaluate a
   focused same-photo-click follow-up without changing document lifecycle in the
   selection correction;
+- large-folder filmstrip capture/refresh uses repeated linear membership and
+  surviving-thumbnail searches, with repeated canonical-path checks during Trash.
+  Profile before a separate performance change; this review pass does not alter
+  photo navigation or introduce indexing/caching;
 - thumbnail worker exceptional-unwind lifetime, the macOS pthread-to-joiner
   exception gap, and `makePreview` partial helper-thread launch remain focused
   lifetime/exception-safety follow-ups; normal thumbnail shutdown is safe.

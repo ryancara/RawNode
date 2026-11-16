@@ -2,6 +2,7 @@
 
 #include "AppState.h"
 
+#include <functional>
 #include <thread>
 
 // Thumbnail resolutions snap to this ladder as the filmstrip is resized.
@@ -21,9 +22,12 @@ void clearFilmstripThumbJobs(App &app);
 void invalidateFilmstripThumbs(App &app);
 void requestFilmstripThumb(App &app, int index, bool front);
 void pumpFilmstripThumbs(App &app);
-void refreshFilmstrip(App &app);
+// Trash refresh retains surviving decoded thumbnails; obsolete jobs are still cancelled.
+void refreshFilmstrip(App &app, bool preserveThumbnails = false);
 bool filmstripEntryVisible(const App &app, const FilmstripEntry &entry);
 // Selection only: callers open plain-click targets before committing selection.
 void selectFilmstripEntry(App &app, int index, bool toggle = false, bool range = false);
 void selectAllVisibleFilmstripEntries(App &app);
-std::thread startFilmstripThumbThread(App *app);
+// Loader injection is local to this worker, used by deterministic lifetime tests.
+using FilmstripThumbnailLoader = std::function<bool(const std::string &, int, std::vector<unsigned char> &, int &, int &)>;
+std::thread startFilmstripThumbThread(App *app, FilmstripThumbnailLoader load = loadThumbnailRGBA);

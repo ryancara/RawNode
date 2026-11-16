@@ -21,8 +21,8 @@ void freeFilmstripTextures(std::vector<FilmstripEntry> &entries) {
 }
 
 void clearFilmstripThumbJobs(App &app) {
-  ++app.filmstripGen;
   std::lock_guard<std::mutex> lock(app.thumbMutex);
+  ++app.filmstripGen;
   app.thumbQueue.clear();
   app.thumbQueued.clear();
   app.thumbReady.clear();
@@ -134,10 +134,6 @@ void pumpFilmstripThumbs(App &app) {
       ready = std::move(app.thumbReady.front());
       app.thumbReady.pop_front();
     }
-    if (ready.kind == ThumbReady::Kind::Canceled) {
-      finishFilmstripThumbJob(app, ready.path, false);
-      continue;
-    }
     const int index = filmstripIndexForPath(app, ready.path);
     if (index < 0) continue;
     if (ready.edge != wantEdge) {
@@ -156,7 +152,7 @@ void pumpFilmstripThumbs(App &app) {
   }
 }
 
-static void filmstripThumbWorker(App *app) {
+static void filmstripThumbWorker(App *app, const FilmstripThumbnailLoader &load) {
   while (!app->quit) {
     std::string path;
     int gen = 0;
@@ -173,12 +169,10 @@ static void filmstripThumbWorker(App *app) {
     }
     std::vector<unsigned char> rgba;
     int w = 0, h = 0;
-    const bool ok = loadThumbnailRGBA(path, edge, rgba, w, h);
+    const bool ok = load(path, edge, rgba, w, h);
     std::lock_guard<std::mutex> lock(app->thumbMutex);
-    if (gen != app->filmstripGen.load()) {
-      app->thumbReady.push_back({path, {}, 0, 0, edge, ThumbReady::Kind::Canceled});
-      continue;
-    }
+    // A superseded job must not clear a new same-path job's loading state.
+    if (gen != app->filmstripGen.load()) continue;
     if (!ok)
       app->thumbReady.push_back({path, {}, 0, 0, edge, ThumbReady::Kind::Fail});
     else
@@ -187,11 +181,12 @@ static void filmstripThumbWorker(App *app) {
 }
 
 #if defined(__APPLE__)
-std::thread startFilmstripThumbThread(App *app) {
+std::thread startFilmstripThumbThread(App *app, FilmstripThumbnailLoader load) {
   struct Ctx {
     App *target;
+    FilmstripThumbnailLoader load;
   };
-  auto *ctx = new Ctx{app};
+  auto *ctx = new Ctx{app, load};
   pthread_t tid;
   pthread_attr_t attr;
   pthread_attr_init(&attr);
@@ -200,7 +195,7 @@ std::thread startFilmstripThumbThread(App *app) {
       &tid, &attr,
       +[](void *p) -> void * {
         auto *c = static_cast<Ctx *>(p);
-        filmstripThumbWorker(c->target);
+        filmstripThumbWorker(c->target, c->load);
         delete c;
         return nullptr;
       },
@@ -208,21 +203,24 @@ std::thread startFilmstripThumbThread(App *app) {
   pthread_attr_destroy(&attr);
   if (err != 0) {
     delete ctx;
-    return std::thread(filmstripThumbWorker, app);
+    return std::thread(filmstripThumbWorker, app, std::move(load));
   }
   return std::thread([tid]() { pthread_join(tid, nullptr); });
 }
 #else
-std::thread startFilmstripThumbThread(App *app) { return std::thread(filmstripThumbWorker, app); }
+std::thread startFilmstripThumbThread(App *app, FilmstripThumbnailLoader load) { return std::thread(filmstripThumbWorker, app, std::move(load)); }
 #endif
 
-void refreshFilmstrip(App &app) {
+void refreshFilmstrip(App &app, bool preserveThumbnails) {
   clearFilmstripThumbJobs(app);
-  freeFilmstripTextures(app.filmstrip);
+  std::vector<FilmstripEntry> previous;
+  if (preserveThumbnails) previous.swap(app.filmstrip);
+  else freeFilmstripTextures(app.filmstrip);
   if (app.folderDir.empty()) {
     app.filmstripIndex = -1;
     app.filmstripSelection.clear();
     app.filmstripAnchor.clear();
+    freeFilmstripTextures(previous);
     return;
   }
   const auto paths = listFolderImages(app.folderDir);
@@ -231,6 +229,16 @@ void refreshFilmstrip(App &app) {
   for (const std::string &p : paths) {
     if (app.filmstripSelection.count(p)) survivingSelection.insert(p);
     FilmstripEntry e;
+    if (preserveThumbnails) {
+      const auto found = std::find_if(previous.begin(), previous.end(), [&](const auto &entry) { return entry.path == p; });
+      if (found != previous.end()) {
+        e = std::move(*found);
+        found->tex = 0;
+        e.thumbLoading = false;
+        e.mark.reset();
+        e.markError.clear();
+      }
+    }
     e.path = p;
     PersistFile file;
     const auto status = readGraphSidecar(inputSidecarPath(p), file, e.markError);
@@ -244,6 +252,7 @@ void refreshFilmstrip(App &app) {
     }
     app.filmstrip.push_back(std::move(e));
   }
+  freeFilmstripTextures(previous);
   app.filmstripSelection.swap(survivingSelection);
   if (std::find(paths.begin(), paths.end(), app.filmstripAnchor) == paths.end()) app.filmstripAnchor.clear();
   app.filmstripIndex = -1;

@@ -48,24 +48,54 @@ These priorities sequence focused work without reopening completed architecture 
    milestone, with no fixed marking bindings in this slice. This supports
    decisions made while editing, not high-volume first-pass culling; do not introduce a separate
    fast-RAW browsing or decode-skipping pipeline for it.
-4. **Multi-photo selection — implemented, under review.** Transient path-based
+4. **Multi-photo selection — merged (#115).** Transient path-based
    selection supports plain/Command/Shift clicks and focused visible Select All,
    independently of the open photograph. See [behaviour and native checks](docs/FILMSTRIP_SELECTION.md).
-   Moving selected photographs and sidecars to the operating system Trash is
-   the next separate PR. Batch export follows using the existing single-image
+   **macOS/Linux Move to Trash is implemented in [PR #116](https://github.com/ryancara/RawNode/pull/116),
+   subject to final validation and merge.** The [native Trash milestone](docs/FILMSTRIP_TRASH.md)
+   adds focused unmodified Delete/Backspace, one immutable confirmation
+   distinguishing eligible/hidden photographs from already-ineligible paths,
+   exact current/legacy sidecars, explicit partial failures, safe current-document
+   departure and preserved surviving thumbnails/filters. PR #115's native macOS
+   selection checks are owner-reported complete; retain existing theme-based
+   selection colours. New native macOS Trash/restore checks remain required.
+   Batch export follows using the existing single-image
    path and execution ownership, initially sequentially. Multi-photo grade/preset
    application can follow separately.
-5. **Close the practical Step 8 masking core.** Agree the exit gate, then
+5. **Windows Move to Trash support — deferred, unfinished after PR #116.**
+   Support is temporarily disabled because [native Windows tests reproduced
+   silent permanent deletion](https://github.com/ryancara/RawNode/blob/b6cbafdd3d0255897417ca898a6eb8b2975aa6e4/REPORT.md).
+   The old IFileOperation implementation must not be re-enabled without a
+   demonstrated recycle-or-preserve guarantee. Successful shell recycling also
+   exposed an HRESULT reporting bug: `0x00270008` is successful; `result == S_OK`
+   misclassified it. Investigate the smallest reliable native Windows solution,
+   without defaulting to a custom Trash system or protective backup architecture.
+   Native validation must cover successful recycling and restoration, oversized
+   files, disabled bins, external HDD/SSD, removable FAT32/exFAT SD cards and
+   cancellation. Return support in its own focused PR with independent review
+   and native validation. See [Windows research and retained evidence](docs/WINDOWS_TRASH_RESEARCH.md)
+   and [PR #116](https://github.com/ryancara/RawNode/pull/116).
+   **Keep this item visible here until implemented and validated; merging the
+   macOS/Linux implementation does not complete Windows support.**
+6. **Native Windows atomic sidecar persistence — deferred, unfinished.**
+   `persist_detail::replaceFileAtomically()` in
+   [ProjectPersistSave.cpp](src/persist/ProjectPersistSave.cpp) currently returns
+   unsupported on Windows, so graph-native sidecar saves cannot complete there.
+   Implement and natively validate reliable atomic creation/replacement,
+   failure preservation and recovery before claiming Windows photo-editing
+   persistence is functional. This needs its own focused, independently reviewed
+   PR and is separate from Windows Move to Trash; PR #116 does not implement it.
+7. **Close the practical Step 8 masking core.** Agree the exit gate, then
    deliver Mask Combine, upstream geometry/Overlay placement through Mask
    modifiers, a Linear Gradient generator and an initial Blur modifier in
    focused slices. Defer Brush, Bézier, advanced qualifiers and AI masks
    unless a concrete exit-gate requirement justifies them.
-6. **Performance and responsiveness checkpoint.** After the initial photo
+8. **Performance and responsiveness checkpoint.** After the initial photo
    workflows and Step 8 exit gate, profile real workloads on macOS and decide
    whether JPEG XL area-task parallelism, RAW pixel conversion or interactive
    graph processing warrants focused optimisation. The investigations below
    are evidence, not approval to implement them.
-7. **Step 9 whole-codebase audit.** Start the approved D055 audit after the
+9. **Step 9 whole-codebase audit.** Start the approved D055 audit after the
    agreed Step 8 exit gate and initial practical photo workflow improvements,
    using the performance checkpoint as input. The formal Step 9 entry
    criterion remains Step 8 closure, not completion of every unrelated feature.

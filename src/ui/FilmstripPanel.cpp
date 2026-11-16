@@ -5,13 +5,27 @@
 #include "ui/Filmstrip.h"
 
 #include "imgui.h"
+#include "portable-file-dialogs.h"
 
 #include <algorithm>
 #include <filesystem>
 
 namespace fs = std::filesystem;
 
-void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt) {
+bool promptPhotoTrash(const std::string &message) {
+  if (!pfd::settings::available()) return false;
+  return pfd::message("Move photographs to Trash", message, pfd::choice::ok_cancel,
+                       pfd::icon::warning).result() == pfd::button::ok;
+}
+
+void reportPhotoTrash(const PhotoTrashResult &result) {
+  if (!result.errors.empty() && pfd::settings::available())
+    pfd::message("Move to Trash results", result.message(), pfd::choice::ok, pfd::icon::warning).result();
+}
+
+void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt,
+                        const PhotoTrashConfirmation &confirm, const TrashOperation &move,
+                        const std::function<void(const PhotoTrashResult &)> &report) {
   static const struct {
     const char *label;
     const char *indicator;
@@ -79,12 +93,30 @@ void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt) {
     return;
   }
 
-  // The focused window scopes future photo actions too; Graph/List keep their
-  // own focus and deletion bindings. ImGui maps Ctrl to Command on macOS.
+  // GLFW maps the physical macOS Delete key to Backspace. Keep both bindings
+  // local to this window; Graph/List and keyboard-consuming widgets retain theirs.
   const auto &io = ImGui::GetIO();
   if (ImGui::IsWindowFocused() && !ImGui::IsAnyItemActive() && !io.WantTextInput &&
-      ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_A))
-    selectAllVisibleFilmstripEntries(app);
+      !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_A)) selectAllVisibleFilmstripEntries(app);
+    if (!io.KeyShift && !io.KeyCtrl && !io.KeyAlt && !io.KeySuper &&
+        (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))) {
+      if (!fileTrashSupported()) {
+        app.setStatus("Move to Trash is temporarily unsupported on this platform");
+      } else {
+        const auto request = capturePhotoTrashRequest(app);
+        const bool valid = std::any_of(request.photographs.begin(), request.photographs.end(),
+                                       [](const auto &photo) { return photo.error.empty(); });
+        if (valid && confirm && confirm(photoTrashConfirmationText(request))) {
+          // During export, current-source removal must be refused before any
+          // pending UI edit is committed to the live grade.
+          if (photoTrashIncludesCurrent(app, request) && !app.renderer.exportInProgress()) finishUiEdits(app);
+          const auto result = trashPhotographs(app, request, prompt, move);
+          if (report) report(result);
+        }
+      }
+    }
+  }
 
   const float thumbH = std::max(1.0f, ImGui::GetContentRegionAvail().y - style.FramePadding.y * 2.0f);
   const float fbScale = std::max(1.0f, ImGui::GetIO().DisplayFramebufferScale.y);
