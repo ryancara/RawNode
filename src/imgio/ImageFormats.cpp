@@ -34,4 +34,3 @@ const std::vector<std::string> &rawImageExtensions() {
 bool isRawImagePath(const std::string &path) {
   return pathHasExtension(path, rawImageExtensions());
 }
-
