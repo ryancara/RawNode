@@ -371,9 +371,9 @@ bool integrityAndEncryption(const fs::path &root) {
   const auto encryptedFolder = root / L"encrypted-folder"; fs::create_directory(encryptedFolder);
   CHECK(EncryptFileW(encryptedFolder.c_str()));
   const auto child = encryptedFolder / L"file.json";
-  const auto names = entries(encryptedFolder);
+  const auto encryptedNames = entries(encryptedFolder);
   CHECK(!replace(child, "must not establish an unsupported EFS save workflow", error));
-  CHECK(!fs::exists(child) && entries(encryptedFolder) == names);
+  CHECK(!fs::exists(child) && entries(encryptedFolder) == encryptedNames);
   return true;
 }
 PersistGrade grade() {
@@ -583,10 +583,13 @@ int wmain(int argc, wchar_t **argv) {
     if (argc == 3 && std::wcscmp(argv[1], L"--readonly-location") == 0) return readOnlyLocation(argv[2]) ? 0 : 1;
     Directory dir;
     if (argc == 4 && std::wcscmp(argv[1], L"--volume") == 0) return volume(dir.path, argv[3]) ? 0 : 1;
-    if (argc == 4 && std::wcscmp(argv[1], L"--ordinary-user") == 0 && !preparedFixtures(argv[3])) return 1;
-    if (!unicodeAndCallers(dir.path) || !testSidecarFiles() || !permissionsAndRefusal(dir.path) || !readersAndCleanup(dir.path) ||
-        !links(dir.path) || !integrityAndEncryption(dir.path) || !photographs(dir.path)) return 1;
-    std::puts("ok  MSVC actual production persistence: sidecars/presets/preferences, ACLs/integrity/EFS, readers, failure preservation, cleanup and Unicode photograph identity");
-    return 0;
+    bool passed = argc != 4 || std::wcscmp(argv[1], L"--ordinary-user") != 0 || preparedFixtures(argv[3]);
+    passed = testSidecarFiles() && passed;
+    for (auto test : {unicodeAndCallers, permissionsAndRefusal, readersAndCleanup, links, integrityAndEncryption, photographs}) {
+      Directory fixture;
+      passed = test(fixture.path) && passed;
+    }
+    if (passed) std::puts("ok  MSVC actual production persistence: sidecars/presets/preferences, ACLs/integrity/EFS, readers, failure preservation, cleanup and Unicode photograph identity");
+    return passed ? 0 : 1;
   } catch (const std::exception &failure) { std::fprintf(stderr, "%s (Windows error %lu)\n", failure.what(), GetLastError()); return 2; }
 }
