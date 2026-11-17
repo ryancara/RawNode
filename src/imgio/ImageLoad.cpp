@@ -126,7 +126,7 @@ static bool loadRaw(const std::string &path, Image &out, RgbGamut workingGamut, 
   std::optional<dng_host> dngHost;
 #endif
   LibRaw raw;
-  if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
+  if (raw.open_file(fs::u8path(path).c_str()) != LIBRAW_SUCCESS) return false;
   const bool jxl = isJxlDng(raw);
 #if RAWNODE_ENABLE_JXL_DNG
   bool stage2 = false;
@@ -139,7 +139,7 @@ static bool loadRaw(const std::string &path, Image &out, RgbGamut workingGamut, 
       // the conditional JPEG/JXL stage flag applies the wrong WB for unequal whites.
       raw.recycle();
       raw.imgdata.rawparams.options |= LIBRAW_RAWOPTIONS_DNG_STAGE2 | LIBRAW_RAWOPTIONS_DNG_ALLOWSIZECHANGE;
-      if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS || !isJxlDng(raw) ||
+      if (raw.open_file(fs::u8path(path).c_str()) != LIBRAW_SUCCESS || !isJxlDng(raw) ||
           raw.is_floating_point() || !raw.imgdata.color.dng_levels.rawopcodes[1].len)
         return jxlDngError("could not reopen the identified integer image for Stage 2");
       if (unsupportedJxlStage1Geometry(raw))
@@ -507,7 +507,7 @@ static bool loadRawEmbeddedThumbRGBA(const std::string &path, int maxEdge, std::
                                      int &h) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
   LibRaw raw;
-  if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
+  if (raw.open_file(fs::u8path(path).c_str()) != LIBRAW_SUCCESS) return false;
   if (raw.unpack_thumb() != LIBRAW_SUCCESS) return false;
   const libraw_thumbnail_t &t = raw.imgdata.thumbnail;
   if (t.tlength <= 0 || !t.thumb) return false;

@@ -629,7 +629,7 @@ SidecarReadStatus readGraphFileText(const std::string &path, std::string &json, 
   if (hasSuffix(".ofxrawhost.json")) return fail("Protected legacy destination");
 #ifdef _WIN32
   fs::path nativePath;
-  if (!windowsPath(path, nativePath, error) || !windowsParents(nativePath, error)) return fail(error);
+  if (!windowsPath(path, nativePath, error)) return fail(error);
 #else
   const fs::path nativePath(path);
 #endif

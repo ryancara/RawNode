@@ -1242,6 +1242,51 @@ bool protectionAndDecodeFailure() {
   return true;
 }
 
+bool transferredAndReadOnlyGrades() {
+  Files original, transferred;
+  const auto from = photo(original, "original.png");
+  const auto to = transferred.path("renamed.png");
+  const auto json = file(missing + ',' + exposure + ',' + source, "gain",
+      R"(,"positions":{"gain":{"x":-3.25,"y":19}})", R"({"mark":"pick"})");
+  write(inputSidecarPath(from), json);
+  fs::copy_file(from, to);
+  fs::copy_file(inputSidecarPath(from), inputSidecarPath(to));
+  App app;
+  CHECK(openPath(app, to) && !app.isPhotoProtected() && app.nodes.size() == 3);
+  CHECK(app.currentPhotoMark == PhotoMark::Pick && app.nodePositions.at("gain").x == -3.25f);
+  CHECK(assignPhotoMark(app, to, PhotoMark::Reject) && saveCurrentInputSidecar(app));
+  const auto saved = bytes(inputSidecarPath(to));
+  const auto parsed = read(inputSidecarPath(to));
+  CHECK(parsed.grade && photoMark(parsed) == PhotoMark::Reject);
+  CHECK(saved.find("9007199254740993") != std::string::npos && saved.find("0.12345678901234567890123456789") != std::string::npos);
+  CHECK(bytes(inputSidecarPath(from)) == json);
+
+  Options unsupported;
+  unsupported.canSave = [](const std::string &, std::string &error) {
+    error = "Test location does not support safe atomic saving"; return false;
+  };
+  int saves = 0, prompts = 0;
+  unsupported.beforeSave = [&] { ++saves; return Fault::None; };
+  const auto prompt = [&](const std::string &) { ++prompts; return Decision::Cancel; };
+  App viewer; viewer.folderDir = transferred.dir.string(); refreshFilmstrip(viewer);
+  CHECK(document_detail::openPhoto(viewer, to, prompt, unsupported));
+  CHECK(viewer.isPhotoProtected() && viewer.nodes.size() == 3 && viewer.currentPhotoMark == PhotoMark::Reject);
+  CHECK(viewer.outputEncoding == (ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB}));
+  CHECK(viewer.nodePositions.at("gain").x == -3.25f && !viewer.persistenceWarning.empty());
+  refreshFilmstrip(viewer);
+  CHECK(viewer.filmstrip.front().mark == PhotoMark::Reject);
+  CHECK(!addNativeExposureNode(viewer) && !setNodeParameterValue(viewer, NodeId{"gain"}, "exposure", 2.0));
+  CHECK(!setOutputEncoding(viewer, {RgbGamut::Rec709, TransferFunction::Linear}));
+  CHECK(!assignPhotoMark(viewer, to, PhotoMark::Pick) && !saveCurrentInputSidecar(viewer));
+  CHECK(document_detail::leavePhoto(viewer, prompt, unsupported));
+  CHECK(bytes(inputSidecarPath(to)) == saved && saves == 0 && prompts == 0);
+  const auto ungraded = photo(transferred, "ungraded.png");
+  CHECK(document_detail::openPhoto(viewer, ungraded, prompt, unsupported));
+  CHECK(viewer.isPhotoProtected() && viewer.nodes.size() == 1 && !fs::exists(inputSidecarPath(ungraded)));
+  CHECK(document_detail::leavePhoto(viewer, prompt, unsupported) && saves == 0 && prompts == 0);
+  return true;
+}
+
 bool failureDecisions() {
   Files files; const auto a = photo(files, "a.png"), b = photo(files, "b.png");
   App app;
@@ -1796,6 +1841,7 @@ bool testPhotoDocuments() {
        std::make_pair("shuffled full graph, off-spine nodes, precision, positions and unchanged saves", restorationAndUnchangedSave),
        std::make_pair("Slots and allocation history through the production open/departure path", slotRestoration),
        std::make_pair("protected views, entry-point refusal, legacy protection and failed source decode", protectionAndDecodeFailure),
+       std::make_pair("transferred grades and marks; valid read-only grades without edits, saves or departure prompts", transferredAndReadOnlyGrades),
        std::make_pair("persistent warnings and Retry/Discard/Cancel before navigation/shutdown", failureDecisions),
        std::make_pair("folder auto-open after Discard saves and prompts only once", folderDiscardOnlyOnce),
        std::make_pair("same-photo save-before-reload, atomic failures and strict backend UTF-8", samePhotoAndAtomicFailures),

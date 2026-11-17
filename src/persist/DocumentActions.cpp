@@ -297,7 +297,7 @@ bool savePhoto(App &app, std::string &error, const ActionTestOptions &options) {
   error.clear();
   if (app.path.empty()) return true;
   if (app.isPhotoProtected()) {
-    error = "The saved grade was not loaded; grade saving is disabled";
+    error = "This photo is read-only; grade saving is disabled";
     app.setStatus(error);
     return false;
   }
@@ -401,7 +401,6 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
       error = inputSidecarPath(path) + ": " + error;
       protectedSource = true;
     }
-    const bool initialSave = !protectedSource && !file.grade;
     ColorEncoding raw, output;
     {
       std::lock_guard<std::mutex> lock(app.colorMutex);
@@ -435,6 +434,11 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
         output = {RgbGamut::Rec709, TransferFunction::SRGB};
       }
     }
+    // A readable grade can be viewed on storage where safe saving is unavailable.
+    // Keep its restored graph; reuse the existing read-only document state.
+    const bool writeBlocked = !protectedSource && !options.canSave(inputSidecarPath(path), error);
+    const bool readOnly = protectedSource || writeBlocked;
+    const bool initialSave = !readOnly && !file.grade;
     Image decoded;
     ColorEncoding detected;
     bool decodedRaw = false;
@@ -444,11 +448,11 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
     }
     auto preview = makePreviewSource(decoded, detected, app.previewRes);
     std::string incomingPath = path;
-    std::string blockedPath = protectedSource ? path : "";
-    std::string warning = protectedSource ? "Saved grade was not loaded; this photo is read-only: " + error
+    std::string blockedPath = readOnly ? path : "";
+    std::string warning = readOnly ? "This photo is read-only: " + error
         : app.path == path ? app.persistenceWarning : std::string();
     const auto loadedMark = protectedSource ? std::nullopt : std::optional<PhotoMark>(photoMark(file));
-    std::string markError = protectedSource ? warning : std::string();
+    std::string markError = readOnly ? warning : std::string();
     auto loaded = "Loaded " + fs::path(path).filename().string() + " (" + colorEncodingName(detected) + ")";
     int filmstripIndex = -1;
     for (size_t i = 0; i < app.filmstrip.size(); ++i) {

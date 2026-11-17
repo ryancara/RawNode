@@ -9,6 +9,7 @@
 #include "SidecarFileTestAccess.h"
 #include "persist/PreferencesPriv.h"
 #include "persist/WindowsFile.h"
+#include "imgio/ImageIO.h"
 
 #include <chrono>
 #include <cstdio>
@@ -67,11 +68,16 @@ void dacl(const fs::path &path, const std::wstring &text, bool protect = true) {
 struct Snapshot {
   std::string content;
   std::wstring security;
+  bool hasAcls = false;
   BY_HANDLE_FILE_INFORMATION info{};
   explicit Snapshot(const fs::path &path) : content(bytes(path)) {
     HANDLE h = CreateFileW(path.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                            nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (h == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(h, &info)) throw std::runtime_error("snapshot handle");
+    DWORD flags = 0;
+    if (!GetVolumeInformationW(path.root_path().c_str(), nullptr, 0, nullptr, nullptr, &flags, nullptr, 0)) throw std::runtime_error("snapshot volume");
+    hasAcls = (flags & FILE_PERSISTENT_ACLS) != 0;
+    if (!hasAcls) { CloseHandle(h); return; }
     PSECURITY_DESCRIPTOR sd = nullptr;
     DWORD code = GetSecurityInfo(h, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
                                 nullptr, nullptr, nullptr, nullptr, &sd);
@@ -165,14 +171,14 @@ bool permissionsAndRefusal(const fs::path &root) {
       CHECK(entries(root) == names);
     }
   }
-  for (DWORD attributes : {DWORD(FILE_ATTRIBUTE_NORMAL), DWORD(FILE_ATTRIBUTE_HIDDEN), DWORD(FILE_ATTRIBUTE_NOT_CONTENT_INDEXED)}) {
+  for (DWORD attributes : {DWORD(FILE_ATTRIBUTE_NORMAL), DWORD(FILE_ATTRIBUTE_HIDDEN), DWORD(FILE_ATTRIBUTE_SYSTEM), DWORD(FILE_ATTRIBUTE_NOT_CONTENT_INDEXED)}) {
     CHECK(SetFileAttributesW(path.c_str(), attributes));
-    const Snapshot before(path); const auto names = entries(root);
-    CHECK(!replace(path, "must not alter archive state", error) && error.find("ARCHIVE") != std::string::npos);
-    CHECK(before.same(path) && entries(root) == names);
+    CHECK(replace(path, "archive becomes set after modification", error));
+    const Snapshot after(path);
+    CHECK(after.info.dwFileAttributes == ((attributes & ~FILE_ATTRIBUTE_NORMAL) | FILE_ATTRIBUTE_ARCHIVE));
   }
   CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_ARCHIVE));
-  dacl(path, L"D:P(D;;0x6;;;" + sid() + L")(A;;FA;;;" + sid() + L")(A;;FA;;;SY)");
+  dacl(path, L"D:P(D;;0x2;;;" + sid() + L")(A;;FA;;;" + sid() + L")(A;;FA;;;SY)");
   Snapshot denied(path); const auto names = entries(root);
   CHECK(!replace(path, "must not publish", error) && error.find("not writable") != std::string::npos);
   CHECK(denied.same(path) && entries(root) == names);
@@ -180,13 +186,22 @@ bool permissionsAndRefusal(const fs::path &root) {
   CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_READONLY));
   Snapshot readonly(path);
   CHECK(!replace(path, "must not publish", error) && readonly.same(path));
-  // Restore only the disposable fixture after checking refusal; never a save fallback.
   CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_ARCHIVE));
-  const auto stream = fs::path(path.wstring() + L":extra"); write(stream, "retain alternate bytes");
-  Snapshot streams(path);
-  CHECK(!replace(path, "must not publish", error) && error.find("streams") != std::string::npos);
-  CHECK(streams.same(path) && bytes(stream) == "retain alternate bytes");
-  CHECK(DeleteFileW(stream.c_str()));
+  for (const auto *name : {L":Zone.Identifier", L":com.dropbox.attrs", L":user-data"}) {
+    const auto stream = fs::path(path.wstring() + name); write(stream, "incidental stream data");
+    CHECK(replace(path, "JSON data stream replacement", error));
+    CHECK(bytes(path) == "JSON data stream replacement" && GetFileAttributesW(stream.c_str()) == INVALID_FILE_ATTRIBUTES);
+  }
+  const auto other = root / L"other-hard-link";
+  CHECK(CreateHardLinkW(other.c_str(), path.c_str(), nullptr));
+  const Snapshot linked(path);
+  CHECK(replace(path, "new pathname contents", error));
+  CHECK(linked.same(other) && bytes(path) == "new pathname contents");
+  CHECK(DeleteFileW(other.c_str()));
+  const auto inherited = root / L"new-inherited.json", exemplar = root / L"inheritance-control";
+  write(exemplar, "control");
+  CHECK(replace(inherited, "new folder-inherited file", error));
+  CHECK(Snapshot(inherited).security == Snapshot(exemplar).security);
   const auto folder = root / L"directory.json"; fs::create_directory(folder);
   CHECK(!replace(folder, "x", error) && fs::is_empty(folder));
   CHECK(!replace(root / L"missing" / L"file.json", "x", error) && !fs::exists(root / L"missing"));
@@ -202,8 +217,13 @@ bool readersAndCleanup(const fs::path &root) {
     CHECK(reader != INVALID_HANDLE_VALUE);
     const Snapshot before(path); const auto names = entries(root);
     const bool saved = replace(path, "replacement", error);
+    char old[64]{}; DWORD count = 0;
+    const BOOL read = ReadFile(reader, old, sizeof(old), &count, nullptr);
     CloseHandle(reader);
-    CHECK(!saved && before.same(path) && entries(root) == names);
+    CHECK(read && std::string(old, count) == before.content);
+    if (saved) CHECK((share & FILE_SHARE_DELETE) && bytes(path) == "replacement");
+    else CHECK((error.find("32") != std::string::npos || error.find("5") != std::string::npos) && before.same(path));
+    CHECK(entries(root) == names);
   }
   const Snapshot before(path); const auto names = entries(root);
   CHECK(!replace(path, "partial write material", error, Fault::Cleanup));
@@ -213,6 +233,8 @@ bool readersAndCleanup(const fs::path &root) {
   for (const auto &name : after) if (!names.count(name)) {
     const auto temporary = root / fs::u8path(name);
     CHECK(error.find(temporary.u8string()) != std::string::npos && bytes(temporary) == "partial wri");
+    const auto privateAcl = Snapshot(temporary).security;
+    CHECK(privateAcl.find(L"D:P") != std::wstring::npos && privateAcl.find(L";;;BU)") == std::wstring::npos);
     CHECK(DeleteFileW(temporary.c_str()));
   }
   CHECK(replace(path, "retry succeeds", error) && error.empty());
@@ -242,11 +264,10 @@ bool links(const fs::path &root) {
   CHECK(DeleteFileW(link.c_str()));
   const auto dir = root / L"real-folder", alias = root / L"junction";
   fs::create_directory(dir); write(dir / L"file.json", "keep"); junction(alias, dir);
-  CHECK(!replace(alias / L"file.json", "no", error));
-  CHECK(persist_detail::readGraphFileText((alias / L"file.json").u8string(), text, error, Fault::None) == SidecarReadStatus::Error);
-  CHECK(bytes(dir / L"file.json") == "keep");
-  CHECK(preferences_detail::configPaths("", alias.u8string(), error).preferences.empty());
-  CHECK(!fs::exists(dir / L"RawNode"));
+  CHECK(replace(alias / L"file.json", "junction replacement", error));
+  CHECK(persist_detail::readGraphFileText((alias / L"file.json").u8string(), text, error, Fault::None) == SidecarReadStatus::Loaded);
+  CHECK(text == "junction replacement" && bytes(dir / L"file.json") == text);
+  CHECK(!preferences_detail::configPaths("", alias.u8string(), error).preferences.empty());
   CHECK(RemoveDirectoryW(alias.c_str()));
   return true;
 }
@@ -261,68 +282,216 @@ std::wstring systemAcl(const fs::path &path, bool audit) {
   if (!ok) throw std::runtime_error("Cannot encode system ACL");
   const std::wstring out(text); LocalFree(text); return out;
 }
-bool systemSecurity(const fs::path &root, bool createAuditFixture) {
+void systemSecurity(const fs::path &path, const std::wstring &sddl, bool audit = false) {
+  PSECURITY_DESCRIPTOR descriptor = nullptr;
+  if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &descriptor, nullptr)) throw std::runtime_error("system fixture descriptor");
+  PACL acl = nullptr; BOOL present, def;
+  GetSecurityDescriptorSacl(descriptor, &present, &acl, &def);
+  const auto code = SetNamedSecurityInfoW(const_cast<wchar_t *>(path.c_str()), SE_FILE_OBJECT,
+      audit ? SACL_SECURITY_INFORMATION : LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, acl);
+  LocalFree(descriptor);
+  if (code) throw std::runtime_error("system fixture security: " + std::to_string(code));
+}
+DWORD lowRead(const fs::path &path) {
+  HANDLE process, low;
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &process)) throw std::runtime_error("low token source");
+  const BOOL copied = DuplicateTokenEx(process, TOKEN_QUERY | TOKEN_IMPERSONATE | TOKEN_ADJUST_DEFAULT, nullptr, SecurityImpersonation, TokenImpersonation, &low);
+  CloseHandle(process);
+  if (!copied) throw std::runtime_error("low token duplicate");
+  PSID integrity = nullptr;
+  ConvertStringSidToSidW(L"S-1-16-4096", &integrity);
+  TOKEN_MANDATORY_LABEL label{}; label.Label.Sid = integrity; label.Label.Attributes = SE_GROUP_INTEGRITY;
+  const BOOL lowered = SetTokenInformation(low, TokenIntegrityLevel, &label, sizeof(label) + GetLengthSid(integrity)); LocalFree(integrity);
+  if (!lowered || !ImpersonateLoggedOnUser(low)) throw std::runtime_error("low token impersonation");
+  HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+  const DWORD code = file == INVALID_HANDLE_VALUE ? GetLastError() : 0;
+  if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+  const BOOL reverted = RevertToSelf(); CloseHandle(low);
+  if (!reverted) throw std::runtime_error("restore test token");
+  return code;
+}
+bool integrityAndEncryption(const fs::path &root) {
   std::string error;
-  for (bool audit : {false, true}) {
-    if (audit && !createAuditFixture) {
-      std::puts("audit SACL fixture creation is covered by the privileged runner; production never enables privileges");
-      continue;
-    }
-    const auto path = root / (audit ? L"audit.json" : L"integrity.json");
-    CHECK(replace(path, "retain protected contents", error));
-    HANDLE token = nullptr;
-    TOKEN_PRIVILEGES privilege{};
-    if (audit) {
-      CHECK(OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token));
-      privilege.PrivilegeCount = 1;
-      CHECK(LookupPrivilegeValueW(nullptr, L"SeSecurityPrivilege", &privilege.Privileges[0].Luid));
-      privilege.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-      CHECK(AdjustTokenPrivileges(token, FALSE, &privilege, 0, nullptr, nullptr) && GetLastError() == ERROR_SUCCESS);
-    }
-    const std::wstring sddl = audit ? L"S:(AU;SAFA;FW;;;" + sid() + L")" : L"S:(ML;;NW;;;LW)";
-    PSECURITY_DESCRIPTOR sd = nullptr;
-    CHECK(ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &sd, nullptr));
-    PACL sacl = nullptr; BOOL present, def;
-    CHECK(GetSecurityDescriptorSacl(sd, &present, &sacl, &def));
-    const DWORD code = SetNamedSecurityInfoW(const_cast<wchar_t *>(path.c_str()), SE_FILE_OBJECT,
-        audit ? SACL_SECURITY_INFORMATION : LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, sacl);
-    LocalFree(sd);
-    CHECK(code == ERROR_SUCCESS);
-    const auto originalSystemAcl = systemAcl(path, audit);
-    if (audit) {
-      privilege.Privileges[0].Attributes = 0;
-      CHECK(AdjustTokenPrivileges(token, FALSE, &privilege, 0, nullptr, nullptr));
-    }
-    const Snapshot before(path); const auto names = entries(root);
-    CHECK(!replace(path, "must not remove system security", error));
-    CHECK(before.same(path) && entries(root) == names);
-    if (audit) {
-      privilege.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-      CHECK(AdjustTokenPrivileges(token, FALSE, &privilege, 0, nullptr, nullptr));
-    }
-    const auto retainedSystemAcl = systemAcl(path, audit);
-    if (audit) {
-      privilege.Privileges[0].Attributes = 0;
-      CHECK(AdjustTokenPrivileges(token, FALSE, &privilege, 0, nullptr, nullptr));
-      CloseHandle(token);
-    }
-    CHECK(retainedSystemAcl == originalSystemAcl);
+  const auto path = root / L"confidential.json";
+  write(path, "restricted original");
+  systemSecurity(path, L"S:(ML;;NR;;;ME)");
+  CHECK(lowRead(path) == ERROR_ACCESS_DENIED);
+  const auto label = systemAcl(path, false);
+  CHECK(replace(path, "still restricted", error));
+  CHECK(systemAcl(path, false) == label && lowRead(path) == ERROR_ACCESS_DENIED);
+  const Snapshot before(path); const auto names = entries(root);
+  CHECK(!replace(path, "partial confidential contents", error, Fault::Cleanup) && before.same(path));
+  for (const auto &name : entries(root)) if (!names.count(name)) {
+    const auto temp = root / fs::u8path(name);
+    CHECK(lowRead(temp) == ERROR_ACCESS_DENIED && systemAcl(temp, false) == label);
+    CHECK(DeleteFileW(temp.c_str()));
   }
+  const auto encrypted = root / L"encrypted.json";
+  write(encrypted, "encrypted original");
+  CHECK(EncryptFileW(encrypted.c_str()));
+  const Snapshot efs(encrypted);
+  CHECK(!replace(encrypted, "must not become plaintext", error) && efs.same(encrypted));
+  const auto encryptedFolder = root / L"encrypted-folder"; fs::create_directory(encryptedFolder);
+  CHECK(EncryptFileW(encryptedFolder.c_str()));
+  const auto child = encryptedFolder / L"file.json";
+  CHECK(replace(child, "inherited encryption", error));
+  CHECK(replace(child, "still encrypted", error));
+  CHECK(GetFileAttributesW(child.c_str()) & FILE_ATTRIBUTE_ENCRYPTED);
+  return true;
+}
+PersistGrade grade() {
+  PersistGrade grade;
+  grade.color = {"rec2020", "linear", "rec709", "srgb"};
+  grade.graph.primarySource = NodeId{"camera"};
+  grade.graph.documentOutput = {NodeId{"camera"}, ports::image};
+  PersistNode source; source.id = "camera"; source.operation = NodeOperation::Source;
+  grade.graph.nodes.push_back(source);
+  return grade;
+}
+bool photographs(const fs::path &root) {
+  std::string error;
+  CHECK(persist_detail::windowsUtf8Environment(error));
+  const auto folder = root / fs::u8path(u8"caf\u00e9-\u4e2d-\U0001f98a"); fs::create_directory(folder);
+  Image image; image.w = image.h = 1; image.px = {0.2f, 0.4f, 0.6f, 1.0f};
+  for (const auto *name : {u8"caf\u00e9", u8"caf\u00c3\u00a9", u8"\u65e5\u672c", u8"\U0001f98a"}) {
+    const auto png = folder / fs::u8path(std::string(name) + ".png");
+    CHECK(writeImage(image, png.u8string()));
+    const auto raw = folder / fs::u8path(std::string(name) + ".dng");
+    CHECK(CopyFileW(fs::u8path(RAWNODE_TEST_DNG).c_str(), raw.c_str(), TRUE));
+    CHECK(updateSidecarGrade(inputSidecarPath(png.u8string()), grade(), error));
+    CHECK(updateSidecarMark(inputSidecarPath(png.u8string()), PhotoMark::Pick, error));
+    CHECK(updateSidecarGrade(inputSidecarPath(raw.u8string()), grade(), error));
+  }
+  const auto discovered = listFolderImages(folder.u8string());
+  CHECK(discovered.size() == 8);
+  for (const auto &path : discovered) {
+    Image decoded; ColorEncoding detected; bool raw = false;
+    CHECK(loadImage(path, decoded, detected, raw) && !decoded.px.empty());
+    CHECK(raw == (fs::u8path(path).extension() == L".dng"));
+    PersistFile file;
+    CHECK(readGraphSidecar(inputSidecarPath(path), file, error) == SidecarReadStatus::Loaded && file.grade);
+    CHECK(updateSidecarMark(inputSidecarPath(path), PhotoMark::Reject, error));
+  }
+  const auto a = folder / fs::u8path(u8"caf\u00e9.png"), b = folder / fs::u8path(u8"caf\u00c3\u00a9.png");
+  const Snapshot before(fs::u8path(inputSidecarPath(a.u8string())));
+  const auto bSidecar = fs::u8path(inputSidecarPath(b.u8string()));
+  const auto originalB = bytes(bSidecar);
+  std::string selected;
+  for (const auto &path : discovered) if (fs::equivalent(fs::u8path(path), b)) selected = path;
+  CHECK(selected == b.u8string());
+  CHECK(updateSidecarMark(inputSidecarPath(selected), PhotoMark::Pick, error));
+  CHECK(before.same(fs::u8path(inputSidecarPath(a.u8string()))) && bytes(bSidecar) != originalB);
+  PersistFile selectedFile;
+  CHECK(readGraphSidecar(bSidecar.u8string(), selectedFile, error) == SidecarReadStatus::Loaded && photoMark(selectedFile) == PhotoMark::Pick);
+  std::puts("ok  production discovery -> PNG/DNG decode -> sidecar load/save; Unicode directories, accents, CJK, supplementary and cafe collision identity");
+  return true;
+}
+void privilege(const wchar_t *name, bool enabled) {
+  HANDLE token; TOKEN_PRIVILEGES privileges{};
+  if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) throw std::runtime_error("fixture privilege token");
+  privileges.PrivilegeCount = 1;
+  LookupPrivilegeValueW(nullptr, name, &privileges.Privileges[0].Luid);
+  privileges.Privileges[0].Attributes = enabled ? SE_PRIVILEGE_ENABLED : 0;
+  const BOOL ok = AdjustTokenPrivileges(token, FALSE, &privileges, 0, nullptr, nullptr);
+  const auto code = GetLastError(); CloseHandle(token);
+  if (!ok || code) throw std::runtime_error("fixture privilege: " + std::to_string(code));
+}
+void prepare(const fs::path &root, const std::wstring &tester, const std::wstring &other) {
+  fs::create_directories(root);
+  PersistFile portable; portable.grade = grade(); portable.metadataJson = R"({"mark":"pick"})";
+  std::string json, error;
+  if (!encodeGraphFile(portable, json, error)) throw std::runtime_error(error);
+  privilege(L"SeRestorePrivilege", true); privilege(L"SeSecurityPrivilege", true);
+  for (const auto &owner : {std::wstring(L"S-1-5-32-544"), other, std::wstring(L"S-1-5-21-111111111-222222222-333333333-4444")}) {
+    const auto path = root / (L"owner-" + owner + L".json"); write(path, json);
+    dacl(path, L"D:P(A;;0x1301bf;;;" + tester + L")(A;;FA;;;BA)(A;;FA;;;SY)");
+    PSID sid = nullptr; ConvertStringSidToSidW(owner.c_str(), &sid);
+    const DWORD code = SetNamedSecurityInfoW(const_cast<wchar_t *>(path.c_str()), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, sid, nullptr, nullptr, nullptr);
+    LocalFree(sid); if (code) throw std::runtime_error("foreign owner fixture");
+  }
+  const auto folder = root / L"audit-inherited"; fs::create_directory(folder);
+  systemSecurity(folder, L"S:(AU;OICISAFA;FW;;;WD)", true);
+  const auto path = root / L"audit-explicit.json"; write(path, json);
+  systemSecurity(path, L"S:(AU;SAFA;FW;;;WD)", true);
+  write(root / L"view.rawnode.json", json);
+  privilege(L"SeRestorePrivilege", false); privilege(L"SeSecurityPrivilege", false);
+}
+bool preparedFixtures(const fs::path &root) {
+  std::string error;
+  for (const auto &entry : fs::directory_iterator(root)) {
+    if (entry.path().extension() != L".json") continue;
+    const Snapshot before(entry.path());
+    PersistFile imported;
+    CHECK(readGraphSidecar(entry.path().u8string(), imported, error) == SidecarReadStatus::Loaded && imported.grade && photoMark(imported) == PhotoMark::Pick);
+    CHECK(updateSidecarMark(entry.path().u8string(), PhotoMark::Reject, error));
+    PersistFile saved;
+    CHECK(readGraphSidecar(entry.path().u8string(), saved, error) == SidecarReadStatus::Loaded && saved.grade && photoMark(saved) == PhotoMark::Reject);
+    const Snapshot after(entry.path());
+    CHECK(after.security.substr(after.security.find(L"D:")) == before.security.substr(before.security.find(L"D:")));
+    if (entry.path().filename().wstring().find(L"owner-") == 0) CHECK(after.security != before.security);
+  }
+  const auto path = root / L"audit-inherited" / L"new.json";
+  CHECK(replace(path, "first inherited-audit save", error));
+  CHECK(replace(path, "second inherited-audit save", error));
+  std::puts("ok  ordinary-user replacement of admin/other/stale owners and explicit/inherited auditing");
+  return true;
+}
+bool volume(const fs::path &base, const fs::path &root) {
+  std::string error;
+  fs::create_directories(root);
+  wchar_t filesystem[64]{}; DWORD flags = 0;
+  CHECK(GetVolumeInformationW(root.root_path().c_str(), nullptr, 0, nullptr, nullptr, &flags, filesystem, 64));
+  std::printf("Filesystem %ls, persistent ACLs %d, root %ls\n", filesystem, (flags & FILE_PERSISTENT_ACLS) != 0, root.c_str());
+  const auto path = root / L"atomic.json";
+  CHECK(replace(path, "original", error));
+  for (int i = 0; i < 50; ++i) CHECK(replace(path, "complete replacement", error));
+  const Snapshot before(path); const auto names = entries(root);
+  for (auto fault : {Fault::TempCreate, Fault::Write, Fault::Flush, Fault::Close, Fault::Replace}) {
+    CHECK(!replace(path, "never published", error, fault));
+    CHECK(before.same(path) && entries(root) == names);
+  }
+  CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_READONLY));
+  const Snapshot readonly(path);
+  CHECK(!replace(path, "never published", error) && readonly.same(path));
+  CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_ARCHIVE));
+  const auto alias = base / (L"junction-" + std::wstring(filesystem));
+  junction(alias, root);
+  CHECK(replace(alias / L"atomic.json", "cross-volume junction save", error));
+  CHECK(bytes(path) == "cross-volume junction save");
+  CHECK(RemoveDirectoryW(alias.c_str()));
+  CHECK(photographs(root));
+  const Snapshot full(path); const auto clean = entries(root);
+  CHECK(!replace(path, std::string(160 * 1024 * 1024, 'F'), error));
+  std::printf("Genuine full-volume failure: %s\n", error.c_str());
+  CHECK(error.find("112") != std::string::npos && full.same(path) && entries(root) == clean);
+  std::puts("ok  production creation/replacement, independent failure snapshots, Unicode, resolved cross-volume junction and genuine disk-full preservation");
   return true;
 }
 }  // namespace
 
 int wmain(int argc, wchar_t **argv) {
   try {
-    const bool ordinary = argc == 3 && std::wcscmp(argv[1], L"--ordinary-user") == 0;
-    if (ordinary) {
-      _wputenv_s(L"TEMP", argv[2]);
-      _wputenv_s(L"TMP", argv[2]);
-    } else if (argc != 1) throw std::runtime_error("Unexpected native test arguments");
+    std::string error;
+    if (argc == 2 && std::wcscmp(argv[1], L"--check-codepage") == 0) return persist_detail::windowsUtf8Environment(error) ? 1 : 0;
+    if (!persist_detail::windowsUtf8Environment(error)) throw std::runtime_error(error);
+    if (argc == 5 && std::wcscmp(argv[1], L"--prepare") == 0) { prepare(argv[2], argv[3], argv[4]); return 0; }
+    if (argc >= 3) { _wputenv_s(L"TEMP", argv[2]); _wputenv_s(L"TMP", argv[2]); }
+    if (argc == 3 && std::wcscmp(argv[1], L"--readonly-location") == 0) {
+      const auto path = fs::path(argv[2]) / L"view.rawnode.json";
+      PersistFile file;
+      CHECK(readGraphSidecar(path.u8string(), file, error) == SidecarReadStatus::Loaded && file.grade);
+      const Snapshot before(path);
+      CHECK(!persist_detail::canSaveFile(path.u8string(), error));
+      CHECK(!replace(path, "unsupported write", error) && before.same(path));
+      std::puts("ok  actual unsupported network location: saved grade readable; writes refused and bytes/security/identity preserved");
+      return 0;
+    }
     Directory dir;
+    if (argc == 4 && std::wcscmp(argv[1], L"--volume") == 0) return volume(dir.path, argv[3]) ? 0 : 1;
+    if (argc == 4 && std::wcscmp(argv[1], L"--ordinary-user") == 0 && !preparedFixtures(argv[3])) return 1;
     if (!unicodeAndCallers(dir.path) || !testSidecarFiles() || !permissionsAndRefusal(dir.path) || !readersAndCleanup(dir.path) ||
-        !links(dir.path) || !systemSecurity(dir.path, !ordinary)) return 1;
-    std::puts("ok  MSVC production persistence: UTF-8, sidecars/presets/preferences, ACLs/attributes, streams/reparse refusal, reader failures and cleanup");
+        !links(dir.path) || !integrityAndEncryption(dir.path) || !photographs(dir.path)) return 1;
+    std::puts("ok  MSVC actual production persistence: sidecars/presets/preferences, ACLs/integrity/EFS, readers, failure preservation, cleanup and Unicode photograph identity");
     return 0;
-  } catch (const std::exception &failure) { std::fprintf(stderr, "%s\n", failure.what()); return 2; }
+  } catch (const std::exception &failure) { std::fprintf(stderr, "%s (Windows error %lu)\n", failure.what(), GetLastError()); return 2; }
 }

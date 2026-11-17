@@ -141,11 +141,11 @@ std::vector<std::string> openImageDialogFilters() {
 std::vector<std::string> listFolderImages(const std::string &folderDir) {
   std::vector<std::string> out;
   std::error_code ec;
-  if (!fs::is_directory(folderDir, ec)) return out;
-  for (const auto &ent : fs::directory_iterator(folderDir, fs::directory_options::skip_permission_denied, ec)) {
+  if (!fs::is_directory(fs::u8path(folderDir), ec)) return out;
+  for (const auto &ent : fs::directory_iterator(fs::u8path(folderDir), fs::directory_options::skip_permission_denied, ec)) {
     if (ec) break;
     if (!ent.is_regular_file()) continue;
-    const std::string p = ent.path().string();
+    const std::string p = ent.path().u8string();
     if (isHostMetadataPath(p)) continue;
     if (!isSupportedImagePath(p)) continue;
     out.push_back(p);
@@ -372,6 +372,16 @@ struct SiblingTemporaryFile {
 #endif
 
 }  // namespace
+
+bool persist_detail::canSaveFile(const std::string &path, std::string &error) {
+#ifdef _WIN32
+  return windowsCanSaveFile(path, error);
+#else
+  (void)path;
+  error.clear();
+  return true;
+#endif
+}
 
 bool persist_detail::replaceFileAtomically(const std::string &path, const std::string &body, std::string &error,
                       persist_detail::FileFault fault) {

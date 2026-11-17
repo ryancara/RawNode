@@ -15,6 +15,7 @@ struct ActionTestOptions {
   persist_detail::FileFault readFault = persist_detail::FileFault::None;
   std::function<persist_detail::FileFault()> beforeSave;
   decltype(&loadImage) decode = loadImage;
+  decltype(&persist_detail::canSaveFile) canSave = persist_detail::canSaveFile;
   decltype(&makePreviewSource) preparePreview = makePreviewSource;
 };
 bool captureGradeSnapshot(App &app, GradeSnapshot &snapshot, const DocumentMutation *mutation = nullptr);

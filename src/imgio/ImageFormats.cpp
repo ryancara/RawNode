@@ -14,7 +14,7 @@ const std::vector<std::string> &rasterImageExtensions() {
 
 static bool pathHasExtension(const std::string &path,
                              const std::vector<std::string> &extensions) {
-  std::string e = fs::path(path).extension().string();
+  std::string e = fs::u8path(path).extension().u8string();
   for (char &ch : e) ch = (char)tolower((unsigned char)ch);
   return std::find(extensions.begin(), extensions.end(), e) != extensions.end();
 }

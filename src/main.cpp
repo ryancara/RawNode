@@ -21,10 +21,20 @@
 #include "PreviewInteractionTests.h"
 #include "MaskOverlayTests.h"
 
+#include "persist/WindowsFile.h"
+
+#include <cstdio>
 #include <cstring>
 #include <string>
 
 int main(int argc, char **argv) {
+#ifdef _WIN32
+  std::string error;
+  if (!persist_detail::windowsUtf8Environment(error)) {
+    std::fprintf(stderr, "%s\n", error.c_str());
+    return 1;
+  }
+#endif
   if (argc > 1 && std::string(argv[1]) == "--selftest-mask-overlay") return runMaskOverlayTests();
   if (argc > 1 && std::string(argv[1]) == "--selftest-preview-interaction") return runPreviewInteractionTests();
   if (argc > 1 && std::string(argv[1]) == "--selftest-ofx-coordinates") return runOfxCoordinateTests();

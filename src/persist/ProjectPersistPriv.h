@@ -32,6 +32,8 @@ enum class FileFault {
   None, Read, PermissionStat, PermissionCheck, TempCreate, Write, Flush, PermissionCopy, Close, Replace,
   Cleanup // Windows: partial write followed by a reported cleanup failure.
 };
+// Location/access capability only; no temporary or document mutation.
+bool canSaveFile(const std::string &path, std::string &error);
 bool replaceFileAtomically(const std::string &path, const std::string &body, std::string &error,
                            FileFault fault = FileFault::None);
 SidecarReadStatus readGraphFileText(const std::string &path, std::string &json, std::string &error,

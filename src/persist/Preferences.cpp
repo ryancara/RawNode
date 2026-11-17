@@ -88,15 +88,9 @@ ConfigPaths preferences_detail::configPaths(const std::string &home, const std::
     warning = "Application configuration directory is unavailable; using in-memory settings.";
     return {};
   }
-#ifdef _WIN32
-  if (!persist_detail::windowsParents(directory / L"preferences.json", warning, true)) return {};
-#endif
   std::error_code ec;
   fs::create_directories(directory, ec);
   if (!ec && !fs::is_directory(directory, ec)) ec = std::make_error_code(std::errc::not_a_directory);
-#ifdef _WIN32
-  if (!ec && !persist_detail::windowsParents(directory / L"preferences.json", warning)) return {};
-#endif
 #ifndef _WIN32
   if (!ec && access(directory.c_str(), W_OK | X_OK) != 0)
     ec = std::make_error_code(std::errc::permission_denied);

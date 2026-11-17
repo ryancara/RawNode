@@ -10,9 +10,11 @@ concurrency:
 jobs:
   production-persistence:
     runs-on: windows-2022
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: actions/checkout@v4
         with:
           repository: glfw/glfw
@@ -23,32 +25,96 @@ jobs:
           repository: ocornut/imgui
           ref: v1.91.8-docking
           path: native-deps/imgui
-      - name: Configure actual production persistence and shared sidecar tests
-        run: cmake -S tests/windows-persistence -B build-persistence -A x64
-      - name: Compile with MSVC C++17
-        run: cmake --build build-persistence --config Release --parallel 2
-      - name: Run production persistence regressions
+      - name: Native environment and decoder dependencies
         shell: pwsh
         run: |
-          Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber | Format-List
-          Get-Volume -DriveLetter ([IO.Path]::GetPathRoot($env:RUNNER_TEMP).Substring(0,1)) | Select-Object DriveLetter,FileSystem,DriveType | Format-List
-          ./build-persistence/Release/WindowsPersistenceTests.exe
+          New-Item -ItemType Directory evidence | Out-Null
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber | ConvertTo-Json | Set-Content evidence/os.json
+          Get-Volume | Select-Object DriveLetter,FileSystem,DriveType | ConvertTo-Json | Set-Content evidence/volumes.json
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install tiff:x64-windows lcms:x64-windows libjpeg-turbo:x64-windows zlib:x64-windows --x-install-root="$pwd/native-deps/vcpkg" 2>&1 | Tee-Object evidence/dependencies.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Decoder dependency build failed' }
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" list --x-install-root="$pwd/native-deps/vcpkg" | Set-Content evidence/dependency-versions.txt
+      - name: Configure actual production persistence and image components
+        run: cmake -S tests/windows-persistence -B build-persistence -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" "-DVCPKG_INSTALLED_DIR=$pwd/native-deps/vcpkg"
+      - name: Compile with MSVC C++17
+        run: cmake --build build-persistence --config Release --parallel 2
+      - name: Run production regressions and code-page guard
+        shell: pwsh
+        run: |
+          ./build-persistence/Release/WindowsCodePageTests.exe --check-codepage
+          if ($LASTEXITCODE -ne 0) { throw 'Unmanifested application was not refused' }
+          ./build-persistence/Release/WindowsPersistenceTests.exe 2>&1 | Tee-Object evidence/runner.txt
           if ($LASTEXITCODE -ne 0) { throw "Native production persistence failed: $LASTEXITCODE" }
-      - name: Repeat production regressions as an ordinary user
+      - name: Ordinary-user production regressions and disposable local filesystems
         shell: pwsh
         run: |
           $name = 'RawNodePersist'
           $secret = ConvertTo-SecureString ([guid]::NewGuid().ToString('N') + '!Aa9') -AsPlainText -Force
           $account = New-LocalUser -Name $name -Password $secret -AccountNeverExpires
+          $other = New-LocalUser -Name RawNodeOther -Password $secret -AccountNeverExpires
+          $exe = "$pwd\build-persistence\Release\WindowsPersistenceTests.exe"
+          $base = Join-Path $env:RUNNER_TEMP ('rawnode-user-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory $base | Out-Null
           try {
             Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account
-            $base = Join-Path $env:RUNNER_TEMP ('rawnode-user-' + [guid]::NewGuid().ToString('N'))
-            New-Item -ItemType Directory $base | Out-Null
             & icacls.exe $base /grant "${name}:(OI)(CI)M"
             $credential = [pscredential]::new("$env:COMPUTERNAME\$name", $secret)
-            $process = Start-Process -FilePath "$pwd\build-persistence\Release\WindowsPersistenceTests.exe" -ArgumentList "--ordinary-user `"$base`"" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\ordinary-user.log" -RedirectStandardError "$pwd\ordinary-user.err"
-            Get-Content ordinary-user.log,ordinary-user.err
-            if ($process.ExitCode -ne 0) { throw "Ordinary-user production persistence failed: $($process.ExitCode)" }
+            $fixtures = Join-Path $base 'prepared'
+            & $exe --prepare $fixtures $account.SID.Value $other.SID.Value
+            if ($LASTEXITCODE -ne 0) { throw 'Privileged disposable fixture preparation failed' }
+            $process = Start-Process $exe -ArgumentList "--ordinary-user `"$base`" `"$fixtures`"" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\ordinary-user.txt" -RedirectStandardError "$pwd\evidence\ordinary-user.err"
+            Get-Content evidence/ordinary-user.txt,evidence/ordinary-user.err
+            if ($process.ExitCode -ne 0) { throw "Ordinary-user regressions failed: $($process.ExitCode)" }
+            $share = 'RawNodeView'
+            try {
+              New-SmbShare -Name $share -Path $fixtures -FullAccess "$env:COMPUTERNAME\$name" | Out-Null
+              $process = Start-Process $exe -ArgumentList "--readonly-location `"\\localhost\$share`"" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\readonly-network.txt" -RedirectStandardError "$pwd\evidence\readonly-network.err"
+              Get-Content evidence/readonly-network.txt,evidence/readonly-network.err
+              if ($process.ExitCode -ne 0) { throw 'Reading supported grades on write-unqualified storage failed' }
+            } finally { Remove-SmbShare -Name $share -Force -ErrorAction SilentlyContinue }
+            foreach ($filesystem in @('NTFS','FAT32','exFAT')) {
+              $vhd = Join-Path $base "$filesystem.vhd"
+              $drive = @('Z','Y','X','W') | Where-Object { -not (Test-Path "${_}:\") } | Select-Object -First 1
+              try {
+                @("create vdisk file=`"$vhd`" maximum=128 type=expandable", "select vdisk file=`"$vhd`"", 'attach vdisk', 'create partition primary', "format fs=$filesystem quick label=RNTest", "assign letter=$drive") | Set-Content "$base\diskpart.txt"
+                diskpart /s "$base\diskpart.txt" | Tee-Object "evidence/vhd-$filesystem.txt"
+                if (-not (Test-Path "${drive}:\")) { throw "$filesystem fixture volume unavailable" }
+                $root = "${drive}:\RawNodeTests"
+                New-Item -ItemType Directory $root | Out-Null
+                if ($filesystem -eq 'NTFS') { & icacls.exe $root /grant "${name}:(OI)(CI)M" }
+                $process = Start-Process $exe -ArgumentList "--volume `"$base`" `"$root`"" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\volume-$filesystem.txt" -RedirectStandardError "$pwd\evidence\volume-$filesystem.err"
+                Get-Content "evidence/volume-$filesystem.txt","evidence/volume-$filesystem.err"
+                if ($process.ExitCode -ne 0) { throw "$filesystem production regressions failed: $($process.ExitCode)" }
+              } finally {
+                @("select vdisk file=`"$vhd`"", 'detach vdisk') | Set-Content "$base\detach.txt"
+                diskpart /s "$base\detach.txt"
+                Remove-Item $vhd -ErrorAction SilentlyContinue
+              }
+            }
           } finally {
             Remove-LocalUser -Name $name -ErrorAction SilentlyContinue
+            Remove-LocalUser -Name RawNodeOther -ErrorAction SilentlyContinue
+            Remove-Item -Recurse -Force $base -ErrorAction SilentlyContinue
           }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-production-persistence
+          path: evidence
+      - name: Attempt full Windows application build
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openexr:x64-windows --x-install-root="$pwd/native-deps/vcpkg" 2>&1 | Tee-Object evidence/full-app-dependencies.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Full application dependencies unavailable' }
+          cmake -S . -B build-application -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" "-DVCPKG_INSTALLED_DIR=$pwd/native-deps/vcpkg" "-DFETCHCONTENT_SOURCE_DIR_GLFW=$pwd/native-deps/glfw" "-DFETCHCONTENT_SOURCE_DIR_IMGUI=$pwd/native-deps/imgui" -DRAWNODE_ENABLE_JXL_DNG=OFF 2>&1 | Tee-Object evidence/full-app-configure.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Full Windows application configuration failed; see evidence' }
+          cmake --build build-application --config Release --parallel 2 2>&1 | Tee-Object evidence/full-app-build.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Full Windows application build failed; see evidence' }
+          ./build-application/Release/OfxRawHost.exe --selftest 2>&1 | Tee-Object evidence/full-app-tests.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Full Windows application self-tests failed; see evidence' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-full-application-attempt
+          path: evidence/full-app-*

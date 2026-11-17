@@ -156,7 +156,7 @@ std::string nodeDisplayName(const Node &node) {
 
 bool requireEditableGraph(App &app) {
   if (!app.isPhotoProtected()) return true;
-  app.setStatus("The saved grade was not loaded; editing is disabled");
+  app.setStatus("This photo is read-only; editing is disabled");
   return false;
 }
 
@@ -329,7 +329,7 @@ void setNodeEnabled(App &app, const NodeId &id, bool enabled) {
 }
 
 static std::vector<NodeId> linearCaptureOrder(const App &app) {
-  if (app.isPhotoProtected()) throw std::runtime_error("The saved grade was not loaded; capture is disabled");
+  if (app.isPhotoProtected()) throw std::runtime_error("This photo is read-only; capture is disabled");
   if (!app.nodePositions.empty()) throw std::runtime_error("Linear V2 transfers cannot preserve node positions");
   std::vector<NodeId> spine;
   const auto error = graph::imageSpine({app.nodes, app.primarySource, app.documentOutput}, spine);
@@ -375,7 +375,7 @@ void applyChain(App &app, const PersistChain &chain) {
 
 PersistFragment captureFragment(const App &app, const std::vector<NodeId> &ids,
                                 std::vector<std::string> &warnings) {
-  if (app.isPhotoProtected()) throw std::runtime_error("The saved grade was not loaded; capture is disabled");
+  if (app.isPhotoProtected()) throw std::runtime_error("This photo is read-only; capture is disabled");
   PersistFragment fragment;
   std::vector<std::string> omitted;
   for (const auto &id : ids) {

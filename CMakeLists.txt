@@ -238,6 +238,8 @@ target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB IlmCtlSimd Im
 if(APPLE)
   target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework Foundation" "-framework IOKit" "-framework CoreVideo" "-framework Metal")
 elseif(WIN32)
+  target_compile_options(OfxRawHost PRIVATE /utf-8)
+  target_link_options(OfxRawHost PRIVATE "/MANIFESTINPUT:${CMAKE_CURRENT_SOURCE_DIR}/src/platform/WindowsUtf8.manifest")
   target_link_libraries(OfxRawHost PRIVATE opengl32 advapi32 bcrypt)
 else()
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

@@ -171,7 +171,7 @@ static CommandResult editGraph(graph::Document document, Change change, Node *ad
 template <typename Change>
 static CommandResult editGraph(App &app, Change change, Node *addition = nullptr) {
   document_detail::DocumentMutation::assertControlThread(app);
-  if (!requireEditableGraph(app)) return {"The saved grade was not loaded; graph editing is disabled", std::nullopt};
+  if (!requireEditableGraph(app)) return {"This photo is read-only; graph editing is disabled", std::nullopt};
   return editGraph(graph::Document{app.nodes, app.primarySource, app.documentOutput}, change, addition, &app);
 }
 
