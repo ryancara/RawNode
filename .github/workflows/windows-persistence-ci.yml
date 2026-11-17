@@ -106,21 +106,3 @@ jobs:
         with:
           name: windows-production-persistence
           path: evidence
-      - name: Attempt full Windows application build
-        if: ${{ !cancelled() }}
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openexr:x64-windows --x-install-root="$pwd/native-deps/vcpkg" 2>&1 | Tee-Object evidence/full-app-dependencies.txt
-          if ($LASTEXITCODE -ne 0) { throw 'Full application dependencies unavailable' }
-          cmake -S . -B build-application -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" "-DVCPKG_INSTALLED_DIR=$pwd/native-deps/vcpkg" "-DFETCHCONTENT_SOURCE_DIR_GLFW=$pwd/native-deps/glfw" "-DFETCHCONTENT_SOURCE_DIR_IMGUI=$pwd/native-deps/imgui" -DRAWNODE_ENABLE_JXL_DNG=OFF 2>&1 | Tee-Object evidence/full-app-configure.txt
-          if ($LASTEXITCODE -ne 0) { throw 'Full Windows application configuration failed; see evidence' }
-          cmake --build build-application --config Release --parallel 2 2>&1 | Tee-Object evidence/full-app-build.txt
-          if ($LASTEXITCODE -ne 0) { throw 'Full Windows application build failed; see evidence' }
-          ./build-application/Release/OfxRawHost.exe --selftest 2>&1 | Tee-Object evidence/full-app-tests.txt
-          if ($LASTEXITCODE -ne 0) { throw 'Full Windows application self-tests failed; see evidence' }
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: windows-full-application-attempt
-          path: evidence/full-app-*

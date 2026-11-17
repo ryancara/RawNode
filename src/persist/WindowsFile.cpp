@@ -86,8 +86,9 @@ bool inspect(const fs::path &path, Destination &out, std::string &error) {
     return false;
   }
   const DWORD remoteError = GetLastError();
-  if (remoteError != ERROR_INVALID_PARAMETER && remoteError != ERROR_NOT_SUPPORTED && remoteError != ERROR_INVALID_FUNCTION)
-    return fail(error, "Cannot qualify local storage", remoteError);
+  // The qualified local filesystems return INVALID_PARAMETER for this class.
+  // An unsupported/unknown protocol query does not establish local storage.
+  if (remoteError != ERROR_INVALID_PARAMETER) return fail(error, "Cannot qualify local storage", remoteError);
   if (std::wcscmp(filesystem, L"NTFS") && std::wcscmp(filesystem, L"FAT32") && std::wcscmp(filesystem, L"exFAT")) {
     error = "Atomic persistence is qualified only on local NTFS, FAT32 and exFAT";
     return false;

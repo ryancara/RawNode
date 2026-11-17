@@ -254,8 +254,8 @@ bool readersAndCleanup(const fs::path &root) {
   for (const auto &name : after) if (!names.count(name)) {
     const auto temporary = root / fs::u8path(name);
     CHECK(error.find(temporary.u8string()) != std::string::npos && bytes(temporary) == "partial wri");
-    const auto privateAcl = Snapshot(temporary).security;
-    CHECK(privateAcl.substr(privateAcl.find(L"D:")) == L"D:P(A;;FA;;;" + sid() + L")");
+    const Snapshot privateState(temporary);
+    CHECK(privateState.protectedDacl && privateState.security.substr(privateState.security.find(L'(')) == L"(A;;FA;;;" + sid() + L")");
     CHECK(DeleteFileW(temporary.c_str()));
   }
   CHECK(replace(path, "retry succeeds", error) && error.empty());
@@ -486,6 +486,17 @@ bool verifyAuditFixtures(const fs::path &root) {
   std::puts("ok  independent privileged observation: inherited auditing retained; explicit per-file audit removed by ordinary replacement");
   return true;
 }
+bool readOnlyLocation(const fs::path &root) {
+  std::string error;
+  const auto path = root / L"view.rawnode.json";
+  PersistFile file;
+  CHECK(readGraphSidecar(path.u8string(), file, error) == SidecarReadStatus::Loaded && file.grade);
+  const Snapshot before(path);
+  CHECK(!persist_detail::canSaveFile(path.u8string(), error));
+  CHECK(!replace(path, "unsupported write", error) && before.same(path));
+  std::puts("ok  actual unsupported network location: saved grade readable; writes refused and bytes/security/identity preserved");
+  return true;
+}
 bool volume(const fs::path &base, const fs::path &root) {
   std::string error;
   fs::create_directories(root);
@@ -539,20 +550,17 @@ int wmain(int argc, wchar_t **argv) {
       return !coherent && error.find("UTF-8") != std::string::npos ? 0 : 1;
     }
     if (!persist_detail::windowsUtf8Environment(error)) throw std::runtime_error(error);
+    unsigned char administrators[SECURITY_MAX_SID_SIZE]; DWORD size = sizeof(administrators); BOOL administrator = FALSE;
+    if (!CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr, administrators, &size) ||
+        !CheckTokenMembership(nullptr, administrators, &administrator)) throw std::runtime_error("Cannot verify test account");
+    std::printf("Process ACP %u, administrator membership %d\n", GetACP(), administrator);
+    if (argc >= 2 && (std::wcscmp(argv[1], L"--ordinary-user") == 0 || std::wcscmp(argv[1], L"--volume") == 0) && administrator)
+      throw std::runtime_error("An ordinary test token is required");
     if (argc == 3 && std::wcscmp(argv[1], L"--produce-photo") == 0) return produceTransferredPhoto(argv[2]) ? 0 : 1;
     if (argc == 5 && std::wcscmp(argv[1], L"--prepare") == 0) { prepare(argv[2], argv[3], argv[4]); return 0; }
     if (argc == 3 && std::wcscmp(argv[1], L"--verify-audits") == 0) return verifyAuditFixtures(argv[2]) ? 0 : 1;
     if (argc >= 3) { _wputenv_s(L"TEMP", argv[2]); _wputenv_s(L"TMP", argv[2]); }
-    if (argc == 3 && std::wcscmp(argv[1], L"--readonly-location") == 0) {
-      const auto path = fs::path(argv[2]) / L"view.rawnode.json";
-      PersistFile file;
-      CHECK(readGraphSidecar(path.u8string(), file, error) == SidecarReadStatus::Loaded && file.grade);
-      const Snapshot before(path);
-      CHECK(!persist_detail::canSaveFile(path.u8string(), error));
-      CHECK(!replace(path, "unsupported write", error) && before.same(path));
-      std::puts("ok  actual unsupported network location: saved grade readable; writes refused and bytes/security/identity preserved");
-      return 0;
-    }
+    if (argc == 3 && std::wcscmp(argv[1], L"--readonly-location") == 0) return readOnlyLocation(argv[2]) ? 0 : 1;
     Directory dir;
     if (argc == 4 && std::wcscmp(argv[1], L"--volume") == 0) return volume(dir.path, argv[3]) ? 0 : 1;
     if (argc == 4 && std::wcscmp(argv[1], L"--ordinary-user") == 0 && !preparedFixtures(argv[3])) return 1;

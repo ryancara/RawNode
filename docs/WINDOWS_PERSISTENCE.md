@@ -85,7 +85,8 @@ qualified. Native failures remain errors, with no destructive fallback.
 
 Reading does not require a writable or qualified location. A valid saved grade
 can be restored and viewed there using the existing protected-document state;
-editing and saving are disabled, no initial sidecar is created, and departure
+existing restrictions on editing, capture/export and saving apply; no initial
+sidecar is created, and departure
 does not repeatedly prompt. Known Pick/Reject metadata stays visible. Invalid,
 incompatible and legacy sidecars retain their existing source-only protection.
 
