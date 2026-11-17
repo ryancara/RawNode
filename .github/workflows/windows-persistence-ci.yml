@@ -30,6 +30,8 @@ jobs:
       - name: Run production persistence regressions
         shell: pwsh
         run: |
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber
+          Get-Volume -DriveLetter ([IO.Path]::GetPathRoot($env:RUNNER_TEMP).Substring(0,1)) | Select-Object DriveLetter,FileSystem,DriveType
           ./build-persistence/Release/WindowsPersistenceTests.exe
           if ($LASTEXITCODE -ne 0) { throw "Native production persistence failed: $LASTEXITCODE" }
       - name: Repeat production regressions as an ordinary user

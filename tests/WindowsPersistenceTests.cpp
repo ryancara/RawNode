@@ -160,6 +160,9 @@ bool permissionsAndRefusal(const fs::path &root) {
       const std::string content = "replacement " + std::to_string(i);
       CHECK(replace(path, content, error));
       const Snapshot after(path);
+      if (after.info.dwFileAttributes != before.info.dwFileAttributes || after.security != before.security)
+        std::fprintf(stderr, "Attribute case %lu: before %lu after %lu; security equal %d\n", attributes,
+                     before.info.dwFileAttributes, after.info.dwFileAttributes, int(after.security == before.security));
       CHECK(after.content == content && after.security == before.security && after.info.dwFileAttributes == before.info.dwFileAttributes);
       CHECK(entries(root) == names);
     }

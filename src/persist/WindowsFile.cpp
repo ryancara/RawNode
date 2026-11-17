@@ -301,16 +301,17 @@ bool persist_detail::replaceWindowsFile(const std::string &text, const std::stri
         DACL_SECURITY_INFORMATION | ((security.control & SE_DACL_PROTECTED) ? PROTECTED_DACL_SECURITY_INFORMATION : UNPROTECTED_DACL_SECURITY_INFORMATION),
         nullptr, nullptr, security.dacl, nullptr);
     if (code) return abort("Cannot copy destination permissions", code);
-    FILE_BASIC_INFO basic{};
-    basic.FileAttributes = info.FileAttributes & ordinaryAttributes;
-    if (!basic.FileAttributes) basic.FileAttributes = FILE_ATTRIBUTE_NORMAL;
-    if (!SetFileInformationByHandle(temp.file.value, FileBasicInfo, &basic, sizeof(basic)))
-      return abort("Cannot copy destination attributes", GetLastError());
   }
   if (fault == Fault::Flush || !FlushFileBuffers(temp.file.value))
     return abort("Cannot flush temporary file", fault == Fault::Flush ? ERROR_WRITE_FAULT : GetLastError());
   const bool closed = temp.file.close();
   if (fault == Fault::Close || !closed) return abort("Cannot close temporary file", fault == Fault::Close ? ERROR_WRITE_FAULT : GetLastError());
+  // Windows can finalize archive state when the writing handle closes. Apply
+  // preserved attributes after that close, before publishing the owned sibling.
+  // A failure here must leave the destination untouched.
+  if (present && !SetFileAttributesW(temp.path.c_str(), (info.FileAttributes & ordinaryAttributes) ?
+                                   info.FileAttributes & ordinaryAttributes : FILE_ATTRIBUTE_NORMAL))
+    return abort("Cannot copy destination attributes", GetLastError());
   // Metadata/preflight handles must be gone before publication. No post-rename
   // failure may be reported as if the original destination were still present.
   if (present && !destination.close()) return abort("Cannot close destination inspection", GetLastError());
