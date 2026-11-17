@@ -99,10 +99,13 @@ int wmain(int argc, wchar_t **argv) {
   CreateDirectoryW(root.c_str(), nullptr);
   std::printf("{\"acp\":%u,\"oemcp\":%u}\n", GetACP(), GetOEMCP());
   const std::vector<std::wstring> stems = {L"plain", L"café", L"日本語", L"\U0001F98A-fox"};
-  const std::vector<std::wstring> folders = {root + L"\\ascii", root + L"\\Été 写真"};
+  // "ansi-only" holds names representable in code page 1252, isolating the
+  // pre-PR comparison from CJK/emoji names that break listing outright.
+  const std::vector<std::wstring> folders = {root + L"\\ansi-only", root + L"\\ascii", root + L"\\Été 写真"};
   for (const auto &dir : folders) {
     CreateDirectoryW(dir.c_str(), nullptr);
     for (const auto &stem : stems) {
+      if (dir == folders[0] && stem != L"plain" && stem != L"café") continue;
       writeWide(dir + L"\\" + stem + L".nef", "raw");
       writeWide(dir + L"\\" + stem + L".nef.rawnode.json", "{\"format\":\"rawnode\",\"version\":1,\"metadata\":{\"mark\":\"pick\"}}\n");
     }
@@ -142,7 +145,8 @@ int wmain(int argc, wchar_t **argv) {
     }
     // Single photo from the open dialog or a drop: GLFW and pfd supply UTF-8.
     for (const auto &stem : stems)
-      followPhoto("dialog-or-drop", utf8(dir + L"\\" + stem + L".nef"), dir + L"\\" + stem + L".nef.rawnode.json", dir);
+      if (GetFileAttributesW((dir + L"\\" + stem + L".nef").c_str()) != INVALID_FILE_ATTRIBUTES)
+        followPhoto("dialog-or-drop", utf8(dir + L"\\" + stem + L".nef"), dir + L"\\" + stem + L".nef.rawnode.json", dir);
   }
   return 0;
 }

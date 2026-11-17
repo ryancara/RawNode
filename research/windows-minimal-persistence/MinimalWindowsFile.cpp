@@ -121,8 +121,8 @@ bool replaceFile(const std::wstring &path, const std::string &body, std::string 
   PACL dacl = nullptr;
   SECURITY_DESCRIPTOR_CONTROL control = 0;
   if (present) {
-    FILE_ATTRIBUTE_TAG_INFO info{};
-    if (!GetFileInformationByHandleEx(destination.get(), FileAttributeTagInfo, &info, sizeof info))
+    FILE_BASIC_INFO info{};  // FileAttributeTagInfo is unsupported on FAT32/exFAT (error 87).
+    if (!GetFileInformationByHandleEx(destination.get(), FileBasicInfo, &info, sizeof info))
       return fail(error, path, "Cannot inspect destination", GetLastError());
     attributes = info.FileAttributes;
     if (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))
@@ -177,8 +177,9 @@ bool replaceFile(const std::wstring &path, const std::string &body, std::string 
       return abort("Encrypted destination would be replaced by an unencrypted file", ERROR_ENCRYPTION_FAILED);
   }
 
-  // 4. Contents. Fault::Write leaves genuine partial data before failing.
-  const size_t length = options.fault == Fault::Write ? body.size() / 2 : body.size();
+  // 4. Contents. Write/Cleanup faults leave genuine partial data before failing.
+  const bool partial = options.fault == Fault::Write || options.fault == Fault::Cleanup;
+  const size_t length = partial ? body.size() / 2 : body.size();
   for (size_t offset = 0; offset < length;) {
     const DWORD chunk = DWORD(std::min<size_t>(length - offset, size_t(1) << 20));
     DWORD written = 0;
@@ -187,7 +188,7 @@ bool replaceFile(const std::wstring &path, const std::string &body, std::string 
     if (written == 0) return abort("Cannot write temporary file", ERROR_WRITE_FAULT);
     offset += written;
   }
-  if (options.fault == Fault::Write) return abort("Cannot write temporary file", ERROR_WRITE_FAULT);
+  if (partial) return abort("Cannot write temporary file", ERROR_WRITE_FAULT);
 
   // 5. Carry over what the user controls: permissions and visible attributes.
   // ARCHIVE is set because the contents changed; owner, streams and system

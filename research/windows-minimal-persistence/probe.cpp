@@ -680,6 +680,19 @@ void filesystemMatrix(const std::wstring &dir, const char *label) {
       SetFileAttributesW(file.c_str(), FILE_ATTRIBUTE_NORMAL);
     }
   }
+  {
+    const auto sub = dir + L"\\dacl-minimal-anyfs";
+    fs::create_directories(sub);
+    const auto file = sub + L"\\v.json";
+    writeRaw(file, "OLD");
+    const DWORD set = setSecurity(file, L"D:P(A;;FA;;;" + currentUserSid() + L")(A;;FA;;;SY)",
+                                  DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION);
+    const State before = observe(file);
+    std::string error;
+    const bool ok = write(Variant::MinimalAnyFs, file, "NEW", error);
+    report(label, "dacl-protected", "minimal-anyfs", ok, error, before, observe(file), leftovers(sub),
+           "\"fixtureDaclError\":" + std::to_string(set));
+  }
   readerCases(dir, label, Variant::MinimalAnyFs);
   faultCases(dir, label, Variant::MinimalAnyFs);
   visibility(dir, label, 200);
