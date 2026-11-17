@@ -233,10 +233,10 @@ void setDacl(const fs::path &p, const std::wstring &sddl, bool protect = true) {
   std::cout << "{\"type\":\"security_operation\",\"case\":" << quote(current) << ",\"api\":\"SetNamedSecurityInfoW\",\"error\":" << code << "}\n";
   require(!code, "set fixture DACL");
 }
-void copyDacl(const fs::path &source, const fs::path &temporary) {
+DWORD copyDacl(const fs::path &source, const fs::path &temporary, bool named = false) {
   Handle from(CreateFileW(source.c_str(), READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                          nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
-  Handle to(CreateFileW(temporary.c_str(), WRITE_DAC, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+  Handle to(CreateFileW(temporary.c_str(), READ_CONTROL | WRITE_DAC | FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                        nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
   require(from.h != INVALID_HANDLE_VALUE && to.h != INVALID_HANDLE_VALUE, "ACL transfer handles");
   PACL dacl = nullptr; PSECURITY_DESCRIPTOR sd = nullptr;
@@ -244,12 +244,14 @@ void copyDacl(const fs::path &source, const fs::path &temporary) {
   require(!code, "get destination ACL");
   SECURITY_DESCRIPTOR_CONTROL control = 0; DWORD revision = 0;
   require(GetSecurityDescriptorControl(sd, &control, &revision) != FALSE, "ACL protection state");
-  code = SetSecurityInfo(to.h, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION |
-    ((control & SE_DACL_PROTECTED) ? PROTECTED_DACL_SECURITY_INFORMATION : UNPROTECTED_DACL_SECURITY_INFORMATION),
-    nullptr, nullptr, dacl, nullptr);
+  const SECURITY_INFORMATION flags = DACL_SECURITY_INFORMATION |
+    ((control & SE_DACL_PROTECTED) ? PROTECTED_DACL_SECURITY_INFORMATION : UNPROTECTED_DACL_SECURITY_INFORMATION);
+  code = named ? SetNamedSecurityInfoW(const_cast<LPWSTR>(temporary.c_str()), SE_FILE_OBJECT, flags, nullptr, nullptr, dacl, nullptr)
+               : SetSecurityInfo(to.h, SE_FILE_OBJECT, flags, nullptr, nullptr, dacl, nullptr);
   LocalFree(sd);
-  std::cout << "{\"type\":\"security_operation\",\"case\":" << quote(current) << ",\"api\":\"GetSecurityInfo/SetSecurityInfo DACL transfer\",\"error\":" << code << "}\n";
-  require(!code, "apply destination ACL to temporary");
+  std::cout << "{\"type\":\"security_operation\",\"case\":" << quote(current) << ",\"api\":"
+    << quote(named ? "GetSecurityInfo/SetNamedSecurityInfoW DACL transfer" : "GetSecurityInfo/SetSecurityInfo DACL transfer") << ",\"error\":" << code << "}\n";
+  return code;
 }
 bool writable(const fs::path &p) {
   Handle h(CreateFileW(p.c_str(), FILE_WRITE_DATA | FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -399,13 +401,20 @@ void experiments(const fs::path &root) {
   { Fixture f(root, "explicit_dacl_raw_rename"); setDacl(f.d, specialAcl); f.move(MOVEFILE_REPLACE_EXISTING);
     check(inspect(f.d).dacl == f.tempBefore.dacl, "raw rename publishes temporary DACL");
     std::cout << "{\"type\":\"finding\",\"case\":" << quote(current) << ",\"destination_dacl_preserved\":" << (inspect(f.d).dacl == f.before.dacl ? "true" : "false") << "}\n"; }
-  { Fixture f(root, "preserved_explicit_dacl"); setDacl(f.d, specialAcl); const auto original = inspect(f.d); copyDacl(f.d, f.t);
-    check(f.move(MOVEFILE_REPLACE_EXISTING).ok && inspect(f.d).dacl == original.dacl, "explicit protected destination DACL copied before publication"); }
+  for (bool named : {false, true}) {
+    Fixture f(root, named ? "preserved_explicit_dacl_named" : "preserved_explicit_dacl_handle");
+    setDacl(f.d, specialAcl); const auto original = inspect(f.d); snapshot("before_acl_transfer", "destination", f.d, original);
+    const DWORD code = copyDacl(f.d, f.t, named);
+    if (!code) check(f.move(MOVEFILE_REPLACE_EXISTING).ok && inspect(f.d).dacl == original.dacl, "explicit protected destination DACL copied before publication");
+    else { snapshot("after_acl_failure", "destination", f.d, inspect(f.d)); check(unchanged(original, inspect(f.d)), "ACL preparation failure preserves destination"); }
+  }
   { Fixture f(root, "inherited_dacl"); const auto original = inspect(f.d);
     check(f.move(MOVEFILE_REPLACE_EXISTING).ok && inspect(f.d).dacl == original.dacl, "same-directory default inheritance retained in this fixture"); }
   { Fixture f(root, "preserved_unprotected_dacl"); setDacl(f.d, L"D:(A;;FR;;;WD)", false);
-    const auto original = inspect(f.d); copyDacl(f.d, f.t);
-    check(f.move(MOVEFILE_REPLACE_EXISTING).ok && inspect(f.d).dacl == original.dacl, "unprotected explicit and inherited DACL copied before publication"); }
+    const auto original = inspect(f.d); snapshot("before_acl_transfer", "destination", f.d, original);
+    const DWORD code = copyDacl(f.d, f.t, true);
+    if (!code) check(f.move(MOVEFILE_REPLACE_EXISTING).ok && inspect(f.d).dacl == original.dacl, "unprotected explicit and inherited DACL copied before publication");
+    else check(unchanged(original, inspect(f.d)), "unprotected ACL preparation refusal preserves destination"); }
   { Fixture f(root, "private_creation_acl", false); require(DeleteFileW(f.t.c_str()) != FALSE, "discard own default-ACL fixture temporary");
     PSECURITY_DESCRIPTOR sd = nullptr;
     const std::wstring acl = L"D:P(A;;FA;;;" + userSid() + L")(A;;FA;;;SY)";
