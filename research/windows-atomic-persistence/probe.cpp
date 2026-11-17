@@ -191,6 +191,8 @@ struct Fixture {
   void capture() {
     before = inspect(d); tempBefore = inspect(t); backupBefore = inspect(b);
     snapshot("before", "destination", d, before); snapshot("before", "temporary", t, tempBefore); snapshot("before", "independent_backup", b, backupBefore);
+    require(tempBefore.exists && !tempBefore.readError && !tempBefore.securityError, "temporary must be observable before publication");
+    require(backupBefore.exists && !backupBefore.readError && !backupBefore.securityError, "backup must be observable before publication");
   }
   Result move(DWORD flags) {
     capture();
@@ -219,16 +221,35 @@ std::wstring userSid() {
   LPWSTR text = nullptr; require(ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER *>(b.data())->User.Sid, &text) != FALSE, "user SID");
   std::wstring out(text); LocalFree(text); return out;
 }
-void setDacl(const fs::path &p, const std::wstring &sddl) {
+void setDacl(const fs::path &p, const std::wstring &sddl, bool protect = true) {
   PSECURITY_DESCRIPTOR sd = nullptr;
   require(ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &sd, nullptr) != FALSE, "parse fixture ACL");
   PACL dacl = nullptr; BOOL present = FALSE, def = FALSE;
   require(GetSecurityDescriptorDacl(sd, &present, &dacl, &def) != FALSE && present, "fixture DACL");
-  DWORD code = SetNamedSecurityInfoW(const_cast<LPWSTR>(p.c_str()), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+  DWORD code = SetNamedSecurityInfoW(const_cast<LPWSTR>(p.c_str()), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION |
+                                    (protect ? PROTECTED_DACL_SECURITY_INFORMATION : UNPROTECTED_DACL_SECURITY_INFORMATION),
                                     nullptr, nullptr, dacl, nullptr);
   LocalFree(sd);
   std::cout << "{\"type\":\"security_operation\",\"case\":" << quote(current) << ",\"api\":\"SetNamedSecurityInfoW\",\"error\":" << code << "}\n";
   require(!code, "set fixture DACL");
+}
+void copyDacl(const fs::path &source, const fs::path &temporary) {
+  Handle from(CreateFileW(source.c_str(), READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                         nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+  Handle to(CreateFileW(temporary.c_str(), WRITE_DAC, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                       nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+  require(from.h != INVALID_HANDLE_VALUE && to.h != INVALID_HANDLE_VALUE, "ACL transfer handles");
+  PACL dacl = nullptr; PSECURITY_DESCRIPTOR sd = nullptr;
+  DWORD code = GetSecurityInfo(from.h, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr, &dacl, nullptr, &sd);
+  require(!code, "get destination ACL");
+  SECURITY_DESCRIPTOR_CONTROL control = 0; DWORD revision = 0;
+  require(GetSecurityDescriptorControl(sd, &control, &revision) != FALSE, "ACL protection state");
+  code = SetSecurityInfo(to.h, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION |
+    ((control & SE_DACL_PROTECTED) ? PROTECTED_DACL_SECURITY_INFORMATION : UNPROTECTED_DACL_SECURITY_INFORMATION),
+    nullptr, nullptr, dacl, nullptr);
+  LocalFree(sd);
+  std::cout << "{\"type\":\"security_operation\",\"case\":" << quote(current) << ",\"api\":\"GetSecurityInfo/SetSecurityInfo DACL transfer\",\"error\":" << code << "}\n";
+  require(!code, "apply destination ACL to temporary");
 }
 bool writable(const fs::path &p) {
   Handle h(CreateFileW(p.c_str(), FILE_WRITE_DATA | FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -352,6 +373,8 @@ void experiments(const fs::path &root) {
   { Fixture f(root, "write_denied_guard"); setDacl(f.d, L"D:P(D;;0x6;;;" + userSid() + L")(A;;FA;;;" + userSid() + L")(A;;FA;;;SY)");
     f.capture(); check(!writable(f.d), "guard refuses write-denied destination"); f.finish({false, ERROR_ACCESS_DENIED}); }
   { Fixture f(root, "delete_denied"); setDacl(f.d, L"D:P(D;;SD;;;" + userSid() + L")(A;;FA;;;" + userSid() + L")(A;;FA;;;SY)");
+    // Protect the source from the deliberately non-inheritable directory ACL.
+    setDacl(f.t, L"D:P(A;;FA;;;" + userSid() + L")(A;;FA;;;SY)");
     setDacl(f.dir, L"D:P(D;;DC;;;" + userSid() + L")(A;;FA;;;" + userSid() + L")(A;;FA;;;SY)");
     check(!f.move(MOVEFILE_REPLACE_EXISTING).ok, "genuine ACL denial refuses rename"); }
   { Fixture f(root, "directory_destination", false); fs::create_directory(f.d); check(!f.move(MOVEFILE_REPLACE_EXISTING).ok, "directory refuses replacement"); }
@@ -366,7 +389,9 @@ void experiments(const fs::path &root) {
     require(h.h != INVALID_HANDLE_VALUE, "read-only temporary handle"); DWORD n = 0;
     check(!result("WriteFile read-only handle", WriteFile(h.h, NEW.data(), DWORD(NEW.size()), &n, nullptr)).ok, "genuine write access failure");
     check(!result("FlushFileBuffers read-only handle", FlushFileBuffers(h.h)).ok, "genuine flush access failure"); closeChecked(h); f.finish({false, ERROR_ACCESS_DENIED}); }
-  { current = "invalid_handle_close"; check(!result("CloseHandle invalid", CloseHandle(INVALID_HANDLE_VALUE)).ok, "invalid close reports failure"); }
+  { current = "double_handle_close"; Handle h(CreateEventW(nullptr, FALSE, FALSE, nullptr));
+    require(h.h != nullptr, "close test event"); const HANDLE closed = h.h; require(closeChecked(h), "first event close");
+    check(!result("CloseHandle already closed real handle", CloseHandle(closed)).ok, "already-closed handle reports failure"); }
   { Fixture f(root, "partial_write_abort"); f.capture(); const auto partial = f.dir / L"partial.tmp"; make(partial, NEW.substr(0, NEW.size()/2));
     snapshot("before_cleanup", "partial_temporary", partial, inspect(partial)); result("DeleteFileW partial temporary", DeleteFileW(partial.c_str()));
     check(!inspect(partial).exists, "injected pre-publication abort cleans partial temporary"); f.finish({false, ERROR_WRITE_FAULT}); }
@@ -374,10 +399,19 @@ void experiments(const fs::path &root) {
   { Fixture f(root, "explicit_dacl_raw_rename"); setDacl(f.d, specialAcl); f.move(MOVEFILE_REPLACE_EXISTING);
     check(inspect(f.d).dacl == f.tempBefore.dacl, "raw rename publishes temporary DACL");
     std::cout << "{\"type\":\"finding\",\"case\":" << quote(current) << ",\"destination_dacl_preserved\":" << (inspect(f.d).dacl == f.before.dacl ? "true" : "false") << "}\n"; }
-  { Fixture f(root, "preserved_explicit_dacl"); setDacl(f.d, specialAcl); const auto original = inspect(f.d); setDacl(f.t, wide(original.dacl));
+  { Fixture f(root, "preserved_explicit_dacl"); setDacl(f.d, specialAcl); const auto original = inspect(f.d); copyDacl(f.d, f.t);
     check(f.move(MOVEFILE_REPLACE_EXISTING).ok && inspect(f.d).dacl == original.dacl, "explicit protected destination DACL copied before publication"); }
   { Fixture f(root, "inherited_dacl"); const auto original = inspect(f.d);
     check(f.move(MOVEFILE_REPLACE_EXISTING).ok && inspect(f.d).dacl == original.dacl, "same-directory default inheritance retained in this fixture"); }
+  { Fixture f(root, "preserved_unprotected_dacl"); setDacl(f.d, L"D:(A;;FR;;;WD)", false);
+    const auto original = inspect(f.d); copyDacl(f.d, f.t);
+    check(f.move(MOVEFILE_REPLACE_EXISTING).ok && inspect(f.d).dacl == original.dacl, "unprotected explicit and inherited DACL copied before publication"); }
+  { Fixture f(root, "private_creation_acl", false); require(DeleteFileW(f.t.c_str()) != FALSE, "discard own default-ACL fixture temporary");
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    const std::wstring acl = L"D:P(A;;FA;;;" + userSid() + L")(A;;FA;;;SY)";
+    require(ConvertStringSecurityDescriptorToSecurityDescriptorW(acl.c_str(), SDDL_REVISION_1, &sd, nullptr) != FALSE, "private creation ACL");
+    make(f.t, NEW, sd); LocalFree(sd); const auto original = inspect(f.t);
+    check(f.move(0).ok && inspect(f.d).dacl == original.dacl && original.dacl.find("D:P") == 0, "private DACL established at CREATE_NEW and retained on publication"); }
   { Fixture f(root, "hidden_archive_attributes"); require(SetFileAttributesW(f.d.c_str(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE) != FALSE, "set hidden archive");
     f.move(MOVEFILE_REPLACE_EXISTING); }
   { Fixture f(root, "preserved_hidden_attributes"); require(SetFileAttributesW(f.d.c_str(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE) != FALSE, "destination attrs");
@@ -397,7 +431,13 @@ void experiments(const fs::path &root) {
     snapshot("after", "junction", link, inspect(link)); snapshot("after", "junction_target_file", actual, inspect(actual));
     require(RemoveDirectoryW(link.c_str()) != FALSE, "remove disposable junction"); }
   { Fixture f(root, "source_sharing_conflict"); Handle h(CreateFileW(f.t.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr));
-    require(h.h != INVALID_HANDLE_VALUE, "source reader"); check(!f.move(MOVEFILE_REPLACE_EXISTING).ok, "source sharing conflict refuses rename"); }
+    require(h.h != INVALID_HANDLE_VALUE, "source reader"); check(!f.move(MOVEFILE_REPLACE_EXISTING).ok, "source sharing conflict refuses rename");
+    check(!result("DeleteFileW locked temporary cleanup", DeleteFileW(f.t.c_str())).ok, "cleanup refusal leaves locked temporary for diagnostic");
+    check(unchanged(f.before, inspect(f.d)) && unchanged(f.tempBefore, inspect(f.t)), "blocked cleanup preserved destination and exact remaining temporary"); }
+  { Fixture f(root, "rename_failure_cleanup"); Handle h(CreateFileW(f.d.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr));
+    require(h.h != INVALID_HANDLE_VALUE, "destination reader"); check(!f.move(MOVEFILE_REPLACE_EXISTING).ok, "genuine rename conflict");
+    check(result("DeleteFileW own temporary after failed rename", DeleteFileW(f.t.c_str())).ok, "ordinary failed rename cleanup succeeds");
+    check(!inspect(f.t).exists && unchanged(f.before, inspect(f.d)) && unchanged(f.backupBefore, inspect(f.b)), "cleanup only removed own temporary"); }
   { Fixture f(root, "handle_rename"); Handle h(CreateFileW(f.t.c_str(), DELETE | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
     require(h.h != INVALID_HANDLE_VALUE, "rename source handle");
     Handle denied(CreateFileW(f.t.c_str(), DELETE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));

@@ -3,7 +3,7 @@ on:
   push:
     branches: [research/windows-atomic-persistence-2026-11-17]
     paths:
-      - research/windows-atomic-persistence/**
+      - research/windows-atomic-persistence/probe.cpp
       - .github/workflows/windows-atomic-research.yml
 permissions:
   contents: read
@@ -18,11 +18,12 @@ jobs:
         run: |
           New-Item -ItemType Directory evidence | Out-Null
           Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsName, OsVersion, OsBuildNumber | ConvertTo-Json | Set-Content evidence/os.json
+          Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' | Select-Object CurrentBuildNumber, UBR, BuildLabEx | ConvertTo-Json | Set-Content evidence/os-build.json
           whoami /all > evidence/token.txt
           Get-Volume | Select-Object DriveLetter, FileSystem, FileSystemLabel, HealthStatus, Size, SizeRemaining | ConvertTo-Json | Set-Content evidence/volumes.json
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          $command = "`"$vs\Common7\Tools\VsDevCmd.bat`" -arch=x64 && cl.exe /nologo /std:c++17 /EHsc /utf-8 /W4 /O2 research\windows-atomic-persistence\probe.cpp /Fe:probe.exe /link advapi32.lib bcrypt.lib"
+          $command = "`"$vs\Common7\Tools\VsDevCmd.bat`" -arch=x64 && cl.exe /nologo /Bv /std:c++17 /EHsc /utf-8 /W4 /O2 research\windows-atomic-persistence\probe.cpp /Fe:probe.exe /link advapi32.lib bcrypt.lib"
           & cmd.exe /d /s /c $command 2>&1 | Tee-Object evidence/compile.txt
           if ($LASTEXITCODE -ne 0) { throw "MSVC compilation failed: $LASTEXITCODE" }
       - name: Native local NTFS experiment matrix
@@ -36,6 +37,26 @@ jobs:
           Copy-Item -LiteralPath (Join-Path $root backups) -Destination evidence/backups -Recurse
           Copy-Item "$root/child-*.json" evidence/ -ErrorAction SilentlyContinue
           if ($probeExit -ne 0) { throw "Native probe failed: $probeExit; retain evidence" }
+      - name: Repeat matrix as a disposable ordinary Windows user
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path ./probe.exe)) { 'Skipped: probe binary unavailable' | Set-Content evidence/standard-user-status.txt; exit 0 }
+          $name = 'RawNodeProbe'
+          $secret = ConvertTo-SecureString ([guid]::NewGuid().ToString('N') + '!Aa9') -AsPlainText -Force
+          $account = New-LocalUser -Name $name -Password $secret -AccountNeverExpires
+          try {
+            Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account
+            $base = Join-Path $env:RUNNER_TEMP ('rawnode-user-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory $base | Out-Null
+            & icacls.exe $base /grant "${name}:(OI)(CI)M" | Set-Content evidence/standard-user-directory-acl.txt
+            $credential = [pscredential]::new("$env:COMPUTERNAME\$name", $secret)
+            $process = Start-Process -FilePath "$pwd\probe.exe" -ArgumentList "`"$base\probe`"" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\native-standard-user.jsonl" -RedirectStandardError "$pwd\evidence\native-standard-user.stderr"
+            "Exit code: $($process.ExitCode); account SID: $($account.SID)" | Set-Content evidence/standard-user-status.txt
+            if ($process.ExitCode -ne 0) { throw "Ordinary-user probe failed: $($process.ExitCode)" }
+          } finally {
+            Remove-LocalUser -Name $name -ErrorAction SilentlyContinue
+          }
       - name: Genuine disk-full write on disposable NTFS virtual disk
         if: always()
         shell: pwsh
