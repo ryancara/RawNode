@@ -452,7 +452,7 @@ explicit photo path and intended mark without opening/decoding it, changing
 grade history or requesting rendering. Filmstrip entries retain a small
 control-thread mark/error snapshot, reloaded on folder refresh and updated only
 after successful writes. One transient current-photo mark drives the active
-button even without a folder or visible thumbnail; protected opening leaves it
+button even without a folder or visible thumbnail; invalid-grade opening leaves it
 Unknown. Failed saves/navigation never change the selected mark. A single-row
 filmstrip toolbar and inline mark-warning tooltip preserve thumbnail space at
 the unchanged default height. Unknown sidecars remain distinct from Unmarked.
@@ -497,7 +497,10 @@ page; LibRaw uses wide opens. Valid readable grades in write-unqualified locatio
 are viewable read-only without departure saves. The version-1 schema stays portable.
 Network/provider-specific and unsupported filesystem behaviour remain unqualified;
 see [Windows persistence](WINDOWS_PERSISTENCE.md) and D058. Windows Trash remains
-separate.
+separate. A full MSVC application build attempt reached application compilation
+but found existing graph/history no-throw assertions and Windows macro/OpenGL/test
+literal portability issues; the linked validation record preserves those failures.
+They remain separate application-port work, not persistence-component validation.
 
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,

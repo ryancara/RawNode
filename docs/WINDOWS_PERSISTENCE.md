@@ -127,3 +127,12 @@ coverage, including transferred grades, missing processors and protected viewing
 The PR validation record identifies exact commits, native runs and any full
 Windows build/integration limits. Finite tests cannot establish exhaustive rename
 failure or power-loss safety. Windows Trash remains separately disabled.
+
+A full MSVC application build was attempted at `13c91ba3` in
+[run 44197564348](https://github.com/ryancara/RawNode/actions/runs/44197564348)
+(artifact `windows-full-application-attempt`). It configured and built dependencies,
+but application compilation found existing graph/history `std::map` no-throw
+assertion failures, Windows min/max macro and OpenGL declaration issues, and a
+surrogate-escape test-literal portability error. These require a separate Windows
+application-port review; this PR does not weaken lifetime assertions to obtain a
+build. No full Windows application or GUI validation is claimed.

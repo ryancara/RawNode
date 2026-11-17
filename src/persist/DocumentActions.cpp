@@ -334,7 +334,7 @@ bool document_detail::assignPhotoMark(App &app, const std::string &photoPath, Ph
   std::string error;
   std::error_code ec;
   const bool protectedPhoto = app.isPhotoProtected() && fs::equivalent(photoPath, app.path, ec);
-  if (protectedPhoto) error = "This photograph is read-only; reopen it after fixing its sidecar";
+  if (protectedPhoto) error = "This photograph is read-only; reopen it after resolving the persistence warning";
   else if (!isSupportedImagePath(photoPath) || !fs::is_regular_file(photoPath, ec))
     error = "Not a photograph: " + photoPath;
   else {
@@ -449,7 +449,8 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
     auto preview = makePreviewSource(decoded, detected, app.previewRes);
     std::string incomingPath = path;
     std::string blockedPath = readOnly ? path : "";
-    std::string warning = readOnly ? "This photo is read-only: " + error
+    std::string warning = protectedSource ? "Saved grade was not loaded; this photo is read-only: " + error
+        : writeBlocked ? "This photo is read-only: " + error
         : app.path == path ? app.persistenceWarning : std::string();
     const auto loadedMark = protectedSource ? std::nullopt : std::optional<PhotoMark>(photoMark(file));
     std::string markError = readOnly ? warning : std::string();

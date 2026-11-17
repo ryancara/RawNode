@@ -1271,6 +1271,7 @@ bool transferredAndReadOnlyGrades() {
   App viewer; viewer.folderDir = transferred.dir.string(); refreshFilmstrip(viewer);
   CHECK(document_detail::openPhoto(viewer, to, prompt, unsupported));
   CHECK(viewer.isPhotoProtected() && viewer.nodes.size() == 3 && viewer.currentPhotoMark == PhotoMark::Reject);
+  viewer.renderer.start(); CHECK(idle(viewer));
   CHECK(viewer.outputEncoding == (ColorEncoding{RgbGamut::DisplayP3, TransferFunction::SRGB}));
   CHECK(viewer.nodePositions.at("gain").x == -3.25f && !viewer.persistenceWarning.empty());
   refreshFilmstrip(viewer);

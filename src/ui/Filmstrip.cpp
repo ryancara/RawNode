@@ -245,8 +245,8 @@ void refreshFilmstrip(App &app, bool preserveThumbnails) {
     if (status != SidecarReadStatus::Error) e.mark = photoMark(file);
     std::error_code ec;
     if (app.isPhotoProtected() && fs::equivalent(p, app.path, ec)) {
-      // A valid file on disk cannot clear active source protection; only a
-      // successful reopen has validated the saved processor settings too.
+      // Refresh cannot change the active document's protection or validated
+      // mark. Reopening re-evaluates the grade and write capability.
       e.mark = app.currentPhotoMark;
       e.markError = app.persistenceWarning;
     }

@@ -56,10 +56,13 @@ jobs:
           $base = Join-Path $env:RUNNER_TEMP ('rawnode-user-' + [guid]::NewGuid().ToString('N'))
           New-Item -ItemType Directory $base | Out-Null
           try {
-            Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account
-            & icacls.exe $base /grant "${name}:(OI)(CI)M"
+            Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account,$other
+            & icacls.exe $base /grant "${name}:(OI)(CI)M" "$($other.Name):(OI)(CI)M"
             $credential = [pscredential]::new("$env:COMPUTERNAME\$name", $secret)
             $fixtures = Join-Path $base 'prepared'
+            $producer = [pscredential]::new("$env:COMPUTERNAME\$($other.Name)", $secret)
+            $created = Start-Process $exe -ArgumentList "--produce-photo `"$fixtures`"" -Credential $producer -LoadUserProfile -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\other-account.txt" -RedirectStandardError "$pwd\evidence\other-account.err"
+            if ($created.ExitCode -ne 0) { throw 'Other-account photograph and sidecar production failed' }
             & $exe --prepare $fixtures $account.SID.Value $other.SID.Value
             if ($LASTEXITCODE -ne 0) { throw 'Privileged disposable fixture preparation failed' }
             $process = Start-Process $exe -ArgumentList "--ordinary-user `"$base`" `"$fixtures`"" -Credential $credential -LoadUserProfile -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\ordinary-user.txt" -RedirectStandardError "$pwd\evidence\ordinary-user.err"
