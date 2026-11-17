@@ -50,9 +50,11 @@ delete sharing. Closing a reader is not a reason to weaken the save algorithm.
 - **Auditing is not an access-permission contract.** Inherited auditing follows
   normal sibling creation. Explicit per-file audit entries may be lost. Empty
   filtered SACLs are accepted; they no longer cause a first-save/second-save trap.
-- **Encryption must not become plaintext.** An encrypted destination in an
-  unencrypted folder is refused. For an encrypted folder, the created sibling
-  must actually be encrypted before contents are written. No encryption fallback.
+- **Encryption must not become plaintext.** Encrypted destinations and encrypted
+  parent folders refuse saves before temporary creation. This retains the existing
+  EFS boundary without adding certificate/recipient preservation or a first-save /
+  second-save inconsistency. Readable existing encrypted grades can be viewed
+  read-only. There is no encryption fallback.
 - **HIDDEN, SYSTEM and NOT_CONTENT_INDEXED are preserved.** ARCHIVE may become set
   after modification; a cleared ARCHIVE bit is not a reason to refuse a save.
 - **Ownership, hard links, timestamps, compression and incidental metadata use

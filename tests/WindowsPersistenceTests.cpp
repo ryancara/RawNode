@@ -106,6 +106,19 @@ struct Snapshot {
       CompareFileTime(&info.ftCreationTime, &now.info.ftCreationTime) == 0 && CompareFileTime(&info.ftLastWriteTime, &now.info.ftLastWriteTime) == 0;
   }
 };
+bool creatorOnly(const Snapshot &snapshot) {
+  if (!snapshot.protectedDacl || snapshot.daclBytes.empty()) return false;
+  const auto *acl = reinterpret_cast<const ACL *>(snapshot.daclBytes.data());
+  void *entry = nullptr;
+  if (acl->AceCount != 1 || !GetAce(const_cast<ACL *>(acl), 0, &entry)) return false;
+  const auto *ace = static_cast<const ACCESS_ALLOWED_ACE *>(entry);
+  PSID creator = nullptr;
+  if (!ConvertStringSidToSidW(sid().c_str(), &creator)) return false;
+  const bool privateAccess = ace->Header.AceType == ACCESS_ALLOWED_ACE_TYPE && ace->Header.AceFlags == 0 &&
+      ace->Mask == FILE_ALL_ACCESS && EqualSid(const_cast<DWORD *>(&ace->SidStart), creator);
+  LocalFree(creator);
+  return privateAccess;
+}
 bool replace(const fs::path &path, const std::string &body, std::string &error, Fault fault = Fault::None) {
   return persist_detail::replaceFileAtomically(path.u8string(), body, error, fault);
 }
@@ -255,7 +268,10 @@ bool readersAndCleanup(const fs::path &root) {
     const auto temporary = root / fs::u8path(name);
     CHECK(error.find(temporary.u8string()) != std::string::npos && bytes(temporary) == "partial wri");
     const Snapshot privateState(temporary);
-    CHECK(privateState.protectedDacl && privateState.security.substr(privateState.security.find(L'(')) == L"(A;;FA;;;" + sid() + L")");
+    std::string observed, ignored;
+    persist_detail::windowsUtf8(privateState.security.c_str(), observed, ignored);
+    std::fprintf(stderr, "Partial temporary permissions: %s; protected %d\n", observed.c_str(), privateState.protectedDacl);
+    CHECK(creatorOnly(privateState));
     CHECK(DeleteFileW(temporary.c_str()));
   }
   CHECK(replace(path, "retry succeeds", error) && error.empty());
@@ -355,9 +371,9 @@ bool integrityAndEncryption(const fs::path &root) {
   const auto encryptedFolder = root / L"encrypted-folder"; fs::create_directory(encryptedFolder);
   CHECK(EncryptFileW(encryptedFolder.c_str()));
   const auto child = encryptedFolder / L"file.json";
-  CHECK(replace(child, "inherited encryption", error));
-  CHECK(replace(child, "still encrypted", error));
-  CHECK(GetFileAttributesW(child.c_str()) & FILE_ATTRIBUTE_ENCRYPTED);
+  const auto names = entries(encryptedFolder);
+  CHECK(!replace(child, "must not establish an unsupported EFS save workflow", error));
+  CHECK(!fs::exists(child) && entries(encryptedFolder) == names);
   return true;
 }
 PersistGrade grade() {
@@ -505,6 +521,10 @@ bool volume(const fs::path &base, const fs::path &root) {
   std::printf("Filesystem %ls, persistent ACLs %d, root %ls\n", filesystem, (flags & FILE_PERSISTENT_ACLS) != 0, root.c_str());
   const auto path = root / L"atomic.json";
   CHECK(replace(path, "original", error));
+  CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM));
+  CHECK(replace(path, "visible attributes retained", error));
+  CHECK(GetFileAttributesW(path.c_str()) == (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_ARCHIVE));
+  CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_ARCHIVE));
   for (int i = 0; i < 50; ++i) CHECK(replace(path, "complete replacement", error));
   const Snapshot before(path); const auto names = entries(root);
   for (auto fault : {Fault::TempCreate, Fault::Write, Fault::Flush, Fault::Close, Fault::Replace}) {

@@ -94,8 +94,8 @@ bool inspect(const fs::path &path, Destination &out, std::string &error) {
     return false;
   }
   if (!attributes(parent.value, parentAttributes, error)) return false;
-  if (!(parentAttributes & FILE_ATTRIBUTE_DIRECTORY) || (parentAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_OFFLINE))) {
-    error = "Provider/reparse-backed destination folder is not qualified";
+  if (!(parentAttributes & FILE_ATTRIBUTE_DIRECTORY) || (parentAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_ENCRYPTED))) {
+    error = "Provider/reparse-backed or encrypted destination folder is not qualified";
     return false;
   }
   out.hasAcls = (volumeFlags & FILE_PERSISTENT_ACLS) != 0;
@@ -112,8 +112,8 @@ bool inspect(const fs::path &path, Destination &out, std::string &error) {
     return false;
   }
   if (out.attributes & FILE_ATTRIBUTE_READONLY) { error = "Destination is read-only"; return false; }
-  if ((out.attributes & FILE_ATTRIBUTE_ENCRYPTED) && !(parentAttributes & FILE_ATTRIBUTE_ENCRYPTED)) {
-    error = "Encrypted destination would be replaced by plaintext";
+  if (out.attributes & FILE_ATTRIBUTE_ENCRYPTED) {
+    error = "Encrypted destination is not qualified for replacement";
     return false;
   }
   // Rename alone can replace a write-denied file. Probe data access without
@@ -250,11 +250,6 @@ bool persist_detail::replaceWindowsFile(const std::string &text, const std::stri
     return false;
   };
   // Establish confidentiality before the first byte, including partial leftovers.
-  if (destination.attributes & FILE_ATTRIBUTE_ENCRYPTED) {
-    DWORD created = 0;
-    if (!attributes(temp.file.value, created, error)) { const auto reason = error; abort("Cannot inspect temporary encryption", ERROR_ENCRYPTION_FAILED); error += "; " + reason; return false; }
-    if (!(created & FILE_ATTRIBUTE_ENCRYPTED)) return abort("Encrypted destination would become plaintext", ERROR_ENCRYPTION_FAILED);
-  }
   if (destination.labels && destination.labels->AceCount) {
     const DWORD code = SetSecurityInfo(temp.file.value, SE_FILE_OBJECT, LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, destination.labels);
     if (code) return abort("Cannot preserve integrity label", code);

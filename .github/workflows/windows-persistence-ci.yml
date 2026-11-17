@@ -30,6 +30,7 @@ jobs:
         run: |
           New-Item -ItemType Directory evidence | Out-Null
           Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber | ConvertTo-Json | Set-Content evidence/os.json
+          Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' | Select-Object CurrentBuildNumber,UBR,DisplayVersion | ConvertTo-Json | Set-Content evidence/os-revision.json
           Get-Volume | Select-Object DriveLetter,FileSystem,DriveType | ConvertTo-Json | Set-Content evidence/volumes.json
           & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install tiff:x64-windows lcms:x64-windows libjpeg-turbo:x64-windows zlib:x64-windows --x-install-root="$pwd/native-deps/vcpkg" 2>&1 | Tee-Object evidence/dependencies.txt
           if ($LASTEXITCODE -ne 0) { throw 'Decoder dependency build failed' }
