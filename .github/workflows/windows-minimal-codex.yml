@@ -71,7 +71,7 @@ jobs:
               if ($LASTEXITCODE -ne 0) { throw 'Privileged fixture preparation failed' }
               if ($kind -eq 'runner') {
                 & $exe $root --matrix 2>&1 | Tee-Object evidence/runner.jsonl
-                if ($LASTEXITCODE -ne 0) { throw 'Runner matrix failed' }
+                if ($LASTEXITCODE -ne 0) { throw "Runner matrix failed: $LASTEXITCODE" }
               } else {
                 $credential = [pscredential]::new("$env:COMPUTERNAME\$tester", $secret)
                 $process = Start-Process $exe -ArgumentList "`"$root`" --matrix" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd/evidence/ordinary.jsonl" -RedirectStandardError "$pwd/evidence/ordinary.err"

@@ -12,6 +12,7 @@
 #include <clocale>
 #include <mbctype.h>
 #include <libraw/libraw.h>
+#include <memory>
 
 const std::vector<std::string> modes{"bare", "current", "dacl", "minimal", "inherited"};
 const DWORD shareAll = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
@@ -32,7 +33,7 @@ std::string selectedSacl(const fs::path &path, bool full = false) {
   const DWORD fields = LABEL_SECURITY_INFORMATION | ATTRIBUTE_SECURITY_INFORMATION | SCOPE_SECURITY_INFORMATION | PROCESS_TRUST_LABEL_SECURITY_INFORMATION | ACCESS_FILTER_SECURITY_INFORMATION | (full ? SACL_SECURITY_INFORMATION : 0);
   DWORD code = GetNamedSecurityInfoW(const_cast<wchar_t *>(path.c_str()), SE_FILE_OBJECT, fields, nullptr, nullptr, nullptr, nullptr, &sd);
   if (code) return "error:" + std::to_string(code);
-  const std::string text = securityString(sd, SACL_SECURITY_INFORMATION); LocalFree(sd); return text;
+  const std::string text = securityString(sd, SACL_SECURITY_INFORMATION | fields); LocalFree(sd); return text;
 }
 std::map<std::string, std::string> streams(const fs::path &path) {
   std::map<std::string, std::string> out; WIN32_FIND_STREAM_DATA data{};
@@ -122,7 +123,7 @@ void prepare(const fs::path &root, const std::wstring &tester, const std::wstrin
   require(privilege(L"SeRestorePrivilege", true), "fixture restore privilege");
   require(privilege(L"SeSecurityPrivilege", true), "fixture security privilege");
   const auto dacl = L"D:P(A;;FA;;;" + tester + L")(A;;FA;;;BA)(A;;FA;;;SY)";
-  for (const auto &name : {"admin_owner", "foreign_owner", "stale_owner", "foreign_group", "audit_explicit", "audit_inherited", "label_confidential", "label_low", "label_inherited", "label_high", "audit_initial_then_save"}) {
+  for (const auto &name : {"admin_owner", "foreign_owner", "foreign_modify", "stale_owner", "foreign_group", "audit_explicit", "audit_inherited", "label_confidential", "label_low", "label_inherited", "label_high", "audit_initial_then_save"}) {
     for (const auto &mode : modes) {
       Case c(root, name, mode, false);
       setDacl(c.dir, L"D:PAI(A;OICI;FA;;;" + tester + L")(A;OICI;FA;;;BA)(A;OICI;FA;;;SY)");
@@ -130,7 +131,7 @@ void prepare(const fs::path &root, const std::wstring &tester, const std::wstrin
       if (std::string(name) == "label_inherited") setSystem(c.dir, L"S:(ML;OICI;NW;;;LW)", true);
       if (std::string(name) == "audit_initial_then_save") continue;
       if (!fs::exists(c.path)) make(c.path, OLD); setDacl(c.path, dacl);
-      if (std::string(name).find("owner") != std::string::npos || std::string(name) == "foreign_group") {
+      if (std::string(name).find("owner") != std::string::npos || std::string(name) == "foreign_modify" || std::string(name) == "foreign_group") {
         const std::wstring owner = std::string(name) == "admin_owner" ? L"S-1-5-32-544" : std::string(name) == "stale_owner" ? L"S-1-5-21-111111111-222222222-333333333-4444" : other;
         PSID sid = nullptr; require(ConvertStringSidToSidW(owner.c_str(), &sid) != FALSE, "foreign SID");
         const bool group = std::string(name) == "foreign_group";
@@ -138,6 +139,7 @@ void prepare(const fs::path &root, const std::wstring &tester, const std::wstrin
           group ? GROUP_SECURITY_INFORMATION : OWNER_SECURITY_INFORMATION, group ? nullptr : sid, group ? sid : nullptr, nullptr, nullptr);
         LocalFree(sid); info("set foreign owner/group error", std::to_string(code)); require(code == 0, "foreign owner/group fixture");
       }
+      if (std::string(name) == "foreign_modify") setDacl(c.path,L"D:P(A;;0x1301bf;;;"+tester+L")(A;;FA;;;BA)(A;;FA;;;SY)");
       if (std::string(name) == "audit_explicit") setSystem(c.path, L"S:P(AU;SAFA;FW;;;WD)", false, true);
       if (std::string(name) == "label_confidential") setSystem(c.path, L"S:(ML;;NR;;;ME)", true);
       if (std::string(name) == "label_low") setSystem(c.path, L"S:(ML;;NW;;;LW)", true);
@@ -160,13 +162,16 @@ DWORD lowAccess(const fs::path &path, DWORD access) {
   if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
   require(RevertToSelf() != FALSE, "restore fixture token"); return error;
 }
+DWORD openAccess(const fs::path &path,DWORD access){HANDLE h=CreateFileW(path.c_str(),access,shareAll,nullptr,OPEN_EXISTING,0,nullptr);const DWORD code=h==INVALID_HANDLE_VALUE?GetLastError():0;if(h!=INVALID_HANDLE_VALUE)CloseHandle(h);return code;}
 void securityCases(const fs::path &root) {
-  for (const auto &name : {"admin_owner", "foreign_owner", "stale_owner", "foreign_group", "audit_explicit", "audit_inherited", "label_confidential", "label_low", "label_inherited", "label_high"})
+  for (const auto &name : {"admin_owner", "foreign_owner", "foreign_modify", "stale_owner", "foreign_group", "audit_explicit", "audit_inherited", "label_confidential", "label_low", "label_inherited", "label_high"})
     for (const auto &mode : modes) {
       Case c(root, name, mode);
       const bool label = std::string(name) == "label_confidential";
       if (label) info("low read before", std::to_string(lowAccess(c.path, GENERIC_READ)));
+      if(std::string(name)=="foreign_modify")info("WRITE_DAC before",std::to_string(openAccess(c.path,WRITE_DAC)));
       const bool ok = c.run();
+      if(std::string(name)=="foreign_modify")info("WRITE_DAC after",std::to_string(openAccess(c.path,WRITE_DAC)));
       if (label) {
         const DWORD access = lowAccess(c.path, GENERIC_READ); info("low read after", std::to_string(access));
         if (ok && (mode == "minimal" || mode == "inherited")) check(access == ERROR_ACCESS_DENIED, "copy label retains low-integrity read denial");
@@ -235,7 +240,7 @@ void newPermissions(const fs::path &root) {
   Handle h(CreateFileW(exemplar.c_str(),READ_CONTROL,shareAll,nullptr,OPEN_EXISTING,0,nullptr));
   require(GetSecurityInfo(h.h,SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,&dacl,nullptr,&sd)==0,"inherited exemplar DACL");
   const DWORD copied=SetNamedSecurityInfoW(const_cast<wchar_t*>(temporary.c_str()),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION|UNPROTECTED_DACL_SECURITY_INFORMATION,nullptr,nullptr,dacl,nullptr);LocalFree(sd);
-  require(!copied,"stage final inherited DACL");CloseHandle(h.h);h.h=INVALID_HANDLE_VALUE;
+  require(!copied,"stage final inherited DACL");require(closeChecked(h),"close exemplar inspection");
   require(DeleteFileW(exemplar.c_str())!=FALSE,"remove empty exemplar");require(MoveFileExW(temporary.c_str(),path.c_str(),0)!=FALSE,"publish staged new file");
   snapshot("after","staged publication",path,inspect(path));check(inspect(path).dacl==inherited.dacl&&inspect(path).bytes==NEW,"private-to-inherited final DACL matches native inheritance");
 }
@@ -263,6 +268,8 @@ void failuresCases(const fs::path &root) {
       }
     }
   }
+  for(const auto &mode:modes){Case c(root,"directory_destination",mode,false);fs::create_directory(c.path);check(!c.run(),"directory destination refused");}
+  for(const auto &mode:{std::string("current"),std::string("minimal")}){current="missing_parent/"+mode;const auto before=names(root);std::string error;check(!runWriter(root/(L"missing-"+wide(mode))/L"file.json",mode,error),"missing parent refused");info("writer error",error);check(names(root)==before,"missing parent creates no files");}
   current = "real_source_cleanup_conflict"; const auto dir = root / L"source-conflict"; fs::create_directory(dir);
   const auto destination = dir / L"old", source = dir / L"temp"; make(destination, OLD); make(source, NEW); const auto before = inspect(destination);
   { Handle held(CreateFileW(source.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
@@ -355,7 +362,7 @@ void unicodePipeline(const fs::path &root, bool ctype = false) {
     for (const auto &p : fs::directory_iterator(fs::u8path(dir.u8string()))) if (p.path().extension() == extension) explicitPaths.push_back(p.path().u8string());
     Image decoded; ColorEncoding detected; bool raw;
     const bool loaded = loadImage(explicitPaths.front(), decoded, detected, raw);
-    if(dng){LibRaw rawProbe;const auto input=explicitPaths.front();info("LibRaw narrow open status",std::to_string(rawProbe.open_file(input.c_str())));rawProbe.recycle();info("LibRaw wide open status",std::to_string(rawProbe.open_file(fs::u8path(input).c_str())));}
+    if(dng){auto rawProbe=std::make_unique<LibRaw>();const auto input=explicitPaths.front();info("LibRaw object size",std::to_string(sizeof(LibRaw)));info("LibRaw narrow open status",std::to_string(rawProbe->open_file(input.c_str())));rawProbe->recycle();const int wideStatus=rawProbe->open_file(fs::u8path(input).c_str());info("LibRaw wide open status",std::to_string(wideStatus));if(!wideStatus){info("LibRaw wide unpack status",std::to_string(rawProbe->unpack()));info("LibRaw wide process status",std::to_string(rawProbe->dcraw_process()));}}
     info("explicit UTF-8 discovery loadImage", loaded ? "true" : "false"); info("explicit UTF-8 profile correct", loaded && detected == expected ? "true" : "false");
     const auto unicodeDir = images / (std::wstring(name) + std::wstring(extension) + L"_folder"); fs::create_directory(unicodeDir); require(CopyFileW(seed.c_str(), (unicodeDir/L"photo.png").c_str(), TRUE) != FALSE, "Unicode directory image");
     try { const auto paths = listFolderImages(unicodeDir.u8string()); info("Unicode folder actual discovery count", std::to_string(paths.size())); if (GetACP()==CP_UTF8) check(paths.size()==1,"manifest Unicode folder discovery"); }
