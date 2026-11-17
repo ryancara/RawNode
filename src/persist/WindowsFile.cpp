@@ -194,7 +194,7 @@ bool persist_detail::windowsPath(const std::string &text, fs::path &path, std::s
   }
   return true;
 }
-bool persist_detail::windowsParents(const fs::path &path, std::string &error) {
+bool persist_detail::windowsParents(const fs::path &path, std::string &error, bool allowMissing) {
   const fs::path root = path.root_path();
   if (GetDriveTypeW(root.c_str()) != DRIVE_FIXED) {
     error = "Atomic persistence supports local fixed NTFS volumes only"; return false;
@@ -204,7 +204,13 @@ bool persist_detail::windowsParents(const fs::path &path, std::string &error) {
   for (const auto &part : path.parent_path().relative_path()) { parent /= part; parents.push_back(parent); }
   for (const auto &directory : parents) {
     Handle h(CreateFileW(directory.c_str(), FILE_READ_ATTRIBUTES, sharing, nullptr, OPEN_EXISTING, openFlags, nullptr));
-    if (h.value == INVALID_HANDLE_VALUE) return fail(error, "Cannot inspect destination parent", GetLastError());
+    if (h.value == INVALID_HANDLE_VALUE) {
+      const DWORD code = GetLastError();
+      // Configuration-directory creation may extend an already-qualified
+      // ancestor. File reads/writes require every parent to exist.
+      if (allowMissing && (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND)) return true;
+      return fail(error, "Cannot inspect destination parent", code);
+    }
     FILE_ATTRIBUTE_TAG_INFO info{};
     if (!attributes(h.value, info, error)) return false;
     constexpr DWORD allowed = ordinaryAttributes | FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_SYSTEM;

@@ -32,10 +32,12 @@ provider-specific support needs native qualification before widening it.
 The writer checks destination type, read-only state, explicit write-data access,
 DACL/protection and streams before touching its contents. Unsupported object or
 callback DACL entries, integrity/resource/central-access/trust/access-filter
-protections and alternate streams refuse replacement. Owner and primary group
+protections, non-null/protected SACLs and alternate streams refuse replacement.
+Even an empty filtered SACL may contain audit entries invisible to an ordinary
+query, so it is refused rather than discarded. Owner and primary group
 must match those naturally assigned to the replacement. No privileges are
-enabled to force a save. Auditing-only SACL preservation is not claimed; this
-security boundary requires independent review before merge.
+enabled to force a save. Native fixtures verify auditing and mandatory-label
+refusal; privileged audit-fixture setup occurs only in the tests.
 
 A random sibling name is reserved with `CREATE_NEW`. A protected DACL grants
 only the current user and SYSTEM access when the temporary is created, before
@@ -61,6 +63,8 @@ preference functions and shared `SidecarFileTests.cpp` with MSVC C++17. The test
 target uses the same pinned GLFW/ImGui headers/sources as the application and
 normal function-level linking to omit unused rendering/decoder entry points;
 there are no substituted persistence sources or duplicate algorithms.
+The image-extension registry is mechanically separated from image decoding so
+these production file-dialog dependencies can link without decoder libraries.
 Native fixtures cover section/preset-file/preference round trips, Unicode,
 permission/attribute preservation and refusal, alternate streams, reparse paths,
 reader conflicts, deterministic I/O failures and cleanup diagnostics.

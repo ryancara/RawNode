@@ -10,7 +10,7 @@ enum class FileFault;
 bool windowsPath(const std::string &text, std::filesystem::path &path, std::string &error);
 bool windowsUtf8(const wchar_t *text, std::string &out, std::string &error);
 // Refuse redirected/cloud parents and unqualified volumes, including mapped drives.
-bool windowsParents(const std::filesystem::path &path, std::string &error);
+bool windowsParents(const std::filesystem::path &path, std::string &error, bool allowMissing = false);
 bool replaceWindowsFile(const std::string &path, const std::string &body,
                         std::string &error, FileFault fault);
 }

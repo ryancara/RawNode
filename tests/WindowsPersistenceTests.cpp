@@ -12,10 +12,13 @@
 
 #include <chrono>
 #include <cstdio>
+#include <cstring>
+#include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <set>
 #include <stdexcept>
+#include <vector>
 
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "Windows persistence line %d: %s (%lu): %s\n", __LINE__, #x, GetLastError(), error.c_str()); return false; } } while (false)
 namespace {
@@ -113,6 +116,14 @@ bool unicodeAndCallers(const fs::path &root) {
   CHECK(savePreferences(config.preferences, preferences, error));
   Preferences loaded;
   CHECK(loadPreferences(config.preferences, loaded, error) && loaded.jpegQuality == 73);
+  const wchar_t *appData = _wgetenv(L"APPDATA");
+  const std::wstring previousAppData = appData ? appData : L"";
+  const auto unicodeAppData = root / fs::u8path(u8"\u73af\u5883-\U0001f98a");
+  _wputenv_s(L"APPDATA", unicodeAppData.c_str());
+  const auto environmentConfig = applicationConfigPaths(error);
+  _wputenv_s(L"APPDATA", previousAppData.c_str());
+  CHECK(environmentConfig.preferences == (unicodeAppData / L"RawNode" / L"preferences.json").u8string());
+  CHECK(savePreferences(environmentConfig.preferences, preferences, error));
   const auto original = bytes(fs::u8path(config.preferences));
   for (auto fault : {Fault::PermissionStat, Fault::PermissionCheck, Fault::TempCreate, Fault::Write, Fault::Flush,
                      Fault::PermissionCopy, Fault::Close, Fault::Replace}) {
@@ -126,7 +137,6 @@ bool unicodeAndCallers(const fs::path &root) {
   CHECK(persist_detail::readGraphFileText(invalid, untouched, error, Fault::None) == SidecarReadStatus::Error && untouched == "unchanged");
   CHECK(entries(root) == before);
   CHECK(preferences_detail::configPaths("", invalid, error).preferences.empty());
-  std::string unused;
   CHECK(!persist_detail::replaceFileAtomically(path.u8string() + std::string("\0extra", 6), "x", error));
   return true;
 }
@@ -141,6 +151,18 @@ bool permissionsAndRefusal(const fs::path &root) {
     CHECK(replace(path, "replacement", error));
     const Snapshot after(path);
     CHECK(after.security == before.security && after.info.dwFileAttributes == (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE));
+  }
+  for (DWORD attributes : {DWORD(FILE_ATTRIBUTE_NORMAL), DWORD(FILE_ATTRIBUTE_HIDDEN), DWORD(FILE_ATTRIBUTE_ARCHIVE),
+                           DWORD(FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED)}) {
+    CHECK(SetFileAttributesW(path.c_str(), attributes));
+    const Snapshot before(path); const auto names = entries(root);
+    for (int i = 0; i < 4; ++i) {
+      const std::string content = "replacement " + std::to_string(i);
+      CHECK(replace(path, content, error));
+      const Snapshot after(path);
+      CHECK(after.content == content && after.security == before.security && after.info.dwFileAttributes == before.info.dwFileAttributes);
+      CHECK(entries(root) == names);
+    }
   }
   dacl(path, L"D:P(D;;0x6;;;" + sid() + L")(A;;FA;;;" + sid() + L")(A;;FA;;;SY)");
   Snapshot denied(path); const auto names = entries(root);
@@ -215,12 +237,18 @@ bool links(const fs::path &root) {
   CHECK(!replace(alias / L"file.json", "no", error));
   CHECK(persist_detail::readGraphFileText((alias / L"file.json").u8string(), text, error, Fault::None) == SidecarReadStatus::Error);
   CHECK(bytes(dir / L"file.json") == "keep");
+  CHECK(preferences_detail::configPaths("", alias.u8string(), error).preferences.empty());
+  CHECK(!fs::exists(dir / L"RawNode"));
   CHECK(RemoveDirectoryW(alias.c_str()));
   return true;
 }
-bool systemSecurity(const fs::path &root) {
+bool systemSecurity(const fs::path &root, bool createAuditFixture) {
   std::string error;
   for (bool audit : {false, true}) {
+    if (audit && !createAuditFixture) {
+      std::puts("audit SACL fixture creation is covered by the privileged runner; production never enables privileges");
+      continue;
+    }
     const auto path = root / (audit ? L"audit.json" : L"integrity.json");
     CHECK(replace(path, "retain protected contents", error));
     HANDLE token = nullptr;
@@ -254,11 +282,16 @@ bool systemSecurity(const fs::path &root) {
 }
 }  // namespace
 
-int main() {
+int wmain(int argc, wchar_t **argv) {
   try {
+    const bool ordinary = argc == 3 && std::wcscmp(argv[1], L"--ordinary-user") == 0;
+    if (ordinary) {
+      _wputenv_s(L"TEMP", argv[2]);
+      _wputenv_s(L"TMP", argv[2]);
+    } else if (argc != 1) throw std::runtime_error("Unexpected native test arguments");
     Directory dir;
     if (!unicodeAndCallers(dir.path) || !testSidecarFiles() || !permissionsAndRefusal(dir.path) || !readersAndCleanup(dir.path) ||
-        !links(dir.path) || !systemSecurity(dir.path)) return 1;
+        !links(dir.path) || !systemSecurity(dir.path, !ordinary)) return 1;
     std::puts("ok  MSVC production persistence: UTF-8, sidecars/presets/preferences, ACLs/attributes, streams/reparse refusal, reader failures and cleanup");
     return 0;
   } catch (const std::exception &failure) { std::fprintf(stderr, "%s\n", failure.what()); return 2; }

@@ -73,6 +73,7 @@ ConfigPaths preferences_detail::configPaths(const std::string &home, const std::
 #if defined(__APPLE__)
   if (fs::path(home).is_absolute()) directory = fs::path(home) / "Library/Application Support/RawNode";
 #elif defined(_WIN32)
+  (void)home;
   fs::path native;
   if (!configHome.empty()) {
     if (!persist_detail::windowsPath(configHome, native, warning)) return {};
@@ -87,15 +88,21 @@ ConfigPaths preferences_detail::configPaths(const std::string &home, const std::
     warning = "Application configuration directory is unavailable; using in-memory settings.";
     return {};
   }
+#ifdef _WIN32
+  if (!persist_detail::windowsParents(directory / L"preferences.json", warning, true)) return {};
+#endif
   std::error_code ec;
   fs::create_directories(directory, ec);
   if (!ec && !fs::is_directory(directory, ec)) ec = std::make_error_code(std::errc::not_a_directory);
+#ifdef _WIN32
+  if (!ec && !persist_detail::windowsParents(directory / L"preferences.json", warning)) return {};
+#endif
 #ifndef _WIN32
   if (!ec && access(directory.c_str(), W_OK | X_OK) != 0)
     ec = std::make_error_code(std::errc::permission_denied);
 #endif
   if (ec) {
-    warning = directory.string() + ": " + ec.message() + "; using in-memory settings.";
+    warning = directory.u8string() + ": " + ec.message() + "; using in-memory settings.";
     return {};
   }
   ConfigPaths paths{(directory / "preferences.json").u8string(), (directory / "layout.ini").u8string()};
@@ -117,12 +124,12 @@ ConfigPaths preferences_detail::configPaths(const std::string &home, const std::
 }
 
 ConfigPaths applicationConfigPaths(std::string &warning) {
-  const auto env = [](const char *name) { const auto *value = std::getenv(name); return value ? value : ""; };
 #ifdef _WIN32
   std::string appData;
   if (!persist_detail::windowsUtf8(_wgetenv(L"APPDATA"), appData, warning)) return {};
   return preferences_detail::configPaths("", appData, warning);
 #else
+  const auto env = [](const char *name) { const auto *value = std::getenv(name); return value ? value : ""; };
   return preferences_detail::configPaths(env("HOME"), env("XDG_CONFIG_HOME"), warning);
 #endif
 }
