@@ -181,7 +181,7 @@ bool permissionsAndRefusal(const fs::path &root) {
   Snapshot readonly(path);
   CHECK(!replace(path, "must not publish", error) && readonly.same(path));
   // Restore only the disposable fixture after checking refusal; never a save fallback.
-  CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_NORMAL));
+  CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_ARCHIVE));
   const auto stream = fs::path(path.wstring() + L":extra"); write(stream, "retain alternate bytes");
   Snapshot streams(path);
   CHECK(!replace(path, "must not publish", error) && error.find("streams") != std::string::npos);
