@@ -1,0 +1,129 @@
+name: Windows minimal persistence research (Claude, disposable)
+on:
+  push:
+    branches: [claude/windows-minimal-persistence-research]
+    paths:
+      - research/windows-minimal-persistence/**
+      - .github/workflows/windows-minimal-persistence-research.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record environment
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory evidence | Out-Null
+          $info = @()
+          $info += Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber | Format-List | Out-String
+          $info += Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' | Select-Object CurrentBuildNumber,UBR | Format-List | Out-String
+          $info += Get-Volume | Format-Table DriveLetter,FileSystem,DriveType,Size,SizeRemaining | Out-String
+          $info += "ACP: " + (Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage).ACP
+          $info += Get-Service LanmanServer,seclogon | Format-Table Name,Status | Out-String
+          $info += whoami /all | Out-String
+          $info | Set-Content evidence/environment.txt
+          Get-Content evidence/environment.txt
+
+      - name: Compile research probe and Unicode integration with MSVC
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VS=%%i
+          call "%VS%\Common7\Tools\VsDevCmd.bat" -arch=x64 || exit /b 1
+          set R=research\windows-minimal-persistence
+          set FLAGS=/nologo /std:c++17 /EHsc /utf-8 /W4 /O2 /I src /I %R%
+          mkdir obj-probe obj-acp obj-utf8
+          cl %FLAGS% /Foobj-probe\ %R%\probe.cpp %R%\MinimalWindowsFile.cpp src\persist\WindowsFile.cpp /Fe:probe.exe /link advapi32.lib bcrypt.lib || exit /b 1
+          set PROD=src\persist\ProjectPersistSave.cpp src\persist\ProjectPersistLoad.cpp src\persist\Json.cpp src\imgio\ImageFormats.cpp src\GraphModel.cpp src\GraphValidation.cpp src\color\ColorEncoding.cpp src\color\TransferFunction.cpp src\persist\WindowsFile.cpp
+          cl %FLAGS% /Foobj-acp\ %R%\unicode_integration.cpp %PROD% /Fe:unicode-acp.exe /link advapi32.lib bcrypt.lib || exit /b 1
+          cl %FLAGS% /Foobj-utf8\ %R%\unicode_integration.cpp %PROD% /Fe:unicode-utf8.exe /link advapi32.lib bcrypt.lib /MANIFEST:EMBED /MANIFESTINPUT:%R%\utf8.manifest || exit /b 1
+          cl 2>&1 | findstr /C:"Version" > evidence\compiler.txt
+          type evidence\compiler.txt
+
+      - name: Native experiments (runner administrator and ordinary user)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          [Console]::OutputEncoding = [Text.Encoding]::UTF8
+          $ev = Join-Path $pwd 'evidence'
+          $probe = Join-Path $pwd 'probe.exe'
+          $name = 'RawNodeMin'
+          $secret = ConvertTo-SecureString ([guid]::NewGuid().ToString('N') + '!Aa9') -AsPlainText -Force
+          $account = New-LocalUser -Name $name -Password $secret -AccountNeverExpires
+          $userSid = $account.SID.Value
+          $userSid | Set-Content "$ev\user-sid.txt"
+          Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account
+          $credential = [pscredential]::new("$env:COMPUTERNAME\$name", $secret)
+          $base = Join-Path $env:RUNNER_TEMP ('rawnode-min-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory $base | Out-Null
+          & icacls.exe $base /grant "${name}:(OI)(CI)M" | Out-File "$ev\base-acl.txt"
+          & icacls.exe $base | Out-File -Append "$ev\base-acl.txt"
+          $vhds = @()
+          $smbOk = $false
+          function Quote([string[]]$a) { ($a | ForEach-Object { '"' + $_ + '"' }) -join ' ' }
+          function AsUser([string]$out, [string[]]$a) {
+            $p = Start-Process -FilePath $probe -ArgumentList (Quote $a) -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$ev\$out.jsonl" -RedirectStandardError "$ev\$out.stderr"
+            "exit $($p.ExitCode) user $out" | Tee-Object -Append "$ev\exit-codes.txt"
+          }
+          function AsAdmin([string]$out, [string[]]$a, [string]$exe = $probe) {
+            $p = Start-Process -FilePath $exe -ArgumentList (Quote $a) -WorkingDirectory $base -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$ev\$out.jsonl" -RedirectStandardError "$ev\$out.stderr"
+            "exit $($p.ExitCode) admin $out" | Tee-Object -Append "$ev\exit-codes.txt"
+          }
+          function NewVhd([string]$letter, [string]$fs) {
+            $vhd = Join-Path $env:RUNNER_TEMP ("rawnode-$fs-" + [guid]::NewGuid().ToString('N') + '.vhd')
+            @("create vdisk file=`"$vhd`" maximum=128 type=expandable", "select vdisk file=`"$vhd`"", 'attach vdisk',
+              'create partition primary', "format fs=$fs quick label=RN$fs", "assign letter=$letter") | Set-Content "$ev\diskpart-$fs.txt"
+            & diskpart.exe /s "$ev\diskpart-$fs.txt" | Out-File "$ev\diskpart-$fs.log"
+            return $vhd
+          }
+          try {
+            $vhds += NewVhd 'Z' 'fat32'
+            $vhds += NewVhd 'Y' 'exfat'
+            Get-Volume | Format-Table DriveLetter,FileSystem,DriveType,Size | Out-String | Tee-Object -Append "$ev\environment.txt"
+            New-Item -ItemType Directory 'Z:\jn-target' -ErrorAction SilentlyContinue | Out-Null
+            & cmd.exe /c mklink /J "$base\jn-fat" "Z:\jn-target" | Out-File "$ev\junction.txt"
+            $smb = Join-Path $base 'smb-share'
+            New-Item -ItemType Directory $smb | Out-Null
+            try { New-SmbShare -Name RawNodeResearch -Path $smb -FullAccess 'Everyone' | Out-String | Out-File "$ev\smb.txt"; $smbOk = $true }
+            catch { "SMB setup failed: $_" | Out-File "$ev\smb.txt" }
+
+            AsUser 'p1-user-prep' @('user-prep', "$base\cases")
+            AsAdmin 'p2-admin-prep' @('admin-prep', "$base\cases", $userSid)
+            AsUser 'p3-user-run' @('user-run', "$base\cases")
+            AsAdmin 'p4-admin-efs' @('admin-efs', (Join-Path $env:RUNNER_TEMP ('rawnode-efs-' + [guid]::NewGuid().ToString('N'))))
+            AsUser 'p5-fs-1-ntfs' @('fs', "$base\fs-ntfs", 'ntfs')
+            AsUser 'p5-fs-2-fat32' @('fs', 'Z:\rawnode-fs', 'fat32')
+            AsUser 'p5-fs-3-exfat' @('fs', 'Y:\rawnode-fs', 'exfat')
+            AsUser 'p5-fs-4-junction-to-fat32' @('fs', "$base\jn-fat\matrix", 'junction-to-fat32')
+            if ($smbOk) { AsUser 'p5-fs-5-smb-loopback' @('fs', '\\localhost\RawNodeResearch\matrix', 'smb-loopback') }
+            AsUser 'p6-diskfull-fat32' @('diskfull', 'Z:\full', 'fat32')
+            AsUser 'p6-diskfull-exfat' @('diskfull', 'Y:\full', 'exfat')
+            AsAdmin 'p7-admin-inspect' @('admin-inspect', "$base\cases")
+            AsAdmin 'u1-unicode-acp' @((Join-Path $env:RUNNER_TEMP 'unicode-acp')) (Join-Path $pwd 'unicode-acp.exe')
+            AsAdmin 'u2-unicode-utf8-manifest' @((Join-Path $env:RUNNER_TEMP 'unicode-utf8')) (Join-Path $pwd 'unicode-utf8.exe')
+          } finally {
+            if ($smbOk) { Remove-SmbShare -Name RawNodeResearch -Force -ErrorAction SilentlyContinue }
+            foreach ($vhd in $vhds) {
+              @("select vdisk file=`"$vhd`"", 'detach vdisk') | Set-Content "$ev\diskpart-detach.txt"
+              & diskpart.exe /s "$ev\diskpart-detach.txt" | Out-Null
+            }
+            Remove-LocalUser -Name $name -ErrorAction SilentlyContinue
+          }
+          Get-Content "$ev\exit-codes.txt"
+          Get-ChildItem $ev -Filter *.stderr | Where-Object Length -gt 0 | ForEach-Object { "--- $($_.Name)"; Get-Content $_.FullName }
+          "===== FULL JSONL ====="
+          Get-ChildItem $ev -Filter *.jsonl | Sort-Object Name | ForEach-Object { "--- $($_.Name)"; Get-Content -Encoding utf8 $_.FullName }
+          "===== SUMMARY ====="
+          & ./research/windows-minimal-persistence/summarize.ps1 -Evidence $ev -UserSid $userSid | Tee-Object "$ev\summary.txt"
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-minimal-persistence-evidence
+          path: evidence/
+          retention-days: 14
