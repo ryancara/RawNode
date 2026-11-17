@@ -20,6 +20,16 @@ converted to UTF-16 for both reads and writes. Embedded NUL, invalid UTF-8,
 device/UNC/network/alternate-stream paths and ambiguous trailing dots/spaces are
 refused. Preference paths read the Unicode Windows environment and return UTF-8.
 
+Existing destinations must have ARCHIVE set. Expanded production tests found
+that an ARCHIVE-cleared destination became ARCHIVE-set after NTFS replacement,
+including when attributes were applied after closing the completed sibling
+([native run 44024441044](https://github.com/ryancara/RawNode/actions/runs/44024441044),
+commit `2ea1fe711af05a4be4e446dcfafea47e61b9333b`). The writer refuses such files
+before creating a temporary; it does not change a backup marker silently or add
+a fallible post-publication attribute fix. This includes an otherwise ordinary
+file whose attributes are NORMAL. Supporting cleared ARCHIVE requires further
+native investigation and independent approval of a different publication method.
+
 Every existing parent is inspected. Symlinks, junctions/mount points, cloud and
 other reparse-backed paths, compressed/encrypted/offline/special file attributes,
 and ReFS/FAT32/exFAT/remote volumes are not qualified and refuse persistence.

@@ -152,7 +152,8 @@ bool permissionsAndRefusal(const fs::path &root) {
     const Snapshot after(path);
     CHECK(after.security == before.security && after.info.dwFileAttributes == (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE));
   }
-  for (DWORD attributes : {DWORD(FILE_ATTRIBUTE_NORMAL), DWORD(FILE_ATTRIBUTE_HIDDEN), DWORD(FILE_ATTRIBUTE_ARCHIVE),
+  for (DWORD attributes : {DWORD(FILE_ATTRIBUTE_ARCHIVE), DWORD(FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE),
+                           DWORD(FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED),
                            DWORD(FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED)}) {
     CHECK(SetFileAttributesW(path.c_str(), attributes));
     const Snapshot before(path); const auto names = entries(root);
@@ -160,13 +161,17 @@ bool permissionsAndRefusal(const fs::path &root) {
       const std::string content = "replacement " + std::to_string(i);
       CHECK(replace(path, content, error));
       const Snapshot after(path);
-      if (after.info.dwFileAttributes != before.info.dwFileAttributes || after.security != before.security)
-        std::fprintf(stderr, "Attribute case %lu: before %lu after %lu; security equal %d\n", attributes,
-                     before.info.dwFileAttributes, after.info.dwFileAttributes, int(after.security == before.security));
       CHECK(after.content == content && after.security == before.security && after.info.dwFileAttributes == before.info.dwFileAttributes);
       CHECK(entries(root) == names);
     }
   }
+  for (DWORD attributes : {DWORD(FILE_ATTRIBUTE_NORMAL), DWORD(FILE_ATTRIBUTE_HIDDEN), DWORD(FILE_ATTRIBUTE_NOT_CONTENT_INDEXED)}) {
+    CHECK(SetFileAttributesW(path.c_str(), attributes));
+    const Snapshot before(path); const auto names = entries(root);
+    CHECK(!replace(path, "must not alter archive state", error) && error.find("ARCHIVE") != std::string::npos);
+    CHECK(before.same(path) && entries(root) == names);
+  }
+  CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_ARCHIVE));
   dacl(path, L"D:P(D;;0x6;;;" + sid() + L")(A;;FA;;;" + sid() + L")(A;;FA;;;SY)");
   Snapshot denied(path); const auto names = entries(root);
   CHECK(!replace(path, "must not publish", error) && error.find("not writable") != std::string::npos);
@@ -245,6 +250,17 @@ bool links(const fs::path &root) {
   CHECK(RemoveDirectoryW(alias.c_str()));
   return true;
 }
+std::wstring systemAcl(const fs::path &path, bool audit) {
+  PSECURITY_DESCRIPTOR sd = nullptr;
+  const DWORD code = GetNamedSecurityInfoW(const_cast<wchar_t *>(path.c_str()), SE_FILE_OBJECT,
+      audit ? SACL_SECURITY_INFORMATION : LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, nullptr, &sd);
+  if (code) throw std::runtime_error("Cannot independently inspect system ACL");
+  wchar_t *text = nullptr;
+  const BOOL ok = ConvertSecurityDescriptorToStringSecurityDescriptorW(sd, SDDL_REVISION_1, SACL_SECURITY_INFORMATION, &text, nullptr);
+  LocalFree(sd);
+  if (!ok) throw std::runtime_error("Cannot encode system ACL");
+  const std::wstring out(text); LocalFree(text); return out;
+}
 bool systemSecurity(const fs::path &root, bool createAuditFixture) {
   std::string error;
   for (bool audit : {false, true}) {
@@ -271,15 +287,26 @@ bool systemSecurity(const fs::path &root, bool createAuditFixture) {
     const DWORD code = SetNamedSecurityInfoW(const_cast<wchar_t *>(path.c_str()), SE_FILE_OBJECT,
         audit ? SACL_SECURITY_INFORMATION : LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, sacl);
     LocalFree(sd);
+    CHECK(code == ERROR_SUCCESS);
+    const auto originalSystemAcl = systemAcl(path, audit);
+    if (audit) {
+      privilege.Privileges[0].Attributes = 0;
+      CHECK(AdjustTokenPrivileges(token, FALSE, &privilege, 0, nullptr, nullptr));
+    }
+    const Snapshot before(path); const auto names = entries(root);
+    CHECK(!replace(path, "must not remove system security", error));
+    CHECK(before.same(path) && entries(root) == names);
+    if (audit) {
+      privilege.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+      CHECK(AdjustTokenPrivileges(token, FALSE, &privilege, 0, nullptr, nullptr));
+    }
+    const auto retainedSystemAcl = systemAcl(path, audit);
     if (audit) {
       privilege.Privileges[0].Attributes = 0;
       CHECK(AdjustTokenPrivileges(token, FALSE, &privilege, 0, nullptr, nullptr));
       CloseHandle(token);
     }
-    CHECK(code == ERROR_SUCCESS);
-    const Snapshot before(path); const auto names = entries(root);
-    CHECK(!replace(path, "must not remove system security", error));
-    CHECK(before.same(path) && entries(root) == names);
+    CHECK(retainedSystemAcl == originalSystemAcl);
   }
   return true;
 }
