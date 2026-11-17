@@ -42,7 +42,7 @@ provider-specific support needs native qualification before widening it.
 The writer checks destination type, read-only state, explicit write-data access,
 DACL/protection and streams before touching its contents. Unsupported object or
 callback DACL entries, integrity/resource/central-access/trust/access-filter
-protections, non-null/protected SACLs, nonstandard descriptor control flags and
+protections, non-null/protected SACLs, resource-manager descriptor control and
 alternate streams refuse replacement.
 Even an empty filtered SACL may contain audit entries invisible to an ordinary
 query, so it is refused rather than discarded. Owner and primary group
