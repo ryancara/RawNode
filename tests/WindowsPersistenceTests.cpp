@@ -17,7 +17,7 @@
 #include <set>
 #include <stdexcept>
 
-#define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "Windows persistence line %d: %s (%lu)\n", __LINE__, #x, GetLastError()); return false; } } while (false)
+#define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "Windows persistence line %d: %s (%lu): %s\n", __LINE__, #x, GetLastError(), error.c_str()); return false; } } while (false)
 namespace {
 namespace fs = std::filesystem;
 using Fault = persist_detail::FileFault;
@@ -201,11 +201,11 @@ void junction(const fs::path &link, const fs::path &target) {
   CloseHandle(h); if (!ok) throw std::runtime_error("Cannot create junction fixture");
 }
 bool links(const fs::path &root) {
+  std::string error, text;
   const auto target = root / L"target.json", link = root / L"link.json";
   write(target, "preserve target");
   CHECK(CreateSymbolicLinkW(link.c_str(), target.c_str(), SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE));
   const Snapshot before(target); const auto names = entries(root);
-  std::string error, text;
   CHECK(!replace(link, "no", error));
   CHECK(persist_detail::readGraphFileText(link.u8string(), text, error, Fault::None) == SidecarReadStatus::Error);
   CHECK(before.same(target) && entries(root) == names && fs::is_symlink(fs::symlink_status(link)));
@@ -218,13 +218,47 @@ bool links(const fs::path &root) {
   CHECK(RemoveDirectoryW(alias.c_str()));
   return true;
 }
+bool systemSecurity(const fs::path &root) {
+  std::string error;
+  for (bool audit : {false, true}) {
+    const auto path = root / (audit ? L"audit.json" : L"integrity.json");
+    CHECK(replace(path, "retain protected contents", error));
+    HANDLE token = nullptr;
+    TOKEN_PRIVILEGES privilege{};
+    if (audit) {
+      CHECK(OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token));
+      privilege.PrivilegeCount = 1;
+      CHECK(LookupPrivilegeValueW(nullptr, L"SeSecurityPrivilege", &privilege.Privileges[0].Luid));
+      privilege.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+      CHECK(AdjustTokenPrivileges(token, FALSE, &privilege, 0, nullptr, nullptr) && GetLastError() == ERROR_SUCCESS);
+    }
+    const std::wstring sddl = audit ? L"S:(AU;SAFA;FW;;;" + sid() + L")" : L"S:(ML;;NW;;;LW)";
+    PSECURITY_DESCRIPTOR sd = nullptr;
+    CHECK(ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1, &sd, nullptr));
+    PACL sacl = nullptr; BOOL present, def;
+    CHECK(GetSecurityDescriptorSacl(sd, &present, &sacl, &def));
+    const DWORD code = SetNamedSecurityInfoW(const_cast<wchar_t *>(path.c_str()), SE_FILE_OBJECT,
+        audit ? SACL_SECURITY_INFORMATION : LABEL_SECURITY_INFORMATION, nullptr, nullptr, nullptr, sacl);
+    LocalFree(sd);
+    if (audit) {
+      privilege.Privileges[0].Attributes = 0;
+      CHECK(AdjustTokenPrivileges(token, FALSE, &privilege, 0, nullptr, nullptr));
+      CloseHandle(token);
+    }
+    CHECK(code == ERROR_SUCCESS);
+    const Snapshot before(path); const auto names = entries(root);
+    CHECK(!replace(path, "must not remove system security", error));
+    CHECK(before.same(path) && entries(root) == names);
+  }
+  return true;
+}
 }  // namespace
 
 int main() {
   try {
-    if (!testSidecarFiles()) return 1;
     Directory dir;
-    if (!unicodeAndCallers(dir.path) || !permissionsAndRefusal(dir.path) || !readersAndCleanup(dir.path) || !links(dir.path)) return 1;
+    if (!unicodeAndCallers(dir.path) || !testSidecarFiles() || !permissionsAndRefusal(dir.path) || !readersAndCleanup(dir.path) ||
+        !links(dir.path) || !systemSecurity(dir.path)) return 1;
     std::puts("ok  MSVC production persistence: UTF-8, sidecars/presets/preferences, ACLs/attributes, streams/reparse refusal, reader failures and cleanup");
     return 0;
   } catch (const std::exception &failure) { std::fprintf(stderr, "%s\n", failure.what()); return 2; }

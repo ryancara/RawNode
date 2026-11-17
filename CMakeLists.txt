@@ -109,6 +109,7 @@ add_executable(OfxRawHost
   tests/GraphViewTests.cpp
   src/ofx/OfxSuites.cpp
   src/ofx/OfxPlugins.cpp
+  src/imgio/ImageFormats.cpp
   src/imgio/ImageLoad.cpp
   src/imgio/ImageColor.cpp
   src/imgio/ImageWrite.cpp

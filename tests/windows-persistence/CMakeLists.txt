@@ -10,6 +10,7 @@ add_executable(WindowsPersistenceTests
   ${root}/src/persist/WindowsFile.cpp
   ${root}/src/persist/ProjectPersistSave.cpp ${root}/src/persist/ProjectPersistLoad.cpp
   ${root}/src/persist/Json.cpp ${root}/src/persist/Preferences.cpp
+  ${root}/src/imgio/ImageFormats.cpp
   ${root}/src/GraphModel.cpp ${root}/src/GraphValidation.cpp
   ${root}/src/color/ColorEncoding.cpp ${root}/src/color/TransferFunction.cpp
   ${root}/src/ui/Themes.cpp
