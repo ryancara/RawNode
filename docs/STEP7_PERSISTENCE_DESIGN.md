@@ -12,8 +12,9 @@ have passed verification. This document records that design checkpoint.
 [#68](https://github.com/ryancara/RawNode/pull/68) and
 [#69](https://github.com/ryancara/RawNode/pull/69), ending at
 `69572b265075cc44cc9b06ee52ad1c803263f345`. Graph-native records serve live photo
-opening/saving, presets and clipboard; checked POSIX atomic writes protect file
-updates (Windows replacement remains unsupported). Global preferences/layout
+opening/saving, presets and clipboard; checked atomic writes protect file
+updates (Windows support is bounded to conventional local NTFS; see
+[Windows persistence](WINDOWS_PERSISTENCE.md)). Global preferences/layout
 replace folder workspace persistence. Graph/List is next, followed by Step 8.
 
 Sections 2–7 specify the accepted format and lifecycle implemented by Step 7.
@@ -554,8 +555,8 @@ its first frame; missing docking uses existing fallback sizes. Tests include
 hand-authored preferences, startup-to-new-grade colour assertions, native ini
 save/reload without a GL context, atomic failures and cancelled shutdown. Legacy
 V1/V2 sidecar helpers remain solely for historical self-test fixtures; all workspace
-read/write and folder ini-switch functions are removed. Windows atomic writes
-remain unsupported. The manual validation record distinguishes the owner's five
+read/write and folder ini-switch functions are removed. Windows atomic writes are limited to conventional local NTFS; see
+[Windows persistence](WINDOWS_PERSISTENCE.md). The manual validation record distinguishes the owner's five
 passed macOS checks from the remaining platform/failure cases.
 
 ## 9. Deterministic tests
@@ -604,7 +605,9 @@ the implementation PRs' test evidence.
 Claude's design verification passed at the head recorded above. The required
 RAW working pair for raster grades remains part of the implemented schema.
 PRs 1–2 subsequently implemented the strict JSON reader and checked POSIX atomic
-replacement; Windows atomic writes remain unsupported.
+replacement. Native Windows persistence now uses checked sibling publication on
+conventional local NTFS; other filesystems and provider-backed paths refuse saves
+(see [Windows persistence](WINDOWS_PERSISTENCE.md)).
 Outstanding manual evidence/waivers apply only to the relevant live paths.
 Future automatic default-preset application failure handling remains deferred to
 that feature's implementation milestone.

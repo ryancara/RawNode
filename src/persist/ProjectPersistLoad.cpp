@@ -1,6 +1,7 @@
 #include "persist/ProjectPersist.h"
 #include "persist/ProjectPersistPriv.h"
 #include "persist/Json.h"
+#include "persist/WindowsFile.h"
 #include "GraphValidation.h"
 
 #include <algorithm>
@@ -18,6 +19,12 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 // Historical formats retain their literal-control string compatibility, but
 // all lexical parsing uses the same reader as the graph-native codec.
@@ -620,14 +627,26 @@ SidecarReadStatus readGraphFileText(const std::string &path, std::string &json, 
     return path.size() >= suffix.size() && path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0;
   };
   if (hasSuffix(".ofxrawhost.json")) return fail("Protected legacy destination");
+#ifdef _WIN32
+  fs::path nativePath;
+  if (!windowsPath(path, nativePath, error) || !windowsParents(nativePath, error)) return fail(error);
+#else
+  const fs::path nativePath(path);
+#endif
   std::error_code ec;
-  const auto status = fs::symlink_status(fs::path(path), ec);
+  const auto status = fs::symlink_status(nativePath, ec);
   if (ec && ec != std::errc::no_such_file_or_directory) return fail("Cannot inspect destination: " + ec.message());
   if (status.type() == fs::file_type::not_found) {
     const std::string suffix = ".rawnode.json";
     if (hasSuffix(suffix)) {
       const auto legacy = path.substr(0, path.size() - suffix.size()) + ".ofxrawhost.json";
-      const auto legacyStatus = fs::symlink_status(fs::path(legacy), ec);
+#ifdef _WIN32
+      fs::path legacyPath;
+      if (!windowsPath(legacy, legacyPath, error)) return fail(error);
+#else
+      const fs::path legacyPath(legacy);
+#endif
+      const auto legacyStatus = fs::symlink_status(legacyPath, ec);
       if (ec && ec != std::errc::no_such_file_or_directory)
         return fail("Cannot inspect legacy destination " + legacy + ": " + ec.message());
       if (legacyStatus.type() != fs::file_type::not_found)
@@ -639,7 +658,10 @@ SidecarReadStatus readGraphFileText(const std::string &path, std::string &json, 
   // it. Refuse it alongside directories/devices rather than change its meaning.
   if (!fs::is_regular_file(status)) return fail("Destination is not a regular file");
 #ifdef _WIN32
-  std::FILE *opened = _wfopen(fs::path(path).c_str(), L"rb");
+  const DWORD attributes = GetFileAttributesW(nativePath.c_str());
+  if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
+    return fail("Cannot read a reparse/cloud destination");
+  std::FILE *opened = _wfopen(nativePath.c_str(), L"rb");
 #else
   std::FILE *opened = std::fopen(path.c_str(), "rb");
 #endif

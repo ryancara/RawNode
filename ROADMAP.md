@@ -77,14 +77,14 @@ These priorities sequence focused work without reopening completed architecture 
    and [PR #116](https://github.com/ryancara/RawNode/pull/116).
    **Keep this item visible here until implemented and validated; merging the
    macOS/Linux implementation does not complete Windows support.**
-6. **Native Windows atomic sidecar persistence — deferred, unfinished.**
-   `persist_detail::replaceFileAtomically()` in
-   [ProjectPersistSave.cpp](src/persist/ProjectPersistSave.cpp) currently returns
-   unsupported on Windows, so graph-native sidecar saves cannot complete there.
-   Implement and natively validate reliable atomic creation/replacement,
-   failure preservation and recovery before claiming Windows photo-editing
-   persistence is functional. This needs its own focused, independently reviewed
-   PR and is separate from Windows Move to Trash; PR #116 does not implement it.
+6. **Native Windows atomic persistence — bounded implementation.**
+   Sidecars, marks, preset-file updates and preferences share checked native
+   sibling publication on conventional local fixed NTFS. MSVC component coverage
+   compiles the actual production writer/codecs; full Windows application/GUI
+   validation and broader filesystem/cloud qualification remain outstanding.
+   Unsupported paths/metadata refuse saves. See
+   [the support boundary](docs/WINDOWS_PERSISTENCE.md). Windows Trash remains
+   separate; PR #116 did not implement Windows persistence.
 7. **Close the practical Step 8 masking core.** Agree the exit gate, then
    deliver Mask Combine, upstream geometry/Overlay placement through Mask
    modifiers, a Linear Gradient generator and an initial Blur modifier in

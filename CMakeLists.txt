@@ -138,6 +138,7 @@ add_executable(OfxRawHost
   src/platform/FileTrash.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp
+  src/persist/WindowsFile.cpp
   src/persist/Json.cpp
   src/ui/Themes.cpp
   src/ui/Filmstrip.cpp
@@ -236,7 +237,7 @@ target_link_libraries(OfxRawHost PRIVATE imgui_lib glfw ZLIB::ZLIB IlmCtlSimd Im
 if(APPLE)
   target_link_libraries(OfxRawHost PRIVATE "-framework OpenGL" "-framework Cocoa" "-framework Foundation" "-framework IOKit" "-framework CoreVideo" "-framework Metal")
 elseif(WIN32)
-  target_link_libraries(OfxRawHost PRIVATE opengl32)
+  target_link_libraries(OfxRawHost PRIVATE opengl32 advapi32 bcrypt)
 else()
   if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(PkgConfig REQUIRED)

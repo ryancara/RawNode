@@ -1,6 +1,7 @@
 #include "persist/Preferences.h"
 #include "persist/PreferencesPriv.h"
 #include "persist/Json.h"
+#include "persist/WindowsFile.h"
 #include "AppState.h"
 #include "ui/Themes.h"
 #include "color/LinearColorTransform.h"
@@ -72,7 +73,11 @@ ConfigPaths preferences_detail::configPaths(const std::string &home, const std::
 #if defined(__APPLE__)
   if (fs::path(home).is_absolute()) directory = fs::path(home) / "Library/Application Support/RawNode";
 #elif defined(_WIN32)
-  if (fs::path(configHome).is_absolute()) directory = fs::path(configHome) / "RawNode";
+  fs::path native;
+  if (!configHome.empty()) {
+    if (!persist_detail::windowsPath(configHome, native, warning)) return {};
+    if (fs::u8path(configHome).is_absolute()) directory = native / L"RawNode";
+  }
 #else
   // XDG requires an absolute path. Relative values are ignored per its spec.
   if (fs::path(configHome).is_absolute()) directory = fs::path(configHome) / "RawNode";
@@ -93,10 +98,10 @@ ConfigPaths preferences_detail::configPaths(const std::string &home, const std::
     warning = directory.string() + ": " + ec.message() + "; using in-memory settings.";
     return {};
   }
-  ConfigPaths paths{(directory / "preferences.json").string(), (directory / "layout.ini").string()};
+  ConfigPaths paths{(directory / "preferences.json").u8string(), (directory / "layout.ini").u8string()};
   // ImGui has no error channel for ini writes. Reject an unusable destination
   // now and keep in-memory layout; never choose another directory.
-  const auto status = fs::symlink_status(paths.layout, ec);
+  const auto status = fs::symlink_status(fs::u8path(paths.layout), ec);
   if (ec == std::errc::no_such_file_or_directory) ec.clear();
   if (!ec && status.type() != fs::file_type::not_found) {
     if (!fs::is_regular_file(status)) ec = std::make_error_code(std::errc::invalid_argument);
@@ -114,7 +119,9 @@ ConfigPaths preferences_detail::configPaths(const std::string &home, const std::
 ConfigPaths applicationConfigPaths(std::string &warning) {
   const auto env = [](const char *name) { const auto *value = std::getenv(name); return value ? value : ""; };
 #ifdef _WIN32
-  return preferences_detail::configPaths(env("USERPROFILE"), env("APPDATA"), warning);
+  std::string appData;
+  if (!persist_detail::windowsUtf8(_wgetenv(L"APPDATA"), appData, warning)) return {};
+  return preferences_detail::configPaths("", appData, warning);
 #else
   return preferences_detail::configPaths(env("HOME"), env("XDG_CONFIG_HOME"), warning);
 #endif

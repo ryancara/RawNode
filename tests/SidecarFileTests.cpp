@@ -10,8 +10,13 @@
 #include <limits>
 #include <set>
 #include <stdexcept>
+#include <chrono>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
 #include <grp.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -29,19 +34,23 @@ namespace {
 namespace fs = std::filesystem;
 using Fault = SidecarFileTestAccess::Fault;
 
-#ifndef _WIN32
 struct TestDirectory {
   fs::path path;
   TestDirectory() {
+#ifdef _WIN32
+    path = fs::temp_directory_path() / ("rawnode-file-test-" +
+        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    if (!fs::create_directory(path)) throw std::runtime_error("Cannot create sidecar test directory");
+#else
     const auto pattern = (fs::temp_directory_path() / "rawnode-file-test-XXXXXX").string();
     std::vector<char> name(pattern.begin(), pattern.end());
     name.push_back('\0');
     if (!mkdtemp(name.data())) throw std::runtime_error("Cannot create sidecar test directory");
     path = name.data();
+#endif
   }
   ~TestDirectory() { std::error_code ignored; fs::remove_all(path, ignored); }
 };
-#endif
 
 void write(const fs::path &path, const std::string &text) {
   std::ofstream stream(path, std::ios::binary);
@@ -279,9 +288,18 @@ bool atomicFailures(const fs::path &dir) {
   // successful replacement. A truncate-and-write implementation fails this.
   std::ifstream held(path, std::ios::binary);
   CHECK(held.good());
+#ifdef _WIN32
+  // The Windows CRT reader does not permit the replacement. Refuse safely;
+  // publication can be retried after the reader releases its handle.
+  CHECK(!updateSidecarMark(path, PhotoMark::Pick, error));
+  CHECK(bytes(path) == original && entries(dir) == before);
+  held.close();
+  CHECK(updateSidecarMark(path, PhotoMark::Pick, error));
+#else
   CHECK(updateSidecarMark(path, PhotoMark::Pick, error));
   const std::string oldBytes{std::istreambuf_iterator<char>(held), std::istreambuf_iterator<char>()};
   CHECK(oldBytes == original && bytes(path) != original && entries(dir) == before);
+#endif
   return true;
 }
 
@@ -372,16 +390,14 @@ bool permissionTests(const fs::path &dir) {
 }  // namespace
 
 bool testSidecarFiles() {
-#ifdef _WIN32
-  std::puts("skip graph-native atomic sidecar tests: Windows replacement is not implemented");
-#else
   TestDirectory directory;
   CHECK(independentSections(directory.path));
   CHECK(slotSection(directory.path));
   CHECK(protectedFiles(directory.path));
   CHECK(atomicFailures(directory.path));
+#ifndef _WIN32
   CHECK(permissionTests(directory.path));
-  std::puts("ok  Step 7 safe sidecar files: exact independent sections, protected destinations, checked atomic failures/cleanup, POSIX permissions");
 #endif
+  std::puts("ok  safe sidecar files: independent sections, protected destinations, checked atomic failures/cleanup");
   return true;
 }

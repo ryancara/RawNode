@@ -29,7 +29,8 @@ namespace persist_detail {
 // Narrow fault seam for deterministic file-I/O tests. Production passes None;
 // no global hook or replacement filesystem is installed.
 enum class FileFault {
-  None, Read, PermissionStat, PermissionCheck, TempCreate, Write, Flush, PermissionCopy, Close, Replace
+  None, Read, PermissionStat, PermissionCheck, TempCreate, Write, Flush, PermissionCopy, Close, Replace,
+  Cleanup // Windows: partial write followed by a reported cleanup failure.
 };
 bool replaceFileAtomically(const std::string &path, const std::string &body, std::string &error,
                            FileFault fault = FileFault::None);

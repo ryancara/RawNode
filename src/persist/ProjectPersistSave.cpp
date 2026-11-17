@@ -1,6 +1,7 @@
 #include "persist/ProjectPersist.h"
 #include "persist/ProjectPersistPriv.h"
 #include "persist/Json.h"
+#include "persist/WindowsFile.h"
 
 #include <cmath>
 #include <cerrno>
@@ -375,8 +376,7 @@ struct SiblingTemporaryFile {
 bool persist_detail::replaceFileAtomically(const std::string &path, const std::string &body, std::string &error,
                       persist_detail::FileFault fault) {
 #ifdef _WIN32
-  error = path + ": Atomic file replacement is not yet supported on Windows";
-  return false;
+  return persist_detail::replaceWindowsFile(path, body, error, fault);
 #else
   using Fault = persist_detail::FileFault;
   const auto fail = [&](const char *operation, int code) {

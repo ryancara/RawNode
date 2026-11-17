@@ -1,0 +1,34 @@
+name: Windows persistence
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: windows-persistence-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  production-persistence:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: glfw/glfw
+          ref: '3.4'
+          path: native-deps/glfw
+      - uses: actions/checkout@v4
+        with:
+          repository: ocornut/imgui
+          ref: v1.91.8-docking
+          path: native-deps/imgui
+      - name: Configure actual production persistence and shared sidecar tests
+        run: cmake -S tests/windows-persistence -B build-persistence -A x64
+      - name: Compile with MSVC C++17
+        run: cmake --build build-persistence --config Release --parallel 2
+      - name: Run production persistence regressions
+        shell: pwsh
+        run: |
+          ./build-persistence/Release/WindowsPersistenceTests.exe
+          if ($LASTEXITCODE -ne 0) { throw "Native production persistence failed: $LASTEXITCODE" }
