@@ -11,6 +11,7 @@
 #include <cwchar>
 #include <memory>
 #include <vector>
+#include <utility>
 
 namespace experiment {
 namespace fs = std::filesystem;
@@ -20,6 +21,14 @@ struct Handle {
   explicit Handle(HANDLE h = INVALID_HANDLE_VALUE) : h(h) {}
   ~Handle() { if (h != INVALID_HANDLE_VALUE) CloseHandle(h); }
   bool close() { const HANDLE owned = h; h = INVALID_HANDLE_VALUE; return CloseHandle(owned) != FALSE; }
+};
+struct Temporary {
+  Handle file;
+  fs::path path;
+  ~Temporary() {
+    if (file.h != INVALID_HANDLE_VALUE) file.close();
+    if (!path.empty()) DeleteFileW(path.c_str());
+  }
 };
 struct FreeLocal { void operator()(void *p) const { if (p) LocalFree(p); } };
 using Memory = std::unique_ptr<void, FreeLocal>;
@@ -105,18 +114,19 @@ bool save(const std::string &text, const std::string &body, std::string &error, 
   Memory security;
   if (policy.privateCreation && !privateDacl(security, error)) return false;
   SECURITY_ATTRIBUTES sa{sizeof(sa), security.get(), FALSE};
-  fs::path temporary;
-  Handle output;
+  Temporary owned;
+  fs::path &temporary = owned.path;
+  Handle &output = owned.file;
   for (int attempt = 0; attempt < 16; ++attempt) {
     unsigned char random[16];
     if (BCryptGenRandom(nullptr, random, sizeof(random), BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) return failure(error, "Random temporary", ERROR_GEN_FAILURE);
     std::wstring name = L".rawnode-research-";
     for (auto byte : random) { name += L"0123456789abcdef"[byte >> 4]; name += L"0123456789abcdef"[byte & 15]; }
-    const fs::path candidate = path.parent_path() / name;
+    fs::path candidate = path.parent_path() / name;
     const DWORD access = GENERIC_WRITE | READ_CONTROL | WRITE_DAC | ((labels && labels->AceCount) ? WRITE_OWNER : 0);
     output.h = CreateFileW(candidate.c_str(), access, 0,
       policy.privateCreation ? &sa : nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (output.h != INVALID_HANDLE_VALUE) { temporary = candidate; break; }
+    if (output.h != INVALID_HANDLE_VALUE) { temporary = std::move(candidate); break; }
     const DWORD code = GetLastError();
     if (code != ERROR_FILE_EXISTS && code != ERROR_ALREADY_EXISTS) return failure(error, "Create sibling", code);
   }
@@ -127,6 +137,7 @@ bool save(const std::string &text, const std::string &body, std::string &error, 
     const BOOL removed = fault == Fault::Cleanup ? FALSE : DeleteFileW(temporary.c_str());
     const DWORD cleanupError = fault == Fault::Cleanup ? ERROR_ACCESS_DENIED : GetLastError();
     if (!removed) error += "; cleanup " + temporary.u8string() + " error " + std::to_string(cleanupError);
+    temporary.clear(); // Reported cleanup failures must not be silently retried.
     return false;
   };
   const bool partial = fault == Fault::Write || fault == Fault::Cleanup;
@@ -157,6 +168,7 @@ bool save(const std::string &text, const std::string &body, std::string &error, 
   if (present && !destination.close()) return abort("Close inspection", GetLastError());
   if (fault == Fault::Rename || !MoveFileExW(temporary.c_str(), path.c_str(), present ? MOVEFILE_REPLACE_EXISTING : 0))
     return abort("Rename", fault == Fault::Rename ? ERROR_WRITE_FAULT : GetLastError());
+  temporary.clear();
   return true;
 }
 }

@@ -81,8 +81,10 @@ jobs:
               $access = Start-Process $exe -ArgumentList "--read-created `"$root`"" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd/evidence/new-permissions-other-$kind.jsonl" -RedirectStandardError "$pwd/evidence/new-permissions-other-$kind.err"
               if ($access.ExitCode -ne 0) { throw 'Shared-folder access comparison failed' }
             }
-            foreach ($variant in @('ProbeUtf8','ProbeScoped')) {
-              & "./build-minimal/Release/$variant.exe" (Join-Path $base $variant) --pipeline 2>&1 | Tee-Object "evidence/$variant.jsonl"
+            foreach ($variant in @('ProbeUtf8','ProbeScoped','ProbeUtf8Ctype')) {
+              $binary = if ($variant -eq 'ProbeUtf8Ctype') { 'ProbeUtf8' } else { $variant }
+              $argument = if ($variant -eq 'ProbeUtf8Ctype') { '--pipeline-ctype' } else { '--pipeline' }
+              & "./build-minimal/Release/$binary.exe" (Join-Path $base $variant) $argument 2>&1 | Tee-Object "evidence/$variant.jsonl"
               if ($LASTEXITCODE -ne 0) { throw "$variant pipeline failed" }
             }
           } finally {

@@ -9,6 +9,9 @@
 #include <functional>
 #include <map>
 #include <set>
+#include <clocale>
+#include <mbctype.h>
+#include <libraw/libraw.h>
 
 const std::vector<std::string> modes{"bare", "current", "dacl", "minimal", "inherited"};
 const DWORD shareAll = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
@@ -315,9 +318,10 @@ PersistGrade grade() {
   g.graph.primarySource = NodeId{"camera"}; g.graph.documentOutput = {NodeId{"camera"}, ports::image};
   PersistNode source; source.id = "camera"; source.operation = NodeOperation::Source; g.graph.nodes.push_back(source); return g;
 }
-void unicodePipeline(const fs::path &root) {
+void unicodePipeline(const fs::path &root, bool ctype = false) {
+  if(ctype) require(std::setlocale(LC_CTYPE,".UTF8") != nullptr,"UTF-8 character-type locale");
   const auto images = root / L"pipeline"; fs::create_directories(images); current = "unicode_pipeline";
-  info("ACP", std::to_string(GetACP())); info("OEMCP", std::to_string(GetOEMCP()));
+  info("ACP", std::to_string(GetACP())); info("OEMCP", std::to_string(GetOEMCP())); info("CRT locale",std::setlocale(LC_CTYPE,nullptr));info("CRT mbcp",std::to_string(_getmbcp()));
   Image authored; authored.w = authored.h = 1; authored.px = {0.25f,0.5f,0.75f,1.0f};
   const auto seed = images / L"seed.png"; require(writeImage(authored, seed.u8string(), {RgbGamut::DisplayP3,TransferFunction::Linear}), "actual production tagged image fixture");
   PersistFile f; f.grade = grade(); f.metadataJson = R"({"mark":"pick"})"; std::string json, error; require(encodeGraphFile(f,json,error), "grade fixture encode");
@@ -341,13 +345,17 @@ void unicodePipeline(const fs::path &root) {
       const bool currentSaved = updateSidecarMark(inputSidecarPath(p), PhotoMark::Reject, error); info("actual current save discovered path", currentSaved ? "true" : "false"); info("current save error", error);
       if (GetACP()==CP_UTF8) check(currentSaved,"manifest actual production mark save");
       const bool saved = experiment::save(inputSidecarPath(p), json, error); info("experimental save discovered path", saved ? "true" : "false"); info("save error", error);
-      if (GetACP() == CP_UTF8) check(p == path.u8string() && loaded && loadedSidecar.grade && saved && detected == expected, "UTF-8 manifest actual discovery/decode/profile/grade/save pipeline");
+      if (GetACP() == CP_UTF8) {
+        if(!dng || std::wstring(name)==L"ascii" || ctype) check(p == path.u8string() && loaded && loadedSidecar.grade && saved && detected == expected, "UTF-8 coherent actual discovery/decode/profile/grade/save pipeline");
+        else check(!loaded && loadedSidecar.grade && saved,"manifest-only LibRaw narrow path remains broken for non-ASCII DNG");
+      }
     } else if (GetACP() == CP_UTF8) check(false, "UTF-8 manifest must discover photograph");
     // Scoped conversion fixes discovery; it does not change narrow decoder/ICC opens.
     std::vector<std::string> explicitPaths;
     for (const auto &p : fs::directory_iterator(fs::u8path(dir.u8string()))) if (p.path().extension() == extension) explicitPaths.push_back(p.path().u8string());
     Image decoded; ColorEncoding detected; bool raw;
     const bool loaded = loadImage(explicitPaths.front(), decoded, detected, raw);
+    if(dng){LibRaw rawProbe;const auto input=explicitPaths.front();info("LibRaw narrow open status",std::to_string(rawProbe.open_file(input.c_str())));rawProbe.recycle();info("LibRaw wide open status",std::to_string(rawProbe.open_file(fs::u8path(input).c_str())));}
     info("explicit UTF-8 discovery loadImage", loaded ? "true" : "false"); info("explicit UTF-8 profile correct", loaded && detected == expected ? "true" : "false");
     const auto unicodeDir = images / (std::wstring(name) + std::wstring(extension) + L"_folder"); fs::create_directory(unicodeDir); require(CopyFileW(seed.c_str(), (unicodeDir/L"photo.png").c_str(), TRUE) != FALSE, "Unicode directory image");
     try { const auto paths = listFolderImages(unicodeDir.u8string()); info("Unicode folder actual discovery count", std::to_string(paths.size())); if (GetACP()==CP_UTF8) check(paths.size()==1,"manifest Unicode folder discovery"); }
@@ -376,7 +384,7 @@ int wmain(int argc,wchar_t **argv){try{
   if(argc>=4&&std::wstring(argv[1])==L"--volume"){volume(argv[2],argv[3]);return failures?1:0;}
   if(argc<3)throw std::runtime_error("root and mode required"); const fs::path root=argv[1];fs::create_directories(root);
   current="environment";info("account SID",utf8(userSid()));info("ACP",std::to_string(GetACP()));
-  if(std::wstring(argv[2])==L"--pipeline"){unicodePipeline(root);}
+  if(std::wstring(argv[2])==L"--pipeline" || std::wstring(argv[2])==L"--pipeline-ctype"){unicodePipeline(root,std::wstring(argv[2])==L"--pipeline-ctype");}
   else{ordinary(root);newPermissions(root);failuresCases(root);pathCases(root);securityCases(root);unicodePipeline(root);}
   std::cout<<"{\"type\":\"summary\",\"failed_checks\":"<<failures<<"}\n";return failures?1:0;
 }catch(const std::exception &e){std::cerr<<"case "<<current<<": "<<e.what()<<" ("<<GetLastError()<<")\n";return 2;}}

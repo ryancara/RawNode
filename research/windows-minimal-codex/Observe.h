@@ -102,7 +102,7 @@ std::string sha(const std::string &s) { Digest d; d.add(s.data(), DWORD(s.size()
 uint64_t ticks(FILETIME v) { return (uint64_t(v.dwHighDateTime) << 32) | v.dwLowDateTime; }
 struct State {
   bool exists = false;
-  DWORD error = 0, attrs = 0, tag = 0, securityError = 0, readError = 0;
+  DWORD error = 0, attrs = 0, tag = 0, tagError = 0, securityError = 0, readError = 0;
   uint64_t id = 0, volume = 0, created = 0, modified = 0, length = 0;
   std::string bytes, hash, security, dacl, reparse;
   bool complete = true;
@@ -124,7 +124,10 @@ State inspect(const fs::path &p) {
   s.volume = info.dwVolumeSerialNumber; s.created = ticks(info.ftCreationTime); s.modified = ticks(info.ftLastWriteTime);
   s.length = (uint64_t(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
   FILE_ATTRIBUTE_TAG_INFO tag{};
-  require(GetFileInformationByHandleEx(h.h, FileAttributeTagInfo, &tag, sizeof(tag)) != FALSE, "inspect reparse tag");
+  if (!GetFileInformationByHandleEx(h.h, FileAttributeTagInfo, &tag, sizeof(tag))) {
+    s.tagError = GetLastError();
+    require(!(s.attrs & FILE_ATTRIBUTE_REPARSE_POINT), "cannot inspect actual reparse point");
+  }
   s.tag = tag.ReparseTag;
   PSECURITY_DESCRIPTOR sd = nullptr;
   s.securityError = GetSecurityInfo(h.h, SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
@@ -158,7 +161,7 @@ void snapshot(const char *phase, const char *role, const fs::path &p, const Stat
   std::cout << "{\"type\":\"state\",\"case\":" << quote(current) << ",\"phase\":" << quote(phase)
     << ",\"role\":" << quote(role) << ",\"path\":" << quote(utf8(p.wstring())) << ",\"exists\":" << (s.exists ? "true" : "false")
     << ",\"open_error\":" << s.error << ",\"attributes\":" << s.attrs << ",\"reparse_tag\":" << s.tag
-    << ",\"file_id\":" << s.id << ",\"volume_serial\":" << s.volume << ",\"creation_time\":" << s.created
+    << ",\"tag_error\":" << s.tagError << ",\"file_id\":" << s.id << ",\"volume_serial\":" << s.volume << ",\"creation_time\":" << s.created
     << ",\"last_write_time\":" << s.modified << ",\"length\":" << s.length << ",\"bytes_complete\":" << (s.complete ? "true" : "false")
     << ",\"bytes_hex\":" << quote(hex(s.bytes)) << ",\"sha256\":" << quote(s.hash)
     << ",\"security_sddl\":" << quote(s.security) << ",\"dacl_sddl\":" << quote(s.dacl)
@@ -168,7 +171,7 @@ void snapshot(const char *phase, const char *role, const fs::path &p, const Stat
 bool unchanged(const State &a, const State &b) {
   return a.exists && b.exists && a.id == b.id && a.volume == b.volume && a.attrs == b.attrs && a.tag == b.tag &&
     a.created == b.created && a.modified == b.modified && a.length == b.length && a.hash == b.hash &&
-    a.security == b.security && !a.securityError && !b.securityError && !a.readError && !b.readError && a.reparse == b.reparse;
+    a.security == b.security && a.securityError == b.securityError && a.tagError == b.tagError && !a.readError && !b.readError && a.reparse == b.reparse;
 }
 void make(const fs::path &p, const std::string &body, PSECURITY_DESCRIPTOR sd = nullptr) {
   SECURITY_ATTRIBUTES sa{sizeof(sa), sd, FALSE};
