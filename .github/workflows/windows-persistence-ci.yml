@@ -62,13 +62,15 @@ jobs:
             $fixtures = Join-Path $base 'prepared'
             & $exe --prepare $fixtures $account.SID.Value $other.SID.Value
             if ($LASTEXITCODE -ne 0) { throw 'Privileged disposable fixture preparation failed' }
-            $process = Start-Process $exe -ArgumentList "--ordinary-user `"$base`" `"$fixtures`"" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\ordinary-user.txt" -RedirectStandardError "$pwd\evidence\ordinary-user.err"
+            $process = Start-Process $exe -ArgumentList "--ordinary-user `"$base`" `"$fixtures`"" -Credential $credential -LoadUserProfile -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\ordinary-user.txt" -RedirectStandardError "$pwd\evidence\ordinary-user.err"
             Get-Content evidence/ordinary-user.txt,evidence/ordinary-user.err
             if ($process.ExitCode -ne 0) { throw "Ordinary-user regressions failed: $($process.ExitCode)" }
+            & $exe --verify-audits $fixtures
+            if ($LASTEXITCODE -ne 0) { throw 'Independent audit observation failed' }
             $share = 'RawNodeView'
             try {
               New-SmbShare -Name $share -Path $fixtures -FullAccess "$env:COMPUTERNAME\$name" | Out-Null
-              $process = Start-Process $exe -ArgumentList "--readonly-location `"\\localhost\$share`"" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\readonly-network.txt" -RedirectStandardError "$pwd\evidence\readonly-network.err"
+              $process = Start-Process $exe -ArgumentList "--readonly-location `"\\localhost\$share`"" -Credential $credential -LoadUserProfile -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\readonly-network.txt" -RedirectStandardError "$pwd\evidence\readonly-network.err"
               Get-Content evidence/readonly-network.txt,evidence/readonly-network.err
               if ($process.ExitCode -ne 0) { throw 'Reading supported grades on write-unqualified storage failed' }
             } finally { Remove-SmbShare -Name $share -Force -ErrorAction SilentlyContinue }
@@ -82,7 +84,7 @@ jobs:
                 $root = "${drive}:\RawNodeTests"
                 New-Item -ItemType Directory $root | Out-Null
                 if ($filesystem -eq 'NTFS') { & icacls.exe $root /grant "${name}:(OI)(CI)M" }
-                $process = Start-Process $exe -ArgumentList "--volume `"$base`" `"$root`"" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\volume-$filesystem.txt" -RedirectStandardError "$pwd\evidence\volume-$filesystem.err"
+                $process = Start-Process $exe -ArgumentList "--volume `"$base`" `"$root`"" -Credential $credential -LoadUserProfile -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\volume-$filesystem.txt" -RedirectStandardError "$pwd\evidence\volume-$filesystem.err"
                 Get-Content "evidence/volume-$filesystem.txt","evidence/volume-$filesystem.err"
                 if ($process.ExitCode -ne 0) { throw "$filesystem production regressions failed: $($process.ExitCode)" }
               } finally {
@@ -102,6 +104,7 @@ jobs:
           name: windows-production-persistence
           path: evidence
       - name: Attempt full Windows application build
+        if: ${{ !cancelled() }}
         continue-on-error: true
         shell: pwsh
         run: |

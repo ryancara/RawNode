@@ -13,7 +13,7 @@ have passed verification. This document records that design checkpoint.
 [#69](https://github.com/ryancara/RawNode/pull/69), ending at
 `69572b265075cc44cc9b06ee52ad1c803263f345`. Graph-native records serve live photo
 opening/saving, presets and clipboard; checked atomic writes protect file
-updates (Windows support is bounded to conventional local NTFS; see
+updates (Windows support is bounded to local NTFS/FAT32/exFAT; see
 [Windows persistence](WINDOWS_PERSISTENCE.md)). Global preferences/layout
 replace folder workspace persistence. Graph/List is next, followed by Step 8.
 
@@ -320,6 +320,14 @@ an unfinished grade with explicit disconnected required inputs remains saveable.
 
 ## 5. Independent updates and atomic saves
 
+On Windows, D058 defines the bounded contents/permissions contract and deliberate
+metadata policy in [Windows persistence](WINDOWS_PERSISTENCE.md). New files inherit
+folder permissions; existing DACL/integrity restrictions survive replacement.
+Ordinary ownership, hard-link and incidental metadata replacement semantics are
+accepted. Reading is independent of write qualification: a valid grade can remain
+viewable read-only without edits, initial saving or departure prompts. Invalid or
+legacy input still uses the existing source-only protection.
+
 Use one small file update path: **read → validate → change one section → write
 a sibling temporary file → atomically replace**. It returns success or a useful
 error with the path; every caller must handle the result.
@@ -555,7 +563,7 @@ its first frame; missing docking uses existing fallback sizes. Tests include
 hand-authored preferences, startup-to-new-grade colour assertions, native ini
 save/reload without a GL context, atomic failures and cancelled shutdown. Legacy
 V1/V2 sidecar helpers remain solely for historical self-test fixtures; all workspace
-read/write and folder ini-switch functions are removed. Windows atomic writes are limited to conventional local NTFS; see
+read/write and folder ini-switch functions are removed. Windows atomic writes are limited to local NTFS/FAT32/exFAT; see
 [Windows persistence](WINDOWS_PERSISTENCE.md). The manual validation record distinguishes the owner's five
 passed macOS checks from the remaining platform/failure cases.
 
@@ -606,7 +614,7 @@ Claude's design verification passed at the head recorded above. The required
 RAW working pair for raster grades remains part of the implemented schema.
 PRs 1–2 subsequently implemented the strict JSON reader and checked POSIX atomic
 replacement. Native Windows persistence now uses checked sibling publication on
-conventional local NTFS; other filesystems and provider-backed paths refuse saves
+local NTFS/FAT32/exFAT; unqualified network/provider-backed paths refuse saves
 (see [Windows persistence](WINDOWS_PERSISTENCE.md)).
 Outstanding manual evidence/waivers apply only to the relevant live paths.
 Future automatic default-preset application failure handling remains deferred to

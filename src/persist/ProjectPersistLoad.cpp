@@ -637,6 +637,15 @@ SidecarReadStatus readGraphFileText(const std::string &path, std::string &json, 
   const auto status = fs::symlink_status(nativePath, ec);
   if (ec && ec != std::errc::no_such_file_or_directory) return fail("Cannot inspect destination: " + ec.message());
   if (status.type() == fs::file_type::not_found) {
+#ifdef _WIN32
+    // Windows also reports PATH_NOT_FOUND when the immediate parent is a file.
+    // Reading needs this type check, not the writer's filesystem qualification.
+    const auto parent = fs::status(nativePath.parent_path(), ec);
+    if (ec && ec != std::errc::no_such_file_or_directory)
+      return fail("Cannot inspect parent directory: " + ec.message());
+    if (fs::exists(parent) && !fs::is_directory(parent)) return fail("Parent is not a directory");
+    ec.clear();
+#endif
     const std::string suffix = ".rawnode.json";
     if (hasSuffix(suffix)) {
       const auto legacy = path.substr(0, path.size() - suffix.size()) + ".ofxrawhost.json";

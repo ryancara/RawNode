@@ -486,12 +486,18 @@ unfinished [near-term roadmap milestone](../ROADMAP.md), requiring its own
 focused PR, independent review and native recycle-or-preserve validation. Batch
 export remains a later PR.
 
-Windows graph-native sidecar persistence supports conventional local fixed NTFS
-paths through the shared checked writer. Native MSVC component tests exercise
-production sidecar, preset-file and preference persistence. This is not full
-Windows application/GUI validation. Other filesystems, cloud/reparse-backed paths
-and unsupported file/security metadata refuse saves; see
-[Windows persistence](WINDOWS_PERSISTENCE.md). Windows Trash remains separate.
+Windows graph-native sidecars, presets and preferences use the shared checked
+writer on local NTFS, FAT32 and exFAT. Native MSVC tests compile production
+persistence, discovery and PNG/RAW decoders, including an ordinary user and real
+disk-full failures. Full Windows GUI validation remains separate. Existing DACLs,
+integrity restrictions and meaningful attributes are preserved; new files inherit
+folder permissions. Ownership and incidental metadata use ordinary replacement
+semantics. The application requires its UTF-8 manifest and checks the active code
+page; LibRaw uses wide opens. Valid readable grades in write-unqualified locations
+are viewable read-only without departure saves. The version-1 schema stays portable.
+Network/provider-specific and unsupported filesystem behaviour remain unqualified;
+see [Windows persistence](WINDOWS_PERSISTENCE.md) and D058. Windows Trash remains
+separate.
 
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,
@@ -594,7 +600,7 @@ scope when implemented. There are no competing folder-level RAW defaults.
 Step 7 PR 5 implements global `preferences.json` and ImGui `layout.ini` in
 `~/Library/Application Support/RawNode/` on macOS and `$XDG_CONFIG_HOME/RawNode/`
 (or `~/.config/RawNode/`) on Linux. Windows uses roaming application data when
-supported; atomic writes have the local NTFS boundary described above. Paths resolve once
+supported; atomic writes have the local filesystem boundary described above. Paths resolve once
 before UI/photo startup. Unavailable locations warn and keep settings in memory,
 never falling back to CWD or photograph folders. Preferences save at normal
 shutdown even with no folder; cancelled photo departure keeps the app usable.
@@ -742,7 +748,7 @@ of PR #62's design, D050 lifecycle and final corrections at
 Graph-native records, the strict codec and atomic file updates now support live
 photo opening/saving. Editable opening establishes a grade; document departure,
 same-photo reopening and shutdown save it through checked POSIX atomic
-replacement; Windows uses bounded native local-NTFS replacement.
+replacement; Windows uses bounded native local NTFS/FAT32/exFAT replacement.
 Protected photographs remain viewable but noneditable. Photo colours are separate
 from defaults, and save warnings remain separate from render/export status.
 Presets and clipboard now use the shared graph-native grade/node codec. Unified

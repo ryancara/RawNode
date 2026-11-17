@@ -222,7 +222,7 @@ bool readersAndCleanup(const fs::path &root) {
     CloseHandle(reader);
     CHECK(read && std::string(old, count) == before.content);
     if (saved) CHECK((share & FILE_SHARE_DELETE) && bytes(path) == "replacement");
-    else CHECK((error.find("32") != std::string::npos || error.find("5") != std::string::npos) && before.same(path));
+    else CHECK((error.find("Windows error 32)") != std::string::npos || error.find("Windows error 5)") != std::string::npos) && before.same(path));
     CHECK(entries(root) == names);
   }
   const Snapshot before(path); const auto names = entries(root);
@@ -436,6 +436,15 @@ bool preparedFixtures(const fs::path &root) {
   std::puts("ok  ordinary-user replacement of admin/other/stale owners and explicit/inherited auditing");
   return true;
 }
+bool verifyAuditFixtures(const fs::path &root) {
+  std::string error;
+  privilege(L"SeSecurityPrivilege", true);
+  CHECK(systemAcl(root / L"audit-inherited" / L"new.json", true).find(L"AU;") != std::wstring::npos);
+  CHECK(systemAcl(root / L"audit-explicit.json", true).find(L"AU;") == std::wstring::npos);
+  privilege(L"SeSecurityPrivilege", false);
+  std::puts("ok  independent privileged observation: inherited auditing retained; explicit per-file audit removed by ordinary replacement");
+  return true;
+}
 bool volume(const fs::path &base, const fs::path &root) {
   std::string error;
   fs::create_directories(root);
@@ -475,6 +484,7 @@ int wmain(int argc, wchar_t **argv) {
     if (argc == 2 && std::wcscmp(argv[1], L"--check-codepage") == 0) return persist_detail::windowsUtf8Environment(error) ? 1 : 0;
     if (!persist_detail::windowsUtf8Environment(error)) throw std::runtime_error(error);
     if (argc == 5 && std::wcscmp(argv[1], L"--prepare") == 0) { prepare(argv[2], argv[3], argv[4]); return 0; }
+    if (argc == 3 && std::wcscmp(argv[1], L"--verify-audits") == 0) return verifyAuditFixtures(argv[2]) ? 0 : 1;
     if (argc >= 3) { _wputenv_s(L"TEMP", argv[2]); _wputenv_s(L"TMP", argv[2]); }
     if (argc == 3 && std::wcscmp(argv[1], L"--readonly-location") == 0) {
       const auto path = fs::path(argv[2]) / L"view.rawnode.json";

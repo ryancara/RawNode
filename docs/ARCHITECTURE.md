@@ -384,7 +384,8 @@ Accepted transition limitations:
 - Arbitrary-graph editing still needs a suitable UX for disconnected required
   dependencies. The current List View exposes nodes without guessing repairs.
 - Photograph sidecars, presets and global preferences use checked atomic replacement.
-  Windows qualification is limited to conventional local NTFS; see
+  Windows saving is qualified on local NTFS/FAT32/exFAT; valid grades on other
+  readable locations use the existing read-only document state. See
   [Windows persistence](WINDOWS_PERSISTENCE.md). ImGui retains its native ini persistence.
 
 ## Transient coordinate correspondence (D056)

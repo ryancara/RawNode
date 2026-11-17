@@ -831,6 +831,27 @@ and JPEG XL integration into distributed releases are deferred. Dependency,
 validation, licensing and distribution details belong in
 [JPEG_XL_DNG.md](JPEG_XL_DNG.md).
 
+## D058 — Bounded Windows atomic persistence and coherent UTF-8 paths
+
+**Status:** Accepted by the owner after independent native research; implemented
+in draft PR #117, pending independent review.
+
+Keep one checked sibling-file/MoveFileExW publication behind the existing
+persistence interface. Qualify local NTFS/FAT32/exFAT using the resolved parent;
+do not impose every-ancestor, ownership, hard-link or incidental-metadata rules.
+Preserve existing DACLs/inheritance, integrity restrictions and the small visible
+attribute mask; require explicit writable-file access and prevent EFS-to-plaintext
+replacement. New Windows files inherit folder permissions; replacement temporaries
+start private. Ownership, alternate streams, explicit auditing and incidental
+metadata follow ordinary replacement semantics, not a general transaction contract.
+
+A UTF-8 process manifest, startup code-page check and LibRaw wide opens keep
+photograph discovery and sidecar identity coherent. Valid readable grades in
+write-unqualified locations use the existing protected-document state, retaining
+the grade and known mark without allowing edits or departure saves. Malformed
+and legacy sidecars keep source-only protection. The JSON schema is unchanged.
+See [Windows persistence](WINDOWS_PERSISTENCE.md) for evidence and boundaries.
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:

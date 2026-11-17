@@ -77,14 +77,14 @@ These priorities sequence focused work without reopening completed architecture 
    and [PR #116](https://github.com/ryancara/RawNode/pull/116).
    **Keep this item visible here until implemented and validated; merging the
    macOS/Linux implementation does not complete Windows support.**
-6. **Native Windows atomic persistence — bounded implementation.**
-   Sidecars, marks, preset-file updates and preferences share checked native
-   sibling publication on conventional local fixed NTFS. MSVC component coverage
-   compiles the actual production writer/codecs; full Windows application/GUI
-   validation and broader filesystem/cloud qualification remain outstanding.
-   Unsupported paths/metadata refuse saves. See
+6. **Native Windows atomic persistence — bounded implementation, independent review pending.**
+   Local NTFS/FAT32/exFAT use checked sibling publication. MSVC production tests
+   include actual PNG/DNG discovery and decoding, coherent UTF-8 identity,
+   permissions, portability and disk-full preservation under an ordinary user.
+   Valid grades remain viewable read-only on write-unqualified storage. Full
+   Windows GUI and provider-specific compatibility remain separate; see
    [the support boundary](docs/WINDOWS_PERSISTENCE.md). Windows Trash remains
-   separate; PR #116 did not implement Windows persistence.
+   unfinished and separately scoped.
 7. **Close the practical Step 8 masking core.** Agree the exit gate, then
    deliver Mask Combine, upstream geometry/Overlay placement through Mask
    modifiers, a Linear Gradient generator and an initial Blur modifier in
