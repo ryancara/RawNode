@@ -325,6 +325,25 @@ PersistGrade grade() {
   g.graph.primarySource = NodeId{"camera"}; g.graph.documentOutput = {NodeId{"camera"}, ports::image};
   PersistNode source; source.id = "camera"; source.operation = NodeOperation::Source; g.graph.nodes.push_back(source); return g;
 }
+
+void encodingCollision(const fs::path &root) {
+  current="encoding_collision";const auto dir=root/L"encoding-collision";fs::create_directory(dir);
+  Image image;image.w=image.h=1;image.px={0.2f,0.4f,0.6f,1.0f};const auto seed=dir/L"seed.png";require(writeImage(image,seed.u8string()),"collision fixture image");
+  const auto a=dir/L"caf\u00e9.png",b=dir/L"caf\u00c3\u00a9.png";
+  require(CopyFileW(seed.c_str(),a.c_str(),TRUE)&&CopyFileW(seed.c_str(),b.c_str(),TRUE),"distinct Unicode photograph fixtures");require(DeleteFileW(seed.c_str()),"remove fixture seed");
+  PersistFile file;file.grade=grade();std::string jsonA,jsonB,error;file.metadataJson=R"({"mark":"pick"})";require(encodeGraphFile(file,jsonA,error),"collision grade A");file.metadataJson=R"({"mark":"reject"})";require(encodeGraphFile(file,jsonB,error),"collision grade B");
+  const auto sa=fs::path(a.wstring()+L".rawnode.json"),sb=fs::path(b.wstring()+L".rawnode.json");make(sa,jsonA);make(sb,jsonB);const auto beforeA=inspect(sa),beforeB=inspect(sb);snapshot("before","grade A",sa,beforeA);snapshot("before","grade B",sb,beforeB);
+  const auto found=listFolderImages(dir.u8string());std::string selected;
+  for(const auto &p:found)if((GetACP()==CP_UTF8?fs::u8path(p):fs::path(p))==b)selected=p;
+  require(!selected.empty(),"actual discovery of photograph B");info("discovered B bytes",hex(selected));info("B UTF-8 bytes",hex(b.u8string()));
+  Image decoded;ColorEncoding detected;bool raw;info("actual photograph decode",loadImage(selected,decoded,detected,raw)?"true":"false");
+  PersistFile loaded;const auto status=readGraphSidecar(inputSidecarPath(selected),loaded,error);info("loaded mark for B",status==SidecarReadStatus::Loaded?std::to_string(int(photoMark(loaded))):"error");
+  const bool saved=updateSidecarMark(inputSidecarPath(selected),PhotoMark::Unmarked,error);info("current save B result",saved?"true":"false");info("current save error",error);
+  const auto afterA=inspect(sa),afterB=inspect(sb);snapshot("after","grade A",sa,afterA);snapshot("after","grade B",sb,afterB);
+  if(GetACP()==1252)check(saved&&afterA.bytes!=beforeA.bytes&&unchanged(beforeB,afterB),"ACP discovery plus strict UTF-8 persistence modifies WRONG photograph sidecar");
+  if(GetACP()==CP_UTF8)check(saved&&unchanged(beforeA,afterA)&&afterB.bytes!=beforeB.bytes,"coherent UTF-8 discovery modifies only intended photograph sidecar");
+}
+
 void unicodePipeline(const fs::path &root, bool ctype = false) {
   if(ctype) require(std::setlocale(LC_CTYPE,".UTF8") != nullptr,"UTF-8 character-type locale");
   const auto images = root / L"pipeline"; fs::create_directories(images); current = "unicode_pipeline";
@@ -353,8 +372,8 @@ void unicodePipeline(const fs::path &root, bool ctype = false) {
       if (GetACP()==CP_UTF8) check(currentSaved,"manifest actual production mark save");
       const bool saved = experiment::save(inputSidecarPath(p), json, error); info("experimental save discovered path", saved ? "true" : "false"); info("save error", error);
       if (GetACP() == CP_UTF8) {
-        if(!dng || std::wstring(name)==L"ascii" || ctype) check(p == path.u8string() && loaded && loadedSidecar.grade && saved && detected == expected, "UTF-8 coherent actual discovery/decode/profile/grade/save pipeline");
-        else check(!loaded && loadedSidecar.grade && saved,"manifest-only LibRaw narrow path remains broken for non-ASCII DNG");
+        if(!dng || std::wstring(name)==L"ascii") check(p == path.u8string() && loaded && loadedSidecar.grade && saved && detected == expected, "UTF-8 coherent actual discovery/decode/profile/grade/save pipeline");
+        else check(p == path.u8string() && !loaded && loadedSidecar.grade && saved,"manifest/CRT-locale alone leaves LibRaw narrow Unicode DNG path broken");
       }
     } else if (GetACP() == CP_UTF8) check(false, "UTF-8 manifest must discover photograph");
     // Scoped conversion fixes discovery; it does not change narrow decoder/ICC opens.
@@ -362,12 +381,13 @@ void unicodePipeline(const fs::path &root, bool ctype = false) {
     for (const auto &p : fs::directory_iterator(fs::u8path(dir.u8string()))) if (p.path().extension() == extension) explicitPaths.push_back(p.path().u8string());
     Image decoded; ColorEncoding detected; bool raw;
     const bool loaded = loadImage(explicitPaths.front(), decoded, detected, raw);
-    if(dng){auto rawProbe=std::make_unique<LibRaw>();const auto input=explicitPaths.front();info("LibRaw object size",std::to_string(sizeof(LibRaw)));info("LibRaw narrow open status",std::to_string(rawProbe->open_file(input.c_str())));rawProbe->recycle();const int wideStatus=rawProbe->open_file(fs::u8path(input).c_str());info("LibRaw wide open status",std::to_string(wideStatus));if(!wideStatus){info("LibRaw wide unpack status",std::to_string(rawProbe->unpack()));info("LibRaw wide process status",std::to_string(rawProbe->dcraw_process()));}}
+    if(dng){auto rawProbe=std::make_unique<LibRaw>();const auto input=explicitPaths.front();info("LibRaw object size",std::to_string(sizeof(LibRaw)));info("LibRaw narrow open status",std::to_string(rawProbe->open_file(input.c_str())));rawProbe->recycle();const int wideStatus=rawProbe->open_file(fs::u8path(input).c_str());info("LibRaw wide open status",std::to_string(wideStatus));if(!wideStatus){const int unpack=rawProbe->unpack();const int processed=unpack?unpack:rawProbe->dcraw_process();info("LibRaw wide unpack status",std::to_string(unpack));info("LibRaw wide process status",std::to_string(processed));if(GetACP()==CP_UTF8)check(!unpack&&!processed,"scoped wide LibRaw decodes discovered Unicode RAW without a production-source edit");}}
     info("explicit UTF-8 discovery loadImage", loaded ? "true" : "false"); info("explicit UTF-8 profile correct", loaded && detected == expected ? "true" : "false");
     const auto unicodeDir = images / (std::wstring(name) + std::wstring(extension) + L"_folder"); fs::create_directory(unicodeDir); require(CopyFileW(seed.c_str(), (unicodeDir/L"photo.png").c_str(), TRUE) != FALSE, "Unicode directory image");
     try { const auto paths = listFolderImages(unicodeDir.u8string()); info("Unicode folder actual discovery count", std::to_string(paths.size())); if (GetACP()==CP_UTF8) check(paths.size()==1,"manifest Unicode folder discovery"); }
     catch(const std::exception &e) { info("Unicode folder exception",e.what()); if(GetACP()==CP_UTF8)check(false,"manifest Unicode folder exception"); }
   }
+  encodingCollision(root);
   current = "invalid_utf8"; const auto before = names(images); check(!experiment::save(images.u8string()+"/invalid-"+std::string(1,char(0xff)),NEW,error),"invalid UTF-8 refusal"); check(before==names(images),"invalid UTF-8 changes no directory entries");
 }
 void volume(const fs::path &root, const fs::path &volumeRoot) {

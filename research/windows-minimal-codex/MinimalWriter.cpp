@@ -65,9 +65,9 @@ bool save(const std::string &text, const std::string &body, std::string &error, 
   // Follow directory junctions, then qualify the resolved parent handle once.
   Handle parent(CreateFileW(path.parent_path().c_str(), FILE_READ_ATTRIBUTES, shared, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr));
   if (parent.h == INVALID_HANDLE_VALUE) return failure(error, "Parent", GetLastError());
-  FILE_ATTRIBUTE_TAG_INFO parentInfo{};
-  if (!GetFileInformationByHandleEx(parent.h, FileAttributeTagInfo, &parentInfo, sizeof(parentInfo))) return failure(error, "Parent attributes", GetLastError());
-  if (!(parentInfo.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) || (parentInfo.FileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_ENCRYPTED)))
+  BY_HANDLE_FILE_INFORMATION parentInfo{};
+  if (!GetFileInformationByHandle(parent.h, &parentInfo)) return failure(error, "Parent attributes", GetLastError());
+  if (!(parentInfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || (parentInfo.dwFileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_ENCRYPTED)))
     return failure(error, "Unsupported provider/encrypted parent", ERROR_NOT_SUPPORTED);
   if (policy.qualifyNtfs) {
     wchar_t filesystem[64], resolved[32768];
@@ -81,14 +81,14 @@ bool save(const std::string &text, const std::string &body, std::string &error, 
   const DWORD openError = destination.h == INVALID_HANDLE_VALUE ? GetLastError() : 0;
   if (openError && openError != ERROR_FILE_NOT_FOUND) return failure(error, "Destination", openError);
   const bool present = !openError;
-  FILE_ATTRIBUTE_TAG_INFO info{};
+  BY_HANDLE_FILE_INFORMATION info{};
   Memory sourceSecurity;
   PACL dacl = nullptr, labels = nullptr;
   SECURITY_DESCRIPTOR_CONTROL control = 0;
   if (present) {
-    if (GetFileType(destination.h) != FILE_TYPE_DISK || !GetFileInformationByHandleEx(destination.h, FileAttributeTagInfo, &info, sizeof(info)))
+    if (GetFileType(destination.h) != FILE_TYPE_DISK || !GetFileInformationByHandle(destination.h, &info))
       return failure(error, "File attributes", GetLastError());
-    if (info.FileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_ENCRYPTED | FILE_ATTRIBUTE_READONLY))
+    if (info.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_ENCRYPTED | FILE_ATTRIBUTE_READONLY))
       return failure(error, "Read-only/nonregular/provider/encrypted destination", ERROR_ACCESS_DENIED);
     Handle writable(CreateFileW(path.c_str(), FILE_WRITE_DATA, shared, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
     if (writable.h == INVALID_HANDLE_VALUE) return failure(error, "Writable-file preflight", GetLastError());
@@ -159,7 +159,7 @@ bool save(const std::string &text, const std::string &body, std::string &error, 
       if (code) return abort("Copy integrity label", code);
     }
     FILE_BASIC_INFO attributes{};
-    attributes.FileAttributes = (info.FileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED)) | FILE_ATTRIBUTE_ARCHIVE;
+    attributes.FileAttributes = (info.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED)) | FILE_ATTRIBUTE_ARCHIVE;
     if (!SetFileInformationByHandle(output.h, FileBasicInfo, &attributes, sizeof(attributes))) return abort("Attributes", GetLastError());
   }
   if (fault == Fault::Flush || !FlushFileBuffers(output.h)) return abort("Flush", fault == Fault::Flush ? ERROR_WRITE_FAULT : GetLastError());
