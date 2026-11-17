@@ -77,6 +77,9 @@ jobs:
                 $process = Start-Process $exe -ArgumentList "`"$root`" --matrix" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd/evidence/ordinary.jsonl" -RedirectStandardError "$pwd/evidence/ordinary.err"
                 if ($process.ExitCode -ne 0) { Get-Content evidence/ordinary.err; throw "Ordinary matrix failed: $($process.ExitCode)" }
               }
+              $credential = [pscredential]::new("$env:COMPUTERNAME\$owner", $secret)
+              $access = Start-Process $exe -ArgumentList "--read-created `"$root`"" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd/evidence/new-permissions-other-$kind.jsonl" -RedirectStandardError "$pwd/evidence/new-permissions-other-$kind.err"
+              if ($access.ExitCode -ne 0) { throw 'Shared-folder access comparison failed' }
             }
             foreach ($variant in @('ProbeUtf8','ProbeScoped')) {
               & "./build-minimal/Release/$variant.exe" (Join-Path $base $variant) --pipeline 2>&1 | Tee-Object "evidence/$variant.jsonl"
@@ -96,7 +99,7 @@ jobs:
           foreach ($fs in @('ntfs','fat32','exfat')) {
             $vhd = Join-Path $base "$fs.vhd"
             $drive = @('Z','Y','X','W') | Where-Object { -not (Test-Path "${_}:\") } | Select-Object -First 1
-            @("create vdisk file=`"$vhd`" maximum=128 type=expandable", "select vdisk file=`"$vhd`"", 'attach vdisk', 'create partition primary', "format fs=$fs quick label=RNDisposable", "assign letter=$drive") | Set-Content "evidence/diskpart-$fs.txt"
+            @("create vdisk file=`"$vhd`" maximum=128 type=expandable", "select vdisk file=`"$vhd`"", 'attach vdisk', 'create partition primary', "format fs=$fs quick label=RNTest", "assign letter=$drive") | Set-Content "evidence/diskpart-$fs.txt"
             try {
               & diskpart.exe /s "evidence/diskpart-$fs.txt" | Tee-Object "evidence/diskpart-$fs.log"
               if (-not (Test-Path "${drive}:\")) { "Unavailable: $fs VHD" | Set-Content "evidence/unavailable-$fs.txt"; continue }

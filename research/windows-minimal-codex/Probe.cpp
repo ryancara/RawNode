@@ -26,7 +26,7 @@ bool privilege(const wchar_t *name, bool enable) {
 }
 std::string selectedSacl(const fs::path &path, bool full = false) {
   PSECURITY_DESCRIPTOR sd = nullptr;
-  const DWORD fields = full ? SACL_SECURITY_INFORMATION : LABEL_SECURITY_INFORMATION | ATTRIBUTE_SECURITY_INFORMATION | SCOPE_SECURITY_INFORMATION | PROCESS_TRUST_LABEL_SECURITY_INFORMATION | ACCESS_FILTER_SECURITY_INFORMATION;
+  const DWORD fields = LABEL_SECURITY_INFORMATION | ATTRIBUTE_SECURITY_INFORMATION | SCOPE_SECURITY_INFORMATION | PROCESS_TRUST_LABEL_SECURITY_INFORMATION | ACCESS_FILTER_SECURITY_INFORMATION | (full ? SACL_SECURITY_INFORMATION : 0);
   DWORD code = GetNamedSecurityInfoW(const_cast<wchar_t *>(path.c_str()), SE_FILE_OBJECT, fields, nullptr, nullptr, nullptr, nullptr, &sd);
   if (code) return "error:" + std::to_string(code);
   const std::string text = securityString(sd, SACL_SECURITY_INFORMATION); LocalFree(sd); return text;
@@ -184,7 +184,8 @@ void ordinary(const fs::path &root) {
   for (const auto &mode : modes) for (DWORD attributes : {DWORD(FILE_ATTRIBUTE_NORMAL), DWORD(FILE_ATTRIBUTE_HIDDEN), DWORD(FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE),
       DWORD(FILE_ATTRIBUTE_NOT_CONTENT_INDEXED | FILE_ATTRIBUTE_ARCHIVE), DWORD(FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_ARCHIVE), DWORD(FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_ARCHIVE)}) {
     Case c(root, "attr_" + std::to_string(attributes), mode);
-    require(SetFileAttributesW(c.path.c_str(), attributes) != FALSE, "fixture attributes"); c.run();
+    require(SetFileAttributesW(c.path.c_str(), attributes) != FALSE, "fixture attributes"); const bool saved=c.run();
+    if(attributes & FILE_ATTRIBUTE_READONLY)check(!saved,"read-only destination refused without clearing");
     // Fixture cleanup only; the writer must not clear READONLY.
     if (attributes & FILE_ATTRIBUTE_READONLY) SetFileAttributesW(c.path.c_str(), FILE_ATTRIBUTE_ARCHIVE);
   }
@@ -216,6 +217,35 @@ void ordinary(const fs::path &root) {
     if (mode == "minimal" || mode == "inherited") check(inspect(c.path).dacl == c.before.dacl, "opaque conditional ACE retained");
   }
 }
+
+void newPermissions(const fs::path &root) {
+  const auto base=root/L"new_permissions";fs::create_directories(base);
+  const auto permissions=L"D:PAI(A;OICI;FA;;;"+userSid()+L")(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FR;;;BU)";
+  for(const auto &mode:{std::string("minimal"),std::string("inherited")}){
+    Case c(base,"new",mode,false);setDacl(c.dir,permissions);check(c.run(),"shared-folder new creation");
+  }
+  current="new_permissions/staged";const auto dir=base/L"staged";fs::create_directory(dir);setDacl(dir,permissions);
+  const auto exemplar=dir/L"empty-inherited-exemplar",temporary=dir/L"private-completed-sibling",path=dir/L"photo.rawnode.json";
+  make(exemplar,"");const auto inherited=inspect(exemplar);std::string error;
+  require(persist_detail::replaceFileAtomically(temporary.u8string(),NEW,error),"private completed sibling");snapshot("private","staged sibling",temporary,inspect(temporary));
+  PSECURITY_DESCRIPTOR sd=nullptr;PACL dacl=nullptr;
+  Handle h(CreateFileW(exemplar.c_str(),READ_CONTROL,shareAll,nullptr,OPEN_EXISTING,0,nullptr));
+  require(GetSecurityInfo(h.h,SE_FILE_OBJECT,DACL_SECURITY_INFORMATION,nullptr,nullptr,&dacl,nullptr,&sd)==0,"inherited exemplar DACL");
+  const DWORD copied=SetNamedSecurityInfoW(const_cast<wchar_t*>(temporary.c_str()),SE_FILE_OBJECT,DACL_SECURITY_INFORMATION|UNPROTECTED_DACL_SECURITY_INFORMATION,nullptr,nullptr,dacl,nullptr);LocalFree(sd);
+  require(!copied,"stage final inherited DACL");CloseHandle(h.h);h.h=INVALID_HANDLE_VALUE;
+  require(DeleteFileW(exemplar.c_str())!=FALSE,"remove empty exemplar");require(MoveFileExW(temporary.c_str(),path.c_str(),0)!=FALSE,"publish staged new file");
+  snapshot("after","staged publication",path,inspect(path));check(inspect(path).dacl==inherited.dacl&&inspect(path).bytes==NEW,"private-to-inherited final DACL matches native inheritance");
+}
+void readCreated(const fs::path &root){
+  for(const auto &mode:{L"minimal",L"inherited",L"staged"}){
+    current="other_account_new_permissions/"+utf8(mode);
+    const auto path=std::wstring(mode)==L"staged"?root/L"new_permissions"/mode/L"photo.rawnode.json":root/L"new_permissions"/L"new"/mode/L"photo.rawnode.json";
+    HANDLE h=CreateFileW(path.c_str(),GENERIC_READ,shareAll,nullptr,OPEN_EXISTING,0,nullptr);const DWORD error=h==INVALID_HANDLE_VALUE?GetLastError():0;
+    info("different-account read error",std::to_string(error));if(h!=INVALID_HANDLE_VALUE)CloseHandle(h);
+    check(std::wstring(mode)==L"minimal"?error==ERROR_ACCESS_DENIED:error==0,"private versus inherited shared-folder access");
+  }
+}
+
 void failuresCases(const fs::path &root) {
   for (DWORD sharing : {DWORD(FILE_SHARE_READ | FILE_SHARE_WRITE), DWORD(shareAll)}) for (const auto &mode : modes) {
     Case c(root, "reader_" + std::to_string(sharing), mode);
@@ -291,10 +321,12 @@ void unicodePipeline(const fs::path &root) {
   Image authored; authored.w = authored.h = 1; authored.px = {0.25f,0.5f,0.75f,1.0f};
   const auto seed = images / L"seed.png"; require(writeImage(authored, seed.u8string(), {RgbGamut::DisplayP3,TransferFunction::Linear}), "actual production tagged image fixture");
   PersistFile f; f.grade = grade(); f.metadataJson = R"({"mark":"pick"})"; std::string json, error; require(encodeGraphFile(f,json,error), "grade fixture encode");
-  for (const auto &name : {L"ascii", L"caf\u00e9", L"\u65e5\u672c", L"photo_\U0001f98a"}) {
-    current = "pipeline/" + utf8(name);
-    const auto dir = images / (L"case_" + std::to_wstring(std::hash<std::wstring>{}(name))); fs::create_directory(dir);
-    const auto path = dir / (std::wstring(name) + L".png"); require(CopyFileW(seed.c_str(), path.c_str(), TRUE) != FALSE, "Unicode image fixture copy");
+  for (const auto &name : {L"ascii", L"caf\u00e9", L"\u65e5\u672c", L"photo_\U0001f98a"}) for (const auto &extension : {L".png", L".dng"}) {
+    current = "pipeline/" + utf8(name) + utf8(extension);
+    const bool dng = std::wstring(extension)==L".dng";
+    const ColorEncoding expected = dng ? ColorEncoding{RgbGamut::Rec2020,TransferFunction::Linear} : ColorEncoding{RgbGamut::DisplayP3,TransferFunction::Linear};
+    const auto dir = images / (L"case_" + std::to_wstring(std::hash<std::wstring>{}(name)) + std::wstring(extension)); fs::create_directory(dir);
+    const auto path = dir / (std::wstring(name) + extension); require(CopyFileW(dng ? fs::path(RESEARCH_DNG).c_str() : seed.c_str(), path.c_str(), TRUE) != FALSE, "Unicode image fixture copy");
     make(fs::path(path.wstring()+L".rawnode.json"), json);
     std::vector<std::string> discovered;
     try { discovered = listFolderImages(dir.u8string()); info("actual discovery count", std::to_string(discovered.size())); }
@@ -303,21 +335,21 @@ void unicodePipeline(const fs::path &root) {
       const auto p = discovered.front(); info("discovered filename hex", hex(p)); info("expected UTF-8 hex", hex(path.u8string()));
       Image decoded; ColorEncoding detected; bool raw;
       const bool loaded = loadImage(p, decoded, detected, raw); info("actual loadImage", loaded ? "true" : "false");
-      info("profile correct", loaded && detected == ColorEncoding{RgbGamut::DisplayP3,TransferFunction::Linear} ? "true" : "false");
+      info("profile correct", loaded && detected == expected ? "true" : "false");
       PersistFile loadedSidecar; const auto status = readGraphSidecar(inputSidecarPath(p), loadedSidecar, error);
       info("actual sidecar status", std::to_string(int(status))); info("actual sidecar error", error);
       const bool currentSaved = updateSidecarMark(inputSidecarPath(p), PhotoMark::Reject, error); info("actual current save discovered path", currentSaved ? "true" : "false"); info("current save error", error);
       if (GetACP()==CP_UTF8) check(currentSaved,"manifest actual production mark save");
       const bool saved = experiment::save(inputSidecarPath(p), json, error); info("experimental save discovered path", saved ? "true" : "false"); info("save error", error);
-      if (GetACP() == CP_UTF8) check(p == path.u8string() && loaded && loadedSidecar.grade && saved && detected == ColorEncoding{RgbGamut::DisplayP3,TransferFunction::Linear}, "UTF-8 manifest actual discovery/decode/profile/grade/save pipeline");
+      if (GetACP() == CP_UTF8) check(p == path.u8string() && loaded && loadedSidecar.grade && saved && detected == expected, "UTF-8 manifest actual discovery/decode/profile/grade/save pipeline");
     } else if (GetACP() == CP_UTF8) check(false, "UTF-8 manifest must discover photograph");
     // Scoped conversion fixes discovery; it does not change narrow decoder/ICC opens.
     std::vector<std::string> explicitPaths;
-    for (const auto &p : fs::directory_iterator(fs::u8path(dir.u8string()))) if (p.path().extension() == L".png") explicitPaths.push_back(p.path().u8string());
+    for (const auto &p : fs::directory_iterator(fs::u8path(dir.u8string()))) if (p.path().extension() == extension) explicitPaths.push_back(p.path().u8string());
     Image decoded; ColorEncoding detected; bool raw;
     const bool loaded = loadImage(explicitPaths.front(), decoded, detected, raw);
-    info("explicit UTF-8 discovery loadImage", loaded ? "true" : "false"); info("explicit UTF-8 profile correct", loaded && detected == ColorEncoding{RgbGamut::DisplayP3,TransferFunction::Linear} ? "true" : "false");
-    const auto unicodeDir = images / (std::wstring(name) + L"_folder"); fs::create_directory(unicodeDir); require(CopyFileW(seed.c_str(), (unicodeDir/L"photo.png").c_str(), TRUE) != FALSE, "Unicode directory image");
+    info("explicit UTF-8 discovery loadImage", loaded ? "true" : "false"); info("explicit UTF-8 profile correct", loaded && detected == expected ? "true" : "false");
+    const auto unicodeDir = images / (std::wstring(name) + std::wstring(extension) + L"_folder"); fs::create_directory(unicodeDir); require(CopyFileW(seed.c_str(), (unicodeDir/L"photo.png").c_str(), TRUE) != FALSE, "Unicode directory image");
     try { const auto paths = listFolderImages(unicodeDir.u8string()); info("Unicode folder actual discovery count", std::to_string(paths.size())); if (GetACP()==CP_UTF8) check(paths.size()==1,"manifest Unicode folder discovery"); }
     catch(const std::exception &e) { info("Unicode folder exception",e.what()); if(GetACP()==CP_UTF8)check(false,"manifest Unicode folder exception"); }
   }
@@ -338,12 +370,13 @@ void volume(const fs::path &root, const fs::path &volumeRoot) {
   if(wcscmp(filesystem,L"NTFS")==0){current="minimal_disk_full";const auto full=volumeRoot/L"full.json";make(full,OLD);const auto before=inspect(full);std::string error;const bool ok=experiment::save(full.u8string(),std::string(160*1024*1024,'F'),error);info("disk full result",ok?"true":"false");info("disk full error",error);check(!ok&&unchanged(before,inspect(full)),"genuine disk-full failure preserves original");}
 }
 int wmain(int argc,wchar_t **argv){try{
+  if(argc>=3&&std::wstring(argv[1])==L"--read-created"){readCreated(argv[2]);return failures?1:0;}
   if(argc>=3&&std::wstring(argv[1])==L"--create-other"){for(const auto &mode:modes){const auto dir=fs::path(argv[2])/L"foreign_owner"/wide(mode);fs::create_directories(dir);make(dir/L"photo.rawnode.json",OLD);}return 0;}
   if(argc>=5&&std::wstring(argv[1])==L"--prepare"){prepare(argv[2],argv[3],argv[4]);return failures?1:0;}
   if(argc>=4&&std::wstring(argv[1])==L"--volume"){volume(argv[2],argv[3]);return failures?1:0;}
   if(argc<3)throw std::runtime_error("root and mode required"); const fs::path root=argv[1];fs::create_directories(root);
   current="environment";info("account SID",utf8(userSid()));info("ACP",std::to_string(GetACP()));
   if(std::wstring(argv[2])==L"--pipeline"){unicodePipeline(root);}
-  else{ordinary(root);failuresCases(root);pathCases(root);securityCases(root);unicodePipeline(root);}
+  else{ordinary(root);newPermissions(root);failuresCases(root);pathCases(root);securityCases(root);unicodePipeline(root);}
   std::cout<<"{\"type\":\"summary\",\"failed_checks\":"<<failures<<"}\n";return failures?1:0;
 }catch(const std::exception &e){std::cerr<<"case "<<current<<": "<<e.what()<<" ("<<GetLastError()<<")\n";return 2;}}

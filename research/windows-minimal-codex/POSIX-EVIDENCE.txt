@@ -1,0 +1,6 @@
+acl_set=-1
+before uid=1000 gid=1000 mode=664 nlink=2 inode=266550 xattr=10 acl=-1
+replace=1 error= uid=1000 gid=1000 mode=664 nlink=1 inode=266553 xattr=-1 acl=-1 alias=OLD file=NEW
+symlink=0 still_link=1 target=NEW error=/workspace/work/posix-minimal-fixtures/symbolic: Destination is not a regular file: Invalid argument
+new=1 mode=600
+fault=0 original=NEW error=/workspace/work/posix-minimal-fixtures/sidecar: Cannot write temporary file: Input/output error
