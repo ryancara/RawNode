@@ -81,7 +81,9 @@ bool readSecurity(HANDLE file, Security &out, std::string &error) {
     return fail(error, "Cannot inspect access protections", GetLastError());
   // An empty filtered ACL can still hide auditing ACEs. Refuse non-null system
   // ACLs, not just the enforcement ACEs visible to an unprivileged query.
-  if ((present && sacl) || (out.control & SE_SACL_PROTECTED)) {
+  constexpr SECURITY_DESCRIPTOR_CONTROL specialControl = SE_SACL_PROTECTED | SE_DACL_UNTRUSTED |
+      SE_SERVER_SECURITY | SE_RM_CONTROL_VALID;
+  if ((present && sacl) || (out.control & specialControl)) {
     error = "Unsupported integrity, resource, central-access or other system protection";
     return false;
   }
