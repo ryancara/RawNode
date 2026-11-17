@@ -1,0 +1,116 @@
+name: Codex minimal Windows persistence research
+on:
+  push:
+    branches: [codex/research-windows-minimal-20261117]
+    paths: [research/windows-minimal-codex/**, .github/workflows/windows-minimal-codex.yml]
+permissions:
+  contents: read
+concurrency:
+  group: codex-minimal-windows
+  cancel-in-progress: true
+jobs:
+  native-research:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: glfw/glfw
+          ref: '3.4'
+          path: native-deps/glfw
+      - uses: actions/checkout@v4
+        with:
+          repository: ocornut/imgui
+          ref: v1.91.8-docking
+          path: native-deps/imgui
+      - name: Record environment and install existing image-component dependencies
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory evidence | Out-Null
+          Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber | ConvertTo-Json | Set-Content evidence/os.json
+          Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' | Select-Object CurrentBuildNumber,UBR,BuildLabEx | ConvertTo-Json | Set-Content evidence/build.json
+          whoami /all > evidence/token.txt
+          Get-Volume | Select-Object DriveLetter,FileSystem,DriveType,Size | ConvertTo-Json | Set-Content evidence/volumes.json
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" version | Set-Content evidence/vcpkg-version.txt
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install tiff:x64-windows lcms:x64-windows libjpeg-turbo:x64-windows zlib:x64-windows --x-install-root="$pwd/native-deps/vcpkg" 2>&1 | Tee-Object evidence/dependencies.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Existing decoder dependency build failed' }
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" list --x-install-root="$pwd/native-deps/vcpkg" | Set-Content evidence/dependency-versions.txt
+      - name: Build unchanged production image and persistence components plus experimental probes
+        shell: pwsh
+        run: |
+          cmake -S research/windows-minimal-codex -B build-minimal -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" "-DVCPKG_INSTALLED_DIR=$pwd/native-deps/vcpkg" 2>&1 | Tee-Object evidence/configure.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Configure failed' }
+          cmake --build build-minimal --config Release --parallel 3 2>&1 | Tee-Object evidence/compile.txt
+          if ($LASTEXITCODE -ne 0) { throw 'MSVC build failed' }
+      - name: Account fixtures, comparative matrix and real photograph pipeline
+        shell: pwsh
+        run: |
+          $owner = 'RNMinOwner'
+          $tester = 'RNMinProbe'
+          $secret = ConvertTo-SecureString ([guid]::NewGuid().ToString('N') + '!Aa9') -AsPlainText -Force
+          $other = New-LocalUser -Name $owner -Password $secret -AccountNeverExpires
+          $user = New-LocalUser -Name $tester -Password $secret -AccountNeverExpires
+          try {
+            Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $other,$user
+            $base = Join-Path $env:RUNNER_TEMP ('rawnode-minimal-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory $base | Out-Null
+            & icacls.exe $base /grant "${owner}:(OI)(CI)M" "${tester}:(OI)(CI)M" | Set-Content evidence/fixture-parent-acl.txt
+            $exe = "$pwd/build-minimal/Release/Probe.exe"
+            $runnerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            $accountSid = $user.SID.Value
+            $otherSid = $other.SID.Value
+            foreach ($kind in @('runner','ordinary')) {
+              $root = Join-Path $base $kind
+              New-Item -ItemType Directory $root | Out-Null
+              $credential = [pscredential]::new("$env:COMPUTERNAME\$owner", $secret)
+              $created = Start-Process $exe -ArgumentList "--create-other `"$root`"" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd/evidence/created-by-other-$kind.jsonl" -RedirectStandardError "$pwd/evidence/created-by-other-$kind.err"
+              if ($created.ExitCode -ne 0) { throw 'Other account fixture creation failed' }
+              $sid = if ($kind -eq 'runner') { $runnerSid } else { $accountSid }
+              & $exe --prepare $root $sid $otherSid 2>&1 | Tee-Object "evidence/prepare-$kind.jsonl"
+              if ($LASTEXITCODE -ne 0) { throw 'Privileged fixture preparation failed' }
+              if ($kind -eq 'runner') {
+                & $exe $root --matrix 2>&1 | Tee-Object evidence/runner.jsonl
+                if ($LASTEXITCODE -ne 0) { throw 'Runner matrix failed' }
+              } else {
+                $credential = [pscredential]::new("$env:COMPUTERNAME\$tester", $secret)
+                $process = Start-Process $exe -ArgumentList "`"$root`" --matrix" -Credential $credential -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd/evidence/ordinary.jsonl" -RedirectStandardError "$pwd/evidence/ordinary.err"
+                if ($process.ExitCode -ne 0) { Get-Content evidence/ordinary.err; throw "Ordinary matrix failed: $($process.ExitCode)" }
+              }
+            }
+            foreach ($variant in @('ProbeUtf8','ProbeScoped')) {
+              & "./build-minimal/Release/$variant.exe" (Join-Path $base $variant) --pipeline 2>&1 | Tee-Object "evidence/$variant.jsonl"
+              if ($LASTEXITCODE -ne 0) { throw "$variant pipeline failed" }
+            }
+          } finally {
+            Remove-LocalUser -Name $tester,$owner -ErrorAction SilentlyContinue
+          }
+      - name: Disposable NTFS FAT32 and exFAT VHD comparisons
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path build-minimal/Release/Probe.exe)) { exit 0 }
+          $exe = "$pwd/build-minimal/Release/Probe.exe"
+          $base = Join-Path $env:RUNNER_TEMP ('rawnode-volumes-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory $base | Out-Null
+          foreach ($fs in @('ntfs','fat32','exfat')) {
+            $vhd = Join-Path $base "$fs.vhd"
+            $drive = @('Z','Y','X','W') | Where-Object { -not (Test-Path "${_}:\") } | Select-Object -First 1
+            @("create vdisk file=`"$vhd`" maximum=128 type=expandable", "select vdisk file=`"$vhd`"", 'attach vdisk', 'create partition primary', "format fs=$fs quick label=RNDisposable", "assign letter=$drive") | Set-Content "evidence/diskpart-$fs.txt"
+            try {
+              & diskpart.exe /s "evidence/diskpart-$fs.txt" | Tee-Object "evidence/diskpart-$fs.log"
+              if (-not (Test-Path "${drive}:\")) { "Unavailable: $fs VHD" | Set-Content "evidence/unavailable-$fs.txt"; continue }
+              & $exe --volume (Join-Path $base $fs) "${drive}:\probe" 2>&1 | Tee-Object "evidence/volume-$fs.jsonl"
+              if ($LASTEXITCODE -ne 0) { throw "$fs volume probe failed" }
+            } finally {
+              @("select vdisk file=`"$vhd`"", 'detach vdisk') | Set-Content "evidence/detach-$fs.txt"
+              & diskpart.exe /s "evidence/detach-$fs.txt" | Set-Content "evidence/detach-$fs.log"
+              Remove-Item $vhd -ErrorAction SilentlyContinue
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: codex-minimal-windows-evidence
+          path: evidence/
+          retention-days: 21
