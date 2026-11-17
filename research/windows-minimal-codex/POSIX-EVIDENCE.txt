@@ -4,3 +4,8 @@ replace=1 error= uid=1000 gid=1000 mode=664 nlink=1 inode=266553 xattr=-1 acl=-1
 symlink=0 still_link=1 target=NEW error=/workspace/work/posix-minimal-fixtures/symbolic: Destination is not a regular file: Invalid argument
 new=1 mode=600
 fault=0 original=NEW error=/workspace/work/posix-minimal-fixtures/sidecar: Cannot write temporary file: Input/output error
+
+Environment: uid/gid 1000, Linux overlayfs; actual ProjectPersistSave.cpp compiled with
+g++ -std=c++17 -O2 -ffunction-sections -fdata-sections -Isrc PosixProbe.cpp ProjectPersistSave.cpp -Wl,--gc-sections -ldl
+Follow-up: acl_valid=0, acl_set_file=-1, errno=22 (Invalid argument). No native ACL-preservation conclusion.
+Compiler: 14.2.0
