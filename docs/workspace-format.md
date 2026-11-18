@@ -11,7 +11,7 @@ Application settings live in one directory resolved at startup:
 | --- | --- |
 | macOS | `~/Library/Application Support/RawNode/` |
 | Linux | `$XDG_CONFIG_HOME/RawNode/`, or `~/.config/RawNode/` |
-| Windows, when supported | Roaming application-data `RawNode` directory |
+| Windows | `%APPDATA%\RawNode\` |
 
 `preferences.json` stores theme, Inspector/Nodes and filmstrip visibility,
 fallback Inspector width/filmstrip height, preview resolution, export format/JPEG
@@ -34,9 +34,9 @@ on normal shutdown even without an opened folder. A cancelled photo-save departu
 keeps the editor and renderer usable and does not finish shutdown. Directory and
 file errors produce warnings and in-memory defaults; there is no CWD, photograph
 folder or installation-directory fallback. Invalid/unreadable or newer-format
-preferences are left untouched for that session. The checked atomic writer protects
-previous preference bytes on failure; ImGui's own ini writes are not atomic.
-Windows atomic file replacement is not yet supported and reports a warning.
+preferences are left untouched for that session. Preferences use the shared
+[atomic writer](DECISIONS.md#d058--shared-atomic-persistence) and layout uses
+ImGui's native ini writes.
 
 The format is a small JSON object with `format: "rawnode-preferences"`, `version: 1`.
 All settings are optional. Missing fields receive built-in defaults independently;

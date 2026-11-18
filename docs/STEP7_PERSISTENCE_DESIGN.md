@@ -12,8 +12,8 @@ have passed verification. This document records that design checkpoint.
 [#68](https://github.com/ryancara/RawNode/pull/68) and
 [#69](https://github.com/ryancara/RawNode/pull/69), ending at
 `69572b265075cc44cc9b06ee52ad1c803263f345`. Graph-native records serve live photo
-opening/saving, presets and clipboard; checked POSIX atomic writes protect file
-updates (Windows replacement remains unsupported). Global preferences/layout
+opening/saving, presets and clipboard. The current shared atomic writer follows
+[D058](DECISIONS.md#d058--shared-atomic-persistence). Global preferences/layout
 replace folder workspace persistence. Graph/List is next, followed by Step 8.
 
 Sections 2–7 specify the accepted format and lifecycle implemented by Step 7.
@@ -342,11 +342,11 @@ error with the path; every caller must handle the result.
   checking protection even for direct writers. An inaccessible/nonregular target
   is not an absent sidecar. An absent file becomes metadata-only on a mark update
   and gains a grade when editor opening establishes it, or on another grade save.
-- Validate the outgoing document before touching the target. Create a unique
-  temporary file in the same directory, check write/flush/close errors, then use
-  the platform's atomic replacement operation. Never delete the destination
-  first. On failure, remove only our temporary file; keep original bytes and
-  the complete live document. No watcher, journal or recovery service is needed.
+- Validate the outgoing document and check destination type and writability.
+  Exclusively create a temporary sibling, check write, flush and close, then
+  publish with one atomic replacement operation. On failure, keep the original
+  and the live document and clean up the owned temporary where possible.
+  [D058](DECISIONS.md#d058--shared-atomic-persistence) defines the file contract.
 
 Prefer the strict reader's source spans/raw-value or lossless serialization
 support for unchanged sections and opaque parameters. Existing `extractObject`
@@ -554,9 +554,9 @@ its first frame; missing docking uses existing fallback sizes. Tests include
 hand-authored preferences, startup-to-new-grade colour assertions, native ini
 save/reload without a GL context, atomic failures and cancelled shutdown. Legacy
 V1/V2 sidecar helpers remain solely for historical self-test fixtures; all workspace
-read/write and folder ini-switch functions are removed. Windows atomic writes
-remain unsupported. The manual validation record distinguishes the owner's five
-passed macOS checks from the remaining platform/failure cases.
+read/write and folder ini-switch functions are removed. The manual validation
+record distinguishes the owner's five passed macOS checks from the remaining
+platform/failure cases.
 
 ## 9. Deterministic tests
 
@@ -604,7 +604,7 @@ the implementation PRs' test evidence.
 Claude's design verification passed at the head recorded above. The required
 RAW working pair for raster grades remains part of the implemented schema.
 PRs 1–2 subsequently implemented the strict JSON reader and checked POSIX atomic
-replacement; Windows atomic writes remain unsupported.
+replacement. D058 extends the shared writer to Windows.
 Outstanding manual evidence/waivers apply only to the relevant live paths.
 Future automatic default-preset application failure handling remains deferred to
 that feature's implementation milestone.

@@ -1,8 +1,11 @@
 #include "SidecarFileTests.h"
 #include "SidecarFileTestAccess.h"
 #include "GraphPersistenceTestAccess.h"
+#include "imgio/ImageIO.h"
 #include "persist/Json.h"
+#include "persist/Preferences.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -11,7 +14,12 @@
 #include <set>
 #include <stdexcept>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <sddl.h>
+#else
 #include <grp.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -29,19 +37,22 @@ namespace {
 namespace fs = std::filesystem;
 using Fault = SidecarFileTestAccess::Fault;
 
-#ifndef _WIN32
 struct TestDirectory {
   fs::path path;
   TestDirectory() {
+#ifdef _WIN32
+    path = fs::temp_directory_path() / (L"rawnode-file-test-" + std::to_wstring(GetCurrentProcessId()));
+    if (!fs::create_directory(path)) throw std::runtime_error("Cannot create sidecar test directory");
+#else
     const auto pattern = (fs::temp_directory_path() / "rawnode-file-test-XXXXXX").string();
     std::vector<char> name(pattern.begin(), pattern.end());
     name.push_back('\0');
     if (!mkdtemp(name.data())) throw std::runtime_error("Cannot create sidecar test directory");
     path = name.data();
+#endif
   }
   ~TestDirectory() { std::error_code ignored; fs::remove_all(path, ignored); }
 };
-#endif
 
 void write(const fs::path &path, const std::string &text) {
   std::ofstream stream(path, std::ios::binary);
@@ -275,17 +286,132 @@ bool atomicFailures(const fs::path &dir) {
   CHECK(error.find("Invalid parameter JSON") != std::string::npos);
   CHECK(!updateSidecarMark(path, static_cast<PhotoMark>(99), error));
   CHECK(bytes(path) == original && entries(dir) == before);
-  // An already-open reader must retain the complete original inode after a
-  // successful replacement. A truncate-and-write implementation fails this.
+#ifdef _WIN32
+  // Deny deletion while allowing the read and writability preflight.
+  const HANDLE reader = CreateFileW(fs::u8path(path).c_str(), GENERIC_READ,
+      FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+  CHECK(reader != INVALID_HANDLE_VALUE);
+  const bool saved = updateSidecarMark(path, PhotoMark::Pick, error);
+  CHECK(CloseHandle(reader));
+  CHECK(!saved && error.find("replace") != std::string::npos);
+  CHECK(bytes(path) == original && entries(dir) == before);
+  CHECK(updateSidecarMark(path, PhotoMark::Pick, error));
+#else
+  // A reader of the original inode keeps seeing the old bytes after replacement.
   std::ifstream held(path, std::ios::binary);
   CHECK(held.good());
   CHECK(updateSidecarMark(path, PhotoMark::Pick, error));
   const std::string oldBytes{std::istreambuf_iterator<char>(held), std::istreambuf_iterator<char>()};
   CHECK(oldBytes == original && bytes(path) != original && entries(dir) == before);
+#endif
   return true;
 }
 
-#ifndef _WIN32
+bool unicodePaths(const fs::path &dir) {
+  const auto folder = dir / fs::u8path(u8"photos-\u4e2d-\U0001f98a");
+  CHECK(fs::create_directory(folder));
+  const Image image{{0.2f, 0.4f, 0.6f, 1.0f}, 1, 1};
+  const auto first = (folder / fs::u8path(u8"caf\u00e9.png")).u8string();
+  const auto second = (folder / fs::u8path(u8"caf\u00c3\u00a9.png")).u8string();
+  CHECK(writeImage(image, first) && writeImage(image, second));
+  std::set<std::string> expected{first, second};
+#ifdef RAWNODE_TEST_DNG
+  const auto rawPath = folder / fs::u8path(u8"caf\u00e9.dng");
+  CHECK(fs::copy_file(fs::u8path(RAWNODE_TEST_DNG), rawPath));
+  expected.insert(rawPath.u8string());
+#endif
+  const auto discovered = listFolderImages(folder.u8string());
+  CHECK(discovered.size() == expected.size());
+  CHECK(std::set<std::string>(discovered.begin(), discovered.end()) == expected);
+  std::string error;
+  for (const auto &photo : discovered) {
+    Image decoded;
+    ColorEncoding detected;
+    bool raw = false;
+    CHECK(loadImage(photo, decoded, detected, raw) && !decoded.px.empty());
+    CHECK(raw == (fs::u8path(photo).extension() == ".dng"));
+    CHECK(updateSidecarGrade(inputSidecarPath(photo), replacementGrade(), error));
+    CHECK(updateSidecarMark(inputSidecarPath(photo), PhotoMark::Reject, error));
+  }
+  const auto firstSidecar = fs::u8path(inputSidecarPath(first));
+  const auto secondSidecar = fs::u8path(inputSidecarPath(second));
+  const auto firstBefore = bytes(firstSidecar);
+  const auto secondBefore = bytes(secondSidecar);
+  const auto selected = std::find(discovered.begin(), discovered.end(), second);
+  CHECK(selected != discovered.end());
+  CHECK(updateSidecarMark(inputSidecarPath(*selected), PhotoMark::Pick, error));
+  CHECK(bytes(firstSidecar) == firstBefore && bytes(secondSidecar) != secondBefore);
+  PersistFile file;
+  CHECK(readGraphSidecar(secondSidecar.u8string(), file, error) == SidecarReadStatus::Loaded);
+  CHECK(file.grade && photoMark(file) == PhotoMark::Pick);
+
+  const auto preset = (folder / fs::u8path(u8"pr\u00e9set.rawnode.json")).u8string();
+  auto grade = replacementGrade();
+  CHECK(updateSidecarGrade(preset, grade, error));
+  const NodeId newSource{"new-source"};
+  grade.graph.nodes[0].id = newSource.value;
+  grade.graph.primarySource = newSource;
+  grade.graph.documentOutput.nodeId = newSource;
+  CHECK(updateSidecarGrade(preset, grade, error));
+  PersistGrade loaded;
+  CHECK(loadPresetFile(preset, loaded, error) && loaded.graph.primarySource == newSource);
+
+#ifdef _WIN32
+  const auto *previous = _wgetenv(L"APPDATA");
+  const std::wstring previousAppData = previous ? previous : L"";
+  CHECK(_wputenv_s(L"APPDATA", folder.c_str()) == 0);
+  const auto prefs = applicationConfigPaths(error).preferences;
+  CHECK(_wputenv_s(L"APPDATA", previousAppData.c_str()) == 0);
+  CHECK(error.empty() && prefs == (folder / "RawNode" / "preferences.json").u8string());
+#else
+  const auto prefs = (folder / "preferences.json").u8string();
+#endif
+  Preferences options;
+  CHECK(savePreferences(prefs, options, error));
+  options.jpegQuality = 73;
+  CHECK(savePreferences(prefs, options, error));
+  CHECK(loadPreferences(prefs, options, error) && options.jpegQuality == 73);
+  return true;
+}
+
+#ifdef _WIN32
+bool standardRenameReplacesExisting(const fs::path &dir) {
+  const auto source = dir / L"rename-source";
+  const auto destination = dir / L"rename-destination";
+  write(source, "replacement bytes");
+  write(destination, "original bytes");
+  std::error_code error;
+  fs::rename(source, destination, error);
+  CHECK(!error && !fs::exists(source) && bytes(destination) == "replacement bytes");
+  std::puts("ok  MSVC std::filesystem::rename replaces an existing destination");
+  return true;
+}
+
+bool permissionTests(const fs::path &dir) {
+  const auto path = dir / L"write-denied.rawnode.json";
+  const auto original = file(opaqueGrade);
+  write(path, original);
+  const auto before = entries(dir);
+  std::string error;
+  CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_READONLY));
+  const bool savedReadOnly = updateSidecarMark(path.u8string(), PhotoMark::Reject, error);
+  CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_NORMAL));
+  CHECK(!savedReadOnly && error.find("not writable") != std::string::npos);
+  CHECK(bytes(path) == original && entries(dir) == before);
+
+  // Deny only FILE_WRITE_DATA, while permitting reads and deletion.
+  PSECURITY_DESCRIPTOR security = nullptr;
+  CHECK(ConvertStringSecurityDescriptorToSecurityDescriptorW(
+      L"D:P(D;;0x2;;;WD)(A;;FA;;;WD)", SDDL_REVISION_1, &security, nullptr));
+  const BOOL applied = SetFileSecurityW(path.c_str(), DACL_SECURITY_INFORMATION, security);
+  LocalFree(security);
+  CHECK(applied);
+  CHECK(!updateSidecarMark(path.u8string(), PhotoMark::Reject, error));
+  CHECK(error.find("not writable") != std::string::npos);
+  CHECK(bytes(path) == original && entries(dir) == before);
+  return true;
+}
+#else
 mode_t permissions(const fs::path &path) {
   struct stat status{};
   if (stat(path.c_str(), &status) != 0) throw std::runtime_error("Cannot stat sidecar fixture: " + path.string());
@@ -372,16 +498,16 @@ bool permissionTests(const fs::path &dir) {
 }  // namespace
 
 bool testSidecarFiles() {
-#ifdef _WIN32
-  std::puts("skip graph-native atomic sidecar tests: Windows replacement is not implemented");
-#else
   TestDirectory directory;
   CHECK(independentSections(directory.path));
   CHECK(slotSection(directory.path));
   CHECK(protectedFiles(directory.path));
   CHECK(atomicFailures(directory.path));
-  CHECK(permissionTests(directory.path));
-  std::puts("ok  Step 7 safe sidecar files: exact independent sections, protected destinations, checked atomic failures/cleanup, POSIX permissions");
+#ifdef _WIN32
+  CHECK(standardRenameReplacesExisting(directory.path));
 #endif
+  CHECK(permissionTests(directory.path));
+  CHECK(unicodePaths(directory.path));
+  std::puts("ok  safe sidecar files: independent sections, permissions, atomic failures/cleanup and Unicode identity");
   return true;
 }

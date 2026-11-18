@@ -20,8 +20,16 @@
 #include <fstream>
 #include <sstream>
 
-#ifndef _WIN32
 #include <sys/stat.h>
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <atomic>
+#include <fcntl.h>
+#include <io.h>
+#include <share.h>
+#else
 #include <unistd.h>
 #endif
 
@@ -140,11 +148,12 @@ std::vector<std::string> openImageDialogFilters() {
 std::vector<std::string> listFolderImages(const std::string &folderDir) {
   std::vector<std::string> out;
   std::error_code ec;
-  if (!fs::is_directory(folderDir, ec)) return out;
-  for (const auto &ent : fs::directory_iterator(folderDir, fs::directory_options::skip_permission_denied, ec)) {
+  const auto directory = fs::u8path(folderDir);
+  if (!fs::is_directory(directory, ec)) return out;
+  for (const auto &ent : fs::directory_iterator(directory, fs::directory_options::skip_permission_denied, ec)) {
     if (ec) break;
     if (!ent.is_regular_file()) continue;
-    const std::string p = ent.path().string();
+    const std::string p = ent.path().u8string();
     if (isHostMetadataPath(p)) continue;
     if (!isSupportedImagePath(p)) continue;
     out.push_back(p);
@@ -359,90 +368,132 @@ bool encodeGraphFile(const PersistFile &file, std::string &json, std::string &er
 }
 
 namespace {
-#ifndef _WIN32
 struct SiblingTemporaryFile {
-  std::filesystem::path path;
+  fs::path path;
   std::FILE *stream = nullptr;
   ~SiblingTemporaryFile() {
     if (stream) std::fclose(stream);
     if (!path.empty()) { std::error_code ignored; std::filesystem::remove(path, ignored); }
   }
 };
-#endif
 
+int createTemporarySibling(const fs::path &destination, fs::path &ownedPath) {
+#ifdef _WIN32
+  static std::atomic<unsigned long> sequence{0};
+  const auto prefix = L".rawnode-tmp-" + std::to_wstring(GetCurrentProcessId()) + L"-";
+  for (int attempt = 0; attempt < 32; ++attempt) {
+    auto name = destination.parent_path() /
+        (prefix + std::to_wstring(sequence.fetch_add(1, std::memory_order_relaxed)));
+    int fd;
+    const auto code = _wsopen_s(&fd, name.c_str(), _O_CREAT | _O_EXCL | _O_WRONLY | _O_BINARY,
+                               _SH_DENYRW, _S_IREAD | _S_IWRITE);
+    if (code == EEXIST) continue;
+    if (code != 0) { errno = code; return -1; }
+    ownedPath = std::move(name);
+    return fd;
+  }
+  errno = EEXIST;
+  return -1;
+#else
+  std::string name = (destination.parent_path() / ".rawnode-tmp-XXXXXX").native();
+  const int fd = mkstemp(name.data());
+  if (fd >= 0) ownedPath = std::move(name);
+  return fd;
+#endif
+}
 }  // namespace
 
 bool persist_detail::replaceFileAtomically(const std::string &path, const std::string &body, std::string &error,
-                      persist_detail::FileFault fault) {
-#ifdef _WIN32
-  error = path + ": Atomic file replacement is not yet supported on Windows";
-  return false;
-#else
-  using Fault = persist_detail::FileFault;
-  const auto fail = [&](const char *operation, int code) {
-    error = path + ": " + operation + ": " + std::strerror(code ? code : EIO);
+                                           FileFault fault) {
+  using Fault = FileFault;
+  error.clear();
+  const auto fail = [&](const char *operation, std::error_code code) {
+    error = path + ": " + operation + ": " + code.message();
     return false;
   };
-  struct stat destination{};
-  const int inspected = fault == Fault::PermissionStat ? -1 : lstat(path.c_str(), &destination);
-  const int inspectError = fault == Fault::PermissionStat ? EIO : errno;
-  if (inspected != 0 && inspectError != ENOENT)
-    return fail("Cannot read destination permissions", inspectError);
-  const bool present = inspected == 0;
-  if (present) {
-    if (!S_ISREG(destination.st_mode)) return fail("Destination is not a regular file", EINVAL);
-    // Rename needs directory permission alone; retain the ordinary V2 refusal
-    // to overwrite a file that the caller cannot write.
-    const int writable = fault == Fault::PermissionCheck ? -1 : access(path.c_str(), W_OK);
-    if (writable != 0)
-      return fail("Destination is not writable", fault == Fault::PermissionCheck ? EACCES : errno);
+  const auto ioError = [](int code) { return std::error_code(code ? code : EIO, std::generic_category()); };
+  if (path.empty() || path.find('\0') != std::string::npos)
+    return fail("Invalid destination path", ioError(EINVAL));
+  fs::path destination;
+  try {
+    destination = fs::u8path(path);
+  } catch (const std::system_error &failure) {
+    return fail("Invalid destination path", failure.code());
   }
-  // New sidecars retain mkstemp's owner-only 0600 default.
-  std::string pattern = path + ".tmp-XXXXXX";
-  std::vector<char> name(pattern.begin(), pattern.end());
-  name.push_back('\0');
-  const int fd = fault == Fault::TempCreate ? -1 : mkstemp(name.data());
-  if (fd < 0) return fail("Cannot create sibling temporary file", fault == Fault::TempCreate ? EIO : errno);
-  SiblingTemporaryFile temp{fs::path(name.data())};
-  const auto abortWrite = [&](const char *operation, int code) {
+  std::error_code ec;
+  const auto status = fs::symlink_status(destination, ec);
+  if (fault == Fault::PermissionStat) ec = ioError(EIO);
+  if (ec && ec != std::errc::no_such_file_or_directory)
+    return fail("Cannot read destination permissions", ec);
+  const bool present = status.type() != fs::file_type::not_found;
+  if (present) {
+    if (!fs::is_regular_file(status)) return fail("Destination is not a regular file", ioError(EINVAL));
+    // Replacement can succeed even if the existing file denies data writes.
+    if (fault == Fault::PermissionCheck) return fail("Destination is not writable", ioError(EACCES));
+#ifdef _WIN32
+    if ((status.permissions() & fs::perms::owner_write) == fs::perms::none)
+      return fail("Destination is not writable", ioError(EACCES));
+    const HANDLE writable = CreateFileW(destination.c_str(), FILE_WRITE_DATA,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (writable == INVALID_HANDLE_VALUE)
+      return fail("Destination is not writable", {static_cast<int>(GetLastError()), std::system_category()});
+    CloseHandle(writable);
+#else
+    if (access(destination.c_str(), W_OK) != 0) return fail("Destination is not writable", ioError(errno));
+#endif
+  }
+
+  SiblingTemporaryFile temp;
+  const int fd = fault == Fault::TempCreate ? -1 : createTemporarySibling(destination, temp.path);
+  if (fd < 0) return fail("Cannot create sibling temporary file", ioError(fault == Fault::TempCreate ? EIO : errno));
+  const auto abortWrite = [&](const char *operation, std::error_code code) {
     fail(operation, code);
     if (temp.stream) { std::fclose(temp.stream); temp.stream = nullptr; }
-    std::error_code ec;
-    fs::remove(temp.path, ec);
-    if (ec) error += "; cannot remove temporary file " + temp.path.string() + ": " + ec.message();
-    else temp.path.clear();
+    std::error_code cleanupError;
+    fs::remove(temp.path, cleanupError);
+    if (cleanupError) error += "; cannot remove temporary file " + temp.path.u8string() + ": " + cleanupError.message();
+    temp.path.clear();
     return false;
   };
+#ifdef _WIN32
+  temp.stream = _fdopen(fd, "wb");
+  if (!temp.stream) { const auto code = ioError(errno); _close(fd); return abortWrite("Cannot open temporary stream", code); }
+#else
   temp.stream = fdopen(fd, "wb");
-  if (!temp.stream) { const int code = errno; close(fd); return abortWrite("Cannot open temporary stream", code); }
+  if (!temp.stream) { const auto code = ioError(errno); close(fd); return abortWrite("Cannot open temporary stream", code); }
+#endif
   // A write fault leaves real partial data in our temporary file, so cleanup
   // and preservation are exercised after writing, not just at an early return.
   const size_t size = fault == Fault::Write ? body.size() / 2 : body.size();
   const size_t written = std::fwrite(body.data(), 1, size, temp.stream);
-  if (written != body.size())
-    return abortWrite("Cannot write temporary file", fault == Fault::Write ? EIO : errno);
+  if (fault == Fault::Write || written != size)
+    return abortWrite("Cannot write temporary file", ioError(fault == Fault::Write ? EIO : errno));
   const int flushed = fault == Fault::Flush ? EOF : std::fflush(temp.stream);
   if (flushed != 0)
-    return abortWrite("Cannot flush temporary file", fault == Fault::Flush ? EIO : errno);
+    return abortWrite("Cannot flush temporary file", ioError(fault == Fault::Flush ? EIO : errno));
+#ifndef _WIN32
   if (present) {
-    // Copy after writing, since writing can clear set-user/group-ID bits.
-    const int copied = fault == Fault::PermissionCopy ? -1 : fchmod(fd, destination.st_mode & 07777);
+    const auto mode = static_cast<mode_t>(status.permissions() & fs::perms::mask);
+    const int copied = fault == Fault::PermissionCopy ? -1 : fchmod(fd, mode);
     if (copied != 0)
-      return abortWrite("Cannot copy destination permissions", fault == Fault::PermissionCopy ? EIO : errno);
+      return abortWrite("Cannot copy destination permissions", ioError(fault == Fault::PermissionCopy ? EIO : errno));
   }
-  int closed = std::fclose(temp.stream);
+#endif
+  const int closed = std::fclose(temp.stream);
   temp.stream = nullptr; // fclose consumes the stream even when it reports failure.
-  if (fault == Fault::Close) closed = EOF;
-  if (closed != 0)
-    return abortWrite("Cannot close temporary file", fault == Fault::Close ? EIO : errno);
-  // POSIX rename replaces an existing destination atomically on the same
-  // filesystem. No unlink/copy fallback and no power-loss durability promise.
-  const int replaced = fault == Fault::Replace ? -1 : std::rename(temp.path.c_str(), path.c_str());
-  if (replaced != 0)
-    return abortWrite("Cannot replace destination", fault == Fault::Replace ? EIO : errno);
+  if (fault == Fault::Close || closed != 0)
+    return abortWrite("Cannot close temporary file", ioError(fault == Fault::Close ? EIO : errno));
+  if (fault == Fault::Replace) return abortWrite("Cannot replace destination", ioError(EIO));
+#ifdef _WIN32
+  // MSVC's filesystem::rename enables MOVEFILE_COPY_ALLOWED.
+  if (!MoveFileExW(temp.path.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING))
+    return abortWrite("Cannot replace destination", {static_cast<int>(GetLastError()), std::system_category()});
+#else
+  fs::rename(temp.path, destination, ec);
+  if (ec) return abortWrite("Cannot replace destination", ec);
+#endif
   temp.path.clear();
   return true;
-#endif
 }
 namespace persist_detail {
 bool updateGraphSidecar(const std::string &path, const PersistGrade *grade, PhotoMark mark,

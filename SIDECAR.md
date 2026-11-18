@@ -11,11 +11,12 @@ unsupported or unreadable sidecars permit protected source viewing, never edits
 or overwrite. Failed saves retain the editable document, show a persistent
 warning, and offer Retry / Discard / Cancel before departure/reopen/shutdown.
 
-Grade updates preserve metadata and use checked sibling-temp atomic replacement
-on POSIX. Existing permissions survive; new files default to owner-only `0600`.
-Windows atomic writes remain explicitly unsupported. Backend identities, paths
-and parameter strings must be valid UTF-8 to save: invalid bytes cause a useful
-error, preserving live state and original files rather than converting values.
+Grade updates preserve photo metadata and use checked atomic replacement on
+macOS, Linux and Windows. Replacement uses ordinary filesystem permissions and
+metadata rules. POSIX saves retain existing mode bits, with `0600` for new files.
+See [D058](docs/DECISIONS.md#d058--shared-atomic-persistence) for the file contract.
+Backend identities, paths and parameter strings must be valid UTF-8 to save.
+Invalid bytes produce an error and preserve live state and original files.
 
 Filmstrip Pick / Unmarked / Reject actions immediately update only photo metadata
 through the existing atomic writer. The complete grade JSON remains byte-for-byte

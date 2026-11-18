@@ -486,11 +486,10 @@ unfinished [near-term roadmap milestone](../ROADMAP.md), requiring its own
 focused PR, independent review and native recycle-or-preserve validation. Batch
 export remains a later PR.
 
-Windows graph-native sidecar persistence is also unfinished:
-`persist_detail::replaceFileAtomically()` explicitly returns unsupported on
-Windows. Native atomic sidecar persistence must be implemented and validated
-before claiming Windows photo-editing persistence works. This is a separate
-visible near-term roadmap item, not part of PR #116 or Windows Trash support.
+Sidecars, presets and preferences share checked atomic replacement across macOS,
+Linux and Windows ([D058](DECISIONS.md#d058--shared-atomic-persistence)). Windows
+component tests exercise the production writer and Unicode photograph identity.
+Full Windows application compilation and GUI validation are separate milestones.
 
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,
@@ -592,8 +591,7 @@ scope when implemented. There are no competing folder-level RAW defaults.
 
 Step 7 PR 5 implements global `preferences.json` and ImGui `layout.ini` in
 `~/Library/Application Support/RawNode/` on macOS and `$XDG_CONFIG_HOME/RawNode/`
-(or `~/.config/RawNode/`) on Linux. Windows uses roaming application data when
-supported; checked atomic writes remain unsupported there. Paths resolve once
+(or `~/.config/RawNode/`) on Linux. Windows uses `%APPDATA%\RawNode\`. Paths resolve once
 before UI/photo startup. Unavailable locations warn and keep settings in memory,
 never falling back to CWD or photograph folders. Preferences save at normal
 shutdown even with no folder; cancelled photo departure keeps the app usable.
@@ -740,8 +738,7 @@ of PR #62's design, D050 lifecycle and final corrections at
 (result supplied by the user).
 Graph-native records, the strict codec and atomic file updates now support live
 photo opening/saving. Editable opening establishes a grade; document departure,
-same-photo reopening and shutdown save it through checked POSIX atomic
-replacement; Windows replacement remains unsupported.
+same-photo reopening and shutdown save it through checked atomic replacement.
 Protected photographs remain viewable but noneditable. Photo colours are separate
 from defaults, and save warnings remain separate from render/export status.
 Presets and clipboard now use the shared graph-native grade/node codec. Unified

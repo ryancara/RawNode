@@ -24,7 +24,20 @@
 #include <cstring>
 #include <string>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <cstdio>
+#endif
+
 int main(int argc, char **argv) {
+#ifdef _WIN32
+  if (GetACP() != CP_UTF8) {
+    std::fputs("RawNode requires a UTF-8 Windows process code page (Windows 10 version 1903 or later).\n", stderr);
+    return 1;
+  }
+#endif
   if (argc > 1 && std::string(argv[1]) == "--selftest-mask-overlay") return runMaskOverlayTests();
   if (argc > 1 && std::string(argv[1]) == "--selftest-preview-interaction") return runPreviewInteractionTests();
   if (argc > 1 && std::string(argv[1]) == "--selftest-ofx-coordinates") return runOfxCoordinateTests();
