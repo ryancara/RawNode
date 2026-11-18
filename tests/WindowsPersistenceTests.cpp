@@ -77,7 +77,7 @@ struct Snapshot {
                            nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
     if (h == INVALID_HANDLE_VALUE || !GetFileInformationByHandle(h, &info)) throw std::runtime_error("snapshot handle");
     DWORD flags = 0;
-    if (!GetVolumeInformationW(path.root_path().c_str(), nullptr, 0, nullptr, nullptr, &flags, nullptr, 0)) throw std::runtime_error("snapshot volume");
+    if (!GetVolumeInformationByHandleW(h, nullptr, 0, nullptr, nullptr, &flags, nullptr, 0)) throw std::runtime_error("snapshot volume");
     hasAcls = (flags & FILE_PERSISTENT_ACLS) != 0;
     if (!hasAcls) { CloseHandle(h); return; }
     PSECURITY_DESCRIPTOR sd = nullptr;
