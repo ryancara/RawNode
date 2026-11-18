@@ -78,7 +78,7 @@ const std::vector<std::string> &rasterImageExtensions() {
 
 static bool pathHasExtension(const std::string &path,
                              const std::vector<std::string> &extensions) {
-  std::string e = fs::path(path).extension().string();
+  std::string e = fs::u8path(path).extension().u8string();
   for (char &ch : e) ch = (char)tolower((unsigned char)ch);
   return std::find(extensions.begin(), extensions.end(), e) != extensions.end();
 }
@@ -155,7 +155,8 @@ static bool loadRaw(const std::string &path, Image &out, RgbGamut workingGamut, 
   std::optional<dng_host> dngHost;
 #endif
   LibRaw raw;
-  if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
+  const auto nativePath = fs::u8path(path);
+  if (raw.open_file(nativePath.c_str()) != LIBRAW_SUCCESS) return false;
   const bool jxl = isJxlDng(raw);
 #if RAWNODE_ENABLE_JXL_DNG
   bool stage2 = false;
@@ -168,7 +169,7 @@ static bool loadRaw(const std::string &path, Image &out, RgbGamut workingGamut, 
       // the conditional JPEG/JXL stage flag applies the wrong WB for unequal whites.
       raw.recycle();
       raw.imgdata.rawparams.options |= LIBRAW_RAWOPTIONS_DNG_STAGE2 | LIBRAW_RAWOPTIONS_DNG_ALLOWSIZECHANGE;
-      if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS || !isJxlDng(raw) ||
+      if (raw.open_file(nativePath.c_str()) != LIBRAW_SUCCESS || !isJxlDng(raw) ||
           raw.is_floating_point() || !raw.imgdata.color.dng_levels.rawopcodes[1].len)
         return jxlDngError("could not reopen the identified integer image for Stage 2");
       if (unsupportedJxlStage1Geometry(raw))
@@ -536,7 +537,7 @@ static bool loadRawEmbeddedThumbRGBA(const std::string &path, int maxEdge, std::
                                      int &h) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
   LibRaw raw;
-  if (raw.open_file(path.c_str()) != LIBRAW_SUCCESS) return false;
+  if (raw.open_file(fs::u8path(path).c_str()) != LIBRAW_SUCCESS) return false;
   if (raw.unpack_thumb() != LIBRAW_SUCCESS) return false;
   const libraw_thumbnail_t &t = raw.imgdata.thumbnail;
   if (t.tlength <= 0 || !t.thumb) return false;
@@ -666,7 +667,7 @@ bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncod
   decodedRaw = false;
   detectedEncoding = {RgbGamut::Rec709, TransferFunction::Linear};
 
-  std::string e = fs::path(path).extension().string();
+  std::string e = fs::u8path(path).extension().u8string();
   for (char &ch : e) ch = (char)tolower((unsigned char)ch);
 
   const auto tryRaw = [&]() {
@@ -713,7 +714,7 @@ bool loadImage(const std::string &path, Image &out, ColorEncoding &detectedEncod
 
 bool loadThumbnailRGBA(const std::string &path, int maxEdge, std::vector<unsigned char> &rgba, int &w, int &h) {
   if (maxEdge <= 0) maxEdge = 128;
-  std::string e = fs::path(path).extension().string();
+  std::string e = fs::u8path(path).extension().u8string();
   for (char &c : e) c = (char)tolower((unsigned char)c);
 
   if (e == ".png" || e == ".jpg" || e == ".jpeg")

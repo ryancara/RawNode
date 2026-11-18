@@ -157,7 +157,7 @@ bool document_detail::savePreset(App &app, const std::string &path, const Overwr
   if (!persist_detail::updateGraphSidecar(path, &grade, PhotoMark::Unmarked, error, fault, options.testOperations)) {
     app.setStatus("Could not save preset: " + error); return false;
   }
-  app.setStatus("Saved preset: " + fs::path(path).filename().string());
+  app.setStatus("Saved preset: " + fs::u8path(path).filename().u8string());
   return true;
 }
 bool savePreset(App &app, const std::string &path, const OverwritePrompt &confirm) {
@@ -333,9 +333,10 @@ bool document_detail::assignPhotoMark(App &app, const std::string &photoPath, Ph
   DocumentMutation::assertControlThread(app);
   std::string error;
   std::error_code ec;
-  const bool protectedPhoto = app.isPhotoProtected() && fs::equivalent(photoPath, app.path, ec);
+  const auto nativePhoto = fs::u8path(photoPath);
+  const bool protectedPhoto = app.isPhotoProtected() && fs::equivalent(nativePhoto, fs::u8path(app.path), ec);
   if (protectedPhoto) error = "This photograph is read-only; reopen it after fixing its sidecar";
-  else if (!isSupportedImagePath(photoPath) || !fs::is_regular_file(photoPath, ec))
+  else if (!isSupportedImagePath(photoPath) || !fs::is_regular_file(nativePhoto, ec))
     error = "Not a photograph: " + photoPath;
   else {
     const auto fault = options.beforeSave ? options.beforeSave() : persist_detail::FileFault::None;
@@ -345,10 +346,10 @@ bool document_detail::assignPhotoMark(App &app, const std::string &photoPath, Ph
                                               fault, options.testOperations);
     if (saved) {
       ec.clear();
-      if (!app.path.empty() && fs::equivalent(photoPath, app.path, ec)) app.currentPhotoMark = mark;
+      if (!app.path.empty() && fs::equivalent(nativePhoto, fs::u8path(app.path), ec)) app.currentPhotoMark = mark;
       for (auto &entry : app.filmstrip) {
         ec.clear();
-        if (entry.path == photoPath || fs::equivalent(entry.path, photoPath, ec)) {
+        if (entry.path == photoPath || fs::equivalent(fs::u8path(entry.path), nativePhoto, ec)) {
           entry.mark = mark;
           entry.markError.clear();
         }
@@ -449,11 +450,12 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
         : app.path == path ? app.persistenceWarning : std::string();
     const auto loadedMark = protectedSource ? std::nullopt : std::optional<PhotoMark>(photoMark(file));
     std::string markError = protectedSource ? warning : std::string();
-    auto loaded = "Loaded " + fs::path(path).filename().string() + " (" + colorEncodingName(detected) + ")";
+    const auto nativePhoto = fs::u8path(path);
+    auto loaded = "Loaded " + nativePhoto.filename().u8string() + " (" + colorEncodingName(detected) + ")";
     int filmstripIndex = -1;
     for (size_t i = 0; i < app.filmstrip.size(); ++i) {
       std::error_code ec;
-      if (fs::equivalent(app.filmstrip[i].path, path, ec)) { filmstripIndex = int(i); break; }
+      if (fs::equivalent(fs::u8path(app.filmstrip[i].path), nativePhoto, ec)) { filmstripIndex = int(i); break; }
     }
     // Every fallible decode, reconstruction and preview allocation precedes
     // publication. Old processors/pixels remain owned inside this mutation.
@@ -557,8 +559,9 @@ bool openPhoto(App &app, const std::string &path, const SaveFailurePrompt &promp
 bool openFolder(App &app, const std::string &dir, const SaveFailurePrompt &prompt,
                 const ActionTestOptions &options) {
   std::error_code ec;
-  if (!fs::is_directory(dir, ec)) { app.setStatus("Not a directory"); return false; }
-  auto folder = fs::weakly_canonical(fs::path(dir), ec).string();
+  const auto nativeDir = fs::u8path(dir);
+  if (!fs::is_directory(nativeDir, ec)) { app.setStatus("Not a directory"); return false; }
+  auto folder = fs::weakly_canonical(nativeDir, ec).u8string();
   if (ec) { app.setStatus("Could not open folder: " + ec.message()); return false; }
   if (!leavePhoto(app, prompt, options)) return false;
   if (app.folderDir != folder) {

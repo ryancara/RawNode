@@ -620,14 +620,30 @@ SidecarReadStatus readGraphFileText(const std::string &path, std::string &json, 
     return path.size() >= suffix.size() && path.compare(path.size() - suffix.size(), suffix.size(), suffix) == 0;
   };
   if (hasSuffix(".ofxrawhost.json")) return fail("Protected legacy destination");
+  if (path.empty() || path.find('\0') != std::string::npos) return fail("Invalid destination path");
+  fs::path destination;
+  try {
+    destination = fs::u8path(path);
+  } catch (const std::system_error &failure) {
+    return fail("Invalid destination path: " + failure.code().message());
+  }
   std::error_code ec;
-  const auto status = fs::symlink_status(fs::path(path), ec);
+  const auto status = fs::symlink_status(destination, ec);
   if (ec && ec != std::errc::no_such_file_or_directory) return fail("Cannot inspect destination: " + ec.message());
   if (status.type() == fs::file_type::not_found) {
+#ifdef _WIN32
+    // Windows also reports a missing path if the immediate parent is a file.
+    if (destination.has_parent_path()) {
+      const auto parent = fs::status(destination.parent_path(), ec);
+      if (ec && ec != std::errc::no_such_file_or_directory)
+        return fail("Cannot inspect parent directory: " + ec.message());
+      if (fs::exists(parent) && !fs::is_directory(parent)) return fail("Parent is not a directory");
+    }
+#endif
     const std::string suffix = ".rawnode.json";
     if (hasSuffix(suffix)) {
       const auto legacy = path.substr(0, path.size() - suffix.size()) + ".ofxrawhost.json";
-      const auto legacyStatus = fs::symlink_status(fs::path(legacy), ec);
+      const auto legacyStatus = fs::symlink_status(fs::u8path(legacy), ec);
       if (ec && ec != std::errc::no_such_file_or_directory)
         return fail("Cannot inspect legacy destination " + legacy + ": " + ec.message());
       if (legacyStatus.type() != fs::file_type::not_found)
@@ -639,9 +655,9 @@ SidecarReadStatus readGraphFileText(const std::string &path, std::string &json, 
   // it. Refuse it alongside directories/devices rather than change its meaning.
   if (!fs::is_regular_file(status)) return fail("Destination is not a regular file");
 #ifdef _WIN32
-  std::FILE *opened = _wfopen(fs::path(path).c_str(), L"rb");
+  std::FILE *opened = _wfopen(destination.c_str(), L"rb");
 #else
-  std::FILE *opened = std::fopen(path.c_str(), "rb");
+  std::FILE *opened = std::fopen(destination.c_str(), "rb");
 #endif
   auto closeInput = [](std::FILE *stream) { std::fclose(stream); };
   std::unique_ptr<std::FILE, decltype(closeInput)> input(opened, closeInput);

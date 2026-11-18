@@ -1,0 +1,38 @@
+name: Windows persistence
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-persistence-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-persistence:
+    runs-on: windows-2022
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: glfw/glfw
+          ref: '3.4'
+          path: native-deps/glfw
+      - uses: actions/checkout@v4
+        with:
+          repository: ocornut/imgui
+          ref: v1.91.8-docking
+          path: native-deps/imgui
+      - name: Install decoder dependencies
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install tiff:x64-windows lcms:x64-windows libjpeg-turbo:x64-windows zlib:x64-windows --x-install-root="$pwd/native-deps/vcpkg"
+      - name: Configure production persistence and image code
+        run: cmake -S tests/windows-persistence -B build-persistence -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" "-DVCPKG_INSTALLED_DIR=$pwd/native-deps/vcpkg"
+      - name: Build with native MSVC
+        run: cmake --build build-persistence --config Release --parallel 2
+      - name: Run production persistence tests
+        run: ./build-persistence/Release/WindowsPersistenceTests.exe

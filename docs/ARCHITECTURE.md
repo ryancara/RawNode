@@ -383,8 +383,8 @@ Accepted transition limitations:
   bindings, ID high-water marks and every future SlotSettings field.
 - Arbitrary-graph editing still needs a suitable UX for disconnected required
   dependencies. The current List View exposes nodes without guessing repairs.
-- Photograph sidecars, presets and global preferences use checked atomic replacement.
-  ImGui retains its native ini persistence.
+- Photograph sidecars, presets and global preferences use the shared atomic writer
+  ([D058](DECISIONS.md#d058--shared-atomic-persistence)). ImGui owns ini persistence.
 
 ## Transient coordinate correspondence (D056)
 

@@ -69,9 +69,10 @@ static void evictFilmstripLru(App &app, int protectA, int protectB) {
 }
 
 static int filmstripIndexForPath(const App &app, const std::string &path) {
+  const auto nativePhoto = fs::u8path(path);
   for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
     std::error_code ec;
-    if (fs::equivalent(app.filmstrip[i].path, path, ec)) return i;
+    if (fs::equivalent(fs::u8path(app.filmstrip[i].path), nativePhoto, ec)) return i;
   }
   return -1;
 }
@@ -244,7 +245,7 @@ void refreshFilmstrip(App &app, bool preserveThumbnails) {
     const auto status = readGraphSidecar(inputSidecarPath(p), file, e.markError);
     if (status != SidecarReadStatus::Error) e.mark = photoMark(file);
     std::error_code ec;
-    if (app.isPhotoProtected() && fs::equivalent(p, app.path, ec)) {
+    if (app.isPhotoProtected() && fs::equivalent(fs::u8path(p), fs::u8path(app.path), ec)) {
       // A valid file on disk cannot clear active source protection; only a
       // successful reopen has validated the saved processor settings too.
       e.mark.reset();
@@ -259,7 +260,7 @@ void refreshFilmstrip(App &app, bool preserveThumbnails) {
   if (!app.path.empty()) {
     for (int i = 0; i < (int)app.filmstrip.size(); ++i) {
       std::error_code ec;
-      if (fs::equivalent(app.filmstrip[i].path, app.path, ec)) {
+      if (fs::equivalent(fs::u8path(app.filmstrip[i].path), fs::u8path(app.path), ec)) {
         app.filmstripIndex = i;
         break;
       }

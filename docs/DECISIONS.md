@@ -831,6 +831,29 @@ and JPEG XL integration into distributed releases are deferred. Dependency,
 validation, licensing and distribution details belong in
 [JPEG_XL_DNG.md](JPEG_XL_DNG.md).
 
+## D058 — Shared atomic persistence
+
+**Status:** Accepted. Supersedes the Windows persistence contract proposed in
+[#117](https://github.com/ryancara/RawNode/pull/117).
+
+Sidecars, presets and preferences send complete validated contents to one writer.
+It checks the destination type and ordinary writability, exclusively creates a
+sibling temporary, checks write, flush and close, and publishes with one rename.
+Preparation leaves the previous file intact. Failed writes remove the owned
+temporary when possible and report the failing operation. The filesystem controls
+replacement and crash durability. A process interruption may leave a temporary.
+
+Windows inherits the temporary file's normal directory permissions. POSIX saves
+retain existing mode bits and use `0600` for new files. Replacement may change
+ownership, specialised ACLs and other filesystem metadata. Other hard links may
+keep referring to the previous file, and Windows alternate streams may be lost.
+Storage suitability is determined by whether the OS completes the operation.
+
+The existing save timing, file validation and recovery choices apply on all
+platforms. On Windows, RawNode requires Windows 10 version 1903 or later and the
+UTF-8 application manifest, which sets the process code page for narrow path
+consumers. Persistence and LibRaw use wide filesystem paths.
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:
