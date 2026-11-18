@@ -370,6 +370,8 @@ bool integrityAndEncryption(const fs::path &root) {
   std::string error;
   const auto path = root / L"confidential.json";
   write(path, "restricted original");
+  // Label fixture setup needs WRITE_OWNER; some runner folders inherit only Modify.
+  dacl(path, L"D:P(A;;FA;;;" + sid() + L")");
   systemSecurity(path, L"S:(ML;;NR;;;ME)");
   CHECK(lowRead(path) == ERROR_ACCESS_DENIED);
   const auto label = systemAcl(path, false);
@@ -480,23 +482,35 @@ void prepare(const fs::path &root, const std::wstring &tester, const std::wstrin
   const auto path = root / L"audit-explicit.json"; write(path, json);
   systemSecurity(path, L"S:(AU;SAFA;FW;;;WD)", true);
   write(root / L"view.rawnode.json", json);
+  const auto labelled = root / L"integrity-modify.json"; write(labelled, json);
+  dacl(labelled, L"D:P(A;;0x1301bf;;;" + tester + L")(A;;FA;;;BA)(A;;FA;;;SY)");
+  systemSecurity(labelled, L"S:(ML;;NR;;;ME)");
   privilege(L"SeRestorePrivilege", false); privilege(L"SeSecurityPrivilege", false);
 }
 bool preparedFixtures(const fs::path &root) {
   std::string error;
-  for (const auto &entry : fs::directory_iterator(root)) {
-    if (entry.path().extension() != L".json") continue;
-    const Snapshot before(entry.path());
+  for (const auto &name : entries(root)) {
+    const auto path = root / fs::u8path(name);
+    if (path.extension() != L".json") continue;
+    const Snapshot before(path);
     PersistFile imported;
-    CHECK(readGraphSidecar(entry.path().u8string(), imported, error) == SidecarReadStatus::Loaded && imported.grade && photoMark(imported) == PhotoMark::Pick);
-    CHECK(updateSidecarMark(entry.path().u8string(), PhotoMark::Reject, error));
+    CHECK(readGraphSidecar(path.u8string(), imported, error) == SidecarReadStatus::Loaded && imported.grade && photoMark(imported) == PhotoMark::Pick);
+    const bool labelled = path.filename() == L"integrity-modify.json";
+    if (labelled) {
+      HANDLE denied = CreateFileW(path.c_str(), WRITE_OWNER, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
+      const auto code = GetLastError();
+      if (denied != INVALID_HANDLE_VALUE) CloseHandle(denied);
+      CHECK(denied == INVALID_HANDLE_VALUE && code == ERROR_ACCESS_DENIED && lowRead(path) == ERROR_ACCESS_DENIED);
+    }
+    CHECK(updateSidecarMark(path.u8string(), PhotoMark::Reject, error));
+    if (labelled) CHECK(lowRead(path) == ERROR_ACCESS_DENIED);
     PersistFile saved;
-    CHECK(readGraphSidecar(entry.path().u8string(), saved, error) == SidecarReadStatus::Loaded && saved.grade && photoMark(saved) == PhotoMark::Reject);
-    const Snapshot after(entry.path());
+    CHECK(readGraphSidecar(path.u8string(), saved, error) == SidecarReadStatus::Loaded && saved.grade && photoMark(saved) == PhotoMark::Reject);
+    const Snapshot after(path);
     if (after.security != before.security)
-      std::fwprintf(stderr, L"%ls\nbefore %ls\nafter  %ls\n", entry.path().c_str(), before.security.c_str(), after.security.c_str());
+      std::fwprintf(stderr, L"%ls\nbefore %ls\nafter  %ls\n", path.c_str(), before.security.c_str(), after.security.c_str());
     CHECK(after.daclBytes == before.daclBytes && after.protectedDacl == before.protectedDacl);
-    if (entry.path().filename().wstring().find(L"owner-") == 0) CHECK(before.owner != sid() && after.owner == sid());
+    if (path.filename().wstring().find(L"owner-") == 0) CHECK(before.owner != sid() && after.owner == sid());
   }
   const auto source = root / L"other-account.png", copied = root / L"copied.png";
   CHECK(CopyFileW(source.c_str(), copied.c_str(), TRUE));
