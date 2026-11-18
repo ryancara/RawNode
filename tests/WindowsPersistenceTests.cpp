@@ -181,7 +181,7 @@ bool permissionsAndRefusal(const fs::path &root) {
     CHECK(SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE));
     CHECK(replace(path, "replacement", error));
     const Snapshot after(path);
-    CHECK(after.security == before.security && after.info.dwFileAttributes == (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE));
+    CHECK(after.daclBytes == before.daclBytes && after.protectedDacl == before.protectedDacl && after.info.dwFileAttributes == (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE));
   }
   for (DWORD attributes : {DWORD(FILE_ATTRIBUTE_ARCHIVE), DWORD(FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_ARCHIVE),
                            DWORD(FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED),
@@ -192,7 +192,7 @@ bool permissionsAndRefusal(const fs::path &root) {
       const std::string content = "replacement " + std::to_string(i);
       CHECK(replace(path, content, error));
       const Snapshot after(path);
-      CHECK(after.content == content && after.security == before.security && after.info.dwFileAttributes == before.info.dwFileAttributes);
+      CHECK(after.content == content && after.daclBytes == before.daclBytes && after.protectedDacl == before.protectedDacl && after.info.dwFileAttributes == before.info.dwFileAttributes);
       CHECK(entries(root) == names);
     }
   }
@@ -239,6 +239,25 @@ bool permissionsAndRefusal(const fs::path &root) {
   CHECK(!replace(folder, "x", error) && fs::is_empty(folder));
   CHECK(!replace(root / L"missing" / L"file.json", "x", error) && !fs::exists(root / L"missing"));
   CHECK(!persist_detail::replaceFileAtomically("\\\\localhost\\C$\\never-created.json", "x", error));
+  return true;
+}
+bool permissionInheritance(const fs::path &root) {
+  std::string error;
+  const auto folder = root / L"inheritance"; fs::create_directory(folder);
+  dacl(folder, L"D:P(A;OICI;FA;;;" + sid() + L")(A;OICI;FR;;;BU)");
+  const auto inherited = folder / L"inherited.json", protectedFile = folder / L"protected.json";
+  CHECK(replace(inherited, "original", error) && replace(protectedFile, "original", error));
+  dacl(protectedFile, L"D:P(A;;FA;;;" + sid() + L")");
+  const Snapshot original(inherited), protectedOriginal(protectedFile);
+  CHECK(!original.protectedDacl && protectedOriginal.protectedDacl);
+  CHECK(replace(inherited, "replacement", error) && replace(protectedFile, "replacement", error));
+  CHECK(Snapshot(inherited).daclBytes == original.daclBytes && !Snapshot(inherited).protectedDacl);
+  CHECK(Snapshot(protectedFile).daclBytes == protectedOriginal.daclBytes && Snapshot(protectedFile).protectedDacl);
+  // Future directory permission edits must still reach the unprotected file.
+  dacl(folder, L"D:P(A;OICI;FA;;;" + sid() + L")");
+  const auto control = folder / L"new-control"; write(control, "control");
+  CHECK(Snapshot(inherited).daclBytes == Snapshot(control).daclBytes);
+  CHECK(Snapshot(protectedFile).daclBytes == protectedOriginal.daclBytes);
   return true;
 }
 bool readersAndCleanup(const fs::path &root) {
@@ -585,7 +604,7 @@ int wmain(int argc, wchar_t **argv) {
     if (argc == 4 && std::wcscmp(argv[1], L"--volume") == 0) return volume(dir.path, argv[3]) ? 0 : 1;
     bool passed = argc != 4 || std::wcscmp(argv[1], L"--ordinary-user") != 0 || preparedFixtures(argv[3]);
     passed = testSidecarFiles() && passed;
-    for (auto test : {unicodeAndCallers, permissionsAndRefusal, readersAndCleanup, links, integrityAndEncryption, photographs}) {
+    for (auto test : {unicodeAndCallers, permissionsAndRefusal, permissionInheritance, readersAndCleanup, links, integrityAndEncryption, photographs}) {
       Directory fixture;
       passed = test(fixture.path) && passed;
     }

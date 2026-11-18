@@ -65,8 +65,7 @@ struct Destination {
   DWORD attributes = 0;
   bool hasAcls = false;
   LocalMemory security;
-  PACL dacl = nullptr, labels = nullptr;
-  SECURITY_DESCRIPTOR_CONTROL control = 0;
+  PACL labels = nullptr;
 };
 
 // Inspect the followed parent once. Junctions are judged by their real volume;
@@ -124,12 +123,9 @@ bool inspect(const fs::path &path, Destination &out, std::string &error) {
   PSECURITY_DESCRIPTOR descriptor = nullptr;
   constexpr SECURITY_INFORMATION fields = DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION |
       ATTRIBUTE_SECURITY_INFORMATION | SCOPE_SECURITY_INFORMATION | PROCESS_TRUST_LABEL_SECURITY_INFORMATION | ACCESS_FILTER_SECURITY_INFORMATION;
-  const DWORD code = GetSecurityInfo(out.file.value, SE_FILE_OBJECT, fields, nullptr, nullptr, &out.dacl, &out.labels, &descriptor);
+  const DWORD code = GetSecurityInfo(out.file.value, SE_FILE_OBJECT, fields, nullptr, nullptr, nullptr, &out.labels, &descriptor);
   out.security.reset(descriptor);
   if (code) return fail(error, "Cannot read destination permissions", code);
-  DWORD revision;
-  if (!GetSecurityDescriptorControl(descriptor, &out.control, &revision))
-    return fail(error, "Cannot inspect permission inheritance", GetLastError());
   // Audit ACEs are not requested. Empty filtered audit ACLs are harmless.
   // Copy ordinary integrity restrictions, but do not manage enterprise policy.
   if (out.labels) for (DWORD i = 0; i < out.labels->AceCount; ++i) {
@@ -265,10 +261,11 @@ bool persist_detail::replaceWindowsFile(const std::string &text, const std::stri
   }
   if (partial) return abort("Cannot write temporary file", ERROR_WRITE_FAULT);
   if (restricted) {
-    const DWORD code = fault == Fault::PermissionCopy ? ERROR_ACCESS_DENIED : SetSecurityInfo(temp.file.value, SE_FILE_OBJECT,
-        DACL_SECURITY_INFORMATION | ((destination.control & SE_DACL_PROTECTED) ? PROTECTED_DACL_SECURITY_INFORMATION : UNPROTECTED_DACL_SECURITY_INFORMATION),
-        nullptr, nullptr, destination.dacl, nullptr);
-    if (code) return abort("Cannot copy destination permissions", code);
+    // SetSecurityInfo re-inherits Creator Owner grants for the new owner.
+    // Copy the existing file DACL/control directly, without recomputing it.
+    const BOOL copied = fault != Fault::PermissionCopy && SetFileSecurityW(temp.path.c_str(), DACL_SECURITY_INFORMATION,
+        static_cast<PSECURITY_DESCRIPTOR>(destination.security.get()));
+    if (!copied) return abort("Cannot copy destination permissions", fault == Fault::PermissionCopy ? ERROR_ACCESS_DENIED : GetLastError());
   }
   if (destination.attributes & keptAttributes) {
     FILE_BASIC_INFO basic{};

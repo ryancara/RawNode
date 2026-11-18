@@ -38,6 +38,13 @@ delete sharing. Closing a reader is not a reason to weaken the save algorithm.
 - **Existing DACLs and inheritance protection are copied as opaque ACLs** when
   `FILE_PERSISTENT_ACLS` is available. No owner/group matching or ACE whitelist is
   needed. Replacement ownership follows ordinary Windows creation semantics.
+  A production regression found `SetSecurityInfo` re-inheriting an additional
+  Creator Owner grant when ownership changed ([run 44202842520](https://github.com/ryancara/RawNode/actions/runs/44202842520),
+  `01ba792a`). DACL-only [SetFileSecurityW](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-setfilesecurityw)
+  copies the existing descriptor's ACL/control without that recomputation. This
+  documented legacy API is deliberately limited to the owned regular temporary;
+  owner/group and SACL fields are not set. Tests assert exact ACE/protection
+  preservation and continued response to later folder-permission changes.
 - **Existing restricted contents start in a creator-only protected temporary.**
   The final DACL is applied only after writing completes. Explicit integrity
   labels are applied before the first byte, including to partial leftovers.

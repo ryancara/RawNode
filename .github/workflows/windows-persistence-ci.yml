@@ -38,6 +38,7 @@ jobs:
       - name: Configure actual production persistence and image components
         run: cmake -S tests/windows-persistence -B build-persistence -A x64 "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" "-DVCPKG_INSTALLED_DIR=$pwd/native-deps/vcpkg"
       - name: Compile with MSVC C++17
+        id: compile
         run: cmake --build build-persistence --config Release --parallel 2
       - name: Run production regressions and code-page guard
         shell: pwsh
@@ -47,6 +48,7 @@ jobs:
           ./build-persistence/Release/WindowsPersistenceTests.exe 2>&1 | Tee-Object evidence/runner.txt
           if ($LASTEXITCODE -ne 0) { throw "Native production persistence failed: $LASTEXITCODE" }
       - name: Ordinary-user production regressions and disposable local filesystems
+        if: ${{ !cancelled() && steps.compile.outcome == 'success' }}
         shell: pwsh
         run: |
           $name = 'RawNodePersist'
@@ -56,6 +58,7 @@ jobs:
           $exe = "$pwd\build-persistence\Release\WindowsPersistenceTests.exe"
           $base = Join-Path $env:RUNNER_TEMP ('rawnode-user-' + [guid]::NewGuid().ToString('N'))
           New-Item -ItemType Directory $base | Out-Null
+          $failures = @()
           try {
             Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $account,$other
             & icacls.exe $base /grant "${name}:(OI)(CI)M" "$($other.Name):(OI)(CI)M"
@@ -68,15 +71,17 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Privileged disposable fixture preparation failed' }
             $process = Start-Process $exe -ArgumentList "--ordinary-user `"$base`" `"$fixtures`"" -Credential $credential -LoadUserProfile -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\ordinary-user.txt" -RedirectStandardError "$pwd\evidence\ordinary-user.err"
             Get-Content evidence/ordinary-user.txt,evidence/ordinary-user.err
-            if ($process.ExitCode -ne 0) { throw "Ordinary-user regressions failed: $($process.ExitCode)" }
-            & $exe --verify-audits $fixtures
-            if ($LASTEXITCODE -ne 0) { throw 'Independent audit observation failed' }
+            if ($process.ExitCode -ne 0) { $failures += "ordinary-user ($($process.ExitCode))" }
+            else {
+              & $exe --verify-audits $fixtures
+              if ($LASTEXITCODE -ne 0) { $failures += 'independent audit observation' }
+            }
             $share = 'RawNodeView'
             try {
               New-SmbShare -Name $share -Path $fixtures -FullAccess "$env:COMPUTERNAME\$name" | Out-Null
               $process = Start-Process $exe -ArgumentList "--readonly-location `"\\localhost\$share`"" -Credential $credential -LoadUserProfile -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\readonly-network.txt" -RedirectStandardError "$pwd\evidence\readonly-network.err"
               Get-Content evidence/readonly-network.txt,evidence/readonly-network.err
-              if ($process.ExitCode -ne 0) { throw 'Reading supported grades on write-unqualified storage failed' }
+              if ($process.ExitCode -ne 0) { $failures += 'read-only network grade' }
             } finally { Remove-SmbShare -Name $share -Force -ErrorAction SilentlyContinue }
             foreach ($filesystem in @('NTFS','FAT32','exFAT')) {
               $vhd = Join-Path $base "$filesystem.vhd"
@@ -90,13 +95,14 @@ jobs:
                 if ($filesystem -eq 'NTFS') { & icacls.exe $root /grant "${name}:(OI)(CI)M" }
                 $process = Start-Process $exe -ArgumentList "--volume `"$base`" `"$root`"" -Credential $credential -LoadUserProfile -WorkingDirectory $base -Wait -PassThru -RedirectStandardOutput "$pwd\evidence\volume-$filesystem.txt" -RedirectStandardError "$pwd\evidence\volume-$filesystem.err"
                 Get-Content "evidence/volume-$filesystem.txt","evidence/volume-$filesystem.err"
-                if ($process.ExitCode -ne 0) { throw "$filesystem production regressions failed: $($process.ExitCode)" }
+                if ($process.ExitCode -ne 0) { $failures += "$filesystem ($($process.ExitCode))" }
               } finally {
                 @("select vdisk file=`"$vhd`"", 'detach vdisk') | Set-Content "$base\detach.txt"
                 diskpart /s "$base\detach.txt"
                 Remove-Item $vhd -ErrorAction SilentlyContinue
               }
             }
+            if ($failures.Count -ne 0) { throw ("Native regressions failed: " + ($failures -join ', ')) }
           } finally {
             Remove-LocalUser -Name $name -ErrorAction SilentlyContinue
             Remove-LocalUser -Name RawNodeOther -ErrorAction SilentlyContinue
