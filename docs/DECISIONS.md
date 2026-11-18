@@ -850,8 +850,9 @@ keep referring to the previous file, and Windows alternate streams may be lost.
 Storage suitability is determined by whether the OS completes the operation.
 
 The existing save timing, file validation and recovery choices apply on all
-platforms. Windows paths use a UTF-8 process manifest for narrow consumers and
-wide filesystem paths at persistence and LibRaw entry points.
+platforms. On Windows, RawNode requires Windows 10 version 1903 or later and the
+UTF-8 application manifest, which sets the process code page for narrow path
+consumers. Persistence and LibRaw use wide filesystem paths.
 
 ## Pending decisions
 

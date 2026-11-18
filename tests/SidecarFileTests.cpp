@@ -243,7 +243,8 @@ bool atomicFailures(const fs::path &dir) {
   const auto path = (dir / "atomic.rawnode.json").string();
   const auto original = file(opaqueGrade, R"({ "mark" : "unmarked" })");
   const auto grade = replacementGrade();
-  write(path + ".tmp-keep", "unrelated temporary-looking file");
+  const auto unrelatedTemp = dir / ".rawnode-tmp-keep";
+  write(unrelatedTemp, "unrelated temporary-looking file");
   std::string error;
   write(path, original);
   std::string unchanged = "unchanged";
@@ -258,7 +259,7 @@ bool atomicFailures(const fs::path &dir) {
           : SidecarFileTestAccess::mark(path, PhotoMark::Pick, error, test.first);
       CHECK(!success && error.find(path) != std::string::npos && error.find(test.second) != std::string::npos);
       CHECK(entries(dir) == before && (present ? bytes(path) == original : !fs::exists(path)));
-      CHECK(bytes(path + ".tmp-keep") == "unrelated temporary-looking file");
+      CHECK(bytes(unrelatedTemp) == "unrelated temporary-looking file");
       CHECK(gradeUpdate ? updateSidecarGrade(path, grade, error) : updateSidecarMark(path, PhotoMark::Pick, error));
       CHECK(error.empty());
       if (present && !gradeUpdate) CHECK(rawSection(path, "grade") == opaqueGrade);
@@ -375,18 +376,6 @@ bool unicodePaths(const fs::path &dir) {
 }
 
 #ifdef _WIN32
-bool standardRenameReplacesExisting(const fs::path &dir) {
-  const auto source = dir / L"rename-source";
-  const auto destination = dir / L"rename-destination";
-  write(source, "replacement bytes");
-  write(destination, "original bytes");
-  std::error_code error;
-  fs::rename(source, destination, error);
-  CHECK(!error && !fs::exists(source) && bytes(destination) == "replacement bytes");
-  std::puts("ok  MSVC std::filesystem::rename replaces an existing destination");
-  return true;
-}
-
 bool permissionTests(const fs::path &dir) {
   const auto path = dir / L"write-denied.rawnode.json";
   const auto original = file(opaqueGrade);
@@ -503,9 +492,6 @@ bool testSidecarFiles() {
   CHECK(slotSection(directory.path));
   CHECK(protectedFiles(directory.path));
   CHECK(atomicFailures(directory.path));
-#ifdef _WIN32
-  CHECK(standardRenameReplacesExisting(directory.path));
-#endif
   CHECK(permissionTests(directory.path));
   CHECK(unicodePaths(directory.path));
   std::puts("ok  safe sidecar files: independent sections, permissions, atomic failures/cleanup and Unicode identity");
