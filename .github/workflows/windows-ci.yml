@@ -36,14 +36,4 @@ jobs:
         run: cmake --build build --config Release --parallel 2
 
       - name: Self-test
-        id: selftest
         run: ./build/Release/OfxRawHost.exe --selftest
-
-      - name: Diagnose remaining Windows suite failures
-        if: failure() && steps.selftest.outcome == 'failure'
-        run: |
-          foreach ($suite in @('photo', 'sidecar', 'history', 'history-ui', 'transfers', 'graph', 'graph-runtime', 'graph-view', 'ofx-coordinates')) {
-            & ./build/Release/OfxRawHost.exe "--selftest-$suite"
-            Write-Host "Suite $suite exited with $LASTEXITCODE"
-          }
-          exit 0

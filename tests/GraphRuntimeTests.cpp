@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <new>
 #include <stdexcept>
 
 #define CHECK(expression) do { if (!(expression)) { \
@@ -1145,7 +1146,8 @@ static bool testWorkerExceptionBoundary() {
   app.renderer.requestDocumentPreview(); app.renderer.start(); CHECK(idle(app));
   auto result = publication(app);
   CHECK(result.result.state == EvaluationState::Error && result.result.requested == image(endpoint) && processor->calls == 0);
-  CHECK(result.request && *result.request == image(endpoint) && diagnostic(result.result, "bad_alloc"));
+  CHECK(result.request && *result.request == image(endpoint));
+  CHECK(diagnostic(result.result, std::bad_alloc{}.what()));
   CHECK(result.demand == app.renderer.previewDemand());
   { document_detail::DocumentMutation mutation(app); mutation.changed(); }
   CHECK(idle(app) && publication(app).result.state == EvaluationState::Available && processor->calls == 1 && attempts == 2);
