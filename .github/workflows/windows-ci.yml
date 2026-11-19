@@ -1,0 +1,39 @@
+name: Windows CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  msvc-x64-build-selftest:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openexr:x64-windows tiff:x64-windows lcms:x64-windows libjpeg-turbo:x64-windows zlib:x64-windows --x-install-root="$pwd/native-deps/vcpkg"
+
+      - name: Configure Release x64 with JPEG XL disabled
+        run: >-
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+          "-DVCPKG_INSTALLED_DIR=$pwd/native-deps/vcpkg"
+          -DRAWNODE_ENABLE_JXL_DNG=OFF
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 2
+
+      - name: Self-test
+        run: ./build/Release/OfxRawHost.exe --selftest
