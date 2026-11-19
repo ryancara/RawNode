@@ -34,6 +34,7 @@ foreach ($dependency in 'ctl', 'glfw', 'imgui') {
     Copy-Item "build/_deps/$dependency-src/LICENSE*" $destination
 }
 Copy-Item third_party/fontawesome/README.md "$notices/FontAwesome.txt"
+Copy-Item third_party/fontawesome/LICENSE.txt "$notices/FontAwesome-LICENSE.txt"
 Copy-Item third_party/openfx/LICENSE.md "$notices/OpenFX.md"
 Get-ChildItem native-deps/vcpkg/x64-windows/share -Recurse -Filter copyright | ForEach-Object {
     Copy-Item $_.FullName "$notices/$($_.Directory.Name)-copyright.txt"
@@ -101,6 +102,8 @@ try {
         -WorkingDirectory $app -PassThru `
         -RedirectStandardOutput "$output/extracted-selftest.stdout.log" `
         -RedirectStandardError "$output/extracted-selftest.stderr.log"
+    # Keep the process handle so ExitCode remains available after it exits.
+    $null = $process.Handle
     if (!$process.WaitForExit(120000)) {
         $process.Kill()
         throw 'Extracted application self-test timed out'
