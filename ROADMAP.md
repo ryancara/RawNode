@@ -77,10 +77,12 @@ These priorities sequence focused work without reopening completed architecture 
    and [PR #116](https://github.com/ryancara/RawNode/pull/116).
    **Keep this item visible here until implemented and validated; merging the
    macOS/Linux implementation does not complete Windows support.**
-6. **Shared atomic sidecar persistence and Windows integration.**
+6. **Shared atomic sidecar persistence and Windows application.**
    The shared writer and focused native regressions implement
-   [D058](docs/DECISIONS.md#d058--shared-atomic-persistence). Full Windows
-   application compilation and GUI validation remain open.
+   [D058](docs/DECISIONS.md#d058--shared-atomic-persistence). The full
+   application build and self-test run with MSVC x64 and JPEG XL disabled.
+   Interactive Windows validation and JPEG XL ON coverage remain open.
+   [Windows CI](.github/workflows/windows-ci.yml) · [Build instructions](README.md#windows-x64)
 7. **Close the practical Step 8 masking core.** Agree the exit gate, then
    deliver Mask Combine, upstream geometry/Overlay placement through Mask
    modifiers, a Linear Gradient generator and an initial Blur modifier in

@@ -2,8 +2,7 @@
 
 #include "imgio/ImageIO.h"
 #include "persist/ProjectPersist.h"
-
-#include <GLFW/glfw3.h>
+#include "platform/OpenGL.h"
 
 #if defined(__APPLE__)
 #include <pthread.h>

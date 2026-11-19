@@ -1,5 +1,6 @@
 #include "PreferencesTests.h"
 #include "AppState.h"
+#include "CurrentDirectory.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/PreferencesPriv.h"
@@ -33,11 +34,6 @@ struct Files {
   Files() { fs::create_directory(dir); }
   ~Files() { std::error_code ignored; fs::remove_all(dir, ignored); }
   std::string path(const std::string &name) const { return (dir / name).string(); }
-};
-struct CurrentDirectory {
-  fs::path previous = fs::current_path();
-  explicit CurrentDirectory(const fs::path &dir) { fs::current_path(dir); }
-  ~CurrentDirectory() { fs::current_path(previous); }
 };
 void write(const std::string &path, const std::string &text) {
   std::ofstream out(path, std::ios::binary); out << text; out.close();
@@ -181,7 +177,11 @@ bool atomicFailuresAndPaths() {
   const auto original = bytes(config.preferences);
   Preferences p;
   for (const auto fault : {Fault::PermissionStat, Fault::PermissionCheck, Fault::TempCreate,
-       Fault::Write, Fault::Flush, Fault::PermissionCopy, Fault::Close, Fault::Replace}) {
+       Fault::Write, Fault::Flush,
+#ifndef _WIN32
+       Fault::PermissionCopy,
+#endif
+       Fault::Close, Fault::Replace}) {
     CHECK(!preferences_detail::save(config.preferences, p, error, fault) && !error.empty());
     CHECK(bytes(config.preferences) == original);
     CHECK(entries(expected) == std::set<std::string>{"preferences.json"});

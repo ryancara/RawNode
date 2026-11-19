@@ -2006,7 +2006,7 @@ static int fail(const char *msg) {
 }
 
 static bool writeTinyTiff(const fs::path &p, bool halfFloat) {
-  TIFF *tif = TIFFOpen(p.c_str(), "w");
+  TIFF *tif = TIFFOpen(p.u8string().c_str(), "w");
   if (!tif) return false;
   TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, 2);
   TIFFSetField(tif, TIFFTAG_IMAGELENGTH, 2);
@@ -2033,7 +2033,7 @@ static bool writeTinyTiff(const fs::path &p, bool halfFloat) {
 }
 
 static bool writeGray16Tiff(const fs::path &p, uint16_t value) {
-  TIFF *tif = TIFFOpen(p.c_str(), "w");
+  TIFF *tif = TIFFOpen(p.u8string().c_str(), "w");
   if (!tif) return false;
   TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, 1);
   TIFFSetField(tif, TIFFTAG_IMAGELENGTH, 1);
@@ -2073,7 +2073,7 @@ static bool makeTestRgbIcc(const cmsCIExyY &white, const cmsCIExyYTRIPLE &primar
 
 static bool writeRgba16TiffWithIcc(const fs::path &p, const uint16_t rgba[4],
                                    const std::vector<uint8_t> &icc) {
-  TIFF *tif = TIFFOpen(p.c_str(), "w");
+  TIFF *tif = TIFFOpen(p.u8string().c_str(), "w");
   if (!tif) return false;
   TIFFSetField(tif, TIFFTAG_IMAGEWIDTH, 1);
   TIFFSetField(tif, TIFFTAG_IMAGELENGTH, 1);
@@ -2294,7 +2294,7 @@ static int runSelfTestsImpl() {
         0x0c, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0xc9,
         0xfe, 0x92, 0xef, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82};
     const fs::path p = fs::temp_directory_path() / "ofxrawhost-selftest-cs.png";
-    FILE *f = fopen(p.c_str(), "wb");
+    FILE *f = fopen(p.u8string().c_str(), "wb");
     if (!f || fwrite(kPng, 1, sizeof kPng, f) != sizeof kPng) {
       if (f) fclose(f);
       return fail("png write");
@@ -2884,12 +2884,14 @@ static int runSelfTestsImpl() {
       return fail("legacy sidecar initial save");
     std::ifstream legacyInput(inputSidecarPath(legacyNamesImage.string()), std::ios::binary);
     const std::string legacyBefore{std::istreambuf_iterator<char>(legacyInput), {}};
+    legacyInput.close();
     App legacyNamesApp;
     if (!openPath(legacyNamesApp, legacyNamesImage.string()) || !legacyNamesApp.isPhotoProtected() ||
         saveCurrentInputSidecar(legacyNamesApp)) return fail("legacy sidecar protection");
     std::ifstream legacyAfterInput(inputSidecarPath(legacyNamesImage.string()), std::ios::binary);
     if (std::string(std::istreambuf_iterator<char>(legacyAfterInput), {}) != legacyBefore)
       return fail("legacy sidecar preservation");
+    legacyAfterInput.close();
     fs::remove(inputSidecarPath(legacyNamesImage.string())); fs::remove(legacyNamesImage);
 
     // Unknown future colour identifiers must be readable but write-protected,

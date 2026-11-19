@@ -51,8 +51,8 @@ Other OFX filter plugins should work 🤞 If you confirm one, a PR to this table
 RawNode stores edits beside each editable photograph in `.rawnode.json` sidecars.
 Application preferences and ImGui docking layout live in `preferences.json` and
 `layout.ini` under `~/Library/Application Support/RawNode/` (macOS),
-`$XDG_CONFIG_HOME/RawNode/` or `~/.config/RawNode/` (Linux), and roaming
-application data when Windows is supported. Settings load at startup and save
+`$XDG_CONFIG_HOME/RawNode/` or `~/.config/RawNode/` (Linux), and
+`%APPDATA%\RawNode\` (Windows). Settings load at startup and save
 on normal shutdown, including sessions with no opened folder. Folder changes
 keep the same preferences and docking layout. Photo colours stay with each grade;
 photo controls never change future-photo defaults.
@@ -151,7 +151,7 @@ cd RawNode
 ./build.sh
 ```
 
-On macOS this produces `build/OfxRawHost.app`. Elsewhere, `build/OfxRawHost`.
+On macOS this produces `build/OfxRawHost.app`. On Linux it produces `build/OfxRawHost`.
 
 ```sh
 # Enable native CPU instructions (AVX, F16C, etc.) for extra speed
@@ -160,9 +160,31 @@ OFX_NATIVE_ARCH=1 ./build.sh
 # macOS self-test
 build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 
-# Linux / Windows
+# Linux
 build/OfxRawHost --selftest
 ```
+
+### Windows x64
+
+Use Windows 10 version 1903 or later, CMake 3.21 or later, Visual Studio 2022
+with Desktop development with C++, and a bootstrapped vcpkg installation. Set
+`VCPKG_INSTALLATION_ROOT` to the vcpkg directory. From a recursive checkout,
+run the same Release build and full application self-test as Windows CI in
+PowerShell.
+
+```powershell
+& "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openexr:x64-windows tiff:x64-windows lcms:x64-windows libjpeg-turbo:x64-windows zlib:x64-windows --x-install-root="$pwd/native-deps/vcpkg"
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+  "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+  "-DVCPKG_INSTALLED_DIR=$pwd/native-deps/vcpkg" `
+  -DRAWNODE_ENABLE_JXL_DNG=OFF
+cmake --build build --config Release --parallel 2
+./build/Release/OfxRawHost.exe --selftest
+```
+
+Launch `build/Release/OfxRawHost.exe` on a desktop with an OpenGL 3.3-capable
+graphics driver. Interactive Windows validation is pending. Windows Move to
+Trash is disabled, and Windows JPEG XL DNG validation is tracked separately.
 
 ---
 

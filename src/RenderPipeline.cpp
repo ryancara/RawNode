@@ -1,7 +1,7 @@
 #include "RenderPipeline.h"
 #include "perf.h"
+#include "platform/OpenGL.h"
 
-#include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cmath>
 

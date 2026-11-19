@@ -3,7 +3,7 @@
 #include "persist/ProjectPersist.h"
 
 #include <cstddef>
-#include <vector>
+#include <deque>
 
 struct App;
 
@@ -53,7 +53,7 @@ class GradeHistory {
   struct Entry { document_detail::GradeSnapshot snapshot; size_t bytes = 0; };
   void recordSnapshot(document_detail::GradeSnapshot snapshot);
   bool replay(App &app, bool forward);
-  std::vector<Entry> entries_;
+  std::deque<Entry> entries_;
   size_t cursor_ = 0, bytes_ = 0;
   size_t undoSteps_, memoryLimit_;
   enum class Pending { None, Metadata, Grade };

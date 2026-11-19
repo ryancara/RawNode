@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <new>
 #include <stdexcept>
 
 #define CHECK(expression) do { if (!(expression)) { \
@@ -1145,7 +1146,8 @@ static bool testWorkerExceptionBoundary() {
   app.renderer.requestDocumentPreview(); app.renderer.start(); CHECK(idle(app));
   auto result = publication(app);
   CHECK(result.result.state == EvaluationState::Error && result.result.requested == image(endpoint) && processor->calls == 0);
-  CHECK(result.request && *result.request == image(endpoint) && diagnostic(result.result, "bad_alloc"));
+  CHECK(result.request && *result.request == image(endpoint));
+  CHECK(diagnostic(result.result, std::bad_alloc{}.what()));
   CHECK(result.demand == app.renderer.previewDemand());
   { document_detail::DocumentMutation mutation(app); mutation.changed(); }
   CHECK(idle(app) && publication(app).result.state == EvaluationState::Available && processor->calls == 1 && attempts == 2);
@@ -1649,13 +1651,17 @@ static bool testLegacyRefusalAndGraphSave() {
   Files files; App app; source(app);
   CHECK(addNativeExposureNode(app));
   app.path = files.path("source.nef");
-  saveCurrentInputSidecar(app);
+  CHECK(saveCurrentInputSidecar(app));
   // Find the current sidecar naming rule without assuming a transfer format.
   std::filesystem::path stored;
   for (const auto &entry : std::filesystem::directory_iterator(files.dir))
     if (entry.path().extension() == ".json") stored = entry.path();
   CHECK(!stored.empty());
-  std::ifstream beforeFile(stored); const std::string before((std::istreambuf_iterator<char>(beforeFile)), {});
+  const auto readSidecar = [&] {
+    std::ifstream file(stored, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(file), {});
+  };
+  const auto before = readSidecar();
   CHECK(add(app, NodeId{"off-spine"}, NodeOperation::ImageProcessor));
   findNode(app, NodeId{"off-spine"})->storedBackend = "ofx";
   findNode(app, NodeId{"off-spine"})->storedIdentifier = "unavailable.off-spine";
@@ -1663,7 +1669,7 @@ static bool testLegacyRefusalAndGraphSave() {
   try { (void)captureChain(app); } catch (const std::runtime_error &) { refused = true; }
   CHECK(refused);
   CHECK(saveCurrentInputSidecar(app));
-  std::ifstream afterFile(stored); const std::string after((std::istreambuf_iterator<char>(afterFile)), {});
+  const auto after = readSidecar();
   PersistFile saved; std::string error;
   CHECK(before != after && decodeGraphFile(after, saved, error) && saved.grade && saved.grade->graph.nodes.size() == 3);
   CHECK(saved.grade->graph.nodes[2].id == "off-spine" && !saved.grade->graph.nodes[2].inputs.at(ports::image));

@@ -462,7 +462,7 @@ only because it already exists.
 
 ## Build
 
-The normal Release build is:
+The normal macOS and Linux Release build is:
 
     ./build.sh
 
@@ -477,9 +477,10 @@ On macOS the packaged application is:
 
     build/OfxRawHost.app
 
-On other platforms the executable is normally:
+On Linux the executable is `build/OfxRawHost`.
 
-    build/OfxRawHost
+Use the [Windows x64 build instructions](README.md#windows-x64) for the
+native MSVC Release build.
 
 ## Self-test
 
@@ -487,9 +488,13 @@ macOS:
 
     build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 
-Linux / Windows-style build:
+On Linux, run the self-test from the build output.
 
     build/OfxRawHost --selftest
+
+On Windows, run the self-test in PowerShell.
+
+    ./build/Release/OfxRawHost.exe --selftest
 
 Run the complete self-test suite before declaring implementation or source-code
 review validation complete. Documentation-only changes need proportionate

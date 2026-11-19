@@ -75,17 +75,18 @@ void GradeHistory::recordSnapshot(document_detail::GradeSnapshot captured) {
   }
   const auto bytes = snapshotBytes(captured);
   if (bytes > memoryLimit_) throw std::runtime_error("snapshot exceeds the history memory limit");
-  // Allocate before discarding redo. Every operation after reserve is noexcept.
-  static_assert(std::is_nothrow_move_constructible_v<Entry> && std::is_nothrow_move_assignable_v<Entry>);
-  const auto retained = entries_.empty() ? 0 : cursor_ + 1;
-  entries_.reserve(retained + 1);
-  for (size_t i = retained; i < entries_.size(); ++i) bytes_ -= entries_[i].bytes;
-  entries_.erase(entries_.begin() + retained, entries_.end());
+  // Appending to the deque has no effect on failure, even if a map move
+  // constructor allocates. Prune redo only after the new entry is stored.
+  static_assert(std::is_nothrow_move_assignable_v<Entry>);
+  const auto previousSize = entries_.size();
+  const auto retained = previousSize == 0 ? 0 : cursor_ + 1;
   entries_.push_back({std::move(captured), bytes});
+  for (size_t i = retained; i < previousSize; ++i) bytes_ -= entries_[i].bytes;
+  entries_.erase(entries_.begin() + retained, entries_.end() - 1);
   bytes_ += bytes;
   while (entries_.size() > undoSteps_ + 1 || bytes_ > memoryLimit_) {
     bytes_ -= entries_.front().bytes;
-    entries_.erase(entries_.begin());
+    entries_.pop_front();
   }
   cursor_ = entries_.size() - 1;
   pending_ = Pending::None;

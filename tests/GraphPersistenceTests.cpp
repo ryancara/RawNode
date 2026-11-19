@@ -574,9 +574,10 @@ bool strictRejections() {
 bool typedParameters() {
   ProcessorParameter param;
   param.id = "checked";
+  constexpr auto escapedFox = R"("\ud83e\udd8a")";
   for (const auto type : {ParameterType::String, ParameterType::Custom}) {
     param.type = type;
-    CHECK(std::get<std::string>(persist_detail::parameterValue(param, R"("\ud83e\udd8a")")) == u8"🦊");
+    CHECK(std::get<std::string>(persist_detail::parameterValue(param, escapedFox)) == u8"🦊");
     CHECK(parameterRejects(param, "1"));
   }
   param.type = ParameterType::Boolean;

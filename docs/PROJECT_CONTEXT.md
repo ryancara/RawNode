@@ -489,7 +489,9 @@ export remains a later PR.
 Sidecars, presets and preferences share checked atomic replacement across macOS,
 Linux and Windows ([D058](DECISIONS.md#d058--shared-atomic-persistence)). Windows
 component tests exercise the production writer and Unicode photograph identity.
-Full Windows application compilation and GUI validation are separate milestones.
+Windows CI also builds the full application with MSVC x64 and runs its
+complete self-test with JPEG XL disabled. Windows desktop interaction remains
+pending. See the [Windows build instructions](../README.md#windows-x64).
 
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,
