@@ -214,7 +214,11 @@ bool photoMarkFailures() {
   const auto original = bytes(inputSidecarPath(a));
   app.persistenceWarning = "Existing grade save warning";
   for (auto fault : {Fault::Read, Fault::PermissionStat, Fault::PermissionCheck, Fault::TempCreate,
-                     Fault::Write, Fault::Flush, Fault::PermissionCopy, Fault::Close, Fault::Replace}) {
+                     Fault::Write, Fault::Flush,
+#ifndef _WIN32
+                     Fault::PermissionCopy,
+#endif
+                     Fault::Close, Fault::Replace}) {
     Options options; options.beforeSave = [fault] { return fault; };
     const auto directory = entries(files.dir);
     CHECK(!document_detail::assignPhotoMark(app, a, PhotoMark::Reject, options));

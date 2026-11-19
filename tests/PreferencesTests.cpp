@@ -177,7 +177,11 @@ bool atomicFailuresAndPaths() {
   const auto original = bytes(config.preferences);
   Preferences p;
   for (const auto fault : {Fault::PermissionStat, Fault::PermissionCheck, Fault::TempCreate,
-       Fault::Write, Fault::Flush, Fault::PermissionCopy, Fault::Close, Fault::Replace}) {
+       Fault::Write, Fault::Flush,
+#ifndef _WIN32
+       Fault::PermissionCopy,
+#endif
+       Fault::Close, Fault::Replace}) {
     CHECK(!preferences_detail::save(config.preferences, p, error, fault) && !error.empty());
     CHECK(bytes(config.preferences) == original);
     CHECK(entries(expected) == std::set<std::string>{"preferences.json"});
