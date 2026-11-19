@@ -74,30 +74,25 @@ class StagedEdit {
     // change drains preview/export, before touching live storage or processors.
     std::optional<document_detail::DocumentMutation> mutation;
     if (owner) mutation.emplace(*owner);
-    // All fallible allocation happens before modifying the live topology.
-    // Node moves, binding/Slot swaps and output swaps below cannot throw.
-    static_assert(std::is_nothrow_move_constructible_v<Node>);
+    // The staged vector already has every destination Node. Move assignment
+    // into those slots avoids move construction, which may allocate for maps.
     static_assert(std::is_nothrow_move_assignable_v<Node>);
+    static_assert(std::is_nothrow_swappable_v<std::vector<Node>>);
     static_assert(std::is_nothrow_swappable_v<InputBindings>);
     static_assert(std::is_nothrow_swappable_v<std::vector<Slot>>);
     static_assert(std::is_nothrow_swappable_v<OutputRef>);
-    document_.nodes.reserve(document_.nodes.size() + additions.size());
     for (auto &live : document_.nodes) {
-      Node *staged = node(live.id);
-      if (staged) swapTopology(live, *staged);
+      if (Node *staged = node(live.id)) commitNode(*staged, live);
     }
-    for (auto *addition : additions) {
-      swapTopology(*addition, *node(addition->id));
-      document_.nodes.push_back(std::move(*addition));
-    }
-    document_.nodes.erase(std::remove_if(document_.nodes.begin(), document_.nodes.end(), [&](const Node &live) {
-      return !node(live.id);
-    }), document_.nodes.end());
+    for (auto *addition : additions) commitNode(*node(addition->id), *addition);
+    document_.nodes.swap(nodes_);
     std::swap(document_.documentOutput, output_);
+    nodes_.clear();  // Destroy removed processors while execution is still excluded.
     if (owner) {
       for (auto position = owner->nodePositions.begin(); position != owner->nodePositions.end();) {
         // Commit must not allocate a temporary NodeId after changing topology.
-        if (std::none_of(nodes_.begin(), nodes_.end(), [&](const Node &node) { return node.id.value == position->first; }))
+        if (std::none_of(document_.nodes.begin(), document_.nodes.end(),
+                         [&](const Node &node) { return node.id.value == position->first; }))
           position = owner->nodePositions.erase(position);
         else ++position;
       }
@@ -112,7 +107,7 @@ class StagedEdit {
 
  private:
   // Compare node membership/document output and exactly the fields committed
-  // by swapTopology: bindings, ordered Slots and their ID high-water mark.
+  // by commitNode: bindings, ordered Slots and their ID high-water mark.
   // Slot identity/order is semantic even when bindings/settings are identical.
   // Every future SlotSettings field must participate here; swapping the Slot
   // vector already commits those fields. Retained node operation/enabled/processor
@@ -144,10 +139,12 @@ class StagedEdit {
     copy.observeSlotIds();
     return copy;
   }
-  static void swapTopology(Node &live, Node &staged) noexcept {
-    live.fixedInputs.swap(staged.fixedInputs);
-    live.slots.swap(staged.slots);
-    std::swap(live.nextSlotId_, staged.nextSlotId_);
+  static void commitNode(Node &staged, Node &original) noexcept {
+    // Combine the validated topology with the original processor and metadata.
+    original.fixedInputs.swap(staged.fixedInputs);
+    original.slots.swap(staged.slots);
+    std::swap(original.nextSlotId_, staged.nextSlotId_);
+    staged = std::move(original);
   }
   graph::Document document_;
   OutputRef output_;
