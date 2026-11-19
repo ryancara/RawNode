@@ -74,8 +74,9 @@ class StagedEdit {
     // change drains preview/export, before touching live storage or processors.
     std::optional<document_detail::DocumentMutation> mutation;
     if (owner) mutation.emplace(*owner);
-    // Keep existing Nodes in place when possible. Insertion uses the staged
-    // storage to avoid move construction, which may allocate for maps.
+    // Topology-only and Slot edits preserve Node addresses. Deletion can shift
+    // surviving Nodes. Insertion replaces the underlying Node storage with the
+    // staged vector, avoiding move construction that can allocate for maps.
     static_assert(std::is_nothrow_move_assignable_v<Node>);
     static_assert(std::is_nothrow_swappable_v<std::vector<Node>>);
     static_assert(std::is_nothrow_swappable_v<InputBindings>);
