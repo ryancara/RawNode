@@ -1,5 +1,6 @@
 #include "PreferencesTests.h"
 #include "AppState.h"
+#include "CurrentDirectory.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/PreferencesPriv.h"
@@ -33,11 +34,6 @@ struct Files {
   Files() { fs::create_directory(dir); }
   ~Files() { std::error_code ignored; fs::remove_all(dir, ignored); }
   std::string path(const std::string &name) const { return (dir / name).string(); }
-};
-struct CurrentDirectory {
-  fs::path previous = fs::current_path();
-  explicit CurrentDirectory(const fs::path &dir) { fs::current_path(dir); }
-  ~CurrentDirectory() { fs::current_path(previous); }
 };
 void write(const std::string &path, const std::string &text) {
   std::ofstream out(path, std::ios::binary); out << text; out.close();

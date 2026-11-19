@@ -166,8 +166,8 @@ build/OfxRawHost --selftest
 
 ### Windows x64
 
-Use Windows 10 version 1903 or later, Visual Studio 2022 with Desktop
-development with C++, and a bootstrapped vcpkg installation. Set
+Use Windows 10 version 1903 or later, CMake 3.21 or later, Visual Studio 2022
+with Desktop development with C++, and a bootstrapped vcpkg installation. Set
 `VCPKG_INSTALLATION_ROOT` to the vcpkg directory. From a recursive checkout,
 run the same Release build and full application self-test as Windows CI in
 PowerShell.
@@ -182,8 +182,9 @@ cmake --build build --config Release --parallel 2
 ./build/Release/OfxRawHost.exe --selftest
 ```
 
-Launch `build/Release/OfxRawHost.exe` for the graphical editor. Windows Move
-to Trash is disabled. Windows JPEG XL DNG validation is tracked separately.
+Launch `build/Release/OfxRawHost.exe` on a desktop with an OpenGL 3.3-capable
+graphics driver. Interactive Windows validation is pending. Windows Move to
+Trash is disabled, and Windows JPEG XL DNG validation is tracked separately.
 
 ---
 

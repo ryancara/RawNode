@@ -1,6 +1,7 @@
 #include "ExportSafetyTests.h"
 
 #include "AppState.h"
+#include "CurrentDirectory.h"
 #include "Export.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
@@ -224,6 +225,9 @@ bool ordinaryOverwrites(bool asynchronous, bool rawSource) {
 } // namespace
 
 bool testExportSafety() {
+  // Relative aliases need a working directory on the fixtures' own volume.
+  Files workingDirectory;
+  CurrentDirectory cwd(workingDirectory.dir);
   bool ok = writerCases();
   for (bool asynchronous : {false, true}) {
     for (const char *ext : {".png", ".jpg"}) {

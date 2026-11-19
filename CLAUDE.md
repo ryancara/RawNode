@@ -477,9 +477,7 @@ On macOS the packaged application is:
 
     build/OfxRawHost.app
 
-On Linux the executable is:
-
-    build/OfxRawHost
+On Linux the executable is `build/OfxRawHost`.
 
 Use the [Windows x64 build instructions](README.md#windows-x64) for the
 native MSVC Release build.
@@ -490,11 +488,11 @@ macOS:
 
     build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 
-Linux:
+On Linux, run the self-test from the build output.
 
     build/OfxRawHost --selftest
 
-Windows (PowerShell):
+On Windows, run the self-test in PowerShell.
 
     ./build/Release/OfxRawHost.exe --selftest
 
