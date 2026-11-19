@@ -3,6 +3,7 @@ name: Windows CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -37,3 +38,16 @@ jobs:
 
       - name: Self-test
         run: ./build/Release/OfxRawHost.exe --selftest
+
+      - name: Assemble and verify portable test ZIP
+        shell: pwsh
+        run: ./.github/scripts/windows-test-zip.ps1
+
+      - name: Upload portable test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: RawNode-Windows-x64-Release
+          path: ${{ runner.temp }}/rawnode-windows-artifact/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

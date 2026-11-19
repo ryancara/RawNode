@@ -186,6 +186,15 @@ Launch `build/Release/OfxRawHost.exe` on a desktop with an OpenGL 3.3-capable
 graphics driver. Interactive Windows validation is pending. Windows Move to
 Trash is disabled, and Windows JPEG XL DNG validation is tracked separately.
 
+For manual validation without a compiler, download `RawNode-Windows-x64-Release`
+from a successful Windows CI run's **Artifacts** section (GitHub sign-in is
+required). Extract the artifact, then extract `RawNode-Windows-x64-Release.zip`
+and launch `OfxRawHost.exe` from its folder. Keep the bundled DLLs, `Plugins`
+directory and icon font alongside it. These unsigned Release test builds are
+retained for 14 days; they include a full self-test log from an isolated
+extraction with the original checkout unavailable. Desktop interaction still
+needs manual validation. This does not install the application.
+
 ---
 
 ## Historical upstream release milestones
