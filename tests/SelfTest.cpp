@@ -2884,12 +2884,14 @@ static int runSelfTestsImpl() {
       return fail("legacy sidecar initial save");
     std::ifstream legacyInput(inputSidecarPath(legacyNamesImage.string()), std::ios::binary);
     const std::string legacyBefore{std::istreambuf_iterator<char>(legacyInput), {}};
+    legacyInput.close();
     App legacyNamesApp;
     if (!openPath(legacyNamesApp, legacyNamesImage.string()) || !legacyNamesApp.isPhotoProtected() ||
         saveCurrentInputSidecar(legacyNamesApp)) return fail("legacy sidecar protection");
     std::ifstream legacyAfterInput(inputSidecarPath(legacyNamesImage.string()), std::ios::binary);
     if (std::string(std::istreambuf_iterator<char>(legacyAfterInput), {}) != legacyBefore)
       return fail("legacy sidecar preservation");
+    legacyAfterInput.close();
     fs::remove(inputSidecarPath(legacyNamesImage.string())); fs::remove(legacyNamesImage);
 
     // Unknown future colour identifiers must be readable but write-protected,
