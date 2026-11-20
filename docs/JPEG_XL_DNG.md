@@ -271,10 +271,12 @@ separate validation requirements:
   OpcodeList1/2/3 behaviour. Separate compression loss from decoding error.
   Synthetic/Adobe tests and the owner-reported photographic checks above do not
   establish this independent reference-colour comparison.
-- Execute Windows builds/runtime/packaging and macOS sanitizer checks. Windows
-  currently has only configuration support: C++17, CMake/Git/Python, normal
-  JPEG/zlib/TIFF/lcms2/OpenEXR/Imath/OpenGL dependencies, SDK `qWinOS=1`,
-  `LIBRAW_NODLL` and User32 linkage. Intel JPEG XL ON is also not covered by the
+- Execute Windows JPEG XL **ON** builds/runtime/packaging and macOS sanitizer
+  checks. Windows x64 builds, full self-tests, portable packaging and
+  owner-reported native desktop validation have passed with JPEG XL **OFF**;
+  see [the Windows validation record](WINDOWS_VALIDATION.md). Windows JPEG XL
+  support remains outstanding: its ON path has configuration support but no
+  completed native validation. Intel JPEG XL ON is also not covered by the
   release checks, which use OFF.
 - Complete portable packaging and the binary licensing/redistribution review
   below. Passing hosted-runner DMG tests does not complete these requirements.

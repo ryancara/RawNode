@@ -77,11 +77,16 @@ These priorities sequence focused work without reopening completed architecture 
    and [PR #116](https://github.com/ryancara/RawNode/pull/116).
    **Keep this item visible here until implemented and validated; merging the
    macOS/Linux implementation does not complete Windows support.**
-6. **Shared atomic sidecar persistence and Windows application.**
+6. **Shared atomic sidecar persistence and Windows application — validated
+   with JPEG XL OFF.**
    The shared writer and focused native regressions implement
    [D058](docs/DECISIONS.md#d058--shared-atomic-persistence). The full
    application build and self-test run with MSVC x64 and JPEG XL disabled.
-   Interactive Windows validation and JPEG XL ON coverage remain open.
+   The owner reports successful native Windows desktop validation on
+   2026-11-20 using PR #120's portable x64 Release build; see the
+   [build provenance and validation record](docs/WINDOWS_VALIDATION.md).
+   Windows JPEG XL support (ON build/runtime/packaging validation) and
+   Windows Move to Trash support remain outstanding; Move to Trash is disabled.
    [Windows CI](.github/workflows/windows-ci.yml) · [Build instructions](README.md#windows-x64)
 7. **Close the practical Step 8 masking core.** Agree the exit gate, then
    deliver Mask Combine, upstream geometry/Overlay placement through Mask

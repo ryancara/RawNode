@@ -183,8 +183,19 @@ cmake --build build --config Release --parallel 2
 ```
 
 Launch `build/Release/OfxRawHost.exe` on a desktop with an OpenGL 3.3-capable
-graphics driver. Interactive Windows validation is pending. Windows Move to
-Trash is disabled, and Windows JPEG XL DNG validation is tracked separately.
+graphics driver. The owner reports successful native Windows desktop validation
+on 2026-11-20 using PR #120's portable x64 Release build; see the
+[Windows validation record](docs/WINDOWS_VALIDATION.md). Windows JPEG XL support
+remains outstanding, and Windows Move to Trash remains disabled and outstanding.
+
+For manual validation without a compiler, download `RawNode-Windows-x64-Release`
+from a successful Windows CI run's **Artifacts** section (GitHub sign-in is
+required). Extract the artifact, then extract `RawNode-Windows-x64-Release.zip`
+and launch `OfxRawHost.exe` from its folder. Keep the bundled DLLs, `Plugins`
+directory and icon font alongside it. These unsigned Release test builds are
+retained for 14 days; they include a full self-test log from an isolated
+extraction with the original checkout unavailable. This does not install the
+application.
 
 ---
 
