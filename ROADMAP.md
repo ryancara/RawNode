@@ -61,9 +61,9 @@ These priorities sequence focused work without reopening completed architecture 
    Batch export follows using the existing single-image
    path and execution ownership, initially sequentially. Multi-photo grade/preset
    application can follow separately.
-5. **Windows Move to Trash — implemented in [draft PR #122](https://github.com/ryancara/RawNode/pull/122),
-   independently reviewed SAFE TO MERGE, as reported by the owner; still open and
-   unmerged pending manual validation of the updated build.** One shared workflow uses
+5. **Windows Move to Trash — implemented and owner-validated in
+   [PR #122](https://github.com/ryancara/RawNode/pull/122), with Claude's review
+   reported SAFE TO MERGE.** One shared workflow uses
    native recycling on all platforms. Windows may show its own explicit
    permanent-deletion warning; RawNode never approves it automatically. Results
    distinguish recycled/permanently deleted/cancelled/failed operations and native
@@ -71,9 +71,11 @@ These priorities sequence focused work without reopening completed architecture 
    absent recycle intent because disabled bins can bypass warning UI. See
    [the exact configuration and native evidence](docs/WINDOWS_TRASH_RESEARCH.md).
    Native fixture tests cover recycle/restore, oversized files, disabled bins,
-   No/dismissal and ordinary errors. Windows 10/11 desktop, physical external
-   HDD/SSD and removable FAT32/exFAT card checks remain manual. Keep this item
-   visible until validation and merge are complete; do not merge yet.
+   No/dismissal and ordinary errors. Owner-reported manual Windows checks passed
+   for multi-photo Trash, external HDD/SSD, native dialog ownership and
+   cancellation. SD card tests remain unverified because hardware was unavailable;
+   this is an accepted non-blocking limitation. See
+   [the validation record](docs/WINDOWS_VALIDATION.md).
 6. **Shared atomic sidecar persistence and Windows application — validated
    with JPEG XL OFF.**
    The shared writer and focused native regressions implement
@@ -83,7 +85,7 @@ These priorities sequence focused work without reopening completed architecture 
    2026-11-20 using PR #120's portable x64 Release build; see the
    [build provenance and validation record](docs/WINDOWS_VALIDATION.md).
    Windows JPEG XL support (ON build/runtime/packaging validation) remains
-   outstanding. Windows Trash has its own draft/review/validation milestone above.
+   outstanding. Windows Trash has its own implementation/validation record above.
    [Windows CI](.github/workflows/windows-ci.yml) · [Build instructions](README.md#windows-x64)
 7. **Close the practical Step 8 masking core.** Agree the exit gate, then
    deliver Mask Combine, upstream geometry/Overlay placement through Mask

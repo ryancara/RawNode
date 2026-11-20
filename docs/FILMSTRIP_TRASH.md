@@ -1,9 +1,10 @@
 # Move selected photographs to Trash
 
 macOS/Linux native Trash was introduced in merged PR #116. Windows interactive
-recycling is implemented in [draft PR #122](https://github.com/ryancara/RawNode/pull/122),
-with Claude's independent review reported **SAFE TO MERGE**. The PR is open and
-unmerged pending the owner's manual validation of the updated build. All three
+recycling is implemented in [PR #122](https://github.com/ryancara/RawNode/pull/122),
+with Claude's review reported **SAFE TO MERGE** and owner-reported Windows desktop
+validation passed. SD card testing is unverified due to unavailable hardware and
+is not a merge blocker; see [the validation record](WINDOWS_VALIDATION.md). All three
 platforms share selection, confirmation, sidecars, document lifecycle and refresh. There
 is no catalogue, culling mode, filesystem Undo or new filmstrip control.
 Windows may offer explicit permanent-deletion confirmation; RawNode never
@@ -219,4 +220,6 @@ copies for comparison; never test on a user's photo collection.
 Windows native configuration, evidence and remaining desktop checks are recorded
 in [Windows Trash research](WINDOWS_TRASH_RESEARCH.md) and
 [the Windows validation record](WINDOWS_VALIDATION.md). A runner pass does not
-complete independent review, Windows 10/11 desktop or physical external/card checks.
+replace owner desktop validation or establish untested SD card behavior. The
+owner's Windows desktop/external HDD/SSD checks passed; SD card testing remains
+an accepted non-blocking limitation due to unavailable hardware.

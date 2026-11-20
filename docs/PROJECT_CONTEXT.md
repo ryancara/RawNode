@@ -476,7 +476,7 @@ active export, retires the removed save target, and uses prepared opening or a
 usable empty editor. Non-current removal preserves the live grade/history/preview.
 Partial sidecar failures report exact orphan paths without rollback or overwrite.
 macOS/Linux native Trash is merged in PR #116; native GUI/restore checks remain
-separate from PR #115's selection validation. [Draft PR #122](https://github.com/ryancara/RawNode/pull/122)
+separate from PR #115's selection validation. [PR #122](https://github.com/ryancara/RawNode/pull/122)
 adds Windows IFileOperation recycling to the same workflow. Windows may offer
 explicit permanent-deletion warnings; RawNode never approves them automatically.
 The shared outcome distinguishes recycling, permanent deletion, cancellation and
@@ -484,10 +484,11 @@ failure, and cancellation stops further work while retaining completed removals.
 Windows' absence of recycle intent causes a native pre-delete refusal because
 disabled bins can otherwise bypass warning UI. The [Windows evidence](WINDOWS_TRASH_RESEARCH.md)
 records this and the earlier loss/HRESULT defect. The owner reports Claude's
-independent review as SAFE TO MERGE. PR #122 remains open and unmerged pending
-manual validation of the updated portable build; physical external/card checks
-remain separately tracked. Batch export remains a later PR; no custom recovery
-machinery is introduced.
+independent review as SAFE TO MERGE and successful Windows desktop validation of
+multi-photo Trash, external HDD/SSD, native dialog ownership and cancellation.
+SD card testing is unverified due to unavailable hardware, an accepted
+non-blocking limitation recorded in [Windows validation](WINDOWS_VALIDATION.md).
+Batch export remains a later PR; no custom recovery machinery is introduced.
 
 Sidecars, presets and preferences share checked atomic replacement across macOS,
 Linux and Windows ([D058](DECISIONS.md#d058--shared-atomic-persistence)). Windows
@@ -497,9 +498,11 @@ complete self-test with JPEG XL disabled. The owner reports successful native
 Windows desktop validation on 2026-11-20 using PR #120's portable x64 Release
 build. The [Windows validation record](WINDOWS_VALIDATION.md) retains its exact
 artifact provenance and the automated extraction checks. Windows JPEG XL support
-remains outstanding. Windows Move to Trash in draft PR #122 has a reported SAFE
-TO MERGE independent review and awaits manual validation of the updated build;
-the earlier PR #120 desktop result did not test it. PR #122 is not merged.
+remains outstanding. Windows Move to Trash in PR #122 is independently reviewed
+and owner-validated on Windows, including external HDD/SSD. SD cards remain
+unverified due to unavailable hardware and do not block merge. The earlier
+PR #120 desktop result did not test Trash; its separate validation is recorded
+in the same document.
 See the [Windows build instructions](../README.md#windows-x64).
 
 Prefer retaining untouched section JSON exactly where practical, with precision

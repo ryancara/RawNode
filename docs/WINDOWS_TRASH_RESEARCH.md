@@ -2,14 +2,17 @@
 
 ## Current contract
 
-[Draft PR #122](https://github.com/ryancara/RawNode/pull/122) implements the
+[PR #122](https://github.com/ryancara/RawNode/pull/122) implements the
 owner-approved interactive contract from main `167888a`: request native recycling;
 Windows may offer its own explicit permanent-deletion warning. RawNode never
 approves that warning automatically. A user who explicitly chooses permanent
 deletion can lose the file irreversibly. This supersedes the earlier requirement
 that even offering permanent deletion was forbidden. The owner reports Claude's
-independent review as **SAFE TO MERGE**. PR #122 remains open, draft and unmerged;
-the updated portable build awaits the owner's manual validation before merge.
+independent review as **SAFE TO MERGE** and successful Windows desktop validation,
+including multi-photo Trash, external HDD/SSD, dialog ownership and cancellation.
+The owner authorized merge. SD card testing is unverified due to unavailable
+hardware and is explicitly not a merge blocker; see the
+[validation record and build provenance](WINDOWS_VALIDATION.md).
 
 Selection, application confirmation, departure saving, photo-first sidecars,
 current-document retirement and refresh remain one shared workflow. The shared
@@ -96,23 +99,23 @@ The artifact is retained for 14 days. It contains the adapter source hash,
 environment, exact captured warning text, results, restore/source hashes and
 test-volume settings. Later final-head runs are linked in the PR.
 
-## Limits and remaining desktop checks
+## Validation limits
 
-Runner evidence uses Windows Server 2022 and fixed virtual NTFS disks. It does
-not establish Windows 10/11 GUI integration, physical external HDD/SSD, removable
-FAT32/exFAT cards, network shares or provider/cloud behavior. Windows decides
+Runner evidence uses Windows Server 2022 and fixed virtual NTFS disks. The owner
+separately reports successful Windows desktop, physical external HDD/SSD, native
+dialog ownership and cancellation checks. SD cards remain unverified because
+hardware was unavailable; this is an accepted non-blocking limitation. Neither
+result establishes network-share or provider/cloud behavior. Windows decides
 storage compatibility, permissions and capacity; unsupported operations may fail.
 Existing shared symlink/reparse/nonregular-file refusal remains. Concurrent
 external replacement and atomic photo/sidecar groups remain outside the contract.
 
 Independent review is reported complete. Remaining non-blocking implementation
 findings are accepted without additional defensive state or test infrastructure.
-Before merge, use the updated portable build on disposable photographs to check the warning in
-the existing application confirmation, native prompt ownership/visibility,
-No/Cancel during a batch and a sidecar operation, source/sidecar restore, current
-versus unopened photos, and ordinary external/card storage. Explicit Yes is never
+Owner-reported manual validation and the supplied portable build identity are
+recorded in [Windows validation](WINDOWS_VALIDATION.md). Explicit Yes is never
 automated; permanent-deletion reporting is exercised through controlled shared
-test outcomes, with manual confirmation on disposable files only if chosen.
+test outcomes. SD card tests can follow when hardware is available.
 
 ## Earlier research retained
 

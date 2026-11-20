@@ -856,10 +856,10 @@ consumers. Persistence and LibRaw use wide filesystem paths.
 
 ## D059 — Shared native Trash with explicit Windows confirmation
 
-**Status:** Accepted contract; Claude's independent review of draft PR #122 is
-reported **SAFE TO MERGE**. The PR remains open and unmerged pending the owner's
-manual validation of the updated build. Supersedes the strict recycle-or-preserve
-Windows policy recorded during PR #116.
+**Status:** Accepted; implemented in PR #122 with Claude's review reported
+**SAFE TO MERGE** and owner-reported Windows desktop validation passed. SD card
+testing is unverified due to unavailable hardware and is not a merge blocker.
+Supersedes the strict recycle-or-preserve Windows policy recorded during PR #116.
 
 Selection, application confirmation, departure saving, photo-first sidecars,
 document retirement and refresh use one shared workflow. Platform adapters request
