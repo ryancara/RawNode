@@ -908,6 +908,12 @@ Next architecture/product work:
   is waived, while new layouts persist normally and photo/grade contracts remain.
 - Both editor views share the authoritative document graph and NodeId selection;
   switching views introduces no additional execution model.
+- **Detachable UI panels / multi-monitor support** is a planned focused UI
+  milestone before the Step 9 audit, not a mandatory Step 8 exit criterion.
+  It will reuse Dear ImGui's native multi-viewports, existing docking/layout
+  persistence and OpenGL rendering, with one shared application state and
+  processing pipeline. Implementation remains future work; see the
+  [roadmap scope and cross-platform validation requirements](../ROADMAP.md#detachable-ui-panels--multi-monitor-support).
 
 The checkpoint, immediate follow-ups, Step 5 contract and whole-Step-6
 implementation/architecture review are complete. These focused corrections do
