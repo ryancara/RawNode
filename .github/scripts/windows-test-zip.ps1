@@ -52,7 +52,9 @@ CI run: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_I
 Extract the entire ZIP and launch OfxRawHost.exe from this folder.
 Windows 10 version 1903 or later and an OpenGL 3.3-capable driver are required.
 JPEG XL DNG support is OFF, as in the existing Windows CI configuration.
-Windows Move to Trash is disabled. Settings use %APPDATA%\RawNode.
+Windows Move to Trash requests native recycling. Windows may offer explicit
+permanent-deletion confirmation; RawNode never approves it automatically.
+Validate Trash only with disposable photographs. Settings use %APPDATA%\RawNode.
 The default text font is embedded; fa-solid-900.ttf supplies the UI icons.
 This is an unsigned test build, with no installer.
 
@@ -129,3 +131,4 @@ try {
     [Environment]::CurrentDirectory = $savedProcessDirectory
 }
 Get-FileHash -Algorithm SHA256 $zip | Format-List | Out-String | Set-Content "$output/SHA256.txt"
+Get-Content "$output/SHA256.txt"

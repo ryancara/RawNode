@@ -469,23 +469,26 @@ selections, refresh prunes removed paths, and changing folders clears selection.
 Selected frames and the open-photo outline are distinct existing theme colours.
 The owner reports PR #115's native macOS checks completed and retains the
 existing theme-based selection colours; see [the selection record](FILMSTRIP_SELECTION.md).
-The next focused milestone implements [confirmed native Trash](FILMSTRIP_TRASH.md)
-for the complete path selection, including hidden photographs and both exact
-current/legacy sidecar names. Current-photo removal reuses departure saving and
-DocumentMutation, refuses active export, retires the removed save target, and
-uses prepared opening or a usable empty editor. Non-current removal preserves
-the live grade/history/preview. Partial sidecar failures report exact orphan
-paths without rollback or overwrite. PR #116 implements macOS/Linux Trash,
-subject to final validation and merge; native macOS GUI/restore checks remain
-separate from PR #115's selection validation. Windows Move to Trash now explicitly
-refuses before confirmation, edit completion, departure or deletion: native tests
-reproduced silent permanent loss through the previous IFileOperation adapter. Shared/macOS/Linux lifecycle,
-unmodified deletion keys and confirmation eligibility wording are preserved.
-The [Windows research and diagnostic evidence](WINDOWS_TRASH_RESEARCH.md) record
-the loss and separate HRESULT reporting bug. Windows support remains an
-unfinished [near-term roadmap milestone](../ROADMAP.md), requiring its own
-focused PR, independent review and native recycle-or-preserve validation. Batch
-export remains a later PR.
+[Confirmed native Trash](FILMSTRIP_TRASH.md) processes the complete path selection,
+including hidden photographs and both exact current/legacy sidecar names.
+Current-photo removal reuses departure saving and DocumentMutation, refuses
+active export, retires the removed save target, and uses prepared opening or a
+usable empty editor. Non-current removal preserves the live grade/history/preview.
+Partial sidecar failures report exact orphan paths without rollback or overwrite.
+macOS/Linux native Trash is merged in PR #116; native GUI/restore checks remain
+separate from PR #115's selection validation. [PR #122](https://github.com/ryancara/RawNode/pull/122)
+adds Windows IFileOperation recycling to the same workflow. Windows may offer
+explicit permanent-deletion warnings; RawNode never approves them automatically.
+The shared outcome distinguishes recycling, permanent deletion, cancellation and
+failure, and cancellation stops further work while retaining completed removals.
+Windows' absence of recycle intent causes a native pre-delete refusal because
+disabled bins can otherwise bypass warning UI. The [Windows evidence](WINDOWS_TRASH_RESEARCH.md)
+records this and the earlier loss/HRESULT defect. The owner reports Claude's
+independent review as SAFE TO MERGE and successful Windows desktop validation of
+multi-photo Trash, external HDD/SSD, native dialog ownership and cancellation.
+SD card testing is unverified due to unavailable hardware, an accepted
+non-blocking limitation recorded in [Windows validation](WINDOWS_VALIDATION.md).
+Batch export remains a later PR; no custom recovery machinery is introduced.
 
 Sidecars, presets and preferences share checked atomic replacement across macOS,
 Linux and Windows ([D058](DECISIONS.md#d058--shared-atomic-persistence)). Windows
@@ -495,7 +498,11 @@ complete self-test with JPEG XL disabled. The owner reports successful native
 Windows desktop validation on 2026-11-20 using PR #120's portable x64 Release
 build. The [Windows validation record](WINDOWS_VALIDATION.md) retains its exact
 artifact provenance and the automated extraction checks. Windows JPEG XL support
-and Windows Move to Trash support remain outstanding; Move to Trash is disabled.
+remains outstanding. Windows Move to Trash in PR #122 is independently reviewed
+and owner-validated on Windows, including external HDD/SSD. SD cards remain
+unverified due to unavailable hardware and do not block merge. The earlier
+PR #120 desktop result did not test Trash; its separate validation is recorded
+in the same document.
 See the [Windows build instructions](../README.md#windows-x64).
 
 Prefer retaining untouched section JSON exactly where practical, with precision

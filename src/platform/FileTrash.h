@@ -7,10 +7,11 @@
 // Platform capability only; individual volumes/operations may still refuse.
 bool fileTrashSupported();
 
-// Recoverable native Trash only. False leaves an explanation; no permanent
-// deletion fallback is permitted, including on unsupported volumes.
-bool moveFileToTrash(const std::string &path, std::string &error);
-using TrashOperation = std::function<bool(const std::string &, std::string &)>;
+enum class TrashOutcome { Trashed, PermanentlyDeleted, Cancelled, Failed };
+// Request native recycling. Windows may offer permanent deletion in its own
+// confirmation; RawNode never approves it automatically. Failed sets error.
+TrashOutcome moveFileToTrash(const std::string &path, std::string &error);
+using TrashOperation = std::function<TrashOutcome(const std::string &, std::string &)>;
 
 // A no-follow identity check for the exact directory entry being confirmed.
 // Directory timestamps/size are excluded because removing children changes them.

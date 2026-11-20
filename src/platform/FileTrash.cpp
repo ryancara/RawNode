@@ -1,12 +1,16 @@
 #include "platform/FileTrash.h"
 
 #include <filesystem>
+#include <sstream>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <shobjidl.h>
+#include <sherrors.h>
+#include <wrl/client.h>
 #else
 #include <cerrno>
 #include <cstring>
@@ -17,7 +21,7 @@
 #endif
 
 bool fileTrashSupported() {
-#if defined(__APPLE__) || defined(__linux__)
+#if defined(__APPLE__) || defined(__linux__) || defined(_WIN32)
   return true;
 #else
   return false;
@@ -26,7 +30,7 @@ bool fileTrashSupported() {
 
 bool inspectTrashPath(const std::string &path, bool directory, TrashFileIdentity &identity, std::string &error) {
 #if defined(_WIN32)
-  const auto wide = std::filesystem::path(path).wstring();
+  const auto wide = std::filesystem::u8path(path).wstring();
   HANDLE handle = CreateFileW(wide.c_str(), FILE_READ_ATTRIBUTES,
       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
       FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr);
@@ -67,25 +71,130 @@ bool inspectTrashPath(const std::string &path, bool directory, TrashFileIdentity
 }
 
 #if defined(_WIN32)
-bool moveFileToTrash(const std::string &, std::string &error) {
-  // Native tests reproduced permanent deletion despite recycle-intent callbacks.
-  // Keep Windows unsupported until recycling or preservation is guaranteed.
-  error = "Move to Trash is temporarily unsupported on Windows until safe recycling is available";
-  return false;
+namespace {
+struct TrashApartment {
+  HRESULT result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  ~TrashApartment() { if (SUCCEEDED(result)) CoUninitialize(); }
+};
+
+// Observe the actual item result, including successful HRESULTs other than S_OK.
+// Windows owns confirmation UI; none of these callbacks answers its dialogs.
+class DeleteSink final : public IFileOperationProgressSink {
+ public:
+  HRESULT result = E_PENDING;
+  bool recycled = false;
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void **out) override {
+    if (!out) return E_POINTER;
+    *out = nullptr;
+    if (id != IID_IUnknown && id != IID_IFileOperationProgressSink) return E_NOINTERFACE;
+    *out = static_cast<IFileOperationProgressSink *>(this);
+    AddRef();
+    return S_OK;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&references_); }
+  ULONG STDMETHODCALLTYPE Release() override {
+    const auto remaining = InterlockedDecrement(&references_);
+    if (!remaining) delete this;
+    return remaining;
+  }
+  HRESULT STDMETHODCALLTYPE PostDeleteItem(DWORD, IShellItem *, HRESULT status, IShellItem *created) override {
+    result = status;
+    recycled = SUCCEEDED(status) && created != nullptr;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE PreDeleteItem(DWORD flags, IShellItem *) override {
+    // A disabled bin can bypass even WANTNUKEWARNING. Refuse when Windows
+    // already knows it will not try recycling; oversized files still get UI.
+    return flags & TSF_DELETE_RECYCLE_IF_POSSIBLE ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+  }
+  HRESULT STDMETHODCALLTYPE StartOperations() override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE FinishOperations(HRESULT) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE PreRenameItem(DWORD, IShellItem *, LPCWSTR) override { return E_NOTIMPL; }
+  HRESULT STDMETHODCALLTYPE PostRenameItem(DWORD, IShellItem *, LPCWSTR, HRESULT, IShellItem *) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE PreMoveItem(DWORD, IShellItem *, IShellItem *, LPCWSTR) override { return E_NOTIMPL; }
+  HRESULT STDMETHODCALLTYPE PostMoveItem(DWORD, IShellItem *, IShellItem *, LPCWSTR, HRESULT, IShellItem *) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE PreCopyItem(DWORD, IShellItem *, IShellItem *, LPCWSTR) override { return E_NOTIMPL; }
+  HRESULT STDMETHODCALLTYPE PostCopyItem(DWORD, IShellItem *, IShellItem *, LPCWSTR, HRESULT, IShellItem *) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE PreNewItem(DWORD, IShellItem *, LPCWSTR) override { return E_NOTIMPL; }
+  HRESULT STDMETHODCALLTYPE PostNewItem(DWORD, IShellItem *, LPCWSTR, LPCWSTR, DWORD, HRESULT, IShellItem *) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE UpdateProgress(UINT, UINT) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE ResetTimer() override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE PauseTimer() override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE ResumeTimer() override { return S_OK; }
+ private:
+  LONG references_ = 1;
+};
+
+bool userCancelled(HRESULT result) {
+  return result == COPYENGINE_E_USER_CANCELLED || result == COPYENGINE_S_USER_IGNORED ||
+      result == HRESULT_FROM_WIN32(ERROR_CANCELLED) || result == E_ABORT;
+}
+}  // namespace
+
+TrashOutcome moveFileToTrash(const std::string &path, std::string &error) {
+  error.clear();
+  if (path.empty() || path.find('\0') != std::string::npos) {
+    error = "Invalid Trash path";
+    return TrashOutcome::Failed;
+  }
+  std::filesystem::path source;
+  try { source = std::filesystem::absolute(std::filesystem::u8path(path)); }
+  catch (const std::system_error &failure) { error = failure.what(); return TrashOutcome::Failed; }
+  TrashApartment apartment;
+  Microsoft::WRL::ComPtr<IFileOperation> operation;
+  Microsoft::WRL::ComPtr<IShellItem> item;
+  Microsoft::WRL::ComPtr<DeleteSink> sink;
+  sink.Attach(new DeleteSink);
+  HRESULT result = apartment.result;
+  if (SUCCEEDED(result)) result = CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&operation));
+  // Never use FOF_NOCONFIRMATION: it answers Yes to permanent-deletion warnings.
+  if (SUCCEEDED(result)) result = operation->SetOperationFlags(FOFX_RECYCLEONDELETE | FOF_WANTNUKEWARNING |
+      FOF_NO_CONNECTED_ELEMENTS | FOF_NORECURSION | FOF_SILENT | FOF_NOERRORUI | FOFX_EARLYFAILURE);
+  if (SUCCEEDED(result)) result = operation->SetOwnerWindow(GetActiveWindow());
+  if (SUCCEEDED(result)) result = SHCreateItemFromParsingName(source.c_str(), nullptr, IID_PPV_ARGS(&item));
+  if (SUCCEEDED(result)) result = operation->DeleteItem(item.Get(), sink.Get());
+  BOOL aborted = FALSE;
+  HRESULT abortResult = S_OK;
+  if (SUCCEEDED(result)) {
+    result = operation->PerformOperations();
+    abortResult = operation->GetAnyOperationsAborted(&aborted);
+  }
+  // Completed work stays completed even if the aggregate operation reports an error.
+  if (sink->recycled) return TrashOutcome::Trashed;
+  if (userCancelled(sink->result)) return TrashOutcome::Cancelled;
+  if (SUCCEEDED(sink->result)) {
+    std::error_code ec;
+    if (std::filesystem::symlink_status(source, ec).type() == std::filesystem::file_type::not_found &&
+        (!ec || ec == std::errc::no_such_file_or_directory)) return TrashOutcome::PermanentlyDeleted;
+  }
+  if (userCancelled(result)) return TrashOutcome::Cancelled;
+  // The Shell may report S_OK after cancellation before an item callback.
+  // Preserve any explicit item failure instead of relabelling it cancellation.
+  if (SUCCEEDED(result) && SUCCEEDED(abortResult) && aborted &&
+      (sink->result == E_PENDING || SUCCEEDED(sink->result))) return TrashOutcome::Cancelled;
+  if (sink->result == HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED)) {
+    error = "Windows does not offer recycling for this item";
+    return TrashOutcome::Failed;
+  }
+  std::ostringstream message;
+  message << "Windows Trash failed (shell=0x" << std::hex << result << ", item=0x" << sink->result
+          << ", abort query=0x" << abortResult << ", aborted=" << aborted << ')';
+  error = message.str();
+  return TrashOutcome::Failed;
 }
 #elif defined(__linux__)
-bool moveFileToTrash(const std::string &path, std::string &error) {
+TrashOutcome moveFileToTrash(const std::string &path, std::string &error) {
   GFile *file = g_file_new_for_path(path.c_str());
   GError *failure = nullptr;
   const bool moved = g_file_trash(file, nullptr, &failure);
   error = failure ? failure->message : moved ? "" : "Native Trash is unavailable";
   if (failure) g_error_free(failure);
   g_object_unref(file);
-  return moved;
+  return moved ? TrashOutcome::Trashed : TrashOutcome::Failed;
 }
 #elif !defined(__APPLE__)
-bool moveFileToTrash(const std::string &, std::string &error) {
+TrashOutcome moveFileToTrash(const std::string &, std::string &error) {
   error = "Recoverable Trash is not supported on this platform";
-  return false;
+  return TrashOutcome::Failed;
 }
 #endif

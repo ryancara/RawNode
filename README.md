@@ -186,7 +186,11 @@ Launch `build/Release/OfxRawHost.exe` on a desktop with an OpenGL 3.3-capable
 graphics driver. The owner reports successful native Windows desktop validation
 on 2026-11-20 using PR #120's portable x64 Release build; see the
 [Windows validation record](docs/WINDOWS_VALIDATION.md). Windows JPEG XL support
-remains outstanding, and Windows Move to Trash remains disabled and outstanding.
+remains outstanding. Windows Move to Trash in PR #122 has passed independent
+review and owner-reported Windows desktop validation, including external
+HDD/SSD. SD card testing remains unverified due to unavailable hardware, an
+accepted non-blocking limitation; see the
+[interactive contract and native evidence](docs/WINDOWS_TRASH_RESEARCH.md).
 
 For manual validation without a compiler, download `RawNode-Windows-x64-Release`
 from a successful Windows CI run's **Artifacts** section (GitHub sign-in is

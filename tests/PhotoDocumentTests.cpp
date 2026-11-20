@@ -432,7 +432,7 @@ struct FilmstripFrame {
   std::string renderedText;
   SaveFailurePrompt prompt = [](const std::string &) { return Decision::Cancel; };
   PhotoTrashConfirmation confirm = [](const std::string &) { return false; };
-  TrashOperation move = [](const std::string &, std::string &) -> bool { throw std::runtime_error("unexpected UI Trash call"); };
+  TrashOperation move = [](const std::string &, std::string &) -> TrashOutcome { throw std::runtime_error("unexpected UI Trash call"); };
   bool showModal = false;
   bool showOther = false;
   bool showFilmstripWidgets = false;
@@ -557,7 +557,7 @@ bool filmstripTrashKeyboardFrames() {
     ui.move = [&](const std::string &path, std::string &error) {
       if (fs::path(path).parent_path() != files.dir) throw std::runtime_error("UI Trash escaped fixture");
       ++moves; std::error_code ec; fs::rename(path, held / fs::path(path).filename(), ec);
-      error = ec.message(); return !ec;
+      error = ec.message(); return ec ? TrashOutcome::Failed : TrashOutcome::Trashed;
     };
     const auto key = [&](ImGuiKey key) {
       io.AddKeyEvent(key, true); ui.tick(app); io.AddKeyEvent(key, false); ui.tick(app);
