@@ -99,6 +99,7 @@ function Test-Fixture([string]$Folder, [string]$Scenario, [string]$Suffix, [int]
     $observations.Add($record)
     $observations.ToArray() | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $evidence 'observations.json') -Encoding utf8
     Write-Output "$Scenario`: passed=$($record.passed) $($record.error)"
+    Write-Output ($record | ConvertTo-Json -Depth 8 -Compress)
 }
 
 try {

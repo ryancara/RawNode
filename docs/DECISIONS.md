@@ -854,6 +854,30 @@ platforms. On Windows, RawNode requires Windows 10 version 1903 or later and the
 UTF-8 application manifest, which sets the process code page for narrow path
 consumers. Persistence and LibRaw use wide filesystem paths.
 
+## D059 — Shared native Trash with explicit Windows confirmation
+
+**Status:** Accepted contract; implementation in draft PR #122, pending review
+and manual validation. Supersedes the strict recycle-or-preserve Windows policy
+recorded during PR #116.
+
+Selection, application confirmation, departure saving, photo-first sidecars,
+document retirement and refresh use one shared workflow. Platform adapters request
+native recycling and return Trashed, PermanentlyDeleted, Cancelled or Failed.
+Windows may offer its own explicit permanent-deletion warning; RawNode never
+automatically approves it. Results distinguish actual dispositions, including
+exact permanently deleted photo/sidecar paths. Cancellation stops remaining
+filesystem work without rolling back completed operations.
+
+macOS uses Foundation and Linux uses GIO. Windows uses IFileOperation with
+recycle/warning flags and no Yes-to-All flag. It refuses when the native pre-delete
+callback lacks recycle intent because disabled bins can otherwise bypass warning
+UI. Windows owns storage compatibility, permissions and capacity. No custom
+Trash, storage allowlist, registry policy inspection, backup, hard-link protection
+or recovery subsystem is introduced. Groups remain non-atomic, and existing
+observed-identity/symlink/reparse checks remain. See
+[the shared contract](FILMSTRIP_TRASH.md) and
+[Windows configuration/evidence](WINDOWS_TRASH_RESEARCH.md).
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:

@@ -43,10 +43,11 @@ There is no installer or separate packaging framework.
 
 - Windows JPEG XL support remains outstanding, including native ON
   build/runtime/packaging validation. The validated desktop build has JPEG XL OFF.
-- Windows Move to Trash remains disabled and outstanding. It still requires the
-  focused implementation and native recycle-or-preserve validation recorded in
-  [the roadmap](../ROADMAP.md) and
-  [Windows Trash research](WINDOWS_TRASH_RESEARCH.md).
+- Windows Move to Trash is implemented in draft PR #122 using the revised
+  interactive contract. Automated native evidence and manual checks are tracked
+  in [Windows Trash research](WINDOWS_TRASH_RESEARCH.md). Independent review,
+  Windows 10/11 desktop and physical external/card validation remain pending.
+  The owner-reported PR #120 desktop result above did not include this feature.
 
 Feature-specific native checklists retain their own validation records. The
 future detachable-panel/multi-monitor milestone is still planned work.

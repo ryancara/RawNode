@@ -51,8 +51,7 @@ These priorities sequence focused work without reopening completed architecture 
 4. **Multi-photo selection — merged (#115).** Transient path-based
    selection supports plain/Command/Shift clicks and focused visible Select All,
    independently of the open photograph. See [behaviour and native checks](docs/FILMSTRIP_SELECTION.md).
-   **macOS/Linux Move to Trash is implemented in [PR #116](https://github.com/ryancara/RawNode/pull/116),
-   subject to final validation and merge.** The [native Trash milestone](docs/FILMSTRIP_TRASH.md)
+   **macOS/Linux Move to Trash is merged in [PR #116](https://github.com/ryancara/RawNode/pull/116).** The [native Trash milestone](docs/FILMSTRIP_TRASH.md)
    adds focused unmodified Delete/Backspace, one immutable confirmation
    distinguishing eligible/hidden photographs from already-ineligible paths,
    exact current/legacy sidecars, explicit partial failures, safe current-document
@@ -62,21 +61,18 @@ These priorities sequence focused work without reopening completed architecture 
    Batch export follows using the existing single-image
    path and execution ownership, initially sequentially. Multi-photo grade/preset
    application can follow separately.
-5. **Windows Move to Trash support — deferred, unfinished after PR #116.**
-   Support is temporarily disabled because [native Windows tests reproduced
-   silent permanent deletion](https://github.com/ryancara/RawNode/blob/b6cbafdd3d0255897417ca898a6eb8b2975aa6e4/REPORT.md).
-   The old IFileOperation implementation must not be re-enabled without a
-   demonstrated recycle-or-preserve guarantee. Successful shell recycling also
-   exposed an HRESULT reporting bug: `0x00270008` is successful; `result == S_OK`
-   misclassified it. Investigate the smallest reliable native Windows solution,
-   without defaulting to a custom Trash system or protective backup architecture.
-   Native validation must cover successful recycling and restoration, oversized
-   files, disabled bins, external HDD/SSD, removable FAT32/exFAT SD cards and
-   cancellation. Return support in its own focused PR with independent review
-   and native validation. See [Windows research and retained evidence](docs/WINDOWS_TRASH_RESEARCH.md)
-   and [PR #116](https://github.com/ryancara/RawNode/pull/116).
-   **Keep this item visible here until implemented and validated; merging the
-   macOS/Linux implementation does not complete Windows support.**
+5. **Windows Move to Trash — implemented in [draft PR #122](https://github.com/ryancara/RawNode/pull/122),
+   pending independent review and manual validation.** One shared workflow uses
+   native recycling on all platforms. Windows may show its own explicit
+   permanent-deletion warning; RawNode never approves it automatically. Results
+   distinguish recycled/permanently deleted/cancelled/failed operations and native
+   cancellation stops remaining work without rollback. A pre-delete check refuses
+   absent recycle intent because disabled bins can bypass warning UI. See
+   [the exact configuration and native evidence](docs/WINDOWS_TRASH_RESEARCH.md).
+   Native fixture tests cover recycle/restore, oversized files, disabled bins,
+   No/dismissal and ordinary errors. Windows 10/11 desktop, physical external
+   HDD/SSD and removable FAT32/exFAT card checks remain manual. Keep this item
+   visible until review and validation are complete; do not merge yet.
 6. **Shared atomic sidecar persistence and Windows application — validated
    with JPEG XL OFF.**
    The shared writer and focused native regressions implement
@@ -85,8 +81,8 @@ These priorities sequence focused work without reopening completed architecture 
    The owner reports successful native Windows desktop validation on
    2026-11-20 using PR #120's portable x64 Release build; see the
    [build provenance and validation record](docs/WINDOWS_VALIDATION.md).
-   Windows JPEG XL support (ON build/runtime/packaging validation) and
-   Windows Move to Trash support remain outstanding; Move to Trash is disabled.
+   Windows JPEG XL support (ON build/runtime/packaging validation) remains
+   outstanding. Windows Trash has its own draft/review/validation milestone above.
    [Windows CI](.github/workflows/windows-ci.yml) · [Build instructions](README.md#windows-x64)
 7. **Close the practical Step 8 masking core.** Agree the exit gate, then
    deliver Mask Combine, upstream geometry/Overlay placement through Mask

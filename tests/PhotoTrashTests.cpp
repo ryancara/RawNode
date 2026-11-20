@@ -209,12 +209,12 @@ bool nativeOutcomesAndCancellation() {
     options.moveToTrash = [&](const std::string &path, std::string &error) {
       if (path == cancelPath) { files.calls.push_back(path); return TrashOutcome::Cancelled; }
       const auto outcome = move(path, error);
-      if (outcome == TrashOutcome::Trashed && (path == a || path == inputSidecarPath(a)))
+      if (stop == 1 && outcome == TrashOutcome::Trashed && (path == a || path == inputSidecarPath(a)))
         return TrashOutcome::PermanentlyDeleted;
       return outcome;
     };
     const auto result = document_detail::trashPhotographs(app, capturePhotoTrashRequest(app), {}, options);
-    CHECK(result.cancelled && result.failed == 0 && result.moved == 0);
+    CHECK(result.cancelled && result.failed == 0 && result.moved == (stop == 2 ? 1 : 0));
     CHECK(fs::exists(b) && fs::exists(c) && !fs::exists(inputSidecarPath(c)));
     CHECK(result.message().find("Remaining work cancelled.") != std::string::npos);
     if (stop == 0) {
@@ -224,17 +224,17 @@ bool nativeOutcomesAndCancellation() {
       CHECK(fs::exists(inputSidecarPath(a)) && fs::exists(legacyInputSidecarPath(a)));
       CHECK(app.filmstripSelection == (std::unordered_set<std::string>{a, b, c}));
     } else {
-      CHECK(result.deleted == 1 && app.path == b);
+      CHECK(result.deleted == (stop == 1 ? 1 : 0) && app.path == b);
       CHECK(app.filmstripSelection == (std::unordered_set<std::string>{b, c}));
-      CHECK(result.message().find("permanently deleted 1 photograph") != std::string::npos);
-      CHECK(result.message().find("Permanently deleted: " + a) != std::string::npos);
       if (stop == 1) {
+        CHECK(result.message().find("permanently deleted 1 photograph") != std::string::npos);
+        CHECK(result.message().find("Permanently deleted: " + a) != std::string::npos);
         CHECK(files.calls == (std::vector<std::string>{a, inputSidecarPath(a), legacyInputSidecarPath(a), b}));
         CHECK(result.deletedPaths == (std::vector<std::string>{a, inputSidecarPath(a)}));
         CHECK(result.errors.empty() && !fs::exists(inputSidecarPath(a)) && !fs::exists(legacyInputSidecarPath(a)));
       } else {
         CHECK(files.calls == (std::vector<std::string>{a, inputSidecarPath(a)}));
-        CHECK(result.deletedPaths == (std::vector<std::string>{a}) && result.errors.size() == 2);
+        CHECK(result.deletedPaths.empty() && result.errors.size() == 2);
         CHECK(result.message().find("sidecar remains at " + inputSidecarPath(a)) != std::string::npos);
         CHECK(result.message().find("sidecar remains at " + legacyInputSidecarPath(a)) != std::string::npos);
         const auto orphan = bytes(inputSidecarPath(a));
