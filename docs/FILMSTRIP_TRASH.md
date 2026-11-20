@@ -2,8 +2,9 @@
 
 macOS/Linux native Trash was introduced in merged PR #116. Windows interactive
 recycling is implemented in [draft PR #122](https://github.com/ryancara/RawNode/pull/122),
-pending independent review and native desktop validation. All three platforms
-share selection, confirmation, sidecars, document lifecycle and refresh. There
+with Claude's independent review reported **SAFE TO MERGE**. The PR is open and
+unmerged pending the owner's manual validation of the updated build. All three
+platforms share selection, confirmation, sidecars, document lifecycle and refresh. There
 is no catalogue, culling mode, filesystem Undo or new filmstrip control.
 Windows may offer explicit permanent-deletion confirmation; RawNode never
 approves it automatically. See [implementation and native evidence](WINDOWS_TRASH_RESEARCH.md).

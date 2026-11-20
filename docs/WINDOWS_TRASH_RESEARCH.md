@@ -7,8 +7,9 @@ owner-approved interactive contract from main `167888a`: request native recyclin
 Windows may offer its own explicit permanent-deletion warning. RawNode never
 approves that warning automatically. A user who explicitly chooses permanent
 deletion can lose the file irreversibly. This supersedes the earlier requirement
-that even offering permanent deletion was forbidden. Independent review and
-Windows desktop validation remain pending; do not merge on runner results alone.
+that even offering permanent deletion was forbidden. The owner reports Claude's
+independent review as **SAFE TO MERGE**. PR #122 remains open, draft and unmerged;
+the updated portable build awaits the owner's manual validation before merge.
 
 Selection, application confirmation, departure saving, photo-first sidecars,
 current-document retirement and refresh remain one shared workflow. The shared
@@ -35,9 +36,10 @@ ordering. The adapter sets:
 returns Cancelled. A small progress sink observes the per-item HRESULT and
 recycled Shell item; it accepts successful HRESULTs other than `S_OK`. An absent
 recycled item is classified as permanent deletion only after successful item
-completion and observed removal of the source. Skipped/cancelled work is handled
-first. Aggregate status and `GetAnyOperationsAborted` are also collected; ordinary
-errors are not all labelled user cancellation.
+completion and observed removal of the source. Explicit per-item skip/cancellation
+is handled first; verified permanent deletion takes precedence over aggregate
+cancellation. Aggregate status and `GetAnyOperationsAborted` are also collected;
+ordinary errors are not all labelled user cancellation.
 
 One pre-delete refusal is necessary: if Windows does not supply
 `TSF_DELETE_RECYCLE_IF_POSSIBLE`, return an unsupported-operation error. The first
@@ -103,8 +105,9 @@ storage compatibility, permissions and capacity; unsupported operations may fail
 Existing shared symlink/reparse/nonregular-file refusal remains. Concurrent
 external replacement and atomic photo/sidecar groups remain outside the contract.
 
-Before merge, independently review the adapter and shared lifecycle changes.
-Use the portable test build on disposable photographs to check the warning in
+Independent review is reported complete. Remaining non-blocking implementation
+findings are accepted without additional defensive state or test infrastructure.
+Before merge, use the updated portable build on disposable photographs to check the warning in
 the existing application confirmation, native prompt ownership/visibility,
 No/Cancel during a batch and a sidecar operation, source/sidecar restore, current
 versus unopened photos, and ordinary external/card storage. Explicit Yes is never

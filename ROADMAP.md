@@ -62,7 +62,8 @@ These priorities sequence focused work without reopening completed architecture 
    path and execution ownership, initially sequentially. Multi-photo grade/preset
    application can follow separately.
 5. **Windows Move to Trash — implemented in [draft PR #122](https://github.com/ryancara/RawNode/pull/122),
-   pending independent review and manual validation.** One shared workflow uses
+   independently reviewed SAFE TO MERGE, as reported by the owner; still open and
+   unmerged pending manual validation of the updated build.** One shared workflow uses
    native recycling on all platforms. Windows may show its own explicit
    permanent-deletion warning; RawNode never approves it automatically. Results
    distinguish recycled/permanently deleted/cancelled/failed operations and native
@@ -72,7 +73,7 @@ These priorities sequence focused work without reopening completed architecture 
    Native fixture tests cover recycle/restore, oversized files, disabled bins,
    No/dismissal and ordinary errors. Windows 10/11 desktop, physical external
    HDD/SSD and removable FAT32/exFAT card checks remain manual. Keep this item
-   visible until review and validation are complete; do not merge yet.
+   visible until validation and merge are complete; do not merge yet.
 6. **Shared atomic sidecar persistence and Windows application — validated
    with JPEG XL OFF.**
    The shared writer and focused native regressions implement

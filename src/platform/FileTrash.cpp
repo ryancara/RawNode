@@ -161,12 +161,13 @@ TrashOutcome moveFileToTrash(const std::string &path, std::string &error) {
   }
   // Completed work stays completed even if the aggregate operation reports an error.
   if (sink->recycled) return TrashOutcome::Trashed;
-  if (userCancelled(sink->result) || userCancelled(result)) return TrashOutcome::Cancelled;
+  if (userCancelled(sink->result)) return TrashOutcome::Cancelled;
   if (SUCCEEDED(sink->result)) {
     std::error_code ec;
     if (std::filesystem::symlink_status(source, ec).type() == std::filesystem::file_type::not_found &&
         (!ec || ec == std::errc::no_such_file_or_directory)) return TrashOutcome::PermanentlyDeleted;
   }
+  if (userCancelled(result)) return TrashOutcome::Cancelled;
   // The Shell may report S_OK after cancellation before an item callback.
   // Preserve any explicit item failure instead of relabelling it cancellation.
   if (SUCCEEDED(result) && SUCCEEDED(abortResult) && aborted &&

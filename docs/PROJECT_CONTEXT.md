@@ -483,9 +483,11 @@ The shared outcome distinguishes recycling, permanent deletion, cancellation and
 failure, and cancellation stops further work while retaining completed removals.
 Windows' absence of recycle intent causes a native pre-delete refusal because
 disabled bins can otherwise bypass warning UI. The [Windows evidence](WINDOWS_TRASH_RESEARCH.md)
-records this and the earlier loss/HRESULT defect. Independent review, Windows
-native desktop and physical external/card validation remain pending. Batch export
-remains a later PR; no custom recovery machinery is introduced.
+records this and the earlier loss/HRESULT defect. The owner reports Claude's
+independent review as SAFE TO MERGE. PR #122 remains open and unmerged pending
+manual validation of the updated portable build; physical external/card checks
+remain separately tracked. Batch export remains a later PR; no custom recovery
+machinery is introduced.
 
 Sidecars, presets and preferences share checked atomic replacement across macOS,
 Linux and Windows ([D058](DECISIONS.md#d058--shared-atomic-persistence)). Windows
@@ -495,8 +497,9 @@ complete self-test with JPEG XL disabled. The owner reports successful native
 Windows desktop validation on 2026-11-20 using PR #120's portable x64 Release
 build. The [Windows validation record](WINDOWS_VALIDATION.md) retains its exact
 artifact provenance and the automated extraction checks. Windows JPEG XL support
-remains outstanding. Windows Move to Trash in draft PR #122 still requires
-independent review and manual validation; the earlier desktop result did not test it.
+remains outstanding. Windows Move to Trash in draft PR #122 has a reported SAFE
+TO MERGE independent review and awaits manual validation of the updated build;
+the earlier PR #120 desktop result did not test it. PR #122 is not merged.
 See the [Windows build instructions](../README.md#windows-x64).
 
 Prefer retaining untouched section JSON exactly where practical, with precision
