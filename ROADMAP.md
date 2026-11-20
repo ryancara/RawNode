@@ -88,15 +88,21 @@ These priorities sequence focused work without reopening completed architecture 
    modifiers, a Linear Gradient generator and an initial Blur modifier in
    focused slices. Defer Brush, Bézier, advanced qualifiers and AI masks
    unless a concrete exit-gate requirement justifies them.
-8. **Performance and responsiveness checkpoint.** After the initial photo
+8. **Detachable UI panels / multi-monitor support.** Plan a focused UI
+   milestone before the Step 9 audit, separate from the mandatory Step 8 exit
+   criteria. Use Dear ImGui's native multi-viewport support with the existing
+   docking, layout persistence and OpenGL systems; see the
+   [scope and platform validation requirements](#detachable-ui-panels--multi-monitor-support)
+   below. Documentation only for now; implementation remains future work.
+9. **Performance and responsiveness checkpoint.** After the initial photo
    workflows and Step 8 exit gate, profile real workloads on macOS and decide
    whether JPEG XL area-task parallelism, RAW pixel conversion or interactive
    graph processing warrants focused optimisation. The investigations below
    are evidence, not approval to implement them.
-9. **Step 9 whole-codebase audit.** Start the approved D055 audit after the
-   agreed Step 8 exit gate and initial practical photo workflow improvements,
-   using the performance checkpoint as input. The formal Step 9 entry
-   criterion remains Step 8 closure, not completion of every unrelated feature.
+10. **Step 9 whole-codebase audit.** Start the approved D055 audit after the
+    agreed Step 8 exit gate and initial practical photo workflow improvements,
+    using the performance checkpoint as input. The formal Step 9 entry
+    criterion remains Step 8 closure, not completion of every unrelated feature.
 
 **Deferred:** Multiple-node selection in Graph/List View is low priority.
 It is distinct from the filmstrip multi-photo selection needed for batch
@@ -427,6 +433,26 @@ Outward feathering remains a separate product change.
 **Step 8 candidate follow-ups (not yet a mandatory checklist):** Mask Overlay, on-image geometry controls, Linear Gradient and Rectangle masks, Pen/Bézier and Brush masks, Mask Combine, Invert/Blur, and basic Image-to-Mask/qualifier tools. Reusable/grouped masks, advanced compositing and specialised tools remain separately evaluated. **Agree the exact "Step 8 exit gate"**, including required functionality and test/native-validation evidence, and record it in `docs/STEP8_MASKING_CONTRACT.md` before scheduling the bulk of remaining slices. Continue focused PRs and proportionate readability reviews in the meantime.
 
 SAM and other AI-generated masks are explicitly **not** Step 8 or Step 9 prerequisites, and no numbered step is reserved for them. Revisit only when a concrete product need justifies their complexity.
+
+## Detachable UI panels / multi-monitor support
+
+**Planned focused UI milestone before the Step 9 audit.** This is not a
+mandatory Step 8 exit criterion. Documentation only for now; the feature is
+not implemented by this roadmap item.
+
+- Enable Dear ImGui's native multi-viewport functionality so Preview, Nodes,
+  Inspector and Filmstrip panels can detach from the main application window,
+  move between monitors and dock again.
+- Reuse the existing docking, layout persistence and OpenGL rendering systems.
+  Keep one shared application state and processing pipeline across all panels
+  and windows.
+- Prefer a shared cross-platform implementation, with platform-specific
+  differences only where necessary. Use Dear ImGui's native window management;
+  do not introduce a custom window-management system.
+- Validate window positioning, display scaling, input handling and layout
+  restoration across macOS, Linux and Windows. Record native validation of
+  detaching, moving between monitors and docking again, including displays
+  with different scaling factors and saved layout restoration after restart.
 
 ## Deferred performance and responsiveness checkpoint
 
