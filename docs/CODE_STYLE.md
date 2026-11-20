@@ -127,6 +127,14 @@ If readability work exposes a genuine architecture problem, record it and
 address it deliberately in a focused change. A cleanup task does not implicitly
 authorise product or architecture changes.
 
+Important maintainability problems include unclear ownership, excessive coupling,
+duplicated state/execution logic, misleading interfaces, and unnecessarily
+complicated control flow or abstractions that obscure behaviour.
+
+Non-blocking stylistic preferences include alternative names that are not
+materially clearer, equally reasonable file organisation and cosmetic
+restructuring.
+
 Apply AGENTS.md's separate acceptance criteria and proportionate review rules
 to readability work. A production-code readability refactor still builds and
 passes the full self-test suite; preserve sanitizer coverage for moved/reordered

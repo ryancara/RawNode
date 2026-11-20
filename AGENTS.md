@@ -47,9 +47,10 @@ systems or other infrastructure, identify a credible trigger, its consequences
 and why a narrow guard, explicit failure or documented limitation is inadequate.
 Avoid disproportionate machinery for obscure or hypothetical scenarios.
 Distinguish demonstrated defects, required validation gaps and accepted limits.
-Missing hardware alone does not justify new infrastructure; an owner-accepted
-limitation is not a merge blocker without new material evidence.
-Do not require universal compatibility proofs for an accepted native API contract.
+Unavailable test resources alone do not justify new infrastructure. Document
+unverified scenarios and owner-accepted limitations; accepted limits are not merge
+blockers without new material evidence. Require compatibility evidence
+proportionate to the approved contract and credible risks.
 
 ## Shared cross-platform implementation
 
@@ -66,8 +67,8 @@ add a platform as a parallel subsystem. Keep changes within approved behaviour.
 
 Extend existing mechanisms and state owners before creating parallel systems.
 Prefer established libraries and native operating-system facilities where
-appropriate. Delegate filesystem compatibility, permissions, capacity and native
-confirmations to the OS where those are its responsibility.
+appropriate. Delegate platform behaviour to native facilities where it is their
+responsibility, within the approved contract.
 
 New abstractions, modules and infrastructure require demonstrated benefits for
 actual requirements that justify their implementation, integration and
@@ -103,25 +104,31 @@ must meet the same simplicity and human-readability standards as production code
 Avoid exhaustive combinations and elaborate harnesses that add little confidence;
 justify extra test infrastructure by the risk and evidence it addresses.
 
-Run required repository checks and focused tests appropriate to the change.
-Retain meaningful regression and sanitizer coverage for data integrity, image
-correctness, memory safety and concurrency. Reuse valid CI evidence for the
-reviewed revision; repeat or broaden completed checks when changes, failures or
-new concerns warrant it. Distinguish what unit tests, native CI and owner desktop
+Production changes require the complete self-test suite; valid CI evidence for
+the reviewed revision is accepted. Run other required repository checks and
+focused tests appropriate to the change. Retain meaningful regression and
+sanitizer coverage for data integrity, image correctness, memory safety and
+concurrency. Repeat or broaden completed checks when changes, failures or new
+concerns warrant it. Distinguish what unit tests, native CI and owner desktop
 validation establish. Documentation-only changes need consistency, scope,
-link/anchor and whitespace checks instead of an application rebuild. Detailed
-numerical/reference-oracle review guidance is in CLAUDE.md.
+link/anchor and whitespace checks instead of an application rebuild.
+
+All contributors writing numerical or colour tests must follow the independent
+reference-oracle and numerical tolerance guidance in
+[CLAUDE.md](CLAUDE.md#continuous-pr-quality-review).
 
 ## Proportionate independent review
 
 Assess simplicity, readability, scope, architecture fit and correctness as
-separate acceptance criteria. Reviewers must weigh the implementation and
-maintenance cost of their recommendations against the practical benefit.
+separate acceptance criteria. A meaningful failure of any criterion can require
+correction before merge. Reviewers must weigh the implementation and maintenance
+cost of their recommendations against the practical benefit.
 
-Distinguish blocking correctness defects, important maintainability problems and
-optional improvements. For a required correction, state the conditions, concrete
-consequence, evidence and smallest reasonable fix. Separate introduced defects,
-pre-existing issues, required test gaps and accepted limitations. Do not make
+Distinguish blocking failures of an acceptance criterion, important maintainability
+problems and optional improvements. State whether a maintainability problem
+requires correction before merge. For a required correction, state the conditions,
+concrete consequence, evidence and smallest reasonable fix. Separate introduced
+defects, pre-existing issues, required test gaps and accepted limitations. Do not make
 hypothetical failures or stylistic preferences mandatory corrections without a
 concrete justification. Keep suggestions distinct from merge requirements.
 

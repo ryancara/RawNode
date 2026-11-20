@@ -86,11 +86,13 @@ conversation.
 For PR reviews, inspect the exact requested head commit and compare it with its
 base.
 
-Clearly distinguish:
+Use AGENTS.md's acceptance criteria and review severity guidance. Clearly
+distinguish:
 
-- blockers;
-- important issues;
-- minor issues;
+- blocking failures of an acceptance criterion;
+- important maintainability problems, stating whether correction is required
+  before merge;
+- optional improvements, including non-blocking stylistic preferences;
 - test gaps;
 - pre-existing issues not introduced by the PR.
 
