@@ -122,8 +122,9 @@ bool captureNodeFragment(App &app, const std::vector<NodeId> &ids, PersistFragme
   document_detail::DocumentMutation::assertControlThread(app);
   if (!requireEditableGraph(app)) return false;
   if (ids.empty()) { app.setStatus("No nodes to capture"); return false; }
-  // Topology and identity belong to the control thread; processor state is
-  // synchronised/read only after DocumentMutation drains preview and export.
+  // Topology and identity belong to the control thread. DocumentMutation
+  // drains preview before reading or synchronising processor state.
+  // The control thread must release export ownership before capture.
   for (auto it = ids.begin(); it != ids.end(); ++it) {
     const Node *node = findNode(app, *it);
     if (!node || node->operation == NodeOperation::Source || std::find(ids.begin(), it, *it) != it) {

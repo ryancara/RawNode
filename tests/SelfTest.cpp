@@ -1140,8 +1140,9 @@ static bool testExportThreadLifecycle() {
   if (!test_export::start(app, files.output()) || !renderState(app).exportThreadOwned) return false;
   app.renderer.joinExport();
   // Joining an item leaves the session in charge until the control thread
-  // collects it. A second request cannot take over before that boundary.
-  if (app.renderer.canEditParameters() || test_export::start(app, second)) return false;
+  // collects it. Exercise the renderer gate directly while it still owns export.
+  const auto competingLease = app.renderer.acquireExport();
+  if (competingLease || app.renderer.canEditParameters()) return false;
   if (!test_export::finish(app) || !app.renderer.canEditParameters() ||
       !test_export::run(app, second)) return false;
   const auto state = renderState(app);
