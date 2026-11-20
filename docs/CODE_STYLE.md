@@ -1,57 +1,27 @@
 # RawNode Code Style and Source Organisation
 
-**Status:** Durable human-readability guidance.
+**Status:** Detailed coding guidance under the standing principles in
+[AGENTS.md](../AGENTS.md). Those principles govern all planning, implementation,
+testing and review by Codex, Claude and other contributors.
 
-This document is intentionally small. It does not try to replace normal C++ best
-practice or prescribe every formatting choice. Its purpose is to keep RawNode's
-source understandable to a human programmer as the editor grows.
+This document keeps source-organisation and C++ guidance in one place. It also
+applies to test code and support infrastructure. System responsibilities and
+architectural contracts remain in [ARCHITECTURE.md](ARCHITECTURE.md); current
+project state belongs in [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md).
 
-Read it together with `docs/ARCHITECTURE.md`: source organisation should make
-that architecture easier to recover from the code. Accepted persistence schema
-and lifecycle details live in `docs/STEP7_PERSISTENCE_DESIGN.md`; current milestone
-status lives in `docs/PROJECT_CONTEXT.md`.
-
-## Primary rule
-
-Human readability and maintainability are development requirements from the
-outset. Optimise source for an experienced C++ developer who must understand,
-review and maintain RawNode independently, without Codex or Claude explaining
-its implementation.
-
-Prefer straightforward, idiomatic C++ and conventional patterns. Code should
-explain itself primarily through structure, descriptive names and interfaces;
-documentation explains decisions that are not obvious from the implementation.
-The goal is the simplest implementation that can be confidently understood and
-verified, rather than the fewest lines. Avoid duplicated state and abstractions
-or frameworks created solely for hypothetical future features.
-
-Formatting consistency matters, but conceptual order matters more.
-
-## Reference implementations and proportional complexity
+## Reference implementations
 
 When a design or review concerns behaviour established photo editors have already
-solved, compare the relevant ART and vkdt code or documentation where practical.
-ART is a useful reference for RAW editing workflows, photo navigation, sidecars
-and editor lifecycle; vkdt for graph data flow, connections, evaluation and
-rendering. Check the actual implementation rather than guessing, and identify
-the concrete lesson or tradeoff when it materially influences a decision.
+solved, compare relevant ART and vkdt code or documentation where practical.
+ART is useful for RAW editing workflows, navigation, sidecars and editor
+lifecycle; vkdt for graph data flow, connections, evaluation and rendering.
+Inspect the actual implementation and identify the concrete lesson or tradeoff
+when it materially influences a decision.
 
 Use these projects as references, not templates. RawNode's requirements and
 existing boundaries take precedence. Do not import another editor's
-implementation or complexity merely because it exists there, particularly
-vkdt-specific Vulkan infrastructure.
-
-Prefer the smallest understandable solution that covers actual requirements
-and credible failure modes. Before adding state flags, fallback paths, caches,
-watchers, compatibility layers or frameworks to handle a possible edge case,
-explain how the case could occur, its consequences and why a simpler guard,
-explicit failure, focused test or documented deferral is insufficient. Do not
-build machinery solely for hypothetical future needs.
-
-This is not permission to ignore correctness: silent data loss, damaged
-sidecars, invalid graph state, use-after-free and real concurrency failures
-must still be prevented. Address them proportionately without inventing
-unnecessary recovery or coordination systems.
+infrastructure merely because it exists, particularly vkdt-specific Vulkan
+machinery.
 
 ## File responsibility
 
@@ -131,9 +101,8 @@ do not need Git history to understand correctness.
 
 ## Behaviour-preserving cleanup
 
-The dedicated readability/source-organisation pass after architecture Step 4 is
-complete. The following behaviour-preserving constraints also apply to future
-cleanup.
+Readability cleanup preserves behaviour unless the approved task explicitly
+changes it.
 
 It may:
 
@@ -154,47 +123,21 @@ It should not quietly:
 - change persistence semantics;
 - change renderer guarantees.
 
-If future readability work exposes a genuine architecture problem, record it
-and address it deliberately in a focused change. The post-Step-4 architecture
-checkpoint is complete; broad cleanup is no longer the current task.
+If readability work exposes a genuine architecture problem, record it and
+address it deliberately in a focused change. A cleanup task does not implicitly
+authorise product or architecture changes.
 
-## Continuous and milestone review
+Important maintainability problems include unclear ownership, excessive coupling,
+duplicated state/execution logic, misleading interfaces, and unnecessarily
+complicated control flow or abstractions that obscure behaviour.
 
-Include a proportionate readability check with correctness review in every
-implementation PR. Review changed and closely affected names, conceptual
-organisation, ownership/locking and responsibility boundaries. Address important
-maintainability problems during the relevant feature review: unclear ownership,
-excessive coupling, duplicated state/execution logic, misleading interfaces,
-unnecessarily complicated control flow or abstractions that obscure behaviour.
+Non-blocking stylistic preferences include alternative names that are not
+materially clearer, equally reasonable file organisation and cosmetic
+restructuring.
 
-Optional stylistic preferences are non-blocking: alternative names that are not
-materially clearer, equally reasonable file organisation, cosmetic restructuring
-and unrelated cleanup. Raise readability concerns early; do not wait for a later
-cleanup pass to address a demonstrated problem.
-
-Recommend fixing small relevant issues in the current PR. Track substantial
-risks intentionally deferred beyond that PR in `docs/PROJECT_CONTEXT.md`
-(Known deferred issues); minor cleanup can wait for the next relevant milestone
-review. A formatter passing is not a readability review.
-
-At architectural milestones, inspect the affected subsystems for accumulated
-complexity and responsibility drift. Use the checkpoint schedule in
-`docs/PROJECT_CONTEXT.md`, and keep any cleanup focused and
-behaviour-preserving.
-
-Refactoring remains appropriate for demonstrated correctness, maintenance or
-architectural issues. Keep it proportional, and record deliberate behaviour or
-architecture changes rather than hiding them inside readability cleanup.
-
-## Review standard
-
-A readability PR should still build and pass the full self-test suite. For
-moved/reordered concurrency code, retain sanitizer coverage where practical.
-
-Review should ask:
-
-- Can a new programmer infer the subsystem's responsibility quickly?
-- Does top-to-bottom reading reveal the important operations before mechanics?
-- Are ownership and failure paths obvious?
-- Did cleanup accidentally alter behaviour?
-- Did the change reduce cognitive load without inventing unnecessary layers?
+Apply AGENTS.md's separate acceptance criteria and proportionate review rules
+to readability work. A production-code readability refactor still builds and
+passes the full self-test suite; preserve sanitizer coverage for moved/reordered
+concurrency code where practical. Documentation-only edits use the checks in
+AGENTS.md. Record intentional behaviour or architecture changes separately from
+cleanup.

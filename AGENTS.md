@@ -1,66 +1,147 @@
-# RawNode AI Contributor Guide
+# RawNode Standing Development Principles
 
-Read `docs/PROJECT_CONTEXT.md` before planning work, then consult
-`docs/ARCHITECTURE.md` and `docs/DECISIONS.md` for boundaries and accepted
-decisions. Follow `docs/CODE_STYLE.md` for maintainability and readability.
-See `ROADMAP.md` for features and the quality checklist in
-`docs/PROJECT_CONTEXT.md` for post-Step-6 follow-ups.
+This is the canonical entry point for RawNode's shared development principles.
+These are standing requirements for all future planning, implementation, testing
+and review, including Codex implementation and Claude independent review. The
+owner does not need to repeat them for each task.
 
-For substantial changes, agree verifiable acceptance criteria and independent
-expected results and a proportionate design **before** implementation. Include
-that evidence in focused PRs. Respect the existing render-lifetime, graph and
-persistence contracts; avoid speculative subsystem proliferation or unrelated
-cleanup.
+Before planning, read [PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for current
+state and priorities. Use [CODE_STYLE.md](docs/CODE_STYLE.md) for detailed coding
+guidance, [ARCHITECTURE.md](docs/ARCHITECTURE.md) for system responsibilities and
+contracts, and [DECISIONS.md](docs/DECISIONS.md) for accepted decisions. Keep the
+shared principles here rather than duplicating them in those documents.
 
-Human readability is a development requirement; code and interfaces should be
-understandable to an experienced C++ developer without AI explanations.
-See `CLAUDE.md` for build/self-test commands and independent review standards,
-and `docs/PROJECT_CONTEXT.md` for known limitations and deferred work.
+Codex normally implements approved work; Claude normally reviews independently.
+A review request does not authorise repository changes. [CLAUDE.md](CLAUDE.md)
+retains role-specific review guidance and build/self-test commands.
 
-Codex normally implements changes; Claude normally reviews. Do not infer that
-a reviewer should alter the repo unless explicitly instructed.
+## Simplicity first
+
+Prefer the simplest coherent implementation that satisfies approved requirements.
+Unnecessary complexity is grounds for rejecting an implementation even when it
+is correct and well-tested. Simplicity does not mean minimising line count:
+keep the code needed to make responsibilities, ownership and failure paths clear.
+Correctness and simplicity take priority over premature optimisation.
+
+## Human readability
+
+Human readability is a primary acceptance criterion. An experienced C++ developer
+must be able to understand, maintain and debug RawNode independently of AI
+assistance. Prefer conventional C++, descriptive names, clear responsibilities,
+straightforward control flow and explicit ownership and lifetimes.
+
+Consider readability during planning, implementation, testing and review.
+Address directly relevant maintainability problems while developing the feature;
+do not defer readability to a cleanup milestone. Cosmetic uniformity alone does
+not establish readability.
+
+## Proportionate robustness
+
+Handle realistic usage, ordinary failures and consequential correctness risks.
+Preserve meaningful user-data and sidecar integrity, image correctness, graph
+validity, memory safety and concurrency guarantees. Accept reasonable documented
+limitations and user responsibility within the approved contract.
+
+Before adding defensive state, fallback paths, compatibility layers, recovery
+systems or other infrastructure, identify a credible trigger, its consequences
+and why a narrow guard, explicit failure or documented limitation is inadequate.
+Avoid disproportionate machinery for obscure or hypothetical scenarios.
+Distinguish demonstrated defects, required validation gaps and accepted limits.
+Unavailable test resources alone do not justify new infrastructure. Document
+unverified scenarios and owner-accepted limitations; accepted limits are not merge
+blockers without new material evidence. Require compatibility evidence
+proportionate to the approved contract and credible risks.
+
+## Shared cross-platform implementation
+
+RawNode is one application across macOS, Windows and Linux. Share workflows,
+application logic, state, result models and architecture wherever practical.
+Confine platform-specific code to genuinely necessary differences, including
+native operations, path encoding, permission semantics and native UI behaviour.
+
+Existing platform implementations may be revised or simplified to produce a
+better shared solution. Do not preserve older code merely because it exists or
+add a platform as a parallel subsystem. Keep changes within approved behaviour.
+
+## Reuse before introducing
+
+Extend existing mechanisms and state owners before creating parallel systems.
+Prefer established libraries and native operating-system facilities where
+appropriate. Delegate platform behaviour to native facilities where it is their
+responsibility, within the approved contract.
+
+New abstractions, modules and infrastructure require demonstrated benefits for
+actual requirements that justify their implementation, integration and
+maintenance cost. Speculative future usefulness is insufficient. A new file or
+class alone is not a new subsystem; justified improvements remain welcome.
 
 ## Scope discipline
 
-Implement only the explicitly approved functionality. Do not introduce additional
-features, refactoring or architectural changes simply because they seem useful.
-Propose optional improvements separately and obtain approval before implementing them.
+Implement approved functionality and necessary supporting changes. Preserve
+owner approval of product decisions and significant architectural changes under
+[D052](docs/DECISIONS.md#d052--explicit-product-choices-and-proportionate-architecture-reuse).
+Ordinary technical details and minimum feedback for an approved feature remain
+the implementer's responsibility. Allow directly relevant simplifications that
+improve the solution without introducing unapproved behaviour or appearance.
 
-Every production-code change must be justified by the agreed acceptance criteria.
+Before substantial work, establish proportionate acceptance criteria, a design
+and independently verifiable expected results in the PR or an appropriate
+existing document. Explain relevant boundaries, data flows, ownership and failure
+handling. Small fixes need no formal design document or extra approval process.
 
-Before opening a PR, review the complete diff against the base branch and remove
-unnecessary changes. Correctness, passing tests and potential future usefulness
-do not independently justify scope expansion.
+Every production-code change must be justified by the approved requirements.
+Inspect the complete diff before opening a PR and remove unnecessary changes.
+Report every user-visible change against its approved requirement. Record
+optional ideas as "Unimplemented suggestions" without implementing them.
+Passing tests do not authorise extra functionality or unrelated cleanup.
 
-## Product and UI decisions
+## Proportionate testing
 
-Preserve existing visible behaviour and appearance unless an approved task
-requires changing them. Codex may choose ordinary implementation details and
-the minimal interaction feedback necessary for an approved feature. Optional
-choices involving user-visible elements (e.g. controls, menus, labels, icons,
-port shapes, colours, layout, shortcuts, selection or workflows) are product
-decisions: propose them for owner discussion rather than silently implementing
-them, however minor or reasonable they seem.
+Focus tests on realistic photography workflows, meaningful invariants,
+independently justified numerical expectations and credible regressions.
+Exercise the relevant production boundary. Test fixtures, helpers and harnesses
+must meet the same simplicity and human-readability standards as production code.
+Avoid exhaustive combinations and elaborate harnesses that add little confidence;
+justify extra test infrastructure by the risk and evidence it addresses.
 
-Include a short inventory of **all user-visible behaviour and appearance
-changes** in every PR that changes the user experience. Identify their approved requirement or explain why
-they are strictly necessary. Record other worthwhile ideas as
-"Unimplemented suggestions" in the implementation report, not in the code.
+Production changes require the complete self-test suite; valid CI evidence for
+the reviewed revision is accepted. Run other required repository checks and
+focused tests appropriate to the change. Retain meaningful regression and
+sanitizer coverage for data integrity, image correctness, memory safety and
+concurrency. Repeat or broaden completed checks when changes, failures or new
+concerns warrant it. Distinguish what unit tests, native CI and owner desktop
+validation establish. Documentation-only changes need consistency, scope,
+link/anchor and whitespace checks instead of an application rebuild.
 
-## Reuse architecture without prohibiting improvements
+All contributors writing numerical or colour tests must follow the independent
+reference-oracle and numerical tolerance guidance in
+[CLAUDE.md](CLAUDE.md#continuous-pr-quality-review).
 
-Before adding functionality, identify its home in the existing UI, graph
-commands, processors, evaluator, render runtime, export and persistence
-boundaries. Prefer extending and composing established mechanisms rather than
-adding parallel state, protocols or subsystems.
+## Proportionate independent review
 
-A new cohesive module or system is appropriate when a concrete requirement
-justifies greater modularity, responsibility separation, maintainability or
-extensibility relative to its integration and maintenance costs. A new
-file/class alone is not a new subsystem. A significant architectural departure
-(e.g. a new subsystem, changed ownership/execution protocol or persistence
-schema) requires explicit owner discussion and agreement before implementation;
-do not introduce one incidentally in unrelated work. Do not build speculative
-infrastructure solely for hypothetical future features.
+Assess simplicity, readability, scope, architecture fit and correctness as
+separate acceptance criteria. A meaningful failure of any criterion can require
+correction before merge. Reviewers must weigh the implementation and maintenance
+cost of their recommendations against the practical benefit.
 
-Review every change for **scope, architecture fit and correctness** separately.
+Distinguish blocking failures of an acceptance criterion, important maintainability
+problems and optional improvements. State whether a maintainability problem
+requires correction before merge. For a required correction, state the conditions,
+concrete consequence, evidence and smallest reasonable fix. Separate introduced
+defects, pre-existing issues, required test gaps and accepted limitations. Do not make
+hypothetical failures or stylistic preferences mandatory corrections without a
+concrete justification. Keep suggestions distinct from merge requirements.
+
+After a minor correction, verify the fix and directly affected behaviour. A
+complete independent re-review is not required after every minor change; broaden
+review when the change or new evidence exposes meaningful additional risk.
+Once acceptance criteria are satisfied and meaningful risks are resolved,
+conclude the review. Broader audits remain separately agreed milestones.
+
+## Independent judgement
+
+Challenge proposals constructively, including those made by the owner,
+implementer or reviewer. Do not agree merely to please another contributor.
+Present meaningful tradeoffs and simpler alternatives where appropriate, and
+revise judgement when evidence warrants it. The owner retains final
+decision-making authority.
