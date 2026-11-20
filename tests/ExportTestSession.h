@@ -2,13 +2,18 @@
 
 #include "AppState.h"
 
+#include <filesystem>
+
 namespace test_export {
 
 // Drive the same control-thread session as the dialog. Some graph fixtures
 // install synthetic live pixels without going through photo opening.
 inline bool start(App &app, const std::string &destination) {
   if (app.exportDialog.session && app.exportDialog.session->running()) return false;
-  if (app.path.empty()) app.path = "self-test-source.png";
+  if (app.path.empty()) {
+    const auto directory = std::filesystem::u8path(destination).parent_path();
+    app.path = (directory / "self-test-source.png").u8string();
+  }
   auto session = std::make_unique<ExportSession>(app, ExportScope::Current, destination, ExistingExport::Overwrite);
   if (!session->running()) return false;
   app.exportDialog.session = std::move(session);
