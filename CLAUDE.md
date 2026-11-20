@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # RawNode - Claude Code Project Instructions
 
 ## Project
