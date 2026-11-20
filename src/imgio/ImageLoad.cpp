@@ -21,6 +21,7 @@ static_assert(LIBRAW_VERSION == LIBRAW_MAKE_VERSION(0, 22, 3), "RawNode requires
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -151,10 +152,13 @@ static bool unsupportedJxlStage1Geometry(const LibRaw &raw) {
 static bool loadRaw(const std::string &path, Image &out, RgbGamut workingGamut, TransferFunction workingGamma) {
   std::lock_guard<std::mutex> lock(gLibRawDecodeMutex);
 #if RAWNODE_ENABLE_JXL_DNG
-  // raw must be destroyed first: its borrowed SDK buffers can reference this host.
+  // The decoder must be destroyed first: its borrowed SDK buffers can reference this host.
   std::optional<dng_host> dngHost;
 #endif
-  LibRaw raw;
+  // Full RAW decoding also runs on export workers, whose stacks can be
+  // smaller than a LibRaw instance.
+  const auto decoder = std::make_unique<LibRaw>();
+  auto &raw = *decoder;
   const auto nativePath = fs::u8path(path);
   if (raw.open_file(nativePath.c_str()) != LIBRAW_SUCCESS) return false;
   const bool jxl = isJxlDng(raw);

@@ -281,7 +281,8 @@ bool sessionGradesAndDestinations() {
   CHECK(updateSidecarMark(inputSidecarPath(metadata), PhotoMark::Reject, error));
 
   App app;
-  CHECK(openFolder(app, files.dir.u8string()) && app.path == live && addNativeExposureNode(app));
+  CHECK(openFolder(app, files.dir.u8string()));
+  CHECK(fs::equivalent(fs::u8path(app.path), fs::u8path(live)) && addNativeExposureNode(app));
   CHECK(setNodeParameterValue(app, *app.selectedNodeId(), "exposure", 2.0) && setOutputEncoding(app, linear));
   app.previewZoom = 2.0f;
   app.previewPanY = 11.0f;
@@ -290,10 +291,13 @@ bool sessionGradesAndDestinations() {
   const auto endpoint = app.renderer.inspectionEndpoint();
   const auto historySize = app.history.size(), historyCursor = app.history.cursor();
   const auto node = app.selectedNodeId();
-  app.filmstripSelection = {live, saved, bad, fresh, metadata};
-  app.filmstripAnchor = metadata;
+  // Opening a folder canonicalizes its path. Select the entries the UI uses.
+  CHECK(app.filmstrip.size() == 5);
+  for (const auto &entry : app.filmstrip) app.filmstripSelection.insert(entry.path);
+  app.filmstripAnchor = app.filmstrip.back().path;
   app.filmstripMarkFilter = PhotoMark::Reject;
   CHECK(selectedPhotographsForExport(app).hidden == 4);
+  const auto beforePath = app.path, beforeAnchor = app.filmstripAnchor;
   const auto beforeSelection = app.filmstripSelection;
   const auto beforeLive = bytes(inputSidecarPath(live)), beforeSaved = bytes(inputSidecarPath(saved)),
              beforeBad = bytes(inputSidecarPath(bad)), beforeMetadata = bytes(inputSidecarPath(metadata));
@@ -307,10 +311,10 @@ bool sessionGradesAndDestinations() {
   CHECK(pngSample(files.path("output/b-saved.png"), 64, savedOutput));
   CHECK(pngSample(files.path("output/d-ungraded.png"), 99, kEncoding));
   CHECK(pngSample(files.path("output/e-marked.png"), 99, kEncoding));
-  CHECK(app.path == live && app.selectedNodeId() == node && app.renderer.inspectionEndpoint() == endpoint);
+  CHECK(app.path == beforePath && app.selectedNodeId() == node && app.renderer.inspectionEndpoint() == endpoint);
   CHECK(app.history.size() == historySize && app.history.cursor() == historyCursor);
   CHECK(app.previewZoom == 2.0f && app.previewPanY == 11.0f);
-  CHECK(app.filmstripSelection == beforeSelection && app.filmstripAnchor == metadata &&
+  CHECK(app.filmstripSelection == beforeSelection && app.filmstripAnchor == beforeAnchor &&
         app.filmstripMarkFilter == PhotoMark::Reject);
   CHECK(bytes(inputSidecarPath(live)) == beforeLive && bytes(inputSidecarPath(saved)) == beforeSaved &&
         bytes(inputSidecarPath(bad)) == beforeBad && bytes(inputSidecarPath(metadata)) == beforeMetadata);
