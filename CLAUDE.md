@@ -20,11 +20,12 @@ remain cross-platform for macOS, Windows and Linux.
 The repository is the durable source of project context. Do not rely on chat
 history for important architectural knowledge.
 
-Before implementation or review, read [the shared development and review
-standard](docs/CODE_STYLE.md). It governs both Codex implementation and Claude
-review, including simplicity, human readability, proportionate robustness,
-shared cross-platform workflows, reuse and proportionate review. Keep common
-policy there; the role-specific instructions below also apply.
+Before planning, implementation, testing or independent review, read
+[AGENTS.md](AGENTS.md), the canonical entry point for the standing shared
+principles. The same acceptance criteria govern Codex implementation and Claude
+review. They apply to every task without the owner repeating them. Use
+[CODE_STYLE.md](docs/CODE_STYLE.md) for detailed coding guidance; the
+role-specific instructions below also apply.
 
 Before broad architecture or product work, read `docs/PROJECT_CONTEXT.md`,
 `docs/ARCHITECTURE.md` and `docs/DECISIONS.md`.
@@ -38,8 +39,8 @@ Document responsibilities:
   current development phase.
 - `docs/ARCHITECTURE.md` — authoritative technical architecture.
 - `docs/DECISIONS.md` — significant durable decisions and their rationale.
-- `docs/CODE_STYLE.md` — permanent shared development/review principles and
-  code style.
+- `AGENTS.md` — canonical standing principles for all development and review.
+- `docs/CODE_STYLE.md` — detailed coding and source-organisation guidance.
 - `docs/STEP7_PERSISTENCE_DESIGN.md` — accepted graph-native persistence schema
   and lifecycle; `docs/workspace-format.md` — global settings format.
 - `CLAUDE.md` — Claude Code working and review instructions.
@@ -95,9 +96,13 @@ Finish with a clear judgement about whether the PR is safe to merge.
 
 ## Continuous PR quality review
 
-Apply the shared standard to changed and directly affected code. Judge the
-agreed behaviour and credible risks; distinguish required corrections from
-optional suggestions and accepted limitations.
+Apply AGENTS.md's separate simplicity, readability, scope, architecture-fit and
+correctness criteria to changed and directly affected code. Account for the
+implementation and maintenance cost of recommendations. Classify findings and
+verify minor corrections proportionately under its review rules; conclude when
+acceptance criteria are met and meaningful risks are resolved. Constructively
+challenge owner, implementer and reviewer proposals under the same independent
+judgement standard.
 
 For substantial features, challenge the agreed acceptance criteria, expected
 results and test oracles independently of the implementation. Values copied
@@ -389,9 +394,11 @@ On Windows, run the self-test in PowerShell.
 
     ./build/Release/OfxRawHost.exe --selftest
 
-Run the complete self-test suite before declaring implementation or source-code
-review validation complete. Documentation-only changes need proportionate
-consistency, scope and whitespace checks rather than a local rebuild.
+For production changes, required validation includes the complete self-test
+suite. Valid CI evidence for the reviewed revision can establish that coverage;
+state checks not run and follow AGENTS.md's proportionate verification rules.
+Documentation-only changes need consistency, scope, link/anchor and whitespace
+checks instead of an application rebuild.
 
 For renderer, lifetime or concurrency work, also use ASan and TSan where the
 environment supports them.

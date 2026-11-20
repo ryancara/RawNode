@@ -22,6 +22,8 @@ migration step.
 
 Read this together with:
 
+- [AGENTS.md](../AGENTS.md) for standing principles governing planning,
+  implementation, testing and independent review;
 - `docs/PROJECT_CONTEXT.md` for current project state and roadmap;
 - `docs/DECISIONS.md` for accepted durable design decisions;
 - `docs/CODE_STYLE.md` for coding guidance and
@@ -801,30 +803,11 @@ Each implementation step should remain independently reviewable.
 
 ## Source organisation and human readability
 
-Source layout should help a human programmer recover the architecture from the
-code rather than requiring knowledge of the project's implementation history.
-
-Prefer:
-
-- one obvious responsibility per file or tightly related file group;
-- top-down implementation order: public/domain operations before lower-level
-  mechanics where practical;
-- related lifecycle, request, mutation, export and worker operations grouped
-  conceptually rather than ordered by when they were added;
-- domain-oriented names over names that expose incidental implementation
-  machinery;
-- small, visually obvious lock scopes and comments that state ownership/thread
-  invariants;
-- comments that explain **why**, invariants and non-obvious constraints rather
-  than restating C++ syntax;
-- source structure that mirrors the UI/document/graph/runtime/display/export/
-  persistence boundaries in this document.
-
-Do not pursue readability by inventing layers, managers or tiny wrappers without
-a real responsibility boundary. Formatting is useful but is not a substitute
-for conceptual reading order.
-
-The durable source-style guidance lives in `docs/CODE_STYLE.md`.
+Apply [AGENTS.md](../AGENTS.md)'s shared acceptance criteria and the detailed
+[source-organisation guidance](CODE_STYLE.md). Source layout should make the
+UI/document/graph/runtime/display/export/persistence boundaries in this document
+recoverable from the code. Group lifecycle, request, mutation, export and worker
+operations with the owner responsible for them.
 
 ## Testing requirements
 
@@ -835,7 +818,8 @@ For renderer/export/graph work:
 
 - retain deterministic #32-#34 regression coverage;
 - prefer barriers/observers over timing sleeps;
-- provide a deliberate test observation seam when internals become private;
+- where needed to verify a required guarantee, provide a narrow test observation
+  seam when internals become private;
 - run the full self-test suite;
 - use ASan/TSan where practical;
 - validate failure paths and exception cleanup;

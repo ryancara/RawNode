@@ -4,7 +4,8 @@ This document is the durable onboarding summary for RawNode. It exists so a new
 ChatGPT, Codex, Claude Code, contributor, or future development session can
 understand the project's direction without relying on old chat history.
 
-Read this document before making broad product or architecture decisions.
+Start with the standing principles in [AGENTS.md](../AGENTS.md), then read this
+document before making broad product or architecture decisions.
 
 This is **not** a changelog. Git history and pull requests record implementation
 history. Keep this document focused on the current product direction, important
@@ -73,11 +74,11 @@ The preferred development workflow is:
 8. If a durable project decision changed, update the relevant project
    documentation before considering the work complete.
 
-Codex implementation and Claude independent review use the same permanent
-[development and review standard](CODE_STYLE.md). It defines scope, proportionate
-design and evidence, and the common quality rules. D052 remains the authority for
-product choices and significant architectural changes. Keep shared guidance in
-that document instead of maintaining parallel agent policies.
+[AGENTS.md](../AGENTS.md) is the canonical entry point for the standing principles
+that govern all planning, implementation, testing and review, including Codex and
+Claude. Detailed coding guidance stays in CODE_STYLE.md and architectural
+contracts in ARCHITECTURE.md. D052 retains the product/architecture approval
+rules; keep common principles in AGENTS.md instead of duplicating them here.
 
 ChatGPT is the long-running product/architecture discussion partner. Codex is the
 primary implementation agent. Claude Code is primarily the independent,
@@ -107,13 +108,13 @@ Document responsibilities are:
 - `docs/DECISIONS.md` — authoritative durable design decisions and rationale.
 - `docs/ARCHITECTURE_AUDIT.md` — audit evidence and the Codex/Claude
   reconciliation that led to the approved architecture.
-- `docs/CODE_STYLE.md` — permanent shared development/review principles and
-  source-organisation guidance.
+- `docs/CODE_STYLE.md` — detailed coding and source-organisation guidance.
 - `docs/STEP7_PERSISTENCE_DESIGN.md` — accepted graph-native persistence schema
   and lifecycle; `docs/workspace-format.md` — global settings format.
 - `SIDECAR.md` — current persistence overview and labelled historical formats.
 - `CLAUDE.md` — Claude Code's persistent review/development instructions.
-- `AGENTS.md` — Codex discovery/pointer to authoritative project documents.
+- `AGENTS.md` — canonical entry point for standing planning, implementation,
+  testing and review principles, shared by Codex and Claude.
 - `ROADMAP.md` — feature/product roadmap and canonical Step 9 audit programme;
   detailed open quality follow-ups live in this document's "Quality and
   verification roadmap".
@@ -1127,12 +1128,13 @@ are currently disabled, so this document is the follow-up tracker.
 
 A future ChatGPT or other project-planning session should first read:
 
-1. `docs/PROJECT_CONTEXT.md`;
-2. `docs/ARCHITECTURE.md`;
-3. `docs/DECISIONS.md`;
-4. `docs/ARCHITECTURE_AUDIT.md` when audit rationale or the migration
+1. `AGENTS.md` for the standing shared principles;
+2. `docs/PROJECT_CONTEXT.md`;
+3. `docs/ARCHITECTURE.md`;
+4. `docs/DECISIONS.md`;
+5. `docs/ARCHITECTURE_AUDIT.md` when audit rationale or the migration
    reconciliation matters;
-5. relevant current pull requests/issues for the task at hand.
+6. relevant current pull requests/issues for the task at hand.
 
 Then inspect current source where needed rather than assuming this summary
 contains implementation details.

@@ -663,9 +663,9 @@ Code review independently checks product scope, architecture fit/reuse and
 correctness, and distinguishes mandatory fixes from optional improvements.
 Successful tests do not authorise unrelated work.
 
-The permanent [development and review standard](CODE_STYLE.md) applies equally
-to Codex implementation and Claude independent review. Shared practice is
-maintained there rather than duplicated in agent-specific instructions.
+[AGENTS.md](../AGENTS.md) is the canonical entry point for the standing shared
+principles governing planning, implementation, testing and review, including
+Codex and Claude. Detailed coding guidance remains in CODE_STYLE.md.
 
 Selection-aware Add Processor connections are approved under D051's superseding
 approval above. D051 also records the separately approved PR 2C placement scope.
