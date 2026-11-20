@@ -2,7 +2,7 @@
 
 #include "AppState.h"
 #include "CurrentDirectory.h"
-#include "Export.h"
+#include "ExportTestSession.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "imgio/ImageIOPriv.h"
@@ -27,7 +27,6 @@
 namespace {
 namespace fs = std::filesystem;
 constexpr ColorEncoding kEncoding{RgbGamut::Rec709, TransferFunction::SRGB};
-constexpr const char *kRefused = "Export refused: Cannot overwrite the currently opened source photograph";
 
 struct Files {
   fs::path dir = fs::temp_directory_path() /
@@ -70,12 +69,10 @@ bool usable(App &app) {
          app.renderer.canEditParameters();
 }
 
-bool exported(App &app, const std::string &path, bool asynchronous, bool existingSidecar = false) {
-  const bool accepted = asynchronous ? startExport(app, path) : runExportJob(app, path);
-  app.renderer.joinExport();
-  CHECK(accepted && idle(app) && usable(app));
+bool exported(App &app, const std::string &path) {
+  CHECK(test_export::run(app, path) && idle(app) && usable(app));
   CHECK(app.getStatus().find("Exported ") == 0);
-  CHECK(fs::exists(inputSidecarPath(path)) == existingSidecar);
+  CHECK(!fs::exists(inputSidecarPath(path)));
   Image result; ColorEncoding encoding; bool raw = false;
   CHECK(loadImage(path, result, encoding, raw));
   CHECK(result.w == app.full.w && result.h == app.full.h && !raw);
@@ -124,7 +121,7 @@ bool writerCases() {
   return true;
 }
 
-bool exportWriteFailure(bool asynchronous, const char *ext, bool large) {
+bool exportWriteFailure(const char *ext, bool large) {
   Files files;
   App app;
   app.full = raster(large ? 128 : 1);
@@ -137,18 +134,16 @@ bool exportWriteFailure(bool asynchronous, const char *ext, bool large) {
   failedPath = files.path(std::string("full") + ext);
   fs::create_symlink("/dev/full", failedPath);
 #endif
-  const bool accepted = asynchronous ? startExport(app, failedPath) : runExportJob(app, failedPath);
-  app.renderer.joinExport();
-  CHECK(accepted == asynchronous && idle(app) && usable(app));
+  CHECK(test_export::start(app, failedPath) && !test_export::finish(app) && idle(app) && usable(app));
   CHECK(app.getStatus() == "Export failed: Could not write image");
   CHECK(!fs::exists(inputSidecarPath(failedPath)));
-  CHECK(exported(app, files.path(std::string("recovered") + ext), asynchronous));
+  CHECK(exported(app, files.path(std::string("recovered") + ext)));
   return true;
 }
 
 enum class Alias { Exact, RelativeDestination, RelativeSource, Dot, Symlink, Hardlink, SourceSymlink };
 
-bool sourceRefusal(bool asynchronous, const char *ext, Alias alias) {
+bool sourceRefusal(const char *ext, Alias alias) {
   Files files;
   const auto source = files.path(std::string("source") + ext);
   CHECK(writeImage(raster(2), source));
@@ -177,22 +172,20 @@ bool sourceRefusal(bool asynchronous, const char *ext, Alias alias) {
   const auto pixels = app.full.px;
   app.renderer.start();
   CHECK(idle(app));
-  const bool accepted = asynchronous ? startExport(app, destination) : runExportJob(app, destination);
-  app.renderer.joinExport();
-  CHECK(!accepted && idle(app) && usable(app));
-  CHECK(app.getStatus() == kRefused);
+  CHECK(test_export::start(app, destination) && !test_export::finish(app) && idle(app) && usable(app));
+  CHECK(app.exportDialog.session->results()[0].message == "Cannot overwrite a source photograph");
   CHECK(bytes(source) == original && bytes(destination) == original);
   CHECK(bytes(inputSidecarPath(opened)) == sidecar && app.full.px == pixels && app.path == opened);
   CHECK(app.selectedNodeId() == node && fs::equivalent(opened, destination));
   // A rejected request releases the lease, restores preview quietly, and leaves
   // both editing and another async/sync export usable.
   CHECK(setNodeParameterValue(app, node, "exposure", 0.5) && idle(app));
-  CHECK(exported(app, files.path(std::string("recovered") + ext), asynchronous));
+  CHECK(exported(app, files.path(std::string("recovered") + ext)));
   CHECK(bytes(source) == original && bytes(inputSidecarPath(opened)) == sidecar);
   return true;
 }
 
-bool ordinaryOverwrites(bool asynchronous, bool rawSource) {
+bool ordinaryOverwrites(bool rawSource) {
   Files files;
   const auto source = files.path(rawSource ? "DSC_001.NEF" : "portrait.jpg");
   App app;
@@ -212,29 +205,22 @@ bool ordinaryOverwrites(bool asynchronous, bool rawSource) {
   const auto original = bytes(source), sidecar = bytes(inputSidecarPath(source));
   const auto derivative = files.path(rawSource ? "DSC_001.jpg" : "portrait-final.jpg");
   app.renderer.start(); CHECK(idle(app));
-  CHECK(exported(app, derivative, asynchronous)); // Nonexistent destination is available.
+  CHECK(exported(app, derivative)); // Nonexistent destination is available.
   CHECK(setNodeParameterValue(app, *app.selectedNodeId(), "exposure", 1.0) && idle(app));
   const auto earlierExport = bytes(derivative);
-  CHECK(exported(app, derivative, asynchronous) && bytes(derivative) != earlierExport);
+  CHECK(exported(app, derivative) && bytes(derivative) != earlierExport);
   // A different original in the Filmstrip is protected too.
   const auto other = files.path("other.jpg");
   CHECK(writeImage(raster(2), other));
   App otherApp; CHECK(openPath(otherApp, other));
   const auto otherSidecar = bytes(inputSidecarPath(other)), otherBefore = bytes(other);
   FilmstripEntry entry; entry.path = other; app.filmstrip.push_back(std::move(entry));
-  CHECK(!(asynchronous ? startExport(app, other) : runExportJob(app, other)));
+  CHECK(!test_export::run(app, other));
   CHECK(idle(app) && usable(app));
   CHECK(bytes(other) == otherBefore && bytes(inputSidecarPath(other)) == otherSidecar);
   CHECK(bytes(source) == original && bytes(inputSidecarPath(source)) == sidecar);
   return true;
 }
-void finishSession(App &app, ExportSession &session) {
-  while (session.running()) {
-    session.advance();
-    app.renderer.joinExport();
-  }
-}
-
 Image linearSample() {
   constexpr float sample = 32.0f / 255.0f;
   return {{sample, sample, sample, 1.0f}, 1, 1};
@@ -304,7 +290,7 @@ bool sessionGradesAndDestinations() {
   app.exportFormat = 0;
   ExportSession session(app, ExportScope::Selected, output, ExistingExport::Skip);
   CHECK(session.running() && session.targets().size() == 5 && !app.renderer.canEditParameters());
-  finishSession(app, session);
+  test_export::finish(app, session);
   CHECK(session.results().size() == 5 && session.results()[2].outcome == ExportOutcome::Failed);
   for (size_t i : {0, 1, 3, 4}) CHECK(session.results()[i].outcome == ExportOutcome::Exported);
   CHECK(pngSample(files.path("output/a-live.png"), 128, linear));
@@ -324,18 +310,101 @@ bool sessionGradesAndDestinations() {
   const auto derivative = files.path("output/a-live.png");
   CHECK(writeImage(linearSample(), derivative, linear));
   ExportSession skip(app, ExportScope::Current, derivative, ExistingExport::Skip);
-  finishSession(app, skip);
+  test_export::finish(app, skip);
   CHECK(skip.results()[0].outcome == ExportOutcome::Skipped);
   CHECK(pngSample(derivative, 32, linear));
   ExportSession overwrite(app, ExportScope::Current, derivative, ExistingExport::Overwrite);
-  finishSession(app, overwrite);
+  test_export::finish(app, overwrite);
   CHECK(overwrite.results()[0].outcome == ExportOutcome::Exported);
   CHECK(pngSample(derivative, 128, linear));
 
   ExportSession protectedTarget(app, ExportScope::Current, metadata, ExistingExport::Overwrite);
   const auto original = bytes(metadata);
-  finishSession(app, protectedTarget);
+  test_export::finish(app, protectedTarget);
   CHECK(protectedTarget.results()[0].outcome == ExportOutcome::Failed && bytes(metadata) == original);
+  return true;
+}
+
+bool batchNameCollisions() {
+  Files files;
+  CHECK(fs::create_directory(files.path("output")));
+  App app;
+  app.exportFormat = 0;
+  for (const auto *name : {"pair.jpg", "pair.jpeg", "pair.jpg.png", "pair.jpg-2.png"}) {
+    const auto path = files.path(name);
+    CHECK(writeImage(linearSample(), path));
+    FilmstripEntry entry; entry.path = path;
+    app.filmstrip.push_back(std::move(entry));
+    app.filmstripSelection.insert(path);
+  }
+  ExportSession session(app, ExportScope::Selected, files.path("output"), ExistingExport::Overwrite);
+  CHECK(session.running());
+  test_export::finish(app, session);
+  CHECK(session.results().size() == 4);
+  const char *names[] = {"pair.jpg-3.png", "pair.jpeg.png", "pair.jpg.png", "pair.jpg-2.png"};
+  for (size_t i = 0; i < session.results().size(); ++i) {
+    CHECK(session.results()[i].outcome == ExportOutcome::Exported);
+    CHECK(fs::u8path(session.targets()[i].destination) == fs::u8path(files.path("output")) / names[i]);
+    CHECK(fs::is_regular_file(session.targets()[i].destination));
+  }
+  return true;
+}
+
+bool aliasedBatchDestinations() {
+  Files files;
+  const auto a = files.path("a.png"), b = files.path("b.png");
+  const auto outA = files.path("output/a.png"), outB = files.path("output/b.png");
+  const ColorEncoding linear{RgbGamut::Rec709, TransferFunction::Linear};
+  CHECK(writeImage(linearSample(), a, linear) && writeImage(raster(), b, linear));
+  CHECK(fs::create_directory(files.path("output")) && writeImage(raster(2), outA));
+  std::error_code error;
+  fs::create_hard_link(outA, outB, error);
+  if (error) {
+    std::printf("SKIP batch destination hard link: %s\n", error.message().c_str());
+    return true;
+  }
+
+  App app;
+  app.exportFormat = 0;
+  for (const auto &path : {a, b}) {
+    FilmstripEntry entry; entry.path = path;
+    app.filmstrip.push_back(std::move(entry));
+    app.filmstripSelection.insert(path);
+  }
+  ExportSession session(app, ExportScope::Selected, files.path("output"), ExistingExport::Overwrite);
+  CHECK(session.running());
+  test_export::finish(app, session);
+  CHECK(session.results().size() == 2 && session.results()[0].outcome == ExportOutcome::Exported);
+  CHECK(session.results()[1].outcome == ExportOutcome::Failed &&
+        session.results()[1].message == "Destination aliases another export in this batch");
+  CHECK(fs::equivalent(outA, outB) && pngSample(outA, 99, kEncoding) && bytes(outA) == bytes(outB));
+  return true;
+}
+
+bool distinctGradeForImageAlias() {
+  Files files;
+  const auto saved = files.path("a.png"), live = files.path("b.png"), output = files.path("output");
+  const ColorEncoding linear{RgbGamut::Rec709, TransferFunction::Linear};
+  CHECK(writeImage(linearSample(), saved, linear) && fs::create_directory(output));
+  std::error_code error;
+  fs::create_hard_link(saved, live, error);
+  if (error) {
+    std::printf("SKIP separate grades for linked photographs: %s\n", error.message().c_str());
+    return true;
+  }
+  App app;
+  CHECK(openFolder(app, files.dir.u8string()) && addNativeExposureNode(app));
+  CHECK(setNodeParameterValue(app, *app.selectedNodeId(), "exposure", 1.0) && setOutputEncoding(app, linear));
+  CHECK(openPath(app, live) && addNativeExposureNode(app));
+  CHECK(setNodeParameterValue(app, *app.selectedNodeId(), "exposure", 2.0) && setOutputEncoding(app, linear));
+  for (const auto &entry : app.filmstrip) app.filmstripSelection.insert(entry.path);
+  app.exportFormat = 0;
+  ExportSession session(app, ExportScope::Selected, output, ExistingExport::Skip);
+  CHECK(session.running());
+  test_export::finish(app, session);
+  CHECK(session.results().size() == 2 && session.results()[0].outcome == ExportOutcome::Exported &&
+        session.results()[1].outcome == ExportOutcome::Exported);
+  CHECK(pngSample(files.path("output/a.png"), 64, linear) && pngSample(files.path("output/b.png"), 128, linear));
   return true;
 }
 
@@ -366,7 +435,7 @@ bool cancelBetweenPhotos() {
   const bool entered = gate.entered.get_future().wait_for(std::chrono::seconds(2)) == std::future_status::ready;
   session.cancel();
   gate.release.set_value();
-  finishSession(app, session);
+  test_export::finish(app, session);
   CHECK(entered && usable(app) && session.results().size() == 1);
   CHECK(session.results()[0].outcome == ExportOutcome::Exported && fs::exists(files.path("output/first.png")));
   CHECK(!fs::exists(files.path("output/second.png")) && app.path.empty());
@@ -379,16 +448,15 @@ bool testExportSafety() {
   Files workingDirectory;
   CurrentDirectory cwd(workingDirectory.dir);
   bool ok = writerCases();
-  for (bool asynchronous : {false, true}) {
-    for (const char *ext : {".png", ".jpg"}) {
-      for (bool large : {false, true}) ok = exportWriteFailure(asynchronous, ext, large) && ok;
-      for (auto alias : {Alias::Exact, Alias::RelativeDestination, Alias::RelativeSource, Alias::Dot,
-                         Alias::Symlink, Alias::Hardlink, Alias::SourceSymlink})
-        ok = sourceRefusal(asynchronous, ext, alias) && ok;
-    }
-    for (bool raw : {false, true}) ok = ordinaryOverwrites(asynchronous, raw) && ok;
+  for (const char *ext : {".png", ".jpg"}) {
+    for (bool large : {false, true}) ok = exportWriteFailure(ext, large) && ok;
+    for (auto alias : {Alias::Exact, Alias::RelativeDestination, Alias::RelativeSource, Alias::Dot,
+                       Alias::Symlink, Alias::Hardlink, Alias::SourceSymlink})
+      ok = sourceRefusal(ext, alias) && ok;
   }
-  ok = sessionGradesAndDestinations() && cancelBetweenPhotos() && ok;
+  for (bool raw : {false, true}) ok = ordinaryOverwrites(raw) && ok;
+  ok = sessionGradesAndDestinations() && cancelBetweenPhotos() && batchNameCollisions() &&
+       aliasedBatchDestinations() && distinctGradeForImageAlias() && ok;
   if (ok) std::puts("ok  Export safety, live/saved/ungraded batch results, destination policies and cancellation");
   return ok;
 }

@@ -1,6 +1,6 @@
 #include "RawImageTests.h"
 #include "AppState.h"
-#include "Export.h"
+#include "ExportTestSession.h"
 #include "imgio/ImageIOPriv.h"
 
 #include <libraw/libraw.h>
@@ -270,8 +270,9 @@ Image decodeRawImage(const std::string &path,
   require(raw && detected == encoding, "RAW dispatch/working encoding");
   return out;
 }
-void checkUngradedBatch(const Files &files) {
-  const auto raw = writeFixture(files, "pair", Fixture{});
+void checkUngradedBatch(const Fixture &fixture) {
+  Files files;
+  const auto raw = writeFixture(files, "pair", fixture);
   const auto jpeg = (files.dir / "pair.jpg").u8string();
   const auto folder = files.dir / "exported";
   require(fs::create_directory(folder), "create batch destination");
@@ -284,10 +285,7 @@ void checkUngradedBatch(const Files &files) {
   }
   ExportSession session(app, ExportScope::Selected, folder.u8string(), ExistingExport::Skip);
   require(session.running() && session.targets().size() == 2, "start ungraded RAW/JPEG batch");
-  while (session.running()) {
-    session.advance();
-    app.renderer.joinExport();
-  }
+  test_export::finish(app, session);
   for (const auto &result : session.results())
     require(result.outcome == ExportOutcome::Exported, result.message.c_str());
   require(session.results().size() == 2, "complete ungraded RAW/JPEG batch");
@@ -304,7 +302,8 @@ void checkUngradedBatch(const Files &files) {
           "same-stem JPEG has its own derivative");
   for (const auto &path : {raw, jpeg, exportedRaw, exportedJpeg})
     require(!fs::exists(inputSidecarPath(path)), "batch creates no source or derivative sidecar");
-  std::fprintf(stderr, "PASS ungraded RAW/JPEG batch with same-stem names\n");
+  std::fprintf(stderr, "PASS ungraded %s/JPEG batch with same-stem names\n",
+               fixture.jxl ? "JPEG XL DNG" : "RAW");
 }
 } // namespace
 
@@ -381,7 +380,12 @@ bool testRawImages() {
             "unsupported Stage 2 TrimBounds geometry must be rejected");
     std::fprintf(stderr, "PASS RAW Stage 2 TrimBounds rejection\n");
 #endif
-    checkUngradedBatch(files);
+    checkUngradedBatch(Fixture{});
+#if RAWNODE_ENABLE_JXL_DNG
+    Fixture jxlBatch;
+    jxlBatch.jxl = true;
+    checkUngradedBatch(jxlBatch);
+#endif
     // Optional private fixtures exercise the same public loader without
     // committing photos.
     for (const char *key : {"RAWNODE_TEST_NEF", "RAWNODE_TEST_DNG", "RAWNODE_TEST_JXL"})

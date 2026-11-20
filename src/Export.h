@@ -49,7 +49,3 @@ class ExportSession {
   std::unique_ptr<State> state_;
   bool cancelRequested_ = false;
 };
-
-// Direct single-photo calls for the existing renderer self-tests.
-bool runExportJob(App &app, const std::string &outPath);
-bool startExport(App &app, const std::string &outPath);

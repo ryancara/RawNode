@@ -474,7 +474,7 @@ independent review as SAFE TO MERGE and successful Windows desktop validation of
 multi-photo Trash, external HDD/SSD, native dialog ownership and cancellation.
 SD card testing is unverified due to unavailable hardware, an accepted
 non-blocking limitation recorded in [Windows validation](WINDOWS_VALIDATION.md).
-Batch export remains a later PR; no custom recovery machinery is introduced.
+The sequential batch export workflow is in [PR #124](https://github.com/ryancara/RawNode/pull/124).
 
 Sidecars, presets and preferences share checked atomic replacement across macOS,
 Linux and Windows ([D058](DECISIONS.md#d058--shared-atomic-persistence)). Windows
@@ -653,7 +653,7 @@ These are known but are not reasons to expand unrelated focused PRs:
   sampling at the Source edge, also on merged main. A pixel-rendering correction
   is a separate quality follow-up for owner consideration; PR #107's final
   Identity metadata correction deliberately retains those legacy samples;
-- export UX can block/wait on a non-cancellable full-resolution export;
+- export cancellation takes effect between photographs, after the current full-resolution item finishes;
 - plain-clicking the already-open filmstrip photograph reloads it, resetting
   undo history and zoom/pan. This predates multi-photo selection; evaluate a
   focused same-photo-click follow-up without changing document lifecycle in the
@@ -944,8 +944,8 @@ guidance.
 **Completed post-Step-7 safety corrections:** merged PR #71 fixed OFX outstanding
 image-handle lifetime: each fetched handle owns its property set until release,
 while pixel buffers remain borrowed. Export now checks both byte counts and
-stream-close results for tagged/untagged PNG and JPEG. Both export entry points
-refuse destinations identifying the currently opened source, including relative,
+stream-close results for tagged/untagged PNG and JPEG. Export refuses
+destinations identifying the currently opened source, including relative,
 symlink and hardlink aliases. [D060](DECISIONS.md#d060--sequential-photograph-export)
 extends source protection to Filmstrip photographs. Export remains sidecar-free.
 Derivative writes use the existing writer, so a failed write can leave
@@ -1008,8 +1008,8 @@ behaviour and photo/global settings ownership in "Persistence direction" above.
 Editor opening establishes a grade; unopened metadata-only photos remain valid.
 No live dirty/presence tracking is required for lifecycle saves (D050).
 Step 7 completed the preset/clipboard transition and workspace-persistence
-cleanup. Default-preset UI/application, assignable shortcuts, multi-photo operations
-and batch/workspace export remain separate focused workflow milestones.
+cleanup. Default-preset UI/application, assignable shortcuts, and multi-photo grade
+application remain separate workflow milestones.
 
 **Accepted sidecar/layout direction (D048):** each editable source photograph
 uses one sidecar for the authoritative graph and optional compact X/Y positions

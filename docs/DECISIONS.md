@@ -542,7 +542,8 @@ Retire the Left Panel after relocating its controls and status/warning reporting
 Inspector follows one transient UI selection: a real NodeId (Source or processor),
 virtual Output, or nothing. Source shows input information and current-photo RAW
 settings only for RAW input; processors reuse existing parameter widgets/filtering;
-Output shows grade-owned colour settings and application-owned export preferences.
+Output shows grade-owned colour settings. D060 moves format and JPEG quality to
+the Export dialog.
 No selection shows a neutral state. Output is not a real node, selection never
 changes documentOutput or schedules rendering, and processor-only actions exclude
 Source and Output. Both views preserve logical selection; photo/grade replacement
@@ -888,7 +889,8 @@ observed-identity/symlink/reparse checks remain. See
 **Status:** Owner-approved milestone design, 2026-11-20.
 
 Current Photograph and Selected Photographs share one foreground export
-workflow. Selected includes hidden entries, reports their count, and processes
+workflow. The dialog owns the application-wide format and JPEG quality.
+Selected includes hidden entries, reports their count, and processes
 the captured selection in Filmstrip order. Current names an individual file.
 Batch names come from the source stem, retaining the source extension when
 stems collide and adding a number only if needed. Skip is the default for
@@ -902,9 +904,12 @@ its decoded encoding to the output encoding before writing the ICC profile.
 Processed outputs use the existing manual output interpretation. An invalid
 or protected grade reports a failure for that photograph.
 
-One RenderRuntime lease excludes preview and edits for the whole export.
-Detached OpenFX instances are restored and destroyed on the control thread.
-Each photograph uses the same evaluator and existing image writer. Cancel
+The control thread owns one RenderRuntime lease for the entire export and
+creates and destroys detached processors there. It joins each item's runtime
+worker before retiring the graph, starting the next photo or releasing the
+lease. Preview and document mutations resume after release. App teardown
+drains the session before shutting down RenderRuntime. Each photograph uses
+the same evaluator and existing image writer. Cancel
 takes effect between photographs. Export uses no editor open/departure
 transactions and writes no sidecars. A failed derivative write can leave an
 incomplete file. Originals outside the open photograph and Filmstrip are

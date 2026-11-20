@@ -31,7 +31,7 @@
 #include "GraphCommands.h"
 #include "RenderPipeline.h"
 #include "DocumentMutation.h"
-#include "Export.h"
+#include "ExportTestSession.h"
 #include "RenderRuntimeTestAccess.h"
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"
@@ -115,8 +115,8 @@ struct RuntimeEvents {
   App &app;
   std::mutex mutex;
   std::condition_variable cv;
-  std::array<int, 8> counts{};
-  std::array<RuntimeAccess::Snapshot, 8> states{};
+  std::array<int, static_cast<size_t>(RuntimeEvent::Stopped) + 1> counts{};
+  std::array<RuntimeAccess::Snapshot, static_cast<size_t>(RuntimeEvent::Stopped) + 1> states{};
   std::string releasedStatus;
   bool failed = false;
   explicit RuntimeEvents(App &a) : app(a) {
@@ -218,6 +218,7 @@ struct SchedulingWorkerGuard {
       probe.release = true;
     }
     probe.cv.notify_all();
+    app.exportDialog.session.reset();
     app.renderer.shutdown();
   }
 };
@@ -286,7 +287,7 @@ static bool testExportPreservesSourceSidecar(bool crossImage) {
 
   // The legacy export writer stripped .png/.jpg and overwrote targetSidecar.
   const std::string outPath = targetSource + (crossImage ? ".jpg" : ".png");
-  if (!runExportJob(app, outPath) || !exportHasRgb(outPath, 0.25f) ||
+  if (!test_export::run(app, outPath) || !exportHasRgb(outPath, 0.25f) ||
       app.getStatus().find("Exported ") != 0 ||
       !fs::is_regular_file(sourceSidecar) || !fs::is_regular_file(targetSidecar) ||
       readBytes(sourceSidecar) != sourceBefore || readBytes(targetSidecar) != targetBefore ||
@@ -380,22 +381,26 @@ static bool testRuntimeActiveShutdown(bool exporting, bool destroy,
   struct StopObservation {
     std::mutex mutex;
     std::condition_variable cv;
-    bool stopping = false;
+    bool draining = false;
+    RuntimeEvent expected;
   } stop;
+  stop.expected = exporting ? RuntimeEvent::ExportJoining : RuntimeEvent::Stopping;
   RuntimeAccess::observe(app.renderer, &stop, [](void *context, RuntimeEvent event) noexcept {
-    if (event != RuntimeEvent::Stopping) return;
     auto &stop = *static_cast<StopObservation *>(context);
+    if (event != stop.expected) return;
     std::lock_guard<std::mutex> lock(stop.mutex);
-    stop.stopping = true;
+    stop.draining = true;
     stop.cv.notify_all();
   });
   struct ObserverGuard {
     std::unique_ptr<App> &owner;
     ~ObserverGuard() { if (owner) RuntimeAccess::observe(owner->renderer, nullptr, nullptr); }
   } observerGuard{owner};
-  if (exporting && !startExport(app, files.output())) return false;
-  app.renderer.start();
-  if (!exporting) app.renderer.requestPreview();
+  if (exporting && !test_export::start(app, files.output())) return false;
+  if (!exporting) {
+    app.renderer.start();
+    app.renderer.requestPreview();
+  }
   bool entered;
   {
     std::unique_lock<std::mutex> lock(probe->mutex);
@@ -403,13 +408,13 @@ static bool testRuntimeActiveShutdown(bool exporting, bool destroy,
   }
   bool ownedAtStop = false;
   std::thread release([&] {
-    bool stopping;
+    bool draining;
     {
       std::unique_lock<std::mutex> lock(stop.mutex);
-      stopping = stop.cv.wait_for(lock, std::chrono::seconds(2), [&] { return stop.stopping; });
+      draining = stop.cv.wait_for(lock, std::chrono::seconds(2), [&] { return stop.draining; });
     }
     const auto state = renderState(app);
-    ownedAtStop = stopping && facts.active && !facts.destroyed && state.stopping &&
+    ownedAtStop = draining && facts.active && !facts.destroyed && state.stopping == !exporting &&
                  (exporting ? state.exportBusy && !state.previewBusy : state.previewBusy && !state.exportBusy);
     {
       std::lock_guard<std::mutex> lock(probe->mutex);
@@ -566,13 +571,18 @@ static bool testRuntimeCancellation() {
 static bool testControlThreadAssertions() {
   // Run before any workers/plugin loading. Each child deliberately violates one
   // contract; no process-wide assertion handler or production escape hatch.
-  for (int operation = 0; operation < 10; ++operation) {
+  for (int operation = 0; operation < 11; ++operation) {
     const pid_t child = fork();
     if (child < 0) return false;
     if (child == 0) {
       const rlimit noCore{0, 0};
       setrlimit(RLIMIT_CORE, &noCore);
       App app;
+      if (operation == 10) {
+        auto lease = app.renderer.acquireExport();
+        DocumentMutation mutation(app);
+        _exit(0);
+      }
       std::thread wrongThread([&] {
         switch (operation) {
           case 0: { DocumentMutation mutation(app); break; }
@@ -781,7 +791,7 @@ static bool testFailedRenderWithoutPendingRecolor(bool cancelRecolor) {
 // Use the production export job and a processor barrier, rather than
 // sleeps or a large image, to force cancellation before export acquires the graph.
 enum class ExportPreviewWork { None, Pending, Active };
-enum class ExportPreviewEnd { Resume, Mutate, MutateDuring, StopDuring, StopAfter };
+enum class ExportPreviewEnd { Resume, Mutate, StopAfter };
 
 static bool testPreviewAfterExport(ExportPreviewWork work,
                                    ExportPreviewEnd ending = ExportPreviewEnd::Resume,
@@ -830,11 +840,11 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
       }
       probe->cv.notify_all();
     });
-    acquired = startExport(app, files.output());
+    acquired = test_export::start(app, files.output());
     releasePreview.join();
     if (!exclusive) return false;
   } else {
-    acquired = startExport(app, files.output());
+    acquired = test_export::start(app, files.output());
   }
   if (!acquired || app.renderer.canEditParameters()) return false;
   const int activeCalls = active ? 1 : 0;
@@ -845,41 +855,24 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
   auto state = renderState(app);
   if (!state.exportBusy || state.previewBusy || state.previewPending) return false;
   app.renderer.requestDisplayRefresh();
-  const bool mutateDuring = ending == ExportPreviewEnd::MutateDuring;
-  const bool stopDuring = ending == ExportPreviewEnd::StopDuring;
-  bool blocked = true;
-  std::thread releaseExport;
-  auto release = [&] {
+  {
     std::lock_guard<std::mutex> lock(probe->mutex);
     probe->release = true;
-    probe->cv.notify_all();
-  };
-  if (mutateDuring || stopDuring) {
-    releaseExport = std::thread([&] {
-      blocked = events.wait(stopDuring ? RuntimeEvent::Stopping : RuntimeEvent::MutationWaiting);
-      const auto waiting = renderState(app);
-      blocked = blocked && waiting.exportBusy && !waiting.previewBusy &&
-                (stopDuring ? waiting.stopping : waiting.mutationDepth == 1);
-      release();
-    });
-  } else release();
+  }
+  probe->cv.notify_all();
   auto replaceExposure = [&] {
     DocumentMutation mutation(app);
     app.nodes[2].processor = std::make_unique<NativeExposureProcessor>();
     app.nodes[2].processor->setParameterValue("exposure", 2.0);
     mutation.changed();
   };
-  if (mutateDuring) replaceExposure();
-  if (stopDuring) app.renderer.shutdown();
-  if (releaseExport.joinable()) releaseExport.join();
-  app.renderer.joinExport();
-  if (!blocked || !app.renderer.canEditParameters()) return false;
+  if (!test_export::finish(app) || !app.renderer.canEditParameters()) return false;
   if (ending == ExportPreviewEnd::Mutate) replaceExposure();
   if (ending == ExportPreviewEnd::StopAfter) app.renderer.shutdown();
-  const bool expectPreview = !stopDuring && ending != ExportPreviewEnd::StopAfter;
+  const bool expectPreview = ending != ExportPreviewEnd::StopAfter;
   if (!active) {
     state = renderState(app);
-    const bool normal = mutateDuring || ending == ExportPreviewEnd::Mutate;
+    const bool normal = ending == ExportPreviewEnd::Mutate;
     if (state.exportBusy || state.previewBusy || state.previewPending != expectPreview ||
         state.quietPending != (expectPreview && !normal)) return false;
   }
@@ -901,7 +894,7 @@ static bool testPreviewAfterExport(ExportPreviewWork work,
   }
   Image expected = *app.preview;
   if (expectPreview) {
-    const float value = (mutateDuring || ending == ExportPreviewEnd::Mutate) ? 0.5f : 0.25f;
+    const float value = (ending == ExportPreviewEnd::Mutate) ? 0.5f : 0.25f;
     expected.px = {value, value, value, 1.0f};
   }
   std::vector<unsigned char> expectedRGBA;
@@ -955,7 +948,7 @@ static bool testExportPreviewStatus(ExportStatusResult result,
 
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
-  if (!startExport(app, outPath)) return false;
+  if (!test_export::start(app, outPath)) return false;
   {
     std::unique_lock<std::mutex> lock(probe->mutex);
     if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 1; }))
@@ -976,7 +969,7 @@ static bool testExportPreviewStatus(ExportStatusResult result,
     probe->releasedCalls = 1;  // Complete export, but hold the restored preview.
   }
   probe->cv.notify_all();
-  app.renderer.joinExport();  // Only export completion can wake the parked preview here.
+  test_export::finish(app);  // Only export completion can wake the parked preview here.
   if (!idleDuringExport || events.failed || events.releasedStatus != exportStatus) return false;
   const bool exported = result == ExportStatusResult::Success || result == ExportStatusResult::Warnings;
   if (fs::is_regular_file(outPath) != exported ||
@@ -1025,7 +1018,7 @@ static bool testExportPreviewStatus(ExportStatusResult result,
          app.processed.generation > 0;
 }
 
-static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
+static bool testExportFailureCleanup(ExportFailure failure) {
   ExportTestFiles files;
   App app;
   if (!app.renderer.canEditParameters()) return false;
@@ -1055,12 +1048,7 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
   SchedulingWorkerGuard guard{app, *probe};
 
   // Leave preview unstarted until export cleanup has been inspected.
-  if (asynchronous) {
-    if (!startExport(app, files.output())) return false;
-    app.renderer.joinExport();
-  } else if (runExportJob(app, files.output())) {
-    return false;
-  }
+  if (!test_export::start(app, files.output()) || test_export::finish(app)) return false;
   std::string message;
   switch (failure) {
     case ExportFailure::Result: message = "Self-test export failure"; break;
@@ -1103,7 +1091,7 @@ static bool testExportFailureCleanup(ExportFailure failure, bool asynchronous) {
 // Preview sizing occurs at the next graph operation, never as export cleanup.
 // Its failure must not undo successful file production, but must report the
 // current preview failure even when restoration was requested quietly.
-static bool testPreviewSizingFailureAfterExport(bool asynchronous) {
+static bool testPreviewSizingFailureAfterExport() {
   ExportTestFiles files;
   App app;
   setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
@@ -1116,10 +1104,7 @@ static bool testPreviewSizingFailureAfterExport(bool asynchronous) {
   Node node; node.processor = std::move(processor);
   appendTestNode(app, std::move(node));
   SchedulingWorkerGuard guard{app, *probe};
-  if (asynchronous) {
-    if (!startExport(app, files.output())) return false;
-    app.renderer.joinExport();
-  } else if (!runExportJob(app, files.output())) return false;
+  if (!test_export::run(app, files.output())) return false;
   const std::string exported = app.getStatus();
   if (exported.find("Exported ") != 0 || !exportHasRgb(files.output(), 0.125f) ||
       probe->width != 2 || probe->calls != 1 || !app.renderer.canEditParameters()) return false;
@@ -1138,7 +1123,7 @@ static bool testPreviewSizingFailureAfterExport(bool asynchronous) {
   return app.processed.result.state == EvaluationState::Available;
 }
 
-static bool testExportThreadLifecycle(bool stopDuring) {
+static bool testExportThreadLifecycle() {
   ExportTestFiles files;
   App app;
   setTestPreview(app, Image{{0.125f, 0.125f, 0.125f, 1.0f}, 1, 1});
@@ -1147,71 +1132,22 @@ static bool testExportThreadLifecycle(bool stopDuring) {
   app.inputIsRaw = true;
   auto processor = std::make_unique<SchedulingSelfTestProcessor>();
   auto *probe = processor.get();
-  probe->preserveInput = true;
-  probe->release = !stopDuring;
-  Node node;
-  node.id = NodeId{"export-probe"};
-  node.processor = std::move(processor);
+  probe->preserveInput = probe->release = true;
+  Node node; node.id = NodeId{"export-probe"}; node.processor = std::move(processor);
   appendTestNode(app, std::move(node));
-  RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
-  if (stopDuring) app.renderer.start();
-  if (!startExport(app, files.output()) || !renderState(app).exportThreadOwned) return false;
-  if (stopDuring) {
-    {
-      std::unique_lock<std::mutex> lock(probe->mutex);
-      if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 1; })) return false;
-    }
-    if (app.renderer.canEditParameters()) return false;
-    bool stoppingOwnedExport = false;
-    std::thread release([&] {
-      const bool observed = events.wait(RuntimeEvent::Stopping);
-      const auto state = renderState(app);
-      stoppingOwnedExport = observed && state.exportBusy && !state.previewBusy;
-      {
-        std::lock_guard<std::mutex> lock(probe->mutex);
-        probe->release = true;
-      }
-      probe->cv.notify_all();
-    });
-    app.renderer.shutdown();
-    release.join();
-    if (!stoppingOwnedExport) return false;
-  } else {
-    if (!RuntimeAccess::wait(app.renderer, [](auto state) { return !state.exportBusy; })) return false;
-    if (!app.renderer.canEditParameters()) return false;
-    {
-      std::lock_guard<std::mutex> lock(probe->mutex);
-      probe->release = false;
-    }
-    // Finished execution is still owned/joinable until reuse or explicit join.
-    if (!renderState(app).exportThreadOwned || !startExport(app, (files.dir / "second.jpg").string())) return false;
-    {
-      std::unique_lock<std::mutex> lock(probe->mutex);
-      if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 2; })) return false;
-    }
-    if (app.renderer.canEditParameters()) return false;
-    {
-      std::lock_guard<std::mutex> lock(probe->mutex);
-      probe->release = true;
-    }
-    probe->cv.notify_all();
-  }
+  const auto second = (files.dir / "second.jpg").string();
+  if (!test_export::start(app, files.output()) || !renderState(app).exportThreadOwned) return false;
   app.renderer.joinExport();
-  app.renderer.joinExport();
+  // Joining an item leaves the session in charge until the control thread
+  // collects it. A second request cannot take over before that boundary.
+  if (app.renderer.canEditParameters() || test_export::start(app, second)) return false;
+  if (!test_export::finish(app) || !app.renderer.canEditParameters() ||
+      !test_export::run(app, second)) return false;
   const auto state = renderState(app);
-  if (!app.renderer.canEditParameters() || state.exportBusy || state.exportThreadOwned ||
-      state.previewPending != !stopDuring || state.quietPending != !stopDuring) return false;
-  if (!exportHasRgb(files.output(), 0.125f) || !hasNoExportSidecar(files.output())) return false;
-  if (!stopDuring) {
-    const std::string second = (files.dir / "second.jpg").string();
-    if (!exportHasRgb(second, 0.125f) || !hasNoExportSidecar(second)) return false;
-  }
-  app.renderer.shutdown();
-  return probe->calls == (stopDuring ? 1 : 2) && probe->width == 2 && probe->height == 1 &&
-         std::all_of(probe->history.begin(), probe->history.end(), [](const auto &call) {
-           return call.width == 2 && call.height == 1 && !call.interactive;
-         });
+  return !state.exportBusy && !state.exportThreadOwned && state.previewPending && state.quietPending &&
+         probe->calls == 2 && exportHasRgb(files.output(), 0.125f) && exportHasRgb(second, 0.125f) &&
+         hasNoExportSidecar(files.output()) && hasNoExportSidecar(second);
 }
 
 static void graphPreviewSource(App &app) {
@@ -1372,7 +1308,7 @@ static bool testGraphEditTransaction(GraphEditCase edit) {
       std::vector<unsigned char> sourceRGBA;
       toDisplayRGBA8(*app.preview, app.inputEncoding, sourceRGBA);
       if (!previewIdle(app)) return false;
-      return !app.hasProcessingOutput() && !app.selectedNodeId() && !renderState(app).previewPending &&
+      return app.documentOutput == OutputRef{app.primarySource, ports::image} && !app.selectedNodeId() && !renderState(app).previewPending &&
              renderState(app).mutationDepth == 0 && renderState(app).epoch >= lastBefore + 2 &&
              app.displayDirty && testDisplay(app).px == app.preview->px && app.displayRGBA == sourceRGBA;
     }
@@ -1759,6 +1695,7 @@ static bool testOfxRuntimeCancellation(bool threaded = false) {
         fixture.releaseAll = true;
       }
       fixture.cv.notify_all();
+      app.exportDialog.session.reset();
       app.renderer.shutdown();
     }
   } guard{app, fixture};
@@ -1773,14 +1710,14 @@ static bool testOfxRuntimeCancellation(bool threaded = false) {
   }
   fixture.release(2);
   if (!previewIdle(app)) return false;
-  if (!startExport(app, files.output()) || !fixture.wait(3)) return false;
+  if (!test_export::start(app, files.output()) || !fixture.wait(3)) return false;
   app.renderer.requestPreview();        // Export's empty token must not cancel.
   {
     std::lock_guard<std::mutex> lock(fixture.mutex);
     fixture.releaseAll = true;
   }
   fixture.cv.notify_all();
-  app.renderer.joinExport();
+  test_export::finish(app);
   if (!previewIdle(app)) return false;
   app.renderer.shutdown();
   const bool ok = !fixture.returnedEarly && fixture.aborted == std::vector<int>({1, 0, 0, 0}) &&
@@ -1940,25 +1877,38 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
   const auto originalCount = app.nodes.size();
   RuntimeEvents events(app);
   SchedulingWorkerGuard guard{app, *probe};
-  if (exporting && !startExport(app, files.output())) return false;
-  app.renderer.start();
+  if (exporting && !test_export::start(app, files.output())) return false;
+  if (!exporting) app.renderer.start();
   {
     std::unique_lock<std::mutex> lock(probe->mutex);
     if (!probe->cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe->calls == 1; })) return false;
   }
   bool waited = false;
-  std::thread observer([&] {
-    const bool observed = events.wait(RuntimeEvent::MutationWaiting);
+  std::thread observer;
+  if (exporting) {
     const auto state = renderState(app);
-    waited = observed && state.mutationDepth == 1 &&
-             (exporting ? state.exportBusy && !state.previewBusy : state.previewBusy && !state.exportBusy) &&
-             app.nodes.size() == originalCount && app.nodes[2].enabled;
+    waited = state.exportBusy && !state.previewBusy && !app.renderer.canEditParameters() &&
+             app.nodes.size() == originalCount && app.nodes[2].enabled &&
+             !setNodeParameterValue(app, app.nodes[2].id, "exposure", 2.0);
     {
       std::lock_guard<std::mutex> lock(probe->mutex);
       probe->release = true;
     }
     probe->cv.notify_all();
-  });
+    if (!test_export::finish(app)) return false;
+  } else {
+    observer = std::thread([&] {
+      const bool observed = events.wait(RuntimeEvent::MutationWaiting);
+      const auto state = renderState(app);
+      waited = observed && state.mutationDepth == 1 && state.previewBusy && !state.exportBusy &&
+               app.nodes.size() == originalCount && app.nodes[2].enabled;
+      {
+        std::lock_guard<std::mutex> lock(probe->mutex);
+        probe->release = true;
+      }
+      probe->cv.notify_all();
+    });
+  }
   bool operationOk = true;
   switch (edit) {
     case ActiveGraphEdit::Add:
@@ -1972,8 +1922,8 @@ static bool testGraphEditWaits(bool exporting, ActiveGraphEdit edit, int pluginI
       break;
     case ActiveGraphEdit::AddOfx: operationOk = addNode(app, pluginIndex); break;
   }
-  observer.join();
-  app.renderer.joinExport();
+  if (observer.joinable()) observer.join();
+  if (exporting) app.renderer.start(); // Consume the export recovery and edit demand together.
   if (!waited || !operationOk || !previewIdle(app) || renderState(app).mutationDepth != 0) return false;
   if (events.counts[static_cast<size_t>(RuntimeEvent::MutationCompleted)] != 1) return false;
   if (edit == ActiveGraphEdit::AddAfterSource || edit == ActiveGraphEdit::AddBranch) {
@@ -2129,18 +2079,17 @@ static int runSelfTestsImpl() {
   printf("ok  6E.2 failed clipboard/preset application preserves document and colour settings; recovery succeeds\n");
 #if !defined(NDEBUG) && !defined(_WIN32)
   if (!testControlThreadAssertions()) return fail("renderer control-thread assertions");
-  printf("ok  Debug control-thread contract (10 expected child assertions)\n");
+  printf("ok  Debug thread and export mutation contracts (11 expected child assertions)\n");
 #endif
   if (!testOfxThreadPool()) return fail("OFX host multithread lifetime");
   if (!testOfxImageHandles()) return fail("OFX outstanding image-handle lifetime");
   for (bool started : {false, true})
     for (bool pending : {false, true})
       if (!testRuntimeIdleLifecycle(started, pending)) return fail("runtime idle/pending start/shutdown");
-  for (bool destroy : {false, true}) {
+  for (bool destroy : {false, true})
     if (!testRuntimeActiveShutdown(false, destroy)) return fail("runtime active preview shutdown/destruction");
-    for (auto failure : {ExportFailure::None, ExportFailure::Result, ExportFailure::RenderException})
-      if (!testRuntimeActiveShutdown(true, destroy, failure)) return fail("runtime active export shutdown/destruction");
-  }
+  for (auto failure : {ExportFailure::None, ExportFailure::Result, ExportFailure::RenderException})
+    if (!testRuntimeActiveShutdown(true, true, failure)) return fail("active export session joins during App destruction");
   if (!testNormalPreviewDominatesQuiet(false) || !testNormalPreviewDominatesQuiet(true))
     return fail("normal demand / final mutation decision / read-only runtime observation");
   if (!testSingleMutationCompletionDemand(true))
@@ -2152,7 +2101,7 @@ static int runSelfTestsImpl() {
   if (!testOfxRuntimeCancellation()) return fail("runtime cancellation reaches OFX abort; export remains uncancellable");
   if (std::thread::hardware_concurrency() > 1 && !testOfxRuntimeCancellation(true))
     return fail("worker-slice OFX abort lifetime and DestroyInstance threading");
-  printf("ok  Owned runtime lifecycle (12 cases), demand merging, observation and cancellation\n");
+  printf("ok  Owned runtime lifecycle (9 cases), demand merging, observation and cancellation\n");
 
   for (bool half : {false, true}) {
     const fs::path p = fs::temp_directory_path() / (half ? "ofxrawhost-selftest-half.tif" : "ofxrawhost-selftest.tif");
@@ -2668,11 +2617,11 @@ static int runSelfTestsImpl() {
                         ActiveGraphEdit::Disable, ActiveGraphEdit::FailCtl}) {
         if (!testGraphEditWaits(exporting, edit)) {
           fprintf(stderr, "active graph edit: %d exporting=%d\n", (int)edit, exporting);
-          return fail("production graph edits must drain active preview/export ownership");
+          return fail("graph edits after preview drain or export release");
         }
       }
     }
-    printf("ok  Production graph edits drain active preview/export (14 barrier cases)\n");
+    printf("ok  Production graph edits drain preview and wait for export release (14 barrier cases)\n");
   }
 
   {
@@ -2719,14 +2668,12 @@ static int runSelfTestsImpl() {
     for (auto failure : {ExportFailure::RenderException, ExportFailure::UnknownException,
                          ExportFailure::SizeException,
                          ExportFailure::Result})
-      for (bool asynchronous : {false, true})
-        if (!testExportFailureCleanup(failure, asynchronous))
-          return fail("production export failure/exception cleanup");
-    printf("ok  Production export failure/exception cleanup and parameter editability (8 deterministic cases)\n");
-    if (!testPreviewSizingFailureAfterExport(false) || !testPreviewSizingFailureAfterExport(true))
+      if (!testExportFailureCleanup(failure)) return fail("production export failure/exception cleanup");
+    printf("ok  Production export failure/exception cleanup and parameter editability (4 deterministic cases)\n");
+    if (!testPreviewSizingFailureAfterExport())
       return fail("successful export survives the next preview's size setter failure");
-    printf("ok  6D successful export survives preview sizing failures (2 cases)\n");
-    if (!testExportThreadLifecycle(false) || !testExportThreadLifecycle(true))
+    printf("ok  6D successful export survives preview sizing failure\n");
+    if (!testExportThreadLifecycle())
       return fail("owned export thread restart/shutdown");
     printf("ok  Owned export thread restart/shutdown and parameter editability\n");
     if (!testExportPreviewStatus(ExportStatusResult::Success) ||
@@ -2742,11 +2689,10 @@ static int runSelfTestsImpl() {
   {
     for (auto work : {ExportPreviewWork::Active, ExportPreviewWork::Pending, ExportPreviewWork::None})
       if (!testPreviewAfterExport(work)) return fail("preview restoration after export");
-    for (auto ending : {ExportPreviewEnd::Mutate, ExportPreviewEnd::MutateDuring,
-                        ExportPreviewEnd::StopDuring, ExportPreviewEnd::StopAfter})
+    for (auto ending : {ExportPreviewEnd::Mutate, ExportPreviewEnd::StopAfter})
       if (!testPreviewAfterExport(ExportPreviewWork::Pending, ending))
         return fail("preview after export cancellation/mutation/shutdown");
-    printf("ok  Preview restoration and parameter editability after export (7 deterministic cases)\n");
+    printf("ok  Preview restoration and parameter editability after export (5 deterministic cases)\n");
   }
 
   {

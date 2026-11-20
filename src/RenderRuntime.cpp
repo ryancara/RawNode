@@ -27,6 +27,7 @@ void RenderRuntime::shutdown() noexcept {
   assertControlThread();
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    assert(!exportBusy_ && !exportThread_.joinable());
     if (!stopping_) {
       stopping_ = true;
       ++epoch_;
@@ -36,7 +37,6 @@ void RenderRuntime::shutdown() noexcept {
   }
   workCv_.notify_one();
   join(previewThread_);
-  join(exportThread_);
   {
     std::lock_guard<std::mutex> lock(mutex_);
     assert(!previewBusy_ && !exportBusy_);
@@ -84,9 +84,8 @@ uint64_t RenderRuntime::previewDemand() const {
 
 RenderRuntime::Export RenderRuntime::acquireExport() {
   assertControlThread();
-  joinExport();
   std::unique_lock<std::mutex> lock(mutex_);
-  if (stopping_) return Export(nullptr);
+  if (stopping_ || exportBusy_ || mutationDepth_ != 0) return Export(nullptr);
   try {
     pendingEndpoint_ = inspection_ ? inspection_ : std::make_shared<OutputRef>(app_.documentOutput);
   } catch (...) {
@@ -98,7 +97,7 @@ RenderRuntime::Export RenderRuntime::acquireExport() {
   // document edit. No restored preview can overtake the export barrier.
   ++mutationDepth_;
   if (previewBusy_) observe(Event::ExportWaiting);
-  cancelAndDrain(lock);
+  cancelAndDrainPreview(lock);
   exportBusy_ = true;
   --mutationDepth_;
   observe(Event::ExportAcquired);
@@ -109,25 +108,27 @@ RenderRuntime::Export::~Export() noexcept {
   if (runtime_) runtime_->finishExport();
 }
 
-void RenderRuntime::Export::startOwned(std::function<void()> work, bool transferLease) {
+void RenderRuntime::Export::startOwned(std::function<void()> work) {
   assert(runtime_);
   runtime_->assertControlThread();
   std::lock_guard<std::mutex> lock(runtime_->mutex_);
   assert(!runtime_->exportThread_.joinable());
-  runtime_->exportThread_ = std::thread([runtime = runtime_, work = std::move(work), transferLease] {
-    Export ownership(transferLease ? runtime : nullptr);
-    work();                            // Export path publishes final status here.
-  });
-  if (transferLease) runtime_ = nullptr; // Successful transfer only.
+  runtime_->exportThread_ = std::thread(std::move(work));
 }
 
 void RenderRuntime::joinExport() {
   assertControlThread();
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (exportThread_.joinable()) observe(Event::ExportJoining);
+  }
   join(exportThread_);
 }
 
 void RenderRuntime::finishExport() noexcept {
+  assertControlThread();
   std::lock_guard<std::mutex> lock(mutex_);
+  assert(exportBusy_ && !exportThread_.joinable());
   exportBusy_ = false;
   queuePreview(true);                   // Does nothing once shutdown has begun.
   observe(Event::ExportReleased);       // Final export status must already exist.
@@ -138,11 +139,12 @@ void RenderRuntime::finishExport() noexcept {
 bool RenderRuntime::beginMutation() {
   assertControlThread();
   std::unique_lock<std::mutex> lock(mutex_);
+  assert(!exportBusy_);                  // The control thread owns both gates.
   ++mutationDepth_;                     // Close the gate before draining.
-  if (previewBusy_ || exportBusy_) observe(Event::MutationWaiting);
+  if (previewBusy_) observe(Event::MutationWaiting);
   // Carry reporting intent; completeMutation alone schedules recovery.
   if (!statusPending_) statusPending_ = statusBusy_;
-  return cancelAndDrain(lock);
+  return cancelAndDrainPreview(lock);
 }
 
 void RenderRuntime::completeMutation(bool changed, bool interrupted) noexcept {
@@ -254,15 +256,11 @@ void RenderRuntime::queuePreview(bool quiet) {
   previewPending_ = true;
 }
 
-bool RenderRuntime::cancelAndDrain(std::unique_lock<std::mutex> &lock) {
-  bool interrupted = previewPending_ || previewBusy_ || displayPending_ || exportBusy_;
+bool RenderRuntime::cancelAndDrainPreview(std::unique_lock<std::mutex> &lock) {
+  const bool interrupted = previewPending_ || previewBusy_ || displayPending_;
   ++epoch_;
   previewPending_ = quietPending_ = displayPending_ = false;
-  idleCv_.wait(lock, [&] { return !previewBusy_ && !exportBusy_; });
-  // The caller closes dispatch before draining, so export restoration cannot
-  // race this barrier into another preview evaluation.
-  interrupted = interrupted || previewPending_;
-  previewPending_ = quietPending_ = false;
+  idleCv_.wait(lock, [&] { return !previewBusy_; });
   return interrupted;
 }
 

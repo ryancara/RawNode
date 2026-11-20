@@ -206,21 +206,19 @@ not require a different processed preview.
 
 ### Export path
 
-Export consumes the same document graph/evaluator at full resolution, but it is
-a separate evaluation from the preview.
+The Export dialog owns one control-thread `ExportSession`. Its RenderRuntime
+lease excludes preview and document mutation for the entire request. The
+session borrows the live grade for the open photo and restores saved grades
+for other photos. Each detached graph is created on the control thread. One
+runtime worker decodes, evaluates the document Image endpoint at full
+resolution and writes the derivative. The control thread joins the item and
+destroys the detached graph before dispatching the next photo.
 
-Initially, export remains serialized against preview execution because processor
-instances, especially OpenFX instances, are not assumed to be safely reusable
-concurrently.
-
-Export execution must have an owned lifecycle rather than a detached thread
-borrowing application state indefinitely.
-
-An export represents the accepted document state when Export is confirmed.
-Parameter edits are disabled while the export owns the live processor instances.
-
-Do not introduce parameter snapshots, queued edits or cloned processor graphs
-unless non-blocking background export becomes a deliberate product requirement.
+Cancel stops dispatch between photographs. App teardown drains the session
+before shutting down RenderRuntime or retiring the document. Normal completion
+releases the lease and resumes the retained preview quietly. Export writes
+only derivatives. [D060](DECISIONS.md#d060--sequential-photograph-export)
+specifies grade selection, Source-only colour conversion and file policy.
 
 ### Persistence
 
@@ -327,8 +325,8 @@ Source and processor header drags change only `App::nodePositions`,
 saved by the existing grade lifecycle. Canvas pan/zoom and drag state are transient,
 and visual interactions never acquire DocumentMutation or request rendering.
 Inspector displays Source input/current-photo RAW controls, the existing processor
-parameters, or Output grade colours/application export preferences. Fixed Source
-and Output List entries sit outside the processor reorder list. Selection does
+parameters, or Output grade colours. The Export dialog owns format and JPEG
+quality. Fixed Source and Output List entries sit outside the processor reorder list. Selection does
 not change Photo's requested endpoint or documentOutput. Explicit Mask Only/Overlay
 uses the runtime's retained inspection endpoint and presentation choice as
 transient viewer mode; selection retargets it to a declared Mask output or
@@ -462,18 +460,15 @@ independent pixel oracles and fixed-scale/PAR compatibility boundaries.
 
 ## Control-thread contract
 
-Document and graph mutation are controlled from one UI/control thread.
+One UI/control thread owns document and graph mutations, the export lease, and
+export item dispatch, collection and teardown. Mutations may drain preview work.
+Export owns the mutation boundary until the control thread releases its lease.
+The runtime asserts both requirements in debug builds.
 
-This is an explicit architectural contract for the current application.
-
-Debug builds should assert the contract at important mutation boundaries where
-practical.
-
-Do not design current graph APIs as though arbitrary concurrent mutation is
-supported.
-
-Worker/export threads may execute processing but must not initiate document
-mutation transactions that would wait on their own execution ownership.
+Worker threads borrow graphs during evaluation. The control thread joins each
+export item before destroying its temporary processors or replacing the live
+document. A window-close request during export cancels at the next photograph
+boundary and leaves the result dialog available.
 
 ## Graph target
 

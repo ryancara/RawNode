@@ -58,9 +58,8 @@ These priorities sequence focused work without reopening completed architecture 
    departure and preserved surviving thumbnails/filters. PR #115's native macOS
    selection checks are owner-reported complete; retain existing theme-based
    selection colours. New native macOS Trash/restore checks remain required.
-   Batch export follows using the existing single-image
-   path and execution ownership, initially sequentially. Multi-photo grade/preset
-   application can follow separately.
+   Sequential batch export is in [PR #124](https://github.com/ryancara/RawNode/pull/124).
+   Multi-photo grade/preset application remains separate.
 5. **Windows Move to Trash — implemented and owner-validated in
    [PR #122](https://github.com/ryancara/RawNode/pull/122), with Claude's review
    reported SAFE TO MERGE.** One shared workflow uses

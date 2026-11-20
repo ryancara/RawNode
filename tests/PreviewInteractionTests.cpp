@@ -1,7 +1,7 @@
 #include "PreviewInteractionTests.h"
 
 #include "AppState.h"
-#include "Export.h"
+#include "ExportTestSession.h"
 #include "GraphCommands.h"
 #include "processors/OfxProcessor.h"
 #include "processors/CtlProcessor.h"
@@ -471,7 +471,7 @@ bool savedGeometryAndPixels() {
     CHECK(parameter(app, radial, name) == parameter(restored, radial, name));
   Image result; CHECK(renderChain(restored, app.full, result).ok && result.px == small->px);
   app.outputEncoding = {RgbGamut::Rec709, TransferFunction::Linear}; app.exportFormat = 0;
-  CHECK(runExportJob(app, files.path("export.png")));
+  CHECK(test_export::run(app, files.path("export.png")));
   Image exported; ColorEncoding encoding; bool raw;
   CHECK(loadImage(files.path("export.png"), exported, encoding, raw));
   // PNG quantisation; the processor result itself remains HDR/unclipped above.

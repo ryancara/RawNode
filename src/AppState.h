@@ -154,9 +154,6 @@ struct App {
   std::vector<Node> nodes;
   NodeId primarySource{"source"};
   OutputRef documentOutput{primarySource, ports::image};
-  bool hasProcessingOutput() const {
-    return documentOutput.nodeId != primarySource || documentOutput.outputPortId != ports::image;
-  }
   // UI identity only; Output has no NodeId and selection is never persisted.
   InspectorSelection selection;
   std::optional<NodeId> selectedNodeId() const {
