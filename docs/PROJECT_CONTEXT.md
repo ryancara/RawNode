@@ -207,9 +207,10 @@ Linux and Apple Silicon Release OFF/ON builds and full self-tests are validated,
 including JPEG XL numerical checks and actual LibRaw OpenMP linkage. macOS arm64
 and Intel release DMGs pass signature, architecture, libomp/load-path and packaged
 self-test checks with JPEG XL **OFF**. Enabling JPEG XL by default or in distributed
-releases remains deferred. PureRAW photographic reference comparisons, Windows,
-macOS sanitizers, portable dependency packaging and redistribution review remain
-open; see [JPEG_XL_DNG.md](JPEG_XL_DNG.md) for the supported limits and evidence.
+releases remains deferred. PureRAW photographic reference comparisons, Windows
+JPEG XL ON, macOS sanitizers, portable dependency packaging and redistribution
+review remain open; see [JPEG_XL_DNG.md](JPEG_XL_DNG.md) for the supported limits
+and evidence.
 
 ## Current renderer shape
 
@@ -490,8 +491,12 @@ Sidecars, presets and preferences share checked atomic replacement across macOS,
 Linux and Windows ([D058](DECISIONS.md#d058--shared-atomic-persistence)). Windows
 component tests exercise the production writer and Unicode photograph identity.
 Windows CI also builds the full application with MSVC x64 and runs its
-complete self-test with JPEG XL disabled. Windows desktop interaction remains
-pending. See the [Windows build instructions](../README.md#windows-x64).
+complete self-test with JPEG XL disabled. The owner reports successful native
+Windows desktop validation on 2026-11-20 using PR #120's portable x64 Release
+build. The [Windows validation record](WINDOWS_VALIDATION.md) retains its exact
+artifact provenance and the automated extraction checks. Windows JPEG XL support
+and Windows Move to Trash support remain outstanding; Move to Trash is disabled.
+See the [Windows build instructions](../README.md#windows-x64).
 
 Prefer retaining untouched section JSON exactly where practical, with precision
 and opaque-data preservation mandatory. Metadata changes construct no processors,
