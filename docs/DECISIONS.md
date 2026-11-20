@@ -883,6 +883,33 @@ observed-identity/symlink/reparse checks remain. See
 [the shared contract](FILMSTRIP_TRASH.md) and
 [Windows configuration/evidence](WINDOWS_TRASH_RESEARCH.md).
 
+## D060 — Sequential photograph export
+
+**Status:** Owner-approved milestone design, 2026-11-20.
+
+Current Photograph and Selected Photographs share one foreground export
+workflow. Selected includes hidden entries, reports their count, and processes
+the captured selection in Filmstrip order. Current names an individual file.
+Batch names come from the source stem, retaining the source extension when
+stems collide and adding a number only if needed. Skip is the default for
+existing derivatives. The source-overwrite check covers the open photo and
+Filmstrip entries, including native filesystem aliases.
+
+The open photograph exports with its live grade. Other photographs use their
+saved grades. An absent or metadata-only sidecar uses the Source-only graph
+with existing RAW and output defaults. A Source-only result is converted from
+its decoded encoding to the output encoding before writing the ICC profile.
+Processed outputs use the existing manual output interpretation. An invalid
+or protected grade reports a failure for that photograph.
+
+One RenderRuntime lease excludes preview and edits for the whole export.
+Detached OpenFX instances are restored and destroyed on the control thread.
+Each photograph uses the same evaluator and existing image writer. Cancel
+takes effect between photographs. Export uses no editor open/departure
+transactions and writes no sidecars. A failed derivative write can leave an
+incomplete file. Originals outside the open photograph and Filmstrip are
+outside the source-overwrite check.
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:

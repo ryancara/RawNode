@@ -94,6 +94,16 @@ struct RestoredGraph {
 RestoredGraph restoreGraph(const PersistGraph &graph,
                            const std::map<std::string, bool> *workingProcessors = nullptr);
 
+RestoredGraph sourceOnlyGraph();
+// Resolve saved colour settings and rebuild the detached graph under execution
+// exclusion. Opening and export then decide how to use the prepared grade.
+struct RestoredPhotoGrade {
+  RestoredGraph graph;
+  ColorEncoding raw;
+  ColorEncoding output;
+};
+RestoredPhotoGrade restorePhotoGrade(const PersistGrade &grade);
+
 // Operation-local restoration, so grade application can prepare nodes and
 // colour/source changes before replacing anything. Both helpers borrow their
 // document operation's DocumentMutation; neither schedules preview work.

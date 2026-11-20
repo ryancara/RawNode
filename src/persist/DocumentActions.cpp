@@ -413,10 +413,10 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
     PersistPositions positions;
     if (!protectedSource && file.grade) {
       try {
-        restored = restoreGraph(file.grade->graph);
-        if (!colorEncodingFromIds(file.grade->color.rawColorSpace, file.grade->color.rawGamma, raw) ||
-            !colorEncodingFromIds(file.grade->color.outputColorSpace, file.grade->color.outputGamma, output))
-          throw std::runtime_error("Invalid grade colour settings");
+        auto prepared = restorePhotoGrade(*file.grade);
+        restored = std::move(prepared.graph);
+        raw = prepared.raw;
+        output = prepared.output;
         positions = file.grade->positions;
       } catch (const std::exception &failure) {
         error = inputSidecarPath(path) + ": " + failure.what();
@@ -424,12 +424,7 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
       }
     }
     if (protectedSource || !file.grade) {
-      RestoredGraph sourceOnly;
-      Node source(NodeOperation::Source);
-      sourceOnly.primarySource = source.id = NodeId{"source"};
-      sourceOnly.output = {source.id, ports::image};
-      sourceOnly.nodes.push_back(std::move(source));
-      restored = std::move(sourceOnly);
+      restored = sourceOnlyGraph();
       positions.clear();
       if (protectedSource) {
         raw = {RgbGamut::Rec709, TransferFunction::Linear};

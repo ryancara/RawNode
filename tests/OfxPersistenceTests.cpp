@@ -60,6 +60,8 @@ struct Plugin {
   OfxPlugin plugin{};
   int index = int(gPlugins.size());
   int creates = 0, destroys = 0, live = 0, invalidDestroys = 0, preCreationNotifications = 0;
+  const std::thread::id controlThread = std::this_thread::get_id();
+  bool lifecycleOnControlThread = true;
   OfxStatus createStatus = kOfxStatOK;
   bool adjustGainOnCreate = false;
   bool syncCacheOnCapture = false, pushChangesPersistent = false;
@@ -85,6 +87,7 @@ struct Plugin {
       };
       if (!std::strcmp(action, kOfxActionCreateInstance)) {
         ++self.creates;
+        self.lifecycleOnControlThread &= std::this_thread::get_id() == self.controlThread;
         if (self.inspectInitialValues) self.inspectInitialValues(params);
         if (self.createStatus != kOfxStatOK && self.createStatus != kOfxStatReplyDefault) return self.createStatus;
         auto state = std::make_unique<Cache>();
@@ -99,6 +102,7 @@ struct Plugin {
       }
       if (!std::strcmp(action, kOfxActionDestroyInstance)) {
         ++self.destroys;
+        self.lifecycleOnControlThread &= std::this_thread::get_id() == self.controlThread;
         if (!cache) { ++self.invalidDestroys; return kOfxStatFailed; }
         delete cache;
         --self.live;
@@ -1303,6 +1307,39 @@ bool cachedSyncRoundTrips() {
   std::puts("ok  OFX combined restore/sync: CreateInstance reads saved gain 5, cached rendering, unedited navigation and grade/node clipboard destination resaving retain 5 and exact pixels");
   return true;
 }
+bool exportRestoredOfx(Plugin &plugin) {
+  Files files;
+  const auto photo = files.path("saved.png"), folder = files.path("output");
+  CHECK(fs::create_directory(folder));
+  const ColorEncoding linear{RgbGamut::Rec709, TransferFunction::Linear};
+  constexpr float sample = 32.0f / 255.0f;
+  CHECK(writeImage({{sample, sample, sample, 1.0f}, 1, 1}, photo, linear));
+  {
+    App editor;
+    CHECK(openPath(editor, photo) && addNode(editor, plugin.index));
+    CHECK(setNodeParameterValue(editor, *editor.selectedNodeId(), "visiblePersistent", 2.0));
+    CHECK(setOutputEncoding(editor, linear) && saveCurrentInputSidecar(editor));
+  }
+  const int creates = plugin.creates, destroys = plugin.destroys;
+  App app;
+  FilmstripEntry entry; entry.path = photo;
+  app.filmstrip.push_back(std::move(entry));
+  app.filmstripSelection.insert(photo);
+  app.exportFormat = 0;
+  ExportSession session(app, ExportScope::Selected, folder, ExistingExport::Skip);
+  CHECK(session.running());
+  while (session.running()) {
+    session.advance();
+    app.renderer.joinExport();
+  }
+  CHECK(session.results().size() == 1 && session.results()[0].outcome == ExportOutcome::Exported);
+  CHECK(plugin.creates == creates + 1 && plugin.destroys == destroys + 1 && plugin.live == 0);
+  CHECK(plugin.lifecycleOnControlThread && app.path.empty() && app.renderer.canEditParameters());
+  Image image; ColorEncoding encoding; bool raw = false;
+  CHECK(loadImage(files.path("output/saved.png"), image, encoding, raw) && encoding == linear);
+  CHECK(image.px[0] == 64.0f / 255.0f && image.px[3] == 1.0f);
+  return true;
+}
 }  // namespace
 
 bool testOfxPersistence() {
@@ -1310,7 +1347,7 @@ bool testOfxPersistence() {
   Plugin plugin;
   const bool passed = historyReconstruction(plugin) && dynamicChoiceRestoration() && cachedGainFiveReopen(plugin) && productionRoundTrips(plugin) &&
                       nonpersistentRestoreGuards(plugin) && initialValueValidationAndLifecycle(plugin) &&
-                      typedInitialValues(plugin) && parameterGestureFrames(plugin);
+                      typedInitialValues(plugin) && parameterGestureFrames(plugin) && exportRestoredOfx(plugin);
   CHECK(plugin.live == 0 && plugin.invalidDestroys == 0 && plugin.preCreationNotifications == 0);
   if (!passed) return false;
   SyncPlugin sync;

@@ -40,6 +40,9 @@ bool writeImage(const Image &img, const std::string &path,
                 ColorEncoding encoding = {RgbGamut::Rec709, TransferFunction::SRGB},
                 int jpegQuality = 92);
 
+// Convert RGB gamut and transfer function, retaining the raster and alpha.
+bool transformImageEncoding(const Image &input, Image &output, ColorEncoding source, ColorEncoding target);
+
 // Top-down 8-bit RGBA for display.
 void toDisplayRGBA8(const Image &img, ColorEncoding encoding, std::vector<unsigned char> &out);
 

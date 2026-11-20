@@ -49,6 +49,9 @@ class RenderRuntime {
   EvaluationResult evaluateOwned(const OutputRef &endpoint, const EvaluationContext &context,
                                  ImageValue source, const RenderCancellation &cancellation = {});
 
+  EvaluationResult evaluateOwned(GraphView graph, const EvaluationContext &context,
+                                 ImageValue source);
+
   // Export-specific execution ownership, also used by synchronous export.
   // The export path captures its request and publishes final status while the
   // lease is held. start() transfers it to our owned thread only on success;
@@ -63,13 +66,20 @@ class RenderRuntime {
     // unguarded throwing entry point rather than inventing runtime status policy.
     template<class Work> void start(Work work) {
       static_assert(std::is_nothrow_invocable_v<Work &>, "export work must handle its exceptions");
-      startOwned(std::move(work));
+      startOwned(std::move(work), true);
+    }
+
+    // The control thread retains the lease across items and joins each worker
+    // before retiring any borrowed graph. Release the lease after the last item.
+    template<class Work> void startItem(Work work) {
+      static_assert(std::is_nothrow_invocable_v<Work &>, "export work must handle its exceptions");
+      startOwned(std::move(work), false);
     }
 
    private:
     friend class RenderRuntime;
     explicit Export(RenderRuntime *runtime) : runtime_(runtime) {}
-    void startOwned(std::function<void()> work);
+    void startOwned(std::function<void()> work, bool transferLease);
     RenderRuntime *runtime_;
   };
   Export acquireExport();              // Joins previous execution before reuse.

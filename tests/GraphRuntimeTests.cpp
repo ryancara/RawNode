@@ -1112,7 +1112,7 @@ static bool testExportPolicyAndContext() {
   CHECK(!runExportJob(app, files.path("unavailable.png")) && app.getStatus().find("unavailable") != std::string::npos);
   CHECK(!std::filesystem::exists(files.path("unavailable.png")));
   CHECK(graph::setDocumentOutput(app, image(app.primarySource)).ok());
-  CHECK(!runExportJob(app, files.path("source-only.png"))); // Stored off-spine nodes do not enable export.
+  CHECK(runExportJob(app, files.path("source-only.png"))); // Off-spine nodes never run.
   app.renderer.start(); app.renderer.requestDocumentPreview(); CHECK(idle(app));
   CHECK(publication(app).result.requested == image(app.primarySource) && publication(app).result.state == EvaluationState::Available);
   app.renderer.shutdown();

@@ -271,16 +271,18 @@ would require an explicit, confirmed user action; this slice implements no file 
 
 ## Batch / workspace export
 
-Allow exporting multiple selected images or all eligible images in the current
-workspace/folder, with options to export picked photos and skip rejects.
-Reuse the existing single-image export settings and processing path, initially
-sequentially, with progress, cancellation and per-photo failure reporting.
+The unified Export dialog offers Current Photograph and Selected Photographs.
+Selected uses the entire Filmstrip selection and reports how many are hidden
+by the filters. Current uses a save filename and Selected uses a destination
+folder. Both use the existing JPEG/PNG settings and support Skip or Overwrite.
 
-Full-resolution export execution is now owned and serialized against live
-processor use. Future batch/workspace export should reuse that ownership model
-rather than reintroducing detached access, processor cloning or a separate
-scheduler without a concrete product need. No project/catalogue system is
-required.
+Export runs at full resolution, one photograph at a time under the existing
+render runtime. It uses the live grade for the open photograph and the saved
+grade for other photographs. A photograph without a grade can export through
+Source with the existing RAW and output defaults. Source-only pixels are
+converted to the embedded output encoding. Unreadable or protected grades
+produce individual failures. The export does not open documents or write
+grades. See [D060](docs/DECISIONS.md#d060--sequential-photograph-export).
 
 ## Graph / List interface
 

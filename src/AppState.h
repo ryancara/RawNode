@@ -3,6 +3,7 @@
 #include "imgio/ImageIO.h"
 #include "GraphEvaluator.h"
 #include "GradeHistory.h"
+#include "Export.h"
 #include "RenderRuntime.h"
 #include "persist/ProjectPersist.h"
 #include "persist/Preferences.h"
@@ -75,7 +76,10 @@ struct App {
   }
   // Preview/export workers borrow document/display/status fields. Stop them in
   // the destructor body while all members are alive, regardless of member order.
-  ~App() noexcept { renderer.shutdown(); }
+  ~App() noexcept {
+    exportDialog.session.reset(); // Drain before tearing down the runtime or the live graph.
+    renderer.shutdown();
+  }
 
   GLFWwindow *window = nullptr;
   unsigned int tex = 0;
@@ -124,6 +128,14 @@ struct App {
   ColorEncoding outputEncoding{RgbGamut::Rec709, TransferFunction::SRGB};
   int exportFormat = 1;  // JPEG
   int jpegQuality = 92;
+  struct ExportDialog {
+    bool open = false;
+    ExportScope scope = ExportScope::Current;
+    ExistingExport existing = ExistingExport::Skip;
+    std::string destination;
+    std::string error;
+    std::unique_ptr<ExportSession> session;
+  } exportDialog;
   int previewRes = 1;  // 1080p
   bool showRight = true;
   bool showNodes = true;

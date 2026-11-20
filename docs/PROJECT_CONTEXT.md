@@ -946,10 +946,10 @@ image-handle lifetime: each fetched handle owns its property set until release,
 while pixel buffers remain borrowed. Export now checks both byte counts and
 stream-close results for tagged/untagged PNG and JPEG. Both export entry points
 refuse destinations identifying the currently opened source, including relative,
-symlink and hardlink aliases. Other photographs and existing derivatives remain
-valid targets; exports remain sidecar-free. Linux Release self-tests cover these
-behaviours and failure recovery. Derivative writes are not atomic or crash-safe;
-a failed write can leave incomplete output.
+symlink and hardlink aliases. [D060](DECISIONS.md#d060--sequential-photograph-export)
+extends source protection to Filmstrip photographs. Export remains sidecar-free.
+Derivative writes use the existing writer, so a failed write can leave
+incomplete output.
 
 **Completed post-Step-7 correction gate:** Copy Node ownership/capture,
 parameter-edit preview scheduling, graph traversal depth and PNG colour

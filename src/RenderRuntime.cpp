@@ -109,16 +109,16 @@ RenderRuntime::Export::~Export() noexcept {
   if (runtime_) runtime_->finishExport();
 }
 
-void RenderRuntime::Export::startOwned(std::function<void()> work) {
+void RenderRuntime::Export::startOwned(std::function<void()> work, bool transferLease) {
   assert(runtime_);
   runtime_->assertControlThread();
   std::lock_guard<std::mutex> lock(runtime_->mutex_);
   assert(!runtime_->exportThread_.joinable());
-  runtime_->exportThread_ = std::thread([runtime = runtime_, work = std::move(work)] {
-    Export ownership(runtime);
+  runtime_->exportThread_ = std::thread([runtime = runtime_, work = std::move(work), transferLease] {
+    Export ownership(transferLease ? runtime : nullptr);
     work();                            // Export path publishes final status here.
   });
-  runtime_ = nullptr;                   // Successful transfer only.
+  if (transferLease) runtime_ = nullptr; // Successful transfer only.
 }
 
 void RenderRuntime::joinExport() {
@@ -237,6 +237,12 @@ EvaluationResult RenderRuntime::evaluateOwned(const OutputRef &endpoint, const E
   if (beforeEvaluation_) beforeEvaluation_(evaluationContext_);
   return evaluateGraph({app_.nodes, app_.primarySource, app_.documentOutput}, endpoint, context,
                         std::move(source), cancellation, testExecutor_);
+}
+
+EvaluationResult RenderRuntime::evaluateOwned(GraphView graph, const EvaluationContext &context,
+                                             ImageValue source) {
+  if (beforeEvaluation_) beforeEvaluation_(evaluationContext_);
+  return evaluateGraph(graph, graph.documentOutput, context, std::move(source), {}, testExecutor_);
 }
 
 void RenderRuntime::queuePreview(bool quiet) {
