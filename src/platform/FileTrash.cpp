@@ -102,7 +102,11 @@ class DeleteSink final : public IFileOperationProgressSink {
     recycled = SUCCEEDED(status) && created != nullptr;
     return S_OK;
   }
-  HRESULT STDMETHODCALLTYPE PreDeleteItem(DWORD, IShellItem *) override { return S_OK; }
+  HRESULT STDMETHODCALLTYPE PreDeleteItem(DWORD flags, IShellItem *) override {
+    // A disabled bin can bypass even WANTNUKEWARNING. Refuse when Windows
+    // already knows it will not try recycling; oversized files still get UI.
+    return flags & TSF_DELETE_RECYCLE_IF_POSSIBLE ? S_OK : HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+  }
   HRESULT STDMETHODCALLTYPE StartOperations() override { return S_OK; }
   HRESULT STDMETHODCALLTYPE FinishOperations(HRESULT) override { return S_OK; }
   HRESULT STDMETHODCALLTYPE PreRenameItem(DWORD, IShellItem *, LPCWSTR) override { return E_NOTIMPL; }
@@ -162,6 +166,10 @@ TrashOutcome moveFileToTrash(const std::string &path, std::string &error) {
     std::error_code ec;
     if (std::filesystem::symlink_status(source, ec).type() == std::filesystem::file_type::not_found &&
         (!ec || ec == std::errc::no_such_file_or_directory)) return TrashOutcome::PermanentlyDeleted;
+  }
+  if (sink->result == HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED)) {
+    error = "Windows does not offer recycling for this item";
+    return TrashOutcome::Failed;
   }
   std::ostringstream message;
   message << "Windows Trash failed (shell=0x" << std::hex << result << ", item=0x" << sink->result

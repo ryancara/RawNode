@@ -115,7 +115,7 @@ try {
     Test-Fixture $enabled 'ordinary-raw' 'été.dng' 12582912 'no' 'trashed'
     Test-Fixture $enabled 'current-sidecar' 'été.dng.rawnode.json' 127 'no' 'trashed'
     Test-Fixture $enabled 'legacy-sidecar' 'été.dng.ofxrawhost.json' 83 'no' 'trashed'
-    Test-Fixture $disabled 'disabled-bin' 'photo.dng' 4096 'no' 'cancelled'
+    Test-Fixture $disabled 'disabled-bin' 'photo.dng' 4096 'no' 'failed'
     Test-Fixture $tiny 'oversized-no' 'photo.dng' 12582912 'no' 'cancelled'
     Test-Fixture $tiny 'oversized-close' 'photo.dng' 12582912 'close' 'cancelled'
     Test-Fixture $enabled 'locked' 'photo.dng' 4096 'locked' 'failed'
