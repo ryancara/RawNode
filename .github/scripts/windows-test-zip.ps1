@@ -91,8 +91,12 @@ Get-ChildItem $app -Recurse -File | Where-Object { $_.Extension -in '.exe', '.dl
 $savedPath = $env:PATH
 $savedOfx = $env:OFX_PLUGIN_PATH
 $savedCtl = $env:CTL_MODULE_PATH
+$savedProcessDirectory = [Environment]::CurrentDirectory
 try {
     Set-Location $app
+    # Set-Location alone leaves the process's directory handle on the checkout,
+    # which prevents Windows from renaming that directory.
+    [Environment]::CurrentDirectory = $app
     # Hide sources, build outputs, vcpkg and the compiled-in source font path.
     Move-Item -LiteralPath $workspace -Destination $hiddenWorkspace
     $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
@@ -119,5 +123,6 @@ try {
     $env:CTL_MODULE_PATH = $savedCtl
     if (Test-Path $hiddenWorkspace) { Move-Item -LiteralPath $hiddenWorkspace -Destination $workspace }
     Set-Location $workspace
+    [Environment]::CurrentDirectory = $savedProcessDirectory
 }
 Get-FileHash -Algorithm SHA256 $zip | Format-List | Out-String | Set-Content "$output/SHA256.txt"
