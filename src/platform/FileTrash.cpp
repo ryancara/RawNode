@@ -167,6 +167,10 @@ TrashOutcome moveFileToTrash(const std::string &path, std::string &error) {
     if (std::filesystem::symlink_status(source, ec).type() == std::filesystem::file_type::not_found &&
         (!ec || ec == std::errc::no_such_file_or_directory)) return TrashOutcome::PermanentlyDeleted;
   }
+  // The Shell may report S_OK after cancellation before an item callback.
+  // Preserve any explicit item failure instead of relabelling it cancellation.
+  if (SUCCEEDED(result) && SUCCEEDED(abortResult) && aborted &&
+      (sink->result == E_PENDING || SUCCEEDED(sink->result))) return TrashOutcome::Cancelled;
   if (sink->result == HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED)) {
     error = "Windows does not offer recycling for this item";
     return TrashOutcome::Failed;

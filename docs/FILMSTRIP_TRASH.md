@@ -34,8 +34,8 @@ Confirm processes that complete snapshot, including hidden selections. The final
 status reports recycled photographs, explicitly confirmed permanent deletions,
 selected-item failures and cancellation separately. Errors or permanent deletions
 also open a result dialog, with exact permanently deleted/remaining-sidecar paths
-and native errors. Sidecar failures do
-not count as failed photograph moves. This feedback is necessary to expose
+and native errors. Sidecar failures do not count as failed photograph moves.
+This feedback is necessary to expose
 non-atomic outcomes; no toolbar/layout/theme changes are included.
 
 ## Filesystem and sidecars
@@ -52,9 +52,8 @@ filesystem-wide lock.
 
 Request native recycling of the photograph first. If it fails, leave both
 sidecars alone and continue with independent photographs. On native cancellation,
-stop remaining filesystem work. Only after recycling or explicitly confirmed
-permanent deletion, consider the two existing
-naming helpers' exact appended paths:
+stop remaining Trash operations. Only after recycling or explicitly confirmed
+permanent deletion, consider the two existing naming helpers' exact appended paths:
 
 - `photograph.ext.rawnode.json`;
 - `photograph.ext.ofxrawhost.json` (the legacy contract also appends to the full
@@ -141,8 +140,9 @@ API references checked before implementation:
 ## Acceptance and automated evidence
 
 The supplied feature request defines acceptance. Independent expected results
-are literal path sets/order, byte-identical sidecars, zero recorded operations
-for cancellation, unchanged document/preview/history/runtime identities for
+are literal path sets/order, byte-identical sidecars, zero native operations
+after cancellation (none at all for application-confirmation Cancel), unchanged
+document/preview/history/runtime identities for
 non-current batches, and no remaining save target for a removed current source.
 These expectations and the proportionate design were recorded before coding.
 
