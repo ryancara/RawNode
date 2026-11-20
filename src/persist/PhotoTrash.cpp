@@ -47,12 +47,15 @@ bool eligiblePhoto(const App &app, const PhotoTrashRequest &request, const Photo
 void movePhoto(App &app, const PhotoTrashRequest &request, const PhotoTrashTarget &photo,
                const TrashOperation &move, PhotoTrashResult &result) {
   std::string error;
-  if (!eligiblePhoto(app, request, photo, error) || !move(photo.path, error)) {
+  const auto outcome = eligiblePhoto(app, request, photo, error) ? move(photo.path, error) : TrashOutcome::Failed;
+  if (outcome == TrashOutcome::Cancelled) { result.cancelled = true; return; }
+  if (outcome == TrashOutcome::Failed) {
     ++result.failed;
     result.errors.push_back(photo.path + ": " + error);
     return;
   }
-  ++result.moved;
+  if (outcome == TrashOutcome::Trashed) ++result.moved;
+  else { ++result.deleted; result.deletedPaths.push_back(photo.path); }
   app.filmstripSelection.erase(photo.path);
   // Only the two exact appended names belong to this photo, including the
   // historical contract. Contents are never parsed or rewritten for Trash.
@@ -63,9 +66,15 @@ void movePhoto(App &app, const PhotoTrashRequest &request, const PhotoTrashTarge
     TrashFileIdentity identity;
     error.clear();
     if (ec) error = ec.message();
+    else if (result.cancelled) error = "Operation cancelled";
     else if (sameIdentity(request.folder, true, request.folderIdentity, error) &&
-             inspectTrashPath(sidecar, false, identity, error) && move(sidecar, error)) continue;
-    result.errors.push_back("Photograph moved; sidecar remains at " + sidecar + ": " + error);
+             inspectTrashPath(sidecar, false, identity, error)) {
+      const auto sidecarOutcome = move(sidecar, error);
+      if (sidecarOutcome == TrashOutcome::Trashed) continue;
+      if (sidecarOutcome == TrashOutcome::PermanentlyDeleted) { result.deletedPaths.push_back(sidecar); continue; }
+      if (sidecarOutcome == TrashOutcome::Cancelled) { result.cancelled = true; error = "Operation cancelled"; }
+    }
+    result.errors.push_back("Photograph removed; sidecar remains at " + sidecar + ": " + error);
   }
 }
 }  // namespace
@@ -114,12 +123,20 @@ std::string photoTrashConfirmationText(const PhotoTrashRequest &request) {
       : std::to_string(total) + " selected" + (total == 1 ? " photograph" : " photographs");
   if (request.hiddenCount) details += ", including " + std::to_string(request.hiddenCount) + " hidden by current filters";
   if (ineligible) details += "; " + std::to_string(ineligible) + " already ineligible";
-  return "Move " + photographCount(eligible) + " to Trash?\n\n" + details +
+  std::string text = "Move " + photographCount(eligible) + " to Trash?\n\n" + details +
       ". Associated RawNode sidecars will also be moved.";
+#if defined(_WIN32)
+  text += "\n\nWindows may ask you to confirm permanent deletion if recycling is unavailable.";
+#endif
+  return text;
 }
 
 std::string PhotoTrashResult::message() const {
-  std::string text = "Moved " + photographCount(moved) + " to Trash; " + std::to_string(failed) + " failed.";
+  std::string text = "Moved " + photographCount(moved) + " to Trash; ";
+  if (deleted) text += "permanently deleted " + photographCount(deleted) + "; ";
+  text += std::to_string(failed) + " failed.";
+  if (cancelled) text += " Remaining work cancelled.";
+  for (const auto &path : deletedPaths) text += "\nPermanently deleted: " + path;
   for (const auto &error : errors) text += "\n" + error;
   return text;
 }
@@ -172,17 +189,18 @@ PhotoTrashResult document_detail::trashPhotographs(App &app, const PhotoTrashReq
   for (const auto &photo : request.photographs) {
     // request is const and no callback mutates its entries; current remains valid.
     const bool wasCurrent = includesCurrent && &photo == &*current;
-    const auto movedBefore = result.moved;
+    const auto removedBefore = result.moved + result.deleted;
     movePhoto(app, request, photo, options.moveToTrash, result);
     std::error_code ec;
     const bool currentMissing = wasCurrent && fs::symlink_status(photo.path, ec).type() == fs::file_type::not_found &&
         (!ec || ec == std::errc::no_such_file_or_directory);
-    if (wasCurrent && (result.moved != movedBefore || currentMissing)) {
+    if (wasCurrent && (result.moved + result.deleted != removedBefore || currentMissing)) {
       // Retire the save identity immediately, including when a sidecar failed.
       assert(mutation && mutation->owns(app));
       clearPhoto(app, *mutation);
       movedCurrent = true;
     }
+    if (result.cancelled) break;
   }
   refreshFilmstrip(app, true);
   if (movedCurrent) {

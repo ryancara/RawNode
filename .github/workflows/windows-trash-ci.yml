@@ -18,17 +18,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compile production Windows adapter and fail-closed regression
+      - name: Compile production Windows adapter and native fixture driver
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          $command = "`"$vs\Common7\Tools\VsDevCmd.bat`" -arch=x64 && cl.exe /nologo /std:c++17 /EHsc /O2 /W4 /WX /I src tests\WindowsTrashTests.cpp src\platform\FileTrash.cpp /Fe:WindowsTrashTests.exe"
+          $command = "`"$vs\Common7\Tools\VsDevCmd.bat`" -arch=x64 && cl.exe /nologo /std:c++17 /utf-8 /EHsc /O2 /W4 /WX /I src tests\WindowsTrashTests.cpp src\platform\FileTrash.cpp /Fe:WindowsTrashTests.exe /link ole32.lib shell32.lib uuid.lib user32.lib"
           & cmd.exe /d /s /c $command
           if ($LASTEXITCODE -ne 0) { throw "Native Windows compilation failed: $LASTEXITCODE" }
 
-      - name: Verify Windows Trash refuses and preserves originals
+      - name: Verify recycling, restoration, permanent-delete warnings and cancellation
         shell: pwsh
         run: |
-          ./WindowsTrashTests.exe
-          if ($LASTEXITCODE -ne 0) { throw "Windows Trash regression failed: $LASTEXITCODE" }
+          ./.github/scripts/windows-trash-test.ps1
+
+      - name: Preserve native observations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-trash-native-evidence
+          path: ${{ runner.temp }}/rawnode-trash-evidence/*.json
+          if-no-files-found: warn
+          retention-days: 14

@@ -42,11 +42,11 @@ struct Files {
       // Trash, including when a regression supplies an unrelated target.
       if (fs::path(path).parent_path() != dir) throw std::runtime_error("Trash escaped fixture");
       calls.push_back(path);
-      if (path == fail) { error = "Injected native Trash failure"; return false; }
+      if (path == fail) { error = "Injected native Trash failure"; return TrashOutcome::Failed; }
       std::error_code ec;
       fs::rename(path, held / fs::path(path).filename(), ec);
       error = ec.message();
-      return !ec;
+      return ec ? TrashOutcome::Failed : TrashOutcome::Trashed;
     };
     return options;
   }
@@ -62,16 +62,21 @@ PhotoTrashResult execute(App &app, const PhotoTrashRequest &request, Files &file
 }
 
 bool confirmationEligibilityAndWording() {
+#if defined(_WIN32)
+  const std::string nativeWarning = "\n\nWindows may ask you to confirm permanent deletion if recycling is unavailable.";
+#else
+  const std::string nativeWarning;
+#endif
   Files files;
   const auto a = files.photo("a.png"), b = files.photo("b.png"), missing = files.photo("missing.png");
   App app; scan(app, files);
   app.filmstripSelection = {a};
   const auto single = capturePhotoTrashRequest(app);
   CHECK(photoTrashConfirmationText(single) ==
-      "Move 1 photograph to Trash?\n\n1 selected photograph. Associated RawNode sidecars will also be moved.");
+      "Move 1 photograph to Trash?\n\n1 selected photograph. Associated RawNode sidecars will also be moved." + nativeWarning);
   app.filmstripSelection = {a, b};
   CHECK(photoTrashConfirmationText(capturePhotoTrashRequest(app)) ==
-      "Move 2 photographs to Trash?\n\n2 selected photographs. Associated RawNode sidecars will also be moved.");
+      "Move 2 photographs to Trash?\n\n2 selected photographs. Associated RawNode sidecars will also be moved." + nativeWarning);
   app.filmstripMarkFilter = PhotoMark::Pick;
   app.filmstrip[0].mark = PhotoMark::Pick;
   app.filmstrip[1].mark = PhotoMark::Reject;
@@ -84,19 +89,19 @@ bool confirmationEligibilityAndWording() {
   CHECK(mixed.photographs.size() == 4 && mixed.hiddenCount == 1);
   CHECK(photoTrashConfirmationText(mixed) ==
       "Move 2 photographs to Trash?\n\n4 selected items: 2 eligible photographs, including 1 hidden by current filters; "
-      "2 already ineligible. Associated RawNode sidecars will also be moved.");
+      "2 already ineligible. Associated RawNode sidecars will also be moved." + nativeWarning);
   app.filmstripSelection = {a, missing, stale};
   const auto oneEligible = capturePhotoTrashRequest(app);
   CHECK(oneEligible.photographs.size() == 3 && oneEligible.hiddenCount == 0);
   CHECK(photoTrashConfirmationText(oneEligible) ==
       "Move 1 photograph to Trash?\n\n3 selected items: 1 eligible photograph; "
-      "2 already ineligible. Associated RawNode sidecars will also be moved.");
+      "2 already ineligible. Associated RawNode sidecars will also be moved." + nativeWarning);
   app.filmstripSelection = {missing};
   const auto ineligibleOnly = capturePhotoTrashRequest(app);
   CHECK(ineligibleOnly.hiddenCount == 0);
   CHECK(photoTrashConfirmationText(ineligibleOnly) ==
       "Move 0 photographs to Trash?\n\n1 selected item: 0 eligible photographs; "
-      "1 already ineligible. Associated RawNode sidecars will also be moved.");
+      "1 already ineligible. Associated RawNode sidecars will also be moved." + nativeWarning);
   // Wording is based on the immutable capture. Execution still processes and
   // reports the two ineligible entries; it cannot substitute the new selection.
   app.filmstripSelection = {stale};
@@ -170,7 +175,7 @@ bool partialFailures() {
   app.filmstripSelection = {a, b, c}; app.filmstripAnchor = a;
   auto options = files.options(); const auto move = options.moveToTrash;
   options.moveToTrash = [&](const std::string &path, std::string &error) {
-    if (path == a || path == inputSidecarPath(b)) { files.calls.push_back(path); error = "injected"; return false; }
+    if (path == a || path == inputSidecarPath(b)) { files.calls.push_back(path); error = "injected"; return TrashOutcome::Failed; }
     return move(path, error);
   };
   const auto result = document_detail::trashPhotographs(app, capturePhotoTrashRequest(app), {}, options);
@@ -186,6 +191,58 @@ bool partialFailures() {
   CHECK(absent.photographs.size() == 1 && !absent.photographs.front().error.empty());
   CHECK(execute(app, absent, files).failed == 1);
   CHECK(bytes(inputSidecarPath(b)) == "orphan must remain");
+  return true;
+}
+
+bool nativeOutcomesAndCancellation() {
+  // Model native dispositions using controlled renames only. Never approve or
+  // invoke permanent deletion in a self-test, even for disposable fixtures.
+  for (int stop = 0; stop < 3; ++stop) {
+    Files files;
+    const auto a = files.photo("a.png"), b = files.photo("b.png"), c = files.photo("c.png");
+    App app; scan(app, files); CHECK(openPath(app, a)); CHECK(addNativeExposureNode(app));
+    write(legacyInputSidecarPath(a), "opaque legacy bytes");
+    const auto preview = app.preview; const auto historySize = app.history.size();
+    app.filmstripSelection = {a, b, c};
+    auto options = files.options(); const auto move = options.moveToTrash;
+    const auto cancelPath = stop == 0 ? a : stop == 1 ? b : inputSidecarPath(a);
+    options.moveToTrash = [&](const std::string &path, std::string &error) {
+      if (path == cancelPath) { files.calls.push_back(path); return TrashOutcome::Cancelled; }
+      const auto outcome = move(path, error);
+      if (outcome == TrashOutcome::Trashed && (path == a || path == inputSidecarPath(a)))
+        return TrashOutcome::PermanentlyDeleted;
+      return outcome;
+    };
+    const auto result = document_detail::trashPhotographs(app, capturePhotoTrashRequest(app), {}, options);
+    CHECK(result.cancelled && result.failed == 0 && result.moved == 0);
+    CHECK(fs::exists(b) && fs::exists(c) && !fs::exists(inputSidecarPath(c)));
+    CHECK(result.message().find("Remaining work cancelled.") != std::string::npos);
+    if (stop == 0) {
+      CHECK(result.deleted == 0 && result.deletedPaths.empty() && result.errors.empty());
+      CHECK(files.calls == (std::vector<std::string>{a}));
+      CHECK(app.path == a && app.preview == preview && app.history.size() == historySize);
+      CHECK(fs::exists(inputSidecarPath(a)) && fs::exists(legacyInputSidecarPath(a)));
+      CHECK(app.filmstripSelection == (std::unordered_set<std::string>{a, b, c}));
+    } else {
+      CHECK(result.deleted == 1 && app.path == b);
+      CHECK(app.filmstripSelection == (std::unordered_set<std::string>{b, c}));
+      CHECK(result.message().find("permanently deleted 1 photograph") != std::string::npos);
+      CHECK(result.message().find("Permanently deleted: " + a) != std::string::npos);
+      if (stop == 1) {
+        CHECK(files.calls == (std::vector<std::string>{a, inputSidecarPath(a), legacyInputSidecarPath(a), b}));
+        CHECK(result.deletedPaths == (std::vector<std::string>{a, inputSidecarPath(a)}));
+        CHECK(result.errors.empty() && !fs::exists(inputSidecarPath(a)) && !fs::exists(legacyInputSidecarPath(a)));
+      } else {
+        CHECK(files.calls == (std::vector<std::string>{a, inputSidecarPath(a)}));
+        CHECK(result.deletedPaths == (std::vector<std::string>{a}) && result.errors.size() == 2);
+        CHECK(result.message().find("sidecar remains at " + inputSidecarPath(a)) != std::string::npos);
+        CHECK(result.message().find("sidecar remains at " + legacyInputSidecarPath(a)) != std::string::npos);
+        const auto orphan = bytes(inputSidecarPath(a));
+        CHECK(saveCurrentInputSidecar(app) && bytes(inputSidecarPath(a)) == orphan);
+        CHECK(bytes(legacyInputSidecarPath(a)) == "opaque legacy bytes");
+      }
+    }
+  }
   return true;
 }
 
@@ -263,8 +320,8 @@ bool currentPhotoTransitions() {
     App app; scan(app, partial); CHECK(openPath(app, a)); app.filmstripSelection = {a};
     auto options = partial.options(); const auto move = options.moveToTrash;
     options.moveToTrash = [&](const std::string &path, std::string &error) {
-      if (!move(path, error)) return false;
-      error = "Injected failure after native movement"; return false;
+      if (move(path, error) == TrashOutcome::Failed) return TrashOutcome::Failed;
+      error = "Injected failure after native movement"; return TrashOutcome::Failed;
     };
     const auto result = document_detail::trashPhotographs(app, capturePhotoTrashRequest(app), {}, options);
     CHECK(result.moved == 0 && result.failed == 1 && app.path == b);
@@ -443,6 +500,7 @@ bool testPhotoTrash() {
       std::make_pair("opaque exact sidecars, hidden snapshot, non-current document and thumbnail invariants", sidecarsAndIndependentDocument),
       std::make_pair("photo/sidecar partial failures, continuation and remaining selection", partialFailures),
       std::make_pair("missing/replaced paths, symlinks and changed folder refuse unrelated files", changedAndSymlinkPaths),
+      std::make_pair("native outcomes, cancellation and completed current-photo removal", nativeOutcomesAndCancellation),
       std::make_pair("current failure/success, last photo, orphan protection and usable empty editor", currentPhotoTransitions),
       std::make_pair("Retry/Discard/Cancel and active-export source restriction", saveDecisionsAndExport),
       std::make_pair("preview execution drained and obsolete thumbnail generation cannot publish", previewAndThumbnailLifetime),

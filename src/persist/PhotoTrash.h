@@ -22,18 +22,18 @@ std::string photoTrashConfirmationText(const PhotoTrashRequest &request);
 using PhotoTrashConfirmation = std::function<bool(const std::string &message)>;
 
 struct PhotoTrashResult {
-  // moved counts photograph moves; failed counts refused/failed selected targets,
-  // including whole-batch refusal. Sidecar errors change neither count.
-  size_t moved = 0, failed = 0;
-  // Departure stopped before any moves. An identity change found on Retry sets
-  // both failed and errors; ordinary user cancellation leaves failed zero and errors empty.
+  // Photograph outcomes only; sidecar failures do not count as failed photos.
+  size_t moved = 0, deleted = 0, failed = 0;
+  // Stops remaining work. Earlier completed operations are retained.
   bool cancelled = false;
   // Photo/sidecar errors and whole-batch refusal reasons, not one entry per failure.
   std::vector<std::string> errors;
+  // Exact photo/sidecar paths permanently deleted after native confirmation.
+  std::vector<std::string> deletedPaths;
   std::string message() const;
 };
 // Caller confirms the captured request and completes current-photo UI edits.
-// No confirmation or UI selection is consulted during execution.
+// Native filesystem operations may show their own confirmations during execution.
 PhotoTrashResult trashPhotographs(App &app, const PhotoTrashRequest &request,
                                   const SaveFailurePrompt &prompt = {},
                                   const TrashOperation &move = moveFileToTrash);
