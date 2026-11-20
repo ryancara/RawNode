@@ -1,57 +1,111 @@
-# RawNode Code Style and Source Organisation
+# RawNode Development Principles and Code Style
 
-**Status:** Durable human-readability guidance.
+**Status:** Permanent standard for implementation and independent review.
 
-This document is intentionally small. It does not try to replace normal C++ best
-practice or prescribe every formatting choice. Its purpose is to keep RawNode's
-source understandable to a human programmer as the editor grows.
+These principles govern Codex implementation, Claude review and other RawNode
+contributions. Keep the shared rules here; `AGENTS.md` and `CLAUDE.md` provide
+role-specific instructions and entry points.
 
-Read it together with `docs/ARCHITECTURE.md`: source organisation should make
-that architecture easier to recover from the code. Accepted persistence schema
-and lifecycle details live in `docs/STEP7_PERSISTENCE_DESIGN.md`; current milestone
-status lives in `docs/PROJECT_CONTEXT.md`.
+Read this with `docs/ARCHITECTURE.md` for system responsibilities and
+`docs/DECISIONS.md` for accepted decisions. Current project state belongs in
+`docs/PROJECT_CONTEXT.md`; persistence contracts remain in
+`docs/STEP7_PERSISTENCE_DESIGN.md`.
 
-## Primary rule
+## Simplicity and human readability
 
 Human readability and maintainability are development requirements from the
-outset. Optimise source for an experienced C++ developer who must understand,
-review and maintain RawNode independently, without Codex or Claude explaining
-its implementation.
+outset. An experienced C++ developer should be able to understand, review and
+maintain RawNode independently, without Codex or Claude explaining its
+implementation.
 
-Prefer straightforward, idiomatic C++ and conventional patterns. Code should
-explain itself primarily through structure, descriptive names and interfaces;
-documentation explains decisions that are not obvious from the implementation.
-The goal is the simplest implementation that can be confidently understood and
-verified, rather than the fewest lines. Avoid duplicated state and abstractions
-or frameworks created solely for hypothetical future features.
+Prefer the smallest coherent solution to the agreed requirement. Use
+straightforward, idiomatic C++ and conventional patterns. Names, interfaces,
+responsibilities, ownership and failure paths should explain how the code works.
+Keep the lines needed to make those relationships clear. Documentation records
+non-obvious contracts and tradeoffs.
 
-Formatting consistency matters, but conceptual order matters more.
+Conceptual order matters more than cosmetic uniformity. Correctness and
+simplicity take priority over premature optimisation.
 
-## Reference implementations and proportional complexity
+## Approved scope and reuse
+
+Implement only agreed functionality. Every production-code change must be
+justified by the acceptance criteria. Before substantial work, establish a
+proportionate design and independently verifiable expected results, recorded in
+the PR or an appropriate existing document. Explain responsibility boundaries,
+important data flows, ownership and failure handling at the level needed to
+verify the change. Small fixes need no formal design document or extra approval
+process.
+
+Find the feature's home in the existing architecture and compose the established
+commands, state owners and lifecycle. Avoid parallel state, workflows, protocols
+and feature-specific subsystems. A cohesive new module is appropriate when a
+concrete requirement demonstrates a maintenance or responsibility benefit that
+justifies its integration cost. A new file or class alone is not a new subsystem.
+
+[D052](DECISIONS.md#d052--explicit-product-choices-and-proportionate-architecture-reuse)
+governs product choices and significant architectural departures. Ordinary
+technical details and minimum feedback for an approved feature remain the
+implementer's responsibility. Preserve existing behaviour and appearance unless
+an approved task requires changes. Report every user-visible change against its approved requirement in
+the PR; record optional ideas as "Unimplemented suggestions" without implementing
+them.
+
+Before opening a PR, inspect the complete diff against its base and remove
+unnecessary changes. Passing tests or possible future usefulness do not
+authorise scope expansion.
+
+## Shared cross-platform implementations
+
+Keep one shared policy, workflow and result model across macOS, Windows and
+Linux. Confine platform-specific code to native operations and genuinely
+necessary OS differences, such as path encoding, permission semantics and
+native UI behaviour. Avoid adding a platform as a separate subsystem.
+
+Review existing platform implementations when adding support elsewhere. Simplify
+or consolidate older code when it improves the shared solution; an existing
+implementation is not immutable. Keep such changes within the agreed task.
+
+Prefer standard native APIs and established libraries. Let the operating system
+handle filesystem compatibility, permissions, capacity and native confirmations
+where those are its responsibility. Add application-specific policy or recovery
+mechanisms only when a concrete accepted requirement justifies them. Report
+native failures and limitations through the shared workflow.
+
+## Proportionate robustness and validation
+
+Protect user data, sidecar integrity, graph validity and real lifetime/concurrency
+guarantees. Address credible failure modes with the smallest understandable
+solution. Before adding defensive state, fallback paths, caches, watchers,
+compatibility layers, recovery systems or test frameworks, identify the trigger,
+its consequences and why a narrow guard, explicit failure, focused test or
+documented limitation would be insufficient.
+
+Use realistic photography workflows and meaningful boundary cases at the
+relevant production boundary. Scale fixtures and test support to the change's
+consequences. Run required repository checks and use independent expected
+results; distinguish what unit tests, native CI and owner desktop validation
+actually establish. Documentation-only changes need consistency, scope and
+link/whitespace checks.
+
+Distinguish a demonstrated defect, a required validation gap and an explicitly
+accepted limitation. Missing hardware or an unverified hypothetical case does
+not by itself justify new infrastructure. Do not silently promote an
+owner-accepted limitation into a merge blocker without new material evidence.
+
+## Reference implementations
 
 When a design or review concerns behaviour established photo editors have already
-solved, compare the relevant ART and vkdt code or documentation where practical.
-ART is a useful reference for RAW editing workflows, photo navigation, sidecars
-and editor lifecycle; vkdt for graph data flow, connections, evaluation and
-rendering. Check the actual implementation rather than guessing, and identify
-the concrete lesson or tradeoff when it materially influences a decision.
+solved, compare relevant ART and vkdt code or documentation where practical.
+ART is useful for RAW editing workflows, navigation, sidecars and editor
+lifecycle; vkdt for graph data flow, connections, evaluation and rendering.
+Inspect the actual implementation and identify the concrete lesson or tradeoff
+when it materially influences a decision.
 
 Use these projects as references, not templates. RawNode's requirements and
 existing boundaries take precedence. Do not import another editor's
-implementation or complexity merely because it exists there, particularly
-vkdt-specific Vulkan infrastructure.
-
-Prefer the smallest understandable solution that covers actual requirements
-and credible failure modes. Before adding state flags, fallback paths, caches,
-watchers, compatibility layers or frameworks to handle a possible edge case,
-explain how the case could occur, its consequences and why a simpler guard,
-explicit failure, focused test or documented deferral is insufficient. Do not
-build machinery solely for hypothetical future needs.
-
-This is not permission to ignore correctness: silent data loss, damaged
-sidecars, invalid graph state, use-after-free and real concurrency failures
-must still be prevented. Address them proportionately without inventing
-unnecessary recovery or coordination systems.
+infrastructure merely because it exists, particularly vkdt-specific Vulkan
+machinery.
 
 ## File responsibility
 
@@ -131,9 +185,8 @@ do not need Git history to understand correctness.
 
 ## Behaviour-preserving cleanup
 
-The dedicated readability/source-organisation pass after architecture Step 4 is
-complete. The following behaviour-preserving constraints also apply to future
-cleanup.
+Readability cleanup preserves behaviour unless the approved task explicitly
+changes it.
 
 It may:
 
@@ -154,47 +207,47 @@ It should not quietly:
 - change persistence semantics;
 - change renderer guarantees.
 
-If future readability work exposes a genuine architecture problem, record it
-and address it deliberately in a focused change. The post-Step-4 architecture
-checkpoint is complete; broad cleanup is no longer the current task.
+If readability work exposes a genuine architecture problem, record it and
+address it deliberately in a focused change. A cleanup task does not implicitly
+authorise product or architecture changes.
 
-## Continuous and milestone review
+## Proportionate implementation and review
 
-Include a proportionate readability check with correctness review in every
-implementation PR. Review changed and closely affected names, conceptual
-organisation, ownership/locking and responsibility boundaries. Address important
-maintainability problems during the relevant feature review: unclear ownership,
-excessive coupling, duplicated state/execution logic, misleading interfaces,
-unnecessarily complicated control flow or abstractions that obscure behaviour.
+Apply the same simplicity, readability, robustness, reuse and platform standards
+during design, implementation and independent review. Review scope, architecture
+fit and correctness separately. Inspect the actual diff and directly affected
+code. Passing checks provide evidence; they do not approve extra functionality
+or complexity.
 
-Optional stylistic preferences are non-blocking: alternative names that are not
-materially clearer, equally reasonable file organisation, cosmetic restructuring
-and unrelated cleanup. Raise readability concerns early; do not wait for a later
-cleanup pass to address a demonstrated problem.
+Check whether a competent C++ developer unfamiliar with the change can follow
+its names, responsibilities, ownership, locking and failure paths. Raise material
+maintainability issues while the feature is under review. Fix small directly
+relevant problems; propose substantial unrelated work separately.
 
-Recommend fixing small relevant issues in the current PR. Track substantial
-risks intentionally deferred beyond that PR in `docs/PROJECT_CONTEXT.md`
-(Known deferred issues); minor cleanup can wait for the next relevant milestone
-review. A formatter passing is not a readability review.
+For each finding, explain the conditions, practical consequence, evidence and
+smallest reasonable correction. Separate introduced defects, pre-existing issues,
+required test gaps and optional improvements. Mandatory fixes should address
+credible correctness, data-integrity, maintainability or agreed-scope failures.
+Cosmetic preferences, alternative equally clear organisation and speculative
+future-proofing are non-blocking.
 
-At architectural milestones, inspect the affected subsystems for accumulated
-complexity and responsibility drift. Use the checkpoint schedule in
-`docs/PROJECT_CONTEXT.md`, and keep any cleanup focused and
-behaviour-preserving.
+Reviewers must not require extra abstractions, defensive state or test hooks
+solely to manufacture coverage for hypothetical cases. Check meaningful failure
+paths and challenge weak evidence proportionately to the risk. Respect explicit
+owner decisions about accepted limitations; keep suggestions distinct from merge
+requirements.
 
-Refactoring remains appropriate for demonstrated correctness, maintenance or
-architectural issues. Keep it proportional, and record deliberate behaviour or
-architecture changes rather than hiding them inside readability cleanup.
+Use the repository's required checks and focused regression tests appropriate to
+the changed behaviour. Keep role-specific numerical/reference-oracle guidance in
+`CLAUDE.md`. Do not present CI coverage as proof of untested native hardware or
+desktop behaviour, and do not require universal compatibility proofs for an
+otherwise accepted native API contract.
 
-## Review standard
+At explicitly agreed architectural milestones or audits, inspect accumulated
+complexity and responsibility drift, including existing machinery. Follow the
+checkpoint schedule in `docs/PROJECT_CONTEXT.md`. Routine feature reviews should
+stay focused on changed and closely affected code.
 
-A readability PR should still build and pass the full self-test suite. For
-moved/reordered concurrency code, retain sanitizer coverage where practical.
-
-Review should ask:
-
-- Can a new programmer infer the subsystem's responsibility quickly?
-- Does top-to-bottom reading reveal the important operations before mechanics?
-- Are ownership and failure paths obvious?
-- Did cleanup accidentally alter behaviour?
-- Did the change reduce cognitive load without inventing unnecessary layers?
+A readability refactor still builds and passes the full self-test suite.
+Preserve sanitizer coverage for moved/reordered concurrency code where practical.
+Document intentional behaviour or architecture changes separately from cleanup.

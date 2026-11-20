@@ -20,6 +20,12 @@ remain cross-platform for macOS, Windows and Linux.
 The repository is the durable source of project context. Do not rely on chat
 history for important architectural knowledge.
 
+Before implementation or review, read [the shared development and review
+standard](docs/CODE_STYLE.md). It governs both Codex implementation and Claude
+review, including simplicity, human readability, proportionate robustness,
+shared cross-platform workflows, reuse and proportionate review. Keep common
+policy there; the role-specific instructions below also apply.
+
 Before broad architecture or product work, read `docs/PROJECT_CONTEXT.md`,
 `docs/ARCHITECTURE.md` and `docs/DECISIONS.md`.
 
@@ -32,7 +38,8 @@ Document responsibilities:
   current development phase.
 - `docs/ARCHITECTURE.md` — authoritative technical architecture.
 - `docs/DECISIONS.md` — significant durable decisions and their rationale.
-- `docs/CODE_STYLE.md` — human-readability and source-organisation guidance.
+- `docs/CODE_STYLE.md` — permanent shared development/review principles and
+  code style.
 - `docs/STEP7_PERSISTENCE_DESIGN.md` — accepted graph-native persistence schema
   and lifecycle; `docs/workspace-format.md` — global settings format.
 - `CLAUDE.md` — Claude Code working and review instructions.
@@ -88,14 +95,9 @@ Finish with a clear judgement about whether the PR is safe to merge.
 
 ## Continuous PR quality review
 
-Every implementation PR review includes a proportionate readability check of
-changed and directly affected code. Ask whether a competent C++ developer
-unfamiliar with the implementation can follow its names, coherent file/function
-responsibilities, ownership, locking, mutation and execution boundaries, and
-failure paths. Check that features fit the architecture and abstractions serve
-established requirements. Raise meaningful maintainability issues while the
-feature is under review; use the severity guidance in `docs/CODE_STYLE.md`.
-Minor stylistic preferences should not block a PR or prompt unrelated cleanup.
+Apply the shared standard to changed and directly affected code. Judge the
+agreed behaviour and credible risks; distinguish required corrections from
+optional suggestions and accepted limitations.
 
 For substantial features, challenge the agreed acceptance criteria, expected
 results and test oracles independently of the implementation. Values copied
@@ -122,53 +124,6 @@ values, and alpha preservation. Keep test support proportionate and understandab
 Milestone checkpoint timing and post-Step-6 infrastructure tasks are tracked in
 `docs/PROJECT_CONTEXT.md`. The whole-Step-6 review is complete; the focused
 Step 7 design checkpoint and implementation are complete and do not reopen it.
-
-## Development philosophy
-
-RawNode should remain lightweight and architecturally simple.
-
-Prefer general mechanisms over feature-specific systems.
-
-New features should integrate with existing graph, rendering and invalidation
-infrastructure rather than create independent schedulers, queues, state machines
-or duplicated processing paths.
-
-Avoid accumulating feature-specific renderer state such as separate pending
-systems for masks, compositing, LUTs, exports, etc.
-
-When additional complexity appears necessary, first ask whether the same
-behaviour can be represented by the existing graph or invalidation model.
-
-For comparable behaviour, inspect how ART approaches RAW editor workflows,
-sidecars and navigation, and how vkdt approaches graph data flow and rendering.
-Use their actual implementations as references where relevant, not as
-blueprints. Do not import unrelated infrastructure. See `docs/CODE_STYLE.md`
-for the comparison and complexity standard.
-
-Before adding special machinery for a possible edge case, identify a credible
-failure mode, its impact and why a narrower solution or documented limitation
-would be inadequate. Protect real user-data, graph and concurrency invariants;
-do not expand PR scope to pre-solve hypothetical future cases.
-
-Correctness and simplicity are more important than premature optimisation.
-
-Human readability and maintainability are development requirements, applied as
-features are designed and implemented. An experienced C++ developer should be
-able to understand, review and maintain RawNode independently of Codex or Claude.
-See `docs/CODE_STYLE.md` for the source and interface guidance.
-
-The post-Step-4 readability pass is complete. Keep future cleanup
-behaviour-preserving and surface architecture or product changes separately.
-See `docs/CODE_STYLE.md`.
-
-Keep refactoring focused on demonstrated correctness, maintenance or
-architectural problems; avoid broad unrelated cleanup in bug-fix or feature PRs.
-Keep substantial refactors in their own focused PR unless required for
-correctness. Address small, directly relevant maintainability improvements during
-feature development and review. Do not postpone genuine correctness or important
-maintainability problems solely to avoid necessary changes. Cosmetic restructuring
-of understandable code and speculative future-proofing do not justify broad
-refactoring or new abstractions.
 
 ## Architectural direction
 
@@ -397,68 +352,6 @@ Unavailable processors should remain represented in persisted graphs rather
 than silently disappearing.
 
 Do not make persistence behaviour depend on transient renderer state.
-
-## Scope is an acceptance criterion
-
-A change can be correct, well-tested and architecturally reasonable while still
-being unnecessary.
-
-Every independent PR review must assess compliance with the approved scope, in
-addition to correctness, readability, architecture and test coverage.
-
-Identify features, abstractions, dependencies and refactoring that are not required
-by the agreed acceptance criteria. Flag scope expansion independently of functional
-defects and recommend removing unnecessary changes before merge.
-
-Passing tests do not justify additional complexity. Optional improvements should
-be proposed separately rather than incorporated without approval.
-
-## Product decisions and architecture reuse in PR reviews
-
-For any PR with user-visible changes, enumerate every actual behaviour or
-appearance change, not just the headline features. Consider, for example,
-controls, menus, labels, icons, port shapes, colours, layout, shortcuts,
-selection, warnings, defaults and workflows. Distinguish minimal feedback
-required for approved interactions from discretionary choices. Flag unapproved
-choices
-as scope findings even if the implementation is small, useful and correct.
-Do not assume that a roadmap idea authorises implementation without a focused
-owner-approved acceptance contract.
-
-For architecture, explicitly map new behaviour to the existing graph/model,
-document commands, processor interface, evaluator, render runtime, persistence
-and UI responsibilities. Look for duplicated state, hidden dependencies,
-new lifecycle protocols and feature-specific subsystems; prefer reuse where
-it keeps boundaries clear. A new file or class is not automatically a new
-system. Conversely, a *justified* new module or system is welcome when it
-demonstrably improves modularity, separation of responsibilities, maintainability
-or extensibility for a concrete requirement. Speculative infrastructure is
-not justified by possible future uses. Significant architectural changes
-(e.g. a new subsystem, changed ownership/execution protocol or persistence
-schema) require owner approval. Judge proportionately, not by counting files.
-
-Review **scope**, **architecture fit** and **correctness** as separate
-acceptance criteria; tests alone cannot establish approval. Recommend narrowly
-scoped corrections and keep optional improvements outside the PR. If the
-implementer has identified useful unapproved improvements, they should appear
-as unimplemented suggestions, not silent additional functionality.
-
-## Scope discipline
-
-Keep PRs focused.
-
-When reviewing a PR:
-
-- identify whether a problem was introduced by that PR;
-- report significant pre-existing problems separately;
-- do not require unrelated cleanup before merge;
-- recommend follow-up work when appropriate rather than expanding the PR.
-
-Do not opportunistically redesign the renderer during a narrow bug fix.
-
-Conversely, when explicitly performing an architecture audit or refactor, be
-willing to question and remove existing machinery rather than preserving it
-only because it already exists.
 
 ## Build
 

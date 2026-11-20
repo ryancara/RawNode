@@ -73,27 +73,11 @@ The preferred development workflow is:
 8. If a durable project decision changed, update the relevant project
    documentation before considering the work complete.
 
-Before implementing a substantial feature, establish a proportionate design:
-
-- fit with the existing architecture and ownership of state/behaviour;
-- important interfaces, data flows and interactions with existing features;
-- resource lifetime and concurrency implications where relevant;
-- understandable failure handling;
-- acceptance criteria and independently verifiable expected results, with their
-  source or rationale;
-- whether coupling, duplicated responsibilities or speculative abstractions can
-  be avoided.
-
-Capture this in the task/PR or relevant document; update `docs/DECISIONS.md` or
-the authoritative architecture document for substantial architectural decisions.
-Small local fixes need no formal design document or extra approval process.
-Reviews should verify the intended behaviour rather than merely confirm the
-implementation's own output.
-
-D052 sets the product-approval, visible-change reporting and proportionate
-architecture-reuse rules for implementers and independent reviewers. Reuse
-existing systems by default, but consider justified new modules without
-prematurely building speculative infrastructure.
+Codex implementation and Claude independent review use the same permanent
+[development and review standard](CODE_STYLE.md). It defines scope, proportionate
+design and evidence, and the common quality rules. D052 remains the authority for
+product choices and significant architectural changes. Keep shared guidance in
+that document instead of maintaining parallel agent policies.
 
 ChatGPT is the long-running product/architecture discussion partner. Codex is the
 primary implementation agent. Claude Code is primarily the independent,
@@ -123,7 +107,8 @@ Document responsibilities are:
 - `docs/DECISIONS.md` — authoritative durable design decisions and rationale.
 - `docs/ARCHITECTURE_AUDIT.md` — audit evidence and the Codex/Claude
   reconciliation that led to the approved architecture.
-- `docs/CODE_STYLE.md` — human-readability and source-organisation principles.
+- `docs/CODE_STYLE.md` — permanent shared development/review principles and
+  source-organisation guidance.
 - `docs/STEP7_PERSISTENCE_DESIGN.md` — accepted graph-native persistence schema
   and lifecycle; `docs/workspace-format.md` — global settings format.
 - `SIDECAR.md` — current persistence overview and labelled historical formats.
