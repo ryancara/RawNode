@@ -20,9 +20,9 @@ from ofxrawhost.
 The project is evolving from a simple still-image OpenFX host into a general
 non-destructive photo editor built around a processor graph.
 
-RawNode currently supports native processors, OpenFX processors and CTL. Planned
-processor capabilities include DCTL and LUTs, followed later by masks,
-compositing, local adjustments and a more capable branching graph.
+RawNode currently supports native processors, OpenFX processors and CTL.
+Practical masking is in progress on the existing branching graph. DCTL,
+LUT/CLF and further compositing and local-adjustment tools are planned separately.
 
 macOS is the primary development platform today. The codebase should remain
 cross-platform for macOS, Windows and Linux.
@@ -218,7 +218,7 @@ under that same publication identity (D056). Processors may declare geometry in
 their render result; undeclared equal-sized processing defaults to Identity.
 Per-consumer Mask placements start where coverage is applied and compose through
 downstream processing. Unknown/ambiguous geometry does not change raster rendering
-or saved Mask values. Merged #105 handles and draft #108 coordinate-aware Overlay
+or saved Mask values. The merged #105 handles and #108 coordinate-aware Overlay
 consume the same published placement resolution; Overlay inverse sampling is
 display-only and does not change evaluation-time Mask pixels.
 The runtime owns **when** evaluation may execute safely, not what the document
@@ -472,7 +472,7 @@ independent review as SAFE TO MERGE and successful Windows desktop validation of
 multi-photo Trash, external HDD/SSD, native dialog ownership and cancellation.
 SD card testing is unverified due to unavailable hardware, an accepted
 non-blocking limitation recorded in [Windows validation](WINDOWS_VALIDATION.md).
-The sequential batch export workflow is in [PR #124](https://github.com/ryancara/RawNode/pull/124).
+Sequential batch export is merged in [PR #124](https://github.com/ryancara/RawNode/pull/124).
 
 Sidecars, presets and preferences share checked atomic replacement across macOS,
 Linux and Windows ([D058](DECISIONS.md#d058--shared-atomic-persistence)). Windows
@@ -681,8 +681,8 @@ The coordinate/Mask-handle work follows four focused stages:
    merged; legacy Crop sizing and sampling retained.
 3. PR #105 — interactive Radial Mask handles using the published mapping
    contract, merged.
-4. Draft PR #108 — coordinate-aware Mask Overlay alignment using the same
-   published placement resolution as handles, under final correction/review.
+4. PR #108 — coordinate-aware Mask Overlay alignment using the same published
+   placement resolution as handles, merged.
 
 Mask Overlay alignment in #108 follows the same architecture. Outward feathering
 is a separate product change, not part of these coordinate or handle corrections.
@@ -693,7 +693,26 @@ Focused acceptance and native GUI checks are in
 [RADIAL_HANDLES_VALIDATION.md](RADIAL_HANDLES_VALIDATION.md) and
 [MASK_OVERLAY_VALIDATION.md](MASK_OVERLAY_VALIDATION.md).
 
-**Step 8 in progress:** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md) record Inactive Mask bypass, unary generic Opacity and explicit binary Combine direction. PRs #97–#102 are merged, including native Radial Mask → Exposure and Mask Only preview, with owner-reported independent Claude review and native macOS GUI validation for #102. Photo remains the default; selection can retarget active Mask inspection or restore Photo, and photo/grade replacement resets the transient view. Viewer mode stays outside grades, history and export. Radial handles are merged as #105; coordinate-aware Overlay alignment is the current draft #108, under final correction/review with native macOS GUI validation outstanding. One paired evaluation shares Image/Mask dependencies and publishes both under the existing request/generation gate; the display path adds a fixed red tint and retains the pair for processor-free colour refresh. Mask failures hide coverage with diagnostics while retaining the current processed photograph where available. Evaluation-time Mask pixels remain unchanged; display-only inverse sampling supports differently sized Image/Mask rasters when published placement is known and invertible. Non-AI masking remains an active Step 8 milestone, but the immediate priorities are Graph View bypass, in-editor culling and batch export before the remaining masking core; see ROADMAP.md. Other geometry and freeform generators, Combine/modifiers and basic qualifiers/conversion follow as independently scoped features. CTL/future DCTL remain Image-producing. Step 9's approved whole-codebase audit follows the agreed Step 8 exit gate; SAM/AI masking is deferred without a scheduled milestone.
+**Step 8 in progress.** D054 and [STEP8_MASKING_CONTRACT.md](STEP8_MASKING_CONTRACT.md)
+record Inactive Mask bypass, unary generic Opacity and explicit binary Combine
+direction. PRs #97–#102 are merged, including native Radial Mask → Exposure and
+Mask Only preview, with owner-reported independent Claude review and native macOS
+GUI validation for #102. Photo remains the default. Selection can retarget active
+Mask inspection or restore Photo, and photo/grade replacement resets the
+transient view. Viewer mode stays outside grades, history and export. Radial
+handles (#105) and coordinate-aware Overlay alignment (#108) are merged, with
+native validation tracked separately. One paired evaluation shares Image/Mask
+dependencies and publishes both under the existing request/generation gate. The
+display path adds a fixed red tint and retains the pair for processor-free colour
+refresh. Mask failures hide coverage with diagnostics while retaining the current
+processed photograph where available. Evaluation-time Mask pixels remain
+unchanged. Display-only inverse sampling supports differently sized Image/Mask
+rasters when published placement is known and invertible.
+
+Other geometry and freeform generators, Combine/modifiers and basic
+qualifiers/conversion follow as independently scoped features. CTL/future DCTL
+remain Image-producing. SAM/AI masking is deferred without a scheduled milestone.
+See the [near-term roadmap](#near-term-roadmap) for sequencing.
 
 Undo/Redo design and behaviour are approved in D053. Stage 1 was independently
 reviewed, approved and merged in PR #92 at
@@ -811,6 +830,9 @@ The remaining sequence is:
     Step 8: Practical non-AI masking workflows        [in progress]
           |
           v
+    Performance and responsiveness checkpoint        [planned after the Step 8 exit gate]
+          |
+          v
     Step 9: Whole-codebase readability/simplicity/architecture audit [planned]
 
 The completed gates are stabilisation/review work, not extra numbered
@@ -874,7 +896,19 @@ compositing or alpha-carrying I/O requires it.
 
 ## Near-term roadmap
 
-Next architecture/product work:
+The [suggested implementation order](../ROADMAP.md#suggested-implementation-order)
+starts with minimal Application Settings over global preferences, then the
+Preset Panel, default preset selection and automatic application, assignable
+keyboard shortcuts, and multi-photo grade/preset application. Settings is
+required for default preset selection and shortcut assignments. The panel
+reuses the existing preset operations and can proceed independently.
+
+Step 8 masking can proceed alongside those workflows. Its agreed exit gate is
+the mandatory feature condition for Step 9, with the performance checkpoint
+immediately before the audit. [Detachable panels and multi-monitor support](../ROADMAP.md#detachable-ui-panels--multi-monitor-support)
+are a separate planned milestone with native cross-platform validation.
+
+### Graph/List baseline
 
 - The visual Graph/List foundation (#79), contextual Inspector/workspace (#80)
   and focused connection/deletion editing (#82) are merged after independent
@@ -904,12 +938,6 @@ Next architecture/product work:
   is waived, while new layouts persist normally and photo/grade contracts remain.
 - Both editor views share the authoritative document graph and NodeId selection;
   switching views introduces no additional execution model.
-- **Detachable UI panels / multi-monitor support** is a planned focused UI
-  milestone before the Step 9 audit, not a mandatory Step 8 exit criterion.
-  It will reuse Dear ImGui's native multi-viewports, existing docking/layout
-  persistence and OpenGL rendering, with one shared application state and
-  processing pipeline. Implementation remains future work; see the
-  [roadmap scope and cross-platform validation requirements](../ROADMAP.md#detachable-ui-panels--multi-monitor-support).
 
 The checkpoint, immediate follow-ups, Step 5 contract and whole-Step-6
 implementation/architecture review are complete. These focused corrections do
@@ -966,10 +994,9 @@ Step 9 whole-codebase quality audit (D055) is a distinct future milestone.
 photometric/extra-channel handling, EXR chromaticities, and the existing JPEG
 writer undefined behaviour. Give them focused correctness PRs and appropriate
 tests/sanitizer evidence when scheduled; address a concrete user-data or safety
-regression earlier if discovered. TIFF photometric/extra-channel handling
-becomes a Step 8 prerequisite if the first Mask path decodes external TIFF
-mask files. Other documented lifetime/exception-safety follow-ups remain
-tracked, not silently resolved by this plan.
+regression earlier if discovered. TIFF photometric/extra-channel handling is
+relevant to future external TIFF Mask support. Other documented
+lifetime/exception-safety follow-ups remain tracked separately.
 
 **Completed Step 7 checkpoint and implementation — retained verification criteria:**
 The criteria below describe the implemented contract and remain useful for
@@ -1067,8 +1094,8 @@ unrelated features; tooling can proceed alongside the next milestone where pract
       check fatal diagnostics and leak detection. The sole temporary UBSan
       exception is `shift-base` in `stbiw__jpg_writeBits` (see
       `.github/sanitizers/ubsan.supp`); the JPEG correction remains deferred.
-      Keep TSan/stress manual initially; Windows and extra macOS architectures
-      remain later milestones. Execution evidence belongs in the CI PR/runs.
+      That milestone kept TSan/stress manual. Execution evidence belongs in the
+      CI PR/runs.
 - [ ] Enable meaningful compiler warnings for RawNode-owned sources first
       (not vendored `third_party`), then trial a narrow clang-tidy profile.
       Establish a baseline and prioritise real defects over cosmetic churn.
@@ -1086,11 +1113,13 @@ unrelated features; tooling can proceed alongside the next milestone where pract
 - [ ] Improve human-developer onboarding and the inherited README when useful,
       using the authoritative documentation above rather than duplicating it.
 
-**Step 9 — comprehensive whole-codebase quality audit (owner-approved; D055):**
-Begin when the agreed **Step 8 exit gate** for practical non-AI masking is met;
-record and approve that gate in `docs/STEP8_MASKING_CONTRACT.md` while planning
-the remaining work. SAM/AI masks are not prerequisites. Step 9 does **not**
-replace ongoing per-PR readability and correctness reviews during Step 8.
+**Step 9 — comprehensive whole-codebase quality audit (owner-approved, D055).**
+Record and approve the required **Step 8 exit gate** for practical non-AI
+masking in `docs/STEP8_MASKING_CONTRACT.md` while planning the remaining work.
+Once the gate is met, use the [bounded performance checkpoint](../ROADMAP.md#performance-and-responsiveness-checkpoint)
+to inform the Step 9 baseline. Targeted profiling and corrections can happen
+earlier when a meaningful bottleneck is identified. Continue per-PR readability
+and correctness reviews throughout Step 8.
 The original narrower post-first-Mask checkpoint is superseded by Step 9;
 avoid a premature redesign, but review architectural risk in each masking PR
 so high-cost defects are not deferred unnoticed.

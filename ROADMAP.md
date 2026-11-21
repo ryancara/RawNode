@@ -28,84 +28,49 @@ The current codebase is a clean base for feature development. New work should re
 
 ## Near-term execution priorities (November 2026)
 
-These priorities sequence focused work without reopening completed architecture milestones:
+### Suggested implementation order
 
-1. **JPEG XL DNG decoding — merged (#111).** Optional integer JPEG XL
-   decoding is integrated through the existing LibRaw path, with independent
-   review, numerical regressions, Linux/Apple Silicon validation and
-   owner-reported PureRAW photographic checks. It remains OFF by default and in
-   normal releases. Default enablement, independent PureRAW reference-colour
-   validation, Windows and Intel JPEG XL ON checks, portable packaging and
-   binary redistribution/licensing review remain separate rollout work; see
-   [the support and validation record](docs/JPEG_XL_DNG.md).
-2. **Enable/bypass directly in Graph View — merged (#113).**
-   The node context menu reuses the existing enabled state, edit/history command
-   and protections exposed in List View, without a second bypass mechanism.
-3. **Pick / Unmarked / Reject while editing — merged (#114).**
-   Compact filmstrip actions, indicators and independent mark/type filters use
-   existing sidecar metadata and normal photo opening. The semantic document
-   action accepts a photo path and mark; assignable shortcuts remain a separate
-   milestone, with no fixed marking bindings in this slice. This supports
-   decisions made while editing, not high-volume first-pass culling; do not introduce a separate
-   fast-RAW browsing or decode-skipping pipeline for it.
-4. **Multi-photo selection — merged (#115).** Transient path-based
-   selection supports plain/Command/Shift clicks and focused visible Select All,
-   independently of the open photograph. See [behaviour and native checks](docs/FILMSTRIP_SELECTION.md).
-   **macOS/Linux Move to Trash is merged in [PR #116](https://github.com/ryancara/RawNode/pull/116).** The [native Trash milestone](docs/FILMSTRIP_TRASH.md)
-   adds focused unmodified Delete/Backspace, one immutable confirmation
-   distinguishing eligible/hidden photographs from already-ineligible paths,
-   exact current/legacy sidecars, explicit partial failures, safe current-document
-   departure and preserved surviving thumbnails/filters. PR #115's native macOS
-   selection checks are owner-reported complete; retain existing theme-based
-   selection colours. New native macOS Trash/restore checks remain required.
-   Sequential batch export is in [PR #124](https://github.com/ryancara/RawNode/pull/124).
-   Multi-photo grade/preset application remains separate.
-5. **Windows Move to Trash — implemented and owner-validated in
-   [PR #122](https://github.com/ryancara/RawNode/pull/122), with Claude's review
-   reported SAFE TO MERGE.** One shared workflow uses
-   native recycling on all platforms. Windows may show its own explicit
-   permanent-deletion warning; RawNode never approves it automatically. Results
-   distinguish recycled/permanently deleted/cancelled/failed operations and native
-   cancellation stops remaining work without rollback. A pre-delete check refuses
-   absent recycle intent because disabled bins can bypass warning UI. See
-   [the exact configuration and native evidence](docs/WINDOWS_TRASH_RESEARCH.md).
-   Native fixture tests cover recycle/restore, oversized files, disabled bins,
-   No/dismissal and ordinary errors. Owner-reported manual Windows checks passed
-   for multi-photo Trash, external HDD/SSD, native dialog ownership and
-   cancellation. SD card tests remain unverified because hardware was unavailable;
-   this is an accepted non-blocking limitation. See
-   [the validation record](docs/WINDOWS_VALIDATION.md).
-6. **Shared atomic sidecar persistence and Windows application — validated
-   with JPEG XL OFF.**
-   The shared writer and focused native regressions implement
-   [D058](docs/DECISIONS.md#d058--shared-atomic-persistence). The full
-   application build and self-test run with MSVC x64 and JPEG XL disabled.
-   The owner reports successful native Windows desktop validation on
-   2026-11-20 using PR #120's portable x64 Release build; see the
-   [build provenance and validation record](docs/WINDOWS_VALIDATION.md).
-   Windows JPEG XL support (ON build/runtime/packaging validation) remains
-   outstanding. Windows Trash has its own implementation/validation record above.
-   [Windows CI](.github/workflows/windows-ci.yml) · [Build instructions](README.md#windows-x64)
-7. **Close the practical Step 8 masking core.** Agree the exit gate, then
-   deliver Mask Combine, upstream geometry/Overlay placement through Mask
-   modifiers, a Linear Gradient generator and an initial Blur modifier in
-   focused slices. Defer Brush, Bézier, advanced qualifiers and AI masks
-   unless a concrete exit-gate requirement justifies them.
-8. **Detachable UI panels / multi-monitor support.** Plan a focused UI
-   milestone before the Step 9 audit, separate from the mandatory Step 8 exit
-   criteria. Use Dear ImGui's native multi-viewport support with the existing
-   docking, layout persistence and OpenGL systems; see the
-   [scope and platform validation requirements](#detachable-ui-panels--multi-monitor-support)
-   below. Documentation only for now; implementation remains future work.
-9. **Performance and responsiveness checkpoint.** After the initial photo
-   workflows and Step 8 exit gate, profile real workloads on macOS and decide
-   whether JPEG XL area-task parallelism, RAW pixel conversion or interactive
-   graph processing warrants focused optimisation. The investigations below
-   are evidence, not approval to implement them.
-10. **Step 9 whole-codebase audit.** Start the approved D055 audit after the
-    agreed Step 8 exit gate and initial practical photo workflow improvements,
-    using the performance checkpoint as input. The formal Step 9 entry
-    criterion remains Step 8 closure, not completion of every unrelated feature.
+1. [Minimal Application Settings UI](#application-settings) over the existing global preferences.
+2. [Preset Panel](#preset-panel) using the existing preset format and Replace/Append operations.
+3. [Default preset selection and automatic application](#default-grade-preset)
+   through Settings and grade replacement.
+4. [Assignable keyboard shortcuts](#assignable-keyboard-shortcuts) configured
+   in Settings and invoking existing actions.
+5. [Multi-photo grade/preset application](#multi-photo-grade-and-preset-application)
+   using Filmstrip selection and existing grade persistence.
+6. [Completion of the practical Step 8 masking core](#masks-and-local-adjustments).
+7. [Performance and responsiveness checkpoint](#performance-and-responsiveness-checkpoint).
+8. [Step 9 whole-codebase audit](#step-9--comprehensive-readability-simplicity-and-architecture-audit-planned).
+
+### Hard dependencies
+
+Default preset selection and configurable shortcut assignments require the
+Settings UI. The Preset Panel can be built independently using the existing
+preset operations. Multi-photo application builds on the merged Filmstrip
+selection and grade persistence. Step 8 masking is independent of Settings,
+presets and shortcuts and may proceed earlier or in parallel.
+
+The agreed Step 8 exit gate is Step 9's mandatory feature entry condition.
+After the gate, run the bounded performance checkpoint immediately before the
+audit. Other planned features can proceed independently of Step 9, including
+[detachable panels](#detachable-ui-panels--multi-monitor-support),
+[LUT/CLF](#lut-and-clf-processors), [DCTL](#dctl-compatibility) and
+[advanced input systems](#advanced-input-systems).
+
+### Recently merged milestones
+
+- **Optional integer JPEG XL DNG decoding** (#111), OFF by default. See the
+  [support, validation and rollout record](docs/JPEG_XL_DNG.md).
+- **Graph View enable/bypass** (#113), [in-editor Pick/Unmarked/Reject](#pick--reject-workflow)
+  (#114) and [Filmstrip multi-photo selection](docs/FILMSTRIP_SELECTION.md) (#115).
+- **Native Move to Trash** on macOS/Linux (#116) and Windows (#122). See the
+  [shared workflow and platform validation](docs/FILMSTRIP_TRASH.md).
+- **Shared atomic persistence and Windows x64 support** (#118–#120), with
+  [native desktop validation for JPEG XL OFF](docs/WINDOWS_VALIDATION.md).
+- **Sequential batch export** (#124) for [current and selected photographs](#batch--workspace-export).
+- **Versioned portable release packaging** (#126) for Apple Silicon, Intel macOS
+  and Windows x64. See the [archive matrix](README.md#download-rawnode).
+- **RawNode application rename** (#127) across macOS, Windows and Linux.
 
 **Deferred:** Multiple-node selection in Graph/List View is low priority.
 It is distinct from the filmstrip multi-photo selection needed for batch
@@ -152,17 +117,14 @@ are non-blocking follow-ups.
   PR #87 (PR 2C) contextual Add Processor placement. Any unrecorded native
   validation remains tracked separately.
 - **Step 8 — in progress:** practical non-AI masking workflows
-  under the Step 5 product/architectural contract. TIFF and EXR format
-  correctness and JPEG encoder UB remain independently tracked follow-ups,
-  not prerequisites for Graph View, nor for masks unless the first Mask path
-  decodes external TIFF files.
+  under the Step 5 and Step 8 contracts. TIFF and EXR format correctness and
+  JPEG encoder UB remain independently tracked follow-ups.
 
 The completed stabilisation tasks are not extra migration steps.
 
 Detailed persistence behaviour is in `docs/PROJECT_CONTEXT.md` under
-"Persistence direction". Default-preset UI/automatic application, multi-photo
-actions and other photography workflows are later focused milestones;
-they can proceed independently without changing the architecture sequence.
+"Persistence direction". The near-term priorities above cover the independent
+photography workflow milestones.
 
 Post-Step-6 code quality, CI, verification and milestone readability follow-ups
 are tracked in `docs/PROJECT_CONTEXT.md` under "Quality and verification roadmap".
@@ -182,41 +144,42 @@ See `SIDECAR.md` and `docs/STEP7_PERSISTENCE_DESIGN.md` for exact semantics.
 The former linear `PersistChain` transfers and `.rawnodepreset` files are
 historical; live legacy transfer readers are retired without migration or deletion.
 
-A follow-up editing workflow should add filmstrip multi-selection and allow a
-copied full grade or preset to be applied to all selected photos in
-one action. Each source receives its own validated grade and sidecar update;
-do not add a second graph model or persistence path for batch application.
+### Multi-photo grade and preset application
+
+Apply a copied full grade or preset to all selected photos in one action using
+the [existing Filmstrip selection](docs/FILMSTRIP_SELECTION.md). Validate each
+destination grade and update its sidecar through the existing grade persistence
+path.
 
 ## Default grade preset
 
-**Planned; not implemented.** Add a configurable default preset selected from
-the user's preset folder, applied
-using **Replace**. Opening precedence is **saved grade → configured default preset
-→ global RAW/Output defaults**, following the saved-grade and protected-sidecar rules in
-`docs/PROJECT_CONTEXT.md`. Folder scanning and thumbnail generation create no
-sidecars; successfully opening a photograph for editing establishes and persists
-its grade (D050). Metadata-only updates to unopened photos do not create grades.
-Deliberately saved empty grades still win. Changing the default leaves saved
-grades untouched, and users can manually apply another preset.
+**Planned.** Use [Application Settings](#application-settings) to select a
+default preset from the user's preset folder. Apply it using **Replace**.
+Opening precedence is **saved grade → configured default preset → global
+RAW/Output defaults**, following the [saved-grade and protected-sidecar rules](docs/PROJECT_CONTEXT.md#saved-grades-and-future-default-presets).
+Folder scanning and thumbnail generation create no sidecars. Successfully opening
+a photograph for editing establishes and persists its grade (D050). Metadata-only
+updates to unopened photos do not create grades. Deliberately saved empty grades
+still win. Changing the default leaves saved grades untouched, and users can
+manually apply another preset.
 
-Default selection and automatic application are later workflow features, not
-Step 7 prerequisites; future multi-photo grade application supports a selection.
+## Application Settings
 
-## Application Settings and preset panel
+Add a small user-facing **Settings** menu/window over the existing
+[`preferences.json` system](docs/workspace-format.md). Start with the existing
+global RAW/Output defaults and relevant export/UI preferences. Keep preset
+locations, the default preset and shortcut assignments in the same global
+preferences as their milestones are implemented. Add configurable CTL, DCTL
+and OFX search locations and backend-specific pages only when needed for usable
+features. MIDI, OSC and scripting belong to separate planned work.
 
-Add a straightforward application **Settings** menu/window for global RAW/Output
-defaults, export/UI preferences and configurable/default search locations for
-CTL, DCTL, OFX and preset files.
-Keep paths and preferred default graph/preset in global application settings,
-without per-folder settings persistence. Implement plugin-specific options when
-their backends are usable rather than creating unused configuration infrastructure.
+## Preset Panel
 
-Provide **View → Preset Panel** to show/hide a preset browser. Leave space for
-later shortcut assignment, scripting and other preferences without designing
-an elaborate settings framework in advance.
-The panel can expose **Replace** and **Append**. A general-purpose branched-graph
-Append workflow may be staged separately when existing graph commands cannot
-support it safely; Step 7 provides shared persistence/reconstruction mechanisms.
+Provide **View → Preset Panel** to show or hide a preset browser. Use the existing
+`.rawnode.json` format and **Replace** and **Append** operations. A general-purpose
+branched-graph Append workflow may be staged separately when existing graph
+commands cannot support it safely. Step 7 provides shared persistence and
+reconstruction mechanisms.
 
 ## DCTL compatibility
 
@@ -259,16 +222,18 @@ The initial in-editor photo-marking slice is merged as #114:
 - current-photo buttons, visible filmstrip indicators and All / Pick / Unmarked /
   Reject filtering composed with All / RAW / Compressed;
 - ordinary single-photo navigation through document opening, with no automatic
-  advance after marking. Future assignable inputs invoke the same document action.
+  advance after marking. Future assignable shortcuts invoke the same document
+  action. The initial slice adds no fixed marking bindings.
 
 Keep this folder-based with no catalogue/database or automatic deletion. Step 7's
-metadata-only writer preserves complete grades. File actions and multi-photo
-selection have separate scopes; selection is now implemented for review in
-[filmstrip selection](docs/FILMSTRIP_SELECTION.md). See [marking behaviour and validation](docs/PHOTO_MARKING.md).
-Later, moving rejected photos and their sidecars to the operating system Trash
-would require an explicit, confirmed user action; this slice implements no file actions.
+metadata-only writer preserves complete grades. This milestone supports marking
+while editing. High-volume first-pass culling stays outside RawNode. Filmstrip
+selection and confirmed native Trash are separate merged milestones.
+See [marking behaviour and validation](docs/PHOTO_MARKING.md).
 
 ## Batch / workspace export
+
+**Merged (#124).**
 
 The unified Export dialog offers Current Photograph and Selected Photographs.
 Selected uses the entire Filmstrip selection and reports how many are hidden
@@ -383,20 +348,26 @@ approval, including during Step 9.
 
 Add number-key node selection as a separate small interaction improvement.
 
+Graph View enable/bypass (#113) uses the same enabled state, edit/history command
+and protections as List View.
+
 Branching, typed Mask endpoints and future mixers use the same graph. The first
 user-facing mask workflows remain Step 8, after the visual editor milestone.
 Do not build a second graph model, renderer or persistence representation for
 Graph View.
 
-## Assignable input system
+## Assignable keyboard shortcuts
 
-Add user-configurable keyboard shortcuts and keyboard/mouse parameter bindings,
-with editing in the application Settings window. Store mappings as global
-preferences rather than per-photo sidecar data.
+Configure shortcuts in [Application Settings](#application-settings), persist
+assignments in the existing global preferences and invoke existing application
+actions.
 
-Keep the input abstraction generic so future MIDI, OSC / TouchOSC, jog wheels,
-or other hardware controllers can use the same path. Scripting remains a later
-extension.
+## Advanced input systems
+
+Keyboard/mouse parameter bindings are a separate future milestone, with
+assignments edited in Settings and stored in global preferences. MIDI,
+OSC / TouchOSC, jog wheels and other hardware controllers can build on the same
+action and parameter paths when scheduled. Scripting remains a later extension.
 
 ## RAW architecture refactor
 
@@ -433,17 +404,26 @@ Outward feathering remains a separate product change.
 
 **Step 8 in progress:** PRs #97–#102 are merged, including Inactive bypass, Image Mask/Opacity, native Radial Mask → Exposure and Mask Only inspection. Photo remains the default, and explicit Mask Only inspects the selected typed Mask output through the existing runtime.
 
-**Step 8 approved contract:** [docs/STEP8_MASKING_CONTRACT.md](docs/STEP8_MASKING_CONTRACT.md), D054. Mask generators bypass to Inactive (not white/black), Image/Mask transforms bypass to same-type pass-through, and generic Opacity is available on unary transforms with a defined compatible pass-through. Standalone generators and Mask Combine have no generic Opacity initially. A dedicated binary Combine node ignores inactive operands when enabled, while its own bypass passes through A; keep unavailable distinct from intentionally inactive. Retain one typed scalar Mask graph and no separate scheduler/alpha channel. Implement in focused PRs: evaluator-only Inactive bypass, Image-node Mask/Opacity, Radial->Exposure, preview handles/modes, Combine and modifiers. The precise Combine arithmetic is deferred until Combine implementation. Radial coordinates and inward feather are specified in the contract. Native geometric generators produce typed Mask directly; CTL/future DCTL retain Image output. A future visible persisted Image → Mask node extracts explicit R/G/B/A, with optional later undoable automatic insertion. Mask Overlay and native handles remain separate follow-ups.
+**Step 8 approved contract:** [docs/STEP8_MASKING_CONTRACT.md](docs/STEP8_MASKING_CONTRACT.md), D054. Mask generators bypass to Inactive (not white/black), Image/Mask transforms bypass to same-type pass-through, and generic Opacity is available on unary transforms with a defined compatible pass-through. Standalone generators and Mask Combine have no generic Opacity initially. A dedicated binary Combine node ignores inactive operands when enabled, while its own bypass passes through A; keep unavailable distinct from intentionally inactive. Retain one typed scalar Mask graph and no separate scheduler/alpha channel. Implement in focused PRs: evaluator-only Inactive bypass, Image-node Mask/Opacity, Radial->Exposure, preview handles/modes, Combine and modifiers. The precise Combine arithmetic is deferred until Combine implementation. Radial coordinates and inward feather are specified in the contract. Native geometric generators produce typed Mask directly; CTL/future DCTL retain Image output. A future visible persisted Image → Mask node extracts explicit R/G/B/A, with optional later undoable automatic insertion.
 
-**Step 8 candidate follow-ups (not yet a mandatory checklist):** Mask Overlay, on-image geometry controls, Linear Gradient and Rectangle masks, Pen/Bézier and Brush masks, Mask Combine, Invert/Blur, and basic Image-to-Mask/qualifier tools. Reusable/grouped masks, advanced compositing and specialised tools remain separately evaluated. **Agree the exact "Step 8 exit gate"**, including required functionality and test/native-validation evidence, and record it in `docs/STEP8_MASKING_CONTRACT.md` before scheduling the bulk of remaining slices. Continue focused PRs and proportionate readability reviews in the meantime.
+**Practical masking core priorities:** Mask Combine, upstream geometry and
+Overlay placement through Mask modifiers, a Linear Gradient generator and an
+initial Blur modifier. Rectangle, Pen/Bézier, Brush, a dedicated Invert modifier,
+and Image-to-Mask/qualifier tools remain candidates for focused follow-ups.
+Reusable/grouped masks, advanced compositing and specialised tools are evaluated
+separately.
+
+The owner agrees and records the exact [Step 8 exit gate](docs/STEP8_MASKING_CONTRACT.md#step-8-exit-gate-to-be-agreed)
+before scheduling the bulk of the remaining slices. The gate defines required
+workflows, acceptable limitations and test/native-validation evidence. Continue
+focused PRs and proportionate readability reviews during Step 8.
 
 SAM and other AI-generated masks are explicitly **not** Step 8 or Step 9 prerequisites, and no numbered step is reserved for them. Revisit only when a concrete product need justifies their complexity.
 
 ## Detachable UI panels / multi-monitor support
 
-**Planned focused UI milestone before the Step 9 audit.** This is not a
-mandatory Step 8 exit criterion. Documentation only for now; the feature is
-not implemented by this roadmap item.
+**Planned independent UI milestone.** Schedule it separately from the Step 8
+masking core and the Step 9 audit.
 
 - Enable Dear ImGui's native multi-viewport functionality so Preview, Nodes,
   Inspector and Filmstrip panels can detach from the main application window,
@@ -459,13 +439,15 @@ not implemented by this roadmap item.
   detaching, moving between monitors and docking again, including displays
   with different scaling factors and saved layout restoration after restart.
 
-## Deferred performance and responsiveness checkpoint
+## Performance and responsiveness checkpoint
 
-**Timing:** After the initial in-editor culling and batch-export workflows and
-the agreed Step 8 exit gate; immediately before the Step 9 baseline. This is a
-bounded measurement and prioritisation task, **not** a promise to implement
-optimisations or a new architecture milestone. Revisit earlier only if a
-measured bottleneck materially impairs a current workflow.
+Profile and make focused corrections whenever a bottleneck materially affects
+a current workflow.
+
+After the agreed Step 8 exit gate, run a bounded checkpoint on representative
+macOS workloads immediately before the Step 9 baseline. Record measurements
+and prioritise findings for the audit. Any optimisations pursue their own
+focused approval and validation.
 
 - **Filmstrip refresh observation (PR #114 review):** Claude measured roughly
   410–450 ms to refresh 2,000 graded photo sidecars. Record this as review evidence,
@@ -509,7 +491,13 @@ measured bottleneck materially impairs a current workflow.
 
 ## Step 9 — Comprehensive readability, simplicity and architecture audit (planned)
 
-**Entry:** Begin after the agreed **Step 8 exit gate** for practical non-AI masking is met. This is an intentionally **whole-codebase**, separately numbered quality milestone (D055), replacing the narrow post-first-Mask checkpoint, not a routine audit after every feature. Human readability and maintainability are goals; correctness, colour accuracy, user-data integrity and safe concurrency are non-negotiable constraints, not trade-offs for simpler-looking code.
+Begin after the agreed **Step 8 exit gate** for practical non-AI masking is met
+and use the immediately preceding performance checkpoint to inform the baseline.
+The Step 8 gate is the sole feature entry condition. This separately numbered
+**whole-codebase** quality milestone replaces the narrow post-first-Mask review
+under [D055](docs/DECISIONS.md#d055--step-9-whole-codebase-readability-simplicity-and-architecture-audit).
+The audit covers architecture, readability, correctness and maintainability.
+Preserve colour accuracy, user-data integrity and safe concurrency throughout.
 
 **Canonical Step 9 programme:**
 
