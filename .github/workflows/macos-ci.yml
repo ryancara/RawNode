@@ -95,6 +95,20 @@ jobs:
             -d "$app/Contents/Frameworks" \
             -p '@executable_path/../Frameworks/' \
             -i /System/Library -i /usr/lib
+          # dylibbundler can rewrite distinct Homebrew rpaths to the same
+          # bundle path. Modern dyld rejects duplicate LC_RPATH entries.
+          for file in "$binary" "$crop" "$app"/Contents/Frameworks/*.dylib; do
+            duplicates="$(otool -l "$file" | awk '$1 == "cmd" && $2 == "LC_RPATH" {getline; getline; print $2}' | sort | uniq -d)"
+            while IFS= read -r rpath; do
+              test -n "$rpath" || continue
+              while [ "$(otool -l "$file" | awk -v p="$rpath" '$1 == "path" && $2 == p {n++} END {print n+0}')" -gt 1 ]; do
+                install_name_tool -delete_rpath "$rpath" "$file"
+              done
+              if ! otool -l "$file" | awk '$1 == "cmd" && $2 == "LC_RPATH" {getline; getline; print $2}' | grep -Fxq "$rpath"; then
+                install_name_tool -add_rpath "$rpath" "$file"
+              fi
+            done <<< "$duplicates"
+          done
           cp "$(brew --prefix libomp)/LICENSE.TXT" "$app/Contents/Resources/RawDependencyNotices/libomp-LICENSE.TXT"
           for lib in "$app"/Contents/Frameworks/*.dylib; do
             codesign --force --sign - "$lib"
