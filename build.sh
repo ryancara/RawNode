@@ -1,7 +1,7 @@
 #!/bin/sh
-# Builds build/OfxRawHost.app (macOS) or build/OfxRawHost (elsewhere).
+# Builds build/RawNode.app (macOS) or build/RawNode (Linux).
 # ARCHS=arm64 or ARCHS=x86_64 selects a single macOS architecture (default: host).
-# Self-check: build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
+# Self-check: build/RawNode.app/Contents/MacOS/RawNode --selftest
 set -e
 cd "$(dirname "$0")"
 BUILD="${BUILD_DIR:-build}"
@@ -19,11 +19,11 @@ cmake -S . -B "$BUILD" "$@"
 cmake --build "$BUILD" --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}"
 
 if [ "$(uname)" = Darwin ]; then
-  APP="$BUILD/OfxRawHost.app"
+  APP="$BUILD/RawNode.app"
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/PlugIns"
-  BIN="$BUILD/OfxRawHost"
-  [ -x "$BIN" ] || BIN="$BUILD/Release/OfxRawHost"
-  cp "$BIN" "$APP/Contents/MacOS/OfxRawHost"
+  BIN="$BUILD/RawNode"
+  [ -x "$BIN" ] || BIN="$BUILD/Release/RawNode"
+  cp "$BIN" "$APP/Contents/MacOS/RawNode"
   if [ -f docs/logo.png ]; then
     ICONSET=$(mktemp -d)/AppIcon.iconset
     mkdir "$ICONSET"
@@ -37,10 +37,10 @@ if [ "$(uname)" = Darwin ]; then
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-  <key>CFBundleExecutable</key><string>OfxRawHost</string>
-  <key>CFBundleIdentifier</key><string>com.aaronmurniadi.ofxrawhost</string>
+  <key>CFBundleExecutable</key><string>RawNode</string>
+  <key>CFBundleIdentifier</key><string>com.ryancara.rawnode</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
-  <key>CFBundleName</key><string>OFX Raw Host</string>
+  <key>CFBundleName</key><string>RawNode</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION:-0.0.0}</string>
   <key>LSMinimumSystemVersion</key><string>${MACOSX_DEPLOYMENT_TARGET:-12.0}</string>
@@ -62,5 +62,5 @@ EOF
   codesign --verify --deep --strict --verbose=2 "$APP"
   echo "Built $(pwd)/$APP"
 else
-  echo "Built $(pwd)/$BUILD/OfxRawHost"
+  echo "Built $(pwd)/$BUILD/RawNode"
 fi

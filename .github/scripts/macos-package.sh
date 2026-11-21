@@ -2,8 +2,8 @@
 # Build inputs and package names are set by macos-ci.yml.
 set -euo pipefail
 
-app="$BUILD_DIR/OfxRawHost.app"
-binary="$app/Contents/MacOS/OfxRawHost"
+app="$BUILD_DIR/RawNode.app"
+binary="$app/Contents/MacOS/RawNode"
 mkdir -p "$app/Contents/Frameworks"
 # Bundle both direct and transitive Homebrew libraries instead of
 # relying on packages installed on the build/test machine.
@@ -61,11 +61,15 @@ ditto -c -k --sequesterRsrc --keepParent "$app" "$archive"
 scratch="$(mktemp -d "${RUNNER_TEMP}/rawnode-package.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 ditto -x -k "$archive" "$scratch"
-app="$scratch/OfxRawHost.app"
-binary="$app/Contents/MacOS/OfxRawHost"
+app="$scratch/RawNode.app"
+binary="$app/Contents/MacOS/RawNode"
 crop="$app/Contents/PlugIns/OfxRawHost.ofx.bundle/Contents/MacOS/OfxRawHost.ofx"
 notices="$app/Contents/Resources/RawDependencyNotices"
 plist="$app/Contents/Info.plist"
+test -x "$binary"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")" = RawNode
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = com.ryancara.rawnode
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = RawNode
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")" = "$VERSION"
 test "$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$plist")" = "$MACOSX_DEPLOYMENT_TARGET"
 test -s "$app/Contents/Resources/AppIcon.icns"

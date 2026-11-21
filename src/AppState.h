@@ -174,7 +174,6 @@ struct App {
   int filmstripTab = 0;  // 0=All, 1=RAW, 2=Compressed
   std::optional<PhotoMark> filmstripMarkFilter;  // disengaged = All
   bool showAbout = false;
-  bool showDonate = false;
 
   // The thumbnail worker exchanges jobs/results under thumbMutex; GL textures
   // and filmstrip entries stay on the UI thread. runApp joins it before teardown.

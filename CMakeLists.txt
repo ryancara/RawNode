@@ -210,6 +210,7 @@ target_include_directories(OfxRawHost PRIVATE
   third_party/fontawesome
 )
 
+set_target_properties(OfxRawHost PROPERTIES OUTPUT_NAME "RawNode")
 target_compile_definitions(OfxRawHost PRIVATE GL_SILENCE_DEPRECATION)
 
 add_custom_command(TARGET OfxRawHost POST_BUILD
@@ -320,23 +321,25 @@ add_dependencies(OfxRawHost OfxRawHostCrop)
 
 # macOS app bundle packaging (optional convenience target)
 if(APPLE)
+  set(app_bundle "${CMAKE_BINARY_DIR}/RawNode.app")
   add_custom_target(app ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory
-      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/MacOS
-      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources
-      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/PlugIns
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:OfxRawHost>
-      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/MacOS/OfxRawHost
+      "${app_bundle}/Contents/MacOS"
+      "${app_bundle}/Contents/Resources"
+      "${app_bundle}/Contents/PlugIns"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:OfxRawHost>"
+      "${app_bundle}/Contents/MacOS/"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      ${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf
-      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/fa-solid-900.ttf
+      "${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf"
+      "${app_bundle}/Contents/Resources/fa-solid-900.ttf"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-      ${OFX_BUNDLE}
-      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/PlugIns/OfxRawHost.ofx.bundle
+      "${OFX_BUNDLE}"
+      "${app_bundle}/Contents/PlugIns/OfxRawHost.ofx.bundle"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-      ${rawnode_notices}
-      ${CMAKE_BINARY_DIR}/OfxRawHost.app/Contents/Resources/RawDependencyNotices
-    COMMAND ${CMAKE_COMMAND} -E echo "Built ${CMAKE_BINARY_DIR}/OfxRawHost.app"
+      "${rawnode_notices}"
+      "${app_bundle}/Contents/Resources/RawDependencyNotices"
+    COMMAND ${CMAKE_COMMAND} -E echo "Built ${app_bundle}"
     DEPENDS OfxRawHost OfxRawHostCrop
+    VERBATIM
   )
 endif()

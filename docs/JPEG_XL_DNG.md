@@ -21,10 +21,10 @@ adjustments; no original Adobe ZIP is required. Use a separate build directory:
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DRAWNODE_ENABLE_JXL_DNG=ON
 cmake --build build --parallel 2
-./build/OfxRawHost --selftest
+./build/RawNode --selftest
 ```
 
-On macOS the executable is also copied into `build/OfxRawHost.app/Contents/MacOS/`.
+On macOS the executable is also copied into `build/RawNode.app/Contents/MacOS/`.
 A fresh OFF build uses the same commands with `-DRAWNODE_ENABLE_JXL_DNG=OFF`.
 Use separate build directories when comparing configurations.
 
@@ -44,7 +44,7 @@ cmake -S . -B build-jxl-on -DCMAKE_BUILD_TYPE=Release \
   -DOpenMP_CXX_LIB_NAMES=omp \
   -DOpenMP_omp_LIBRARY="$(brew --prefix libomp)/lib/libomp.dylib"
 cmake --build build-jxl-on --parallel 2
-build-jxl-on/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
+build-jxl-on/RawNode.app/Contents/MacOS/RawNode --selftest
 ```
 
 When OpenMP is found on Apple platforms, `LIBRAW_FORCE_OPENMP` prevents LibRaw's

@@ -52,7 +52,7 @@ jobs:
         run: cmake --build build --config Release --parallel 2
 
       - name: Self-test
-        run: ./build/Release/OfxRawHost.exe --selftest
+        run: ./build/Release/RawNode.exe --selftest
 
       - name: Assemble and verify portable ZIP
         shell: pwsh

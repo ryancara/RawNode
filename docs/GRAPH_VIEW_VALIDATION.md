@@ -39,14 +39,14 @@ pending; existing dated results below do not establish it.
 
 ```sh
 ./build.sh
-build/OfxRawHost --selftest-graph-view
-build/OfxRawHost --selftest-graph-runtime
-build/OfxRawHost --selftest-preferences
-build/OfxRawHost --selftest-photo
-build/OfxRawHost --selftest
+build/RawNode --selftest-graph-view
+build/RawNode --selftest-graph-runtime
+build/RawNode --selftest-preferences
+build/RawNode --selftest-photo
+build/RawNode --selftest
 ```
 
-Use `build/OfxRawHost.app/Contents/MacOS/OfxRawHost` on macOS. GraphViewTests
+Use `build/RawNode.app/Contents/MacOS/RawNode` on macOS. GraphViewTests
 runs real Dear ImGui frames/input without a graphics context: selection, body/
 header dragging, empty-canvas left/middle panning, zoom, focused F and toolbar
 framing, List/Graph switching, protected layouts, current Inspector/picker

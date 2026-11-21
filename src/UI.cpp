@@ -47,7 +47,7 @@ int runApp(const std::string &optionalPath) {
   const ConfigPaths config = applicationConfigPaths(app.preferencesWarning);
   const bool preferencesLoaded = initialisePreferences(app, config);
   if (!app.preferencesWarning.empty()) std::fprintf(stderr, "%s\n", app.preferencesWarning.c_str());
-  app.window = glfwCreateWindow(1400, 900, "OFX Raw Host", nullptr, nullptr);
+  app.window = glfwCreateWindow(1400, 900, "RawNode", nullptr, nullptr);
   if (!app.window) {
     glfwTerminate();
     return 1;

@@ -453,9 +453,6 @@ void DrawUiFrame(App &app) {
       if (ImGui::MenuItem("About")) {
         app.showAbout = true;
       }
-      if (ImGui::MenuItem("Donate")) {
-        app.showDonate = true;
-      }
       ImGui::EndMenu();
     }
     ImGui::EndMainMenuBar();
@@ -520,38 +517,21 @@ void DrawUiFrame(App &app) {
   }
 
   if (app.showAbout) {
-    ImGui::OpenPopup("About");
+    ImGui::OpenPopup("About RawNode");
     app.showAbout = false;
   }
-  if (ImGui::BeginPopupModal("About", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::TextUnformatted("OfxRawHost");
-    ImGui::Separator();
-    ImGui::TextWrapped("A free and open-source OFX raw image host for color grading and plugin-based processing.");
+  if (ImGui::BeginPopupModal("About RawNode", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::TextWrapped("A free and open-source RAW photo editor.");
+    ImGui::TextWrapped("Derived from OFX Raw Host by Aaron Murniadi.");
     ImGui::Spacing();
-    ImGui::TextUnformatted("Repository:");
-    if (ImGui::Button("github.com/aaronmurniadi/ofxrawhost")) {
-      openUrl("https://github.com/aaronmurniadi/ofxrawhost");
+    if (ImGui::Button("github.com/ryancara/RawNode")) {
+      openUrl("https://github.com/ryancara/RawNode");
     }
     ImGui::Spacing();
     if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
   }
 
-  if (app.showDonate) {
-    ImGui::OpenPopup("Donate");
-    app.showDonate = false;
-  }
-  if (ImGui::BeginPopupModal("Donate", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::TextWrapped("OfxRawHost is free and open-source. If you find it useful, consider supporting its development.");
-    ImGui::Spacing();
-    ImGui::TextUnformatted("Buy me a coffee:");
-    if (ImGui::Button("buymeacoffee.com/aaronmurniadi")) {
-      openUrl("https://buymeacoffee.com/aaronmurniadi");
-    }
-    ImGui::Spacing();
-    if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
-  }
   if (!app.exportDialog.open) {
     finishParameterGesture(app);
     ui::finishPreviewInteraction(app);

@@ -10,7 +10,7 @@ $extracted = Join-Path $env:RUNNER_TEMP 'RawNode isolated extraction'
 $hiddenWorkspace = "$workspace.unavailable"
 New-Item -ItemType Directory -Path $output, $stage | Out-Null
 
-Copy-Item build/Release/OfxRawHost.exe, build/Release/fa-solid-900.ttf $stage
+Copy-Item build/Release/RawNode.exe, build/Release/fa-solid-900.ttf $stage
 Copy-Item build/Plugins, build/RawDependencyNotices $stage -Recurse
 # vcpkg's bin contains Release DLLs; debug/bin is deliberately excluded.
 Copy-Item native-deps/vcpkg/x64-windows/bin/*.dll $stage
@@ -51,7 +51,7 @@ if ($env:RELEASE_VERSION) {
 RawNode $env:RELEASE_VERSION for Windows x64
 Source and build instructions: $source
 
-Extract the entire ZIP and launch OfxRawHost.exe from this folder.
+Extract the entire ZIP and launch RawNode.exe from this folder.
 Windows 10 version 1903 or later and an OpenGL 3.3-capable driver are required.
 JPEG XL DNG support is OFF. The application is unsigned.
 Licence notices are in LICENSE, RawDependencyNotices and ThirdPartyNotices.
@@ -62,7 +62,7 @@ RawNode Windows x64 Release - manual validation test build
 Commit: $commit
 CI run: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
 
-Extract the entire ZIP and launch OfxRawHost.exe from this folder.
+Extract the entire ZIP and launch RawNode.exe from this folder.
 Windows 10 version 1903 or later and an OpenGL 3.3-capable driver are required.
 JPEG XL DNG support is OFF, as in the existing Windows CI configuration.
 Windows Move to Trash requests native recycling. Windows may offer explicit
@@ -82,7 +82,7 @@ $zip = Join-Path $output "$name.zip"
 Compress-Archive -Path $stage -DestinationPath $zip
 Expand-Archive -LiteralPath $zip -DestinationPath $extracted
 $app = Join-Path $extracted $name
-foreach ($required in 'OfxRawHost.exe', 'fa-solid-900.ttf', 'vcruntime140.dll', 'msvcp140.dll',
+foreach ($required in 'RawNode.exe', 'fa-solid-900.ttf', 'vcruntime140.dll', 'msvcp140.dll',
     'vcomp140.dll', 'RawDependencyNotices/LibRaw/LICENSE.CDDL',
     'RawDependencyNotices/DISTRIBUTION_NOTICES.md', 'RawDependencyNotices/Source.txt',
     'Plugins/OfxRawHost.ofx.bundle/Contents/Win64/OfxRawHost.ofx',
@@ -124,7 +124,7 @@ try {
     $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
     $env:OFX_PLUGIN_PATH = $null
     $env:CTL_MODULE_PATH = $null
-    $process = Start-Process -FilePath "$app/OfxRawHost.exe" -ArgumentList '--selftest' `
+    $process = Start-Process -FilePath "$app/RawNode.exe" -ArgumentList '--selftest' `
         -WorkingDirectory $extracted -PassThru `
         -RedirectStandardOutput "$output/extracted-selftest.stdout.log" `
         -RedirectStandardError "$output/extracted-selftest.stderr.log"

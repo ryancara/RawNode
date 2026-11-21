@@ -1,11 +1,12 @@
 <p align="center">
-  <img src="docs/logo.png" width="320" alt="OFX Raw Host logo">
+  <img src="docs/logo.png" width="320" alt="RawNode application icon">
 </p>
 
 # RawNode
 
-RawNode is a fork of OFX Raw Host with native, OFX and CTL processors sharing
-one document graph and evaluator. Architecture Steps 1–7 and the targeted
+RawNode is a fork of [OFX Raw Host](https://github.com/aaronmurniadi/ofxrawhost)
+with native, OFX and CTL processors sharing one document graph and evaluator.
+Architecture Steps 1–7 and the targeted
 post-Step-7 correction gate are complete. The switchable Graph/List editor now
 includes the visual foundation (#79), contextual workspace (#80) and
 connections/deletion (#82); placement/usability awaits an agreed PR 2C scope
@@ -18,8 +19,6 @@ before Step 8 masking/compositing. See [project context](docs/PROJECT_CONTEXT.md
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
 ![Built with](https://img.shields.io/badge/C%2B%2B17%20%2B%20Dear%20ImGui-lightgrey)
 
-<a href="https://www.buymeacoffee.com/aaronmurniadi"><img src="https://img.buymeacoffee.com/button-api/?text=Buy%20me%20a%20coffee&emoji=&slug=aaronmurniadi&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" alt="Buy me a coffee"></a>
-
 A minimal still-image [OpenFX](https://github.com/AcademySoftwareFoundation/openfx) **plugin host**.
 Open a RAW (or PNG/JPEG/TIFF/EXR) photo, run it through one or more OFX filter plugins, preview the result,
 and export to PNG or JPEG — no video NLE required.
@@ -27,7 +26,7 @@ and export to PNG or JPEG — no video NLE required.
 Use it to try OFX effects that normally only run inside Resolve, Nuke, or similar hosts,
 on still photos and a simple processing chain.
 
-![OFX Raw Host](docs/screenshot.png)
+![Screenshot of the upstream OFX Raw Host application](docs/screenshot.png)
 
 ---
 
@@ -88,10 +87,10 @@ Each filename includes the release version.
 | macOS 15 or later, Intel, JPEG XL OFF | `RawNode-macOS-x86_64-JXL-OFF-v<VERSION>.zip` |
 | Windows 10 version 1903 or later, x64, JPEG XL OFF | `RawNode-Windows-x64-JXL-OFF-v<VERSION>.zip` |
 
-- **macOS:** Extract the ZIP and move `OfxRawHost.app` to Applications.
+- **macOS:** Extract the ZIP and move `RawNode.app` to Applications.
   The app is ad-hoc signed. If Gatekeeper blocks the first launch, use
   **System Settings → Privacy & Security → Open Anyway**.
-- **Windows:** Extract the entire ZIP and launch `OfxRawHost.exe` from the
+- **Windows:** Extract the entire ZIP and launch `RawNode.exe` from the
   extracted folder. Keep the DLLs, plugins and fonts alongside it. The app
   is unsigned and requires an OpenGL 3.3-capable graphics driver.
 
@@ -102,7 +101,7 @@ decoding. See [JPEG XL DNG validation](docs/JPEG_XL_DNG.md) for its limits.
 
 ## Installing OFX plugins
 
-OFX Raw Host loads plugins from the platform default OFX directory plus any paths in `OFX_PLUGIN_PATH`:
+RawNode loads plugins from the platform default OFX directory plus any paths in `OFX_PLUGIN_PATH`:
 
 | Platform | Default path                                |
 | -------- | ------------------------------------------- |
@@ -122,10 +121,10 @@ Or point the host at a build directory without copying (apps launched from Finde
 don't see shell variables, so start it from the terminal):
 
 ```sh
-OFX_PLUGIN_PATH=/path/to/plugins /Applications/OfxRawHost.app/Contents/MacOS/OfxRawHost
+OFX_PLUGIN_PATH=/path/to/plugins /Applications/RawNode.app/Contents/MacOS/RawNode
 ```
 
-Restart OFX Raw Host after installing plugins. If none are found, the status bar says so.
+Restart RawNode after installing plugins. If none are found, the status bar says so.
 
 ---
 
@@ -156,17 +155,17 @@ cd RawNode
 ./build.sh
 ```
 
-On macOS this produces `build/OfxRawHost.app`. On Linux it produces `build/OfxRawHost`.
+On macOS this produces `build/RawNode.app`. On Linux it produces `build/RawNode`.
 
 ```sh
 # Enable native CPU instructions (AVX, F16C, etc.) for extra speed
 OFX_NATIVE_ARCH=1 ./build.sh
 
 # macOS self-test
-build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
+build/RawNode.app/Contents/MacOS/RawNode --selftest
 
 # Linux
-build/OfxRawHost --selftest
+build/RawNode --selftest
 ```
 
 ### macOS Apple Silicon development downloads
@@ -174,7 +173,7 @@ build/OfxRawHost --selftest
 Successful macOS CI runs upload `RawNode-macOS-arm64-JXL-OFF` and
 `RawNode-macOS-arm64-JXL-ON` under **Artifacts**. Download your chosen
 artifact, extract the outer archive and then extract the enclosed ZIP to
-obtain `OfxRawHost.app`. These 14-day, ad-hoc-signed test builds require
+obtain `RawNode.app`. These 14-day, ad-hoc-signed test builds require
 **macOS 15 or later**. Gatekeeper may require **System Settings → Privacy &
 Security → Open Anyway**. These builds are experimental.
 
@@ -197,10 +196,10 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
   "-DVCPKG_INSTALLED_DIR=$pwd/native-deps/vcpkg" `
   -DRAWNODE_ENABLE_JXL_DNG=OFF
 cmake --build build --config Release --parallel 2
-./build/Release/OfxRawHost.exe --selftest
+./build/Release/RawNode.exe --selftest
 ```
 
-Launch `build/Release/OfxRawHost.exe` on a desktop with an OpenGL 3.3-capable
+Launch `build/Release/RawNode.exe` on a desktop with an OpenGL 3.3-capable
 graphics driver. The owner reports successful native Windows desktop validation
 on 2026-11-20 using PR #120's portable x64 Release build; see the
 [Windows validation record](docs/WINDOWS_VALIDATION.md). Windows JPEG XL support
@@ -213,7 +212,7 @@ accepted non-blocking limitation; see the
 For manual validation without a compiler, download `RawNode-Windows-x64-Release`
 from a successful Windows CI run's **Artifacts** section (GitHub sign-in is
 required). Extract the artifact, then extract `RawNode-Windows-x64-Release.zip`
-and launch `OfxRawHost.exe` from its folder. Keep the bundled DLLs, `Plugins`
+and launch `RawNode.exe` from its folder. Keep the bundled DLLs, `Plugins`
 directory and icon font alongside it. These unsigned Release test builds are
 retained for 14 days; they include a full self-test log from an isolated
 extraction with the original checkout unavailable. This does not install the

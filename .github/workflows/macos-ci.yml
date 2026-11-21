@@ -67,7 +67,7 @@ jobs:
       - name: Verify native architecture and actual LibRaw OpenMP linkage
         run: |
           test "$(uname -m)" = "$ARCHS"
-          binary="$BUILD_DIR/OfxRawHost.app/Contents/MacOS/OfxRawHost"
+          binary="$BUILD_DIR/RawNode.app/Contents/MacOS/RawNode"
           file "$binary"
           test "$(lipo -archs "$binary")" = "$ARCHS"
           test "$(lipo -archs "$BUILD_DIR/libRawNodeRaw.a")" = "$ARCHS"
@@ -84,7 +84,7 @@ jobs:
 
       - name: Self-test
         run: |
-          "$BUILD_DIR/OfxRawHost.app/Contents/MacOS/OfxRawHost" --selftest
+          "$BUILD_DIR/RawNode.app/Contents/MacOS/RawNode" --selftest
 
       - name: Assemble and verify portable macOS ZIP
         run: bash .github/scripts/macos-package.sh
