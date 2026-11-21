@@ -309,7 +309,7 @@ static void drawDirectorySetting(const char *label, const char *pickerTitle, std
                                  std::string &feedback) {
   ImGui::PushID(label);
   ImGui::TextUnformatted(label);
-  if (ImGui::Button("Choose Folder…")) {
+  if (ImGui::Button("Choose Folder...")) {
     if (!pfd::settings::available()) {
       feedback = "No system folder picker is available.";
     } else {
@@ -438,7 +438,7 @@ void DrawUiFrame(App &app) {
       if (ImGui::MenuItem("Export", "Ctrl+E", false, canExport(app))) doExport(app);
 #endif
       ImGui::Separator();
-      settingsRequested = ImGui::MenuItem("Settings…");
+      settingsRequested = ImGui::MenuItem("Settings...");
 #ifdef __APPLE__
       if (ImGui::MenuItem("Quit", "⌘+Q")) glfwSetWindowShouldClose(app.window, 1);
 #else
