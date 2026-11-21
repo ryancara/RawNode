@@ -2,7 +2,7 @@
 set -euo pipefail
 
 mkdir -p "$SANITIZER_LOG_DIR"
-for binary in build-sanitizers/OfxRawHost build-sanitizers/OfxRawHost.ofx; do
+for binary in build-sanitizers/RawNode build-sanitizers/OfxRawHost.ofx; do
   symbols="$SANITIZER_LOG_DIR/$(basename "$binary").symbols"
   nm "$binary" > "$symbols"
   grep -q __asan_init "$symbols"

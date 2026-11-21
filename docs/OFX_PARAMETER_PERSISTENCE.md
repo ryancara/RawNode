@@ -105,7 +105,7 @@ Linux Release validation commands:
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j4
-build/OfxRawHost --selftest
+build/RawNode --selftest
 git diff --check
 ```
 

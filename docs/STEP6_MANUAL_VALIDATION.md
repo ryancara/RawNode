@@ -68,7 +68,7 @@ Use merged Step 6 (`6294a034`) or later `main` and record the tested commit.
 Use working copies of two visibly different Nikon NEFs (A and B), and a separate
 export folder. Include the Nikon models/compression
 modes used in normal editing; record any unsupported decode separately. Run
-`build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest` as a platform check.
+`build/RawNode.app/Contents/MacOS/RawNode --selftest` as a platform check.
 
 ## Editing and native dialogs
 

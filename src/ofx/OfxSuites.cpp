@@ -667,6 +667,7 @@ static const void *fetchSuite(OfxPropertySetHandle, const char *name, int versio
 static PropSet gHostProps = [] {
   PropSet ps;
   OfxPropertySetHandle h = H(&ps);
+  // Keep the inherited OFX host name and label for plugin compatibility.
   propSetString(h, kOfxPropName, 0, "local.ofxrawhost");
   propSetString(h, kOfxPropLabel, 0, "OFX Raw Host");
   propSetInt(h, kOfxPropAPIVersion, 0, 1);
