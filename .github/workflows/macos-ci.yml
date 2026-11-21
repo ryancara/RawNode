@@ -30,7 +30,7 @@ jobs:
           submodules: recursive
 
       - name: Install build dependencies
-        run: brew install cmake pkg-config jpeg-turbo libtiff little-cms2 openexr python libomp
+        run: brew install cmake pkg-config jpeg-turbo libtiff little-cms2 openexr python libomp dylibbundler
 
       - name: Configure clean Release build
         run: |
@@ -88,19 +88,28 @@ jobs:
             <key>LSMinimumSystemVersion</key><string>12.0</string>
           </dict></plist>
           PLIST
-          omp_prefix="$(brew --prefix libomp)"
-          omp_ref="$(otool -L "$binary" | awk '$1 ~ /libomp[.]dylib$/ {print $1}')"
-          test -n "$omp_ref"
-          cp -L "$omp_prefix/lib/libomp.dylib" "$app/Contents/Frameworks/libomp.dylib"
-          cp "$omp_prefix/LICENSE.TXT" "$app/Contents/Resources/RawDependencyNotices/libomp-LICENSE.TXT"
-          chmod u+w "$app/Contents/Frameworks/libomp.dylib"
-          install_name_tool -id '@rpath/libomp.dylib' "$app/Contents/Frameworks/libomp.dylib"
-          install_name_tool -change "$omp_ref" '@executable_path/../Frameworks/libomp.dylib' "$binary"
+          # Bundle both direct and transitive Homebrew libraries instead of
+          # relying on packages installed on the build/test machine.
+          crop="$app/Contents/PlugIns/OfxRawHost.ofx.bundle/Contents/MacOS/OfxRawHost.ofx"
+          dylibbundler -ns -b -x "$binary" -x "$crop" \
+            -d "$app/Contents/Frameworks" \
+            -p '@executable_path/../Frameworks/' \
+            -i /System/Library -i /usr/lib
+          cp "$(brew --prefix libomp)/LICENSE.TXT" "$app/Contents/Resources/RawDependencyNotices/libomp-LICENSE.TXT"
+          for lib in "$app"/Contents/Frameworks/*.dylib; do
+            codesign --force --sign - "$lib"
+          done
           codesign --force --sign - "$app/Contents/PlugIns/OfxRawHost.ofx.bundle"
-          codesign --force --sign - "$app/Contents/Frameworks/libomp.dylib"
           codesign --force --sign - "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
-          otool -L "$binary" | grep -F '@executable_path/../Frameworks/libomp.dylib'
+          # Reject absolute Homebrew load paths in the app, bundled libraries
+          # and bundled OFX module, including transitive library dependencies.
+          for file in "$binary" "$crop" "$app"/Contents/Frameworks/*.dylib; do
+            if otool -L "$file" | grep -E "^[[:space:]]*/(opt/homebrew|usr/local)/"; then
+              echo "Unbundled Homebrew dependency in $file" >&2
+              exit 1
+            fi
+          done
           "$binary" --selftest
           ditto -c -k --sequesterRsrc --keepParent "$app" "$BUILD_DIR/RawNode-macOS-arm64-JXL-${{ matrix.jxl }}.zip"
 
