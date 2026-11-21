@@ -127,11 +127,6 @@ endif()
 # source locations and binary redistribution obligations are documented separately.
 set(rawnode_notices "${CMAKE_BINARY_DIR}/RawDependencyNotices")
 file(MAKE_DIRECTORY "${rawnode_notices}/LibRaw")
-file(COPY "${PROJECT_SOURCE_DIR}/docs/DISTRIBUTION_NOTICES.md"
-  DESTINATION "${rawnode_notices}")
-file(COPY "${PROJECT_SOURCE_DIR}/third_party/stb"
-  "${PROJECT_SOURCE_DIR}/third_party/portable-file-dialogs"
-  DESTINATION "${rawnode_notices}" FILES_MATCHING PATTERN "*.h")
 file(COPY "${rawnode_libraw_SOURCE_DIR}/COPYRIGHT"
   "${rawnode_libraw_SOURCE_DIR}/LICENSE.CDDL" "${rawnode_libraw_SOURCE_DIR}/LICENSE.LGPL"
   DESTINATION "${rawnode_notices}/LibRaw")

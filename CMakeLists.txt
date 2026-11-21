@@ -48,6 +48,13 @@ FetchContent_MakeAvailable(ctl)
 find_package(PkgConfig QUIET)
 include(cmake/RawDependencies.cmake)
 
+# Extra notices for distribution of the application.
+file(COPY "${PROJECT_SOURCE_DIR}/docs/DISTRIBUTION_NOTICES.md"
+  DESTINATION "${rawnode_notices}")
+file(COPY "${PROJECT_SOURCE_DIR}/third_party/stb"
+  "${PROJECT_SOURCE_DIR}/third_party/portable-file-dialogs"
+  DESTINATION "${rawnode_notices}" FILES_MATCHING PATTERN "*.h")
+
 # --- libtiff ---
 if(PkgConfig_FOUND)
   pkg_check_modules(LIBTIFF IMPORTED_TARGET libtiff-4)

@@ -119,7 +119,7 @@ try {
     # Set-Location alone leaves the process's directory handle on the checkout,
     # which prevents Windows from renaming that directory.
     [Environment]::CurrentDirectory = $app
-    # Hide sources, build outputs, vcpkg and the compiled-in source font path.
+    # Hide sources, build outputs and vcpkg.
     Move-Item -LiteralPath $workspace -Destination $hiddenWorkspace
     $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
     $env:OFX_PLUGIN_PATH = $null
