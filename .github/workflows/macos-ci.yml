@@ -107,8 +107,8 @@ jobs:
           notices="$app/Contents/Resources/RawDependencyNotices"
           cp LICENSE "$notices/RawNode-LICENSE.txt"
           for dependency in ctl glfw imgui; do
+            mkdir -p "$notices/$dependency"
             cp "$BUILD_DIR/_deps/$dependency-src"/LICENSE* "$notices/$dependency/"
-            cp "$BUILD_DIR/_deps/$dependency-src/." "$notices/$dependency/" -R
           done
           cp third_party/fontawesome/README.md "$notices/FontAwesome.txt"
           cp third_party/fontawesome/LICENSE.txt "$notices/FontAwesome-LICENSE.txt"
