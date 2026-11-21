@@ -2,13 +2,14 @@
 
 #include "AppState.h"
 #include "DocumentMutation.h"
-#include "Export.h"
+#include "ExportTestSession.h"
 #include "GraphCommands.h"
 #include "GraphDepthFixtures.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "RenderPipeline.h"
 #include "persist/DocumentActions.h"
+#include "persist/DocumentActionsPriv.h"
 #include "ofx/OfxHost.h"
 #include "ofxParam.h"
 #include "ui/UiContext.h"
@@ -88,7 +89,7 @@ struct Gate {
 struct GateWorkerGuard {
   App &app; Gate &gate;
   ~GateWorkerGuard() {
-    gate.unblock(); app.renderer.shutdown();
+    gate.unblock(); app.exportDialog.session.reset(); app.renderer.shutdown();
     RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
   }
 };
@@ -407,7 +408,7 @@ static bool testInactiveInspectionAndRestoration() {
 
   for (bool success : {true, false}) {
     const auto before = publication(app).generation;
-    CHECK(runExportJob(app, files.path(success ? "inactive.png" : "absent/failed.png")) == success);
+    CHECK(test_export::run(app, files.path(success ? "inactive.png" : "absent/failed.png")) == success);
     CHECK(idle(app));
     frame = publication(app);
     CHECK(frame.result.state == EvaluationState::Inactive && frame.result.requested == mask(generator) &&
@@ -472,7 +473,7 @@ static bool testMaskOnlyNativePreview() {
   std::string beforeJson, afterJson, error;
   CHECK(encodeGraphFile(beforeFile, beforeJson, error) && encodeGraphFile(afterFile, afterJson, error));
   CHECK(beforeJson == afterJson && app.history.size() == historySize && app.history.cursor() == historyCursor);
-  CHECK(runExportJob(app, files.path("mask-view.png")) && idle(app));
+  CHECK(test_export::run(app, files.path("mask-view.png")) && idle(app));
   CHECK(maskOnlyPreview(app) && publication(app).result.requested == mask(radial));
   CHECK(app.getStatus().find("Exported mask-view.png") == 0);
   Image written; ColorEncoding encoding; bool raw;
@@ -1022,7 +1023,7 @@ static bool testOverlayDocumentBoundaries() {
   CHECK(encodeGraphFile(afterFile, afterJson, error) && beforeJson == afterJson);
   CHECK(app.history.size() == historySize && app.history.cursor() == historyCursor);
   CHECK(app.previewZoom == 2 && app.previewPanX == 17 && app.previewPanY == -23);
-  CHECK(runExportJob(app, files.path("overlay-export.png")) && idle(app));
+  CHECK(test_export::run(app, files.path("overlay-export.png")) && idle(app));
   CHECK(previewMode(app) == PreviewMode::MaskOverlay && publication(app).overlayMask->requested == mask(radial));
   CHECK(app.getStatus().find("Exported overlay-export.png") == 0);
   Image written; ColorEncoding encoding; bool raw;
@@ -1098,21 +1099,21 @@ static bool testExportPolicyAndContext() {
   CHECK(add(app, unreachable, NodeOperation::ImageProcessor));
   findNode(app, unreachable)->storedIdentifier = unreachable.value;
   RenderRuntimeTestAccess::evaluation(app.renderer, &executor);
-  CHECK(runExportJob(app, files.path("available.png")) && processor->width == 2 && processor->height == 1);
+  CHECK(test_export::run(app, files.path("available.png")) && processor->width == 2 && processor->height == 1);
   CHECK(processor->lastInput == app.full.px.data() && app.getStatus().find(unreachable.value) == std::string::npos);
   Image written; ColorEncoding encoding; bool raw;
   CHECK(loadImage(files.path("available.png"), written, encoding, raw) && written.w == 2 && written.h == 1);
   Node placeholder; placeholder.id = missing; placeholder.storedIdentifier = missing.value;
   CHECK(graph::insertImageNode(app, std::move(placeholder)).ok());
-  CHECK(runExportJob(app, files.path("warnings.png")) && app.getStatus().find(missing.value) != std::string::npos);
+  CHECK(test_export::run(app, files.path("warnings.png")) && app.getStatus().find(missing.value) != std::string::npos);
   processor->fail = true;
-  CHECK(!runExportJob(app, files.path("error.png")) && !std::filesystem::exists(files.path("error.png")));
+  CHECK(!test_export::run(app, files.path("error.png")) && !std::filesystem::exists(files.path("error.png")));
   CHECK(app.getStatus().find("runtime backend failure") != std::string::npos);
   CHECK(add(app, unavailable, NodeOperation::TestUnavailableImage) && graph::setDocumentOutput(app, image(unavailable)).ok());
-  CHECK(!runExportJob(app, files.path("unavailable.png")) && app.getStatus().find("unavailable") != std::string::npos);
+  CHECK(!test_export::run(app, files.path("unavailable.png")) && app.getStatus().find("unavailable") != std::string::npos);
   CHECK(!std::filesystem::exists(files.path("unavailable.png")));
   CHECK(graph::setDocumentOutput(app, image(app.primarySource)).ok());
-  CHECK(!runExportJob(app, files.path("source-only.png"))); // Stored off-spine nodes do not enable export.
+  CHECK(test_export::run(app, files.path("source-only.png"))); // Off-spine nodes never run.
   app.renderer.start(); app.renderer.requestDocumentPreview(); CHECK(idle(app));
   CHECK(publication(app).result.requested == image(app.primarySource) && publication(app).result.state == EvaluationState::Available);
   app.renderer.shutdown();
@@ -1127,7 +1128,7 @@ static bool testExportPolicyAndContext() {
   RenderRuntimeTestAccess::evaluation(dimensions.renderer, &sized);
   WorkerGuard guard{dimensions, sized}; dimensions.renderer.start(); dimensions.renderer.requestDocumentPreview();
   CHECK(idle(dimensions) && publication(dimensions).result.state == EvaluationState::Available);
-  CHECK(!runExportJob(dimensions, files.path("dimension-error.png")));
+  CHECK(!test_export::run(dimensions, files.path("dimension-error.png")));
   CHECK(dimensions.getStatus().find("Image 2x1, Mask 3x1") != std::string::npos);
   CHECK(!std::filesystem::exists(files.path("dimension-error.png")) && idle(dimensions));
   return true;
@@ -1183,19 +1184,26 @@ static bool testPhotoSwitch(bool exporting) {
     probe.observed = true; probe.cv.notify_all();
   });
   GateWorkerGuard guard{app, gate};
-  if (exporting) CHECK(startExport(app, output));
+  if (exporting) CHECK(test_export::start(app, output));
   app.renderer.start();
   CHECK(gate.wait(1));
   bool waited = false;
-  std::thread release([&] {
-    std::unique_lock<std::mutex> lock(probe.mutex);
-    waited = probe.cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe.observed; }) && probe.intact;
-    lock.unlock();
-    gate.unblock(); // Independent of the control thread blocked in openPath.
-  });
-  openPath(app, photoB);
-  release.join();
-  app.renderer.joinExport();
+  if (exporting) {
+    const bool refused = !openDroppedPhoto(app, photoB, {}, {}) &&
+                         app.path == photoA && app.full.px.data() == pixelsA;
+    gate.unblock();
+    CHECK(refused && test_export::finish(app));
+    waited = openPath(app, photoB);
+  } else {
+    std::thread release([&] {
+      std::unique_lock<std::mutex> lock(probe.mutex);
+      waited = probe.cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe.observed; }) && probe.intact;
+      lock.unlock();
+      gate.unblock();
+    });
+    openPath(app, photoB);
+    release.join();
+  }
   CHECK(waited && idle(app));
   Image decodedB; ColorEncoding detected; bool raw;
   CHECK(loadImage(photoB, decodedB, detected, raw));
@@ -1214,9 +1222,8 @@ static bool testPhotoSwitch(bool exporting) {
 static bool testExportPhotoSwitch() { return testPhotoSwitch(true); }
 static bool testPreviewPhotoSwitch() { return testPhotoSwitch(false); }
 
-// Both transfer operations must drain borrowers before swapping nodes or
-// reallocating storage. The old export writes the accepted old grade; a preview
-// after the edit evaluates the complete new grade through the shared runtime.
+// Transfers drain a preview before swapping nodes. During export the session
+// retains the old grade until the control thread collects the result.
 static bool testTransferLifetime(bool append, bool exporting) {
   Files files; Gate gate; App app; source(app);
   const NodeId oldId{"transfer-borrowed"};
@@ -1244,16 +1251,25 @@ static bool testTransferLifetime(bool append, bool exporting) {
     probe.observed = true; probe.cv.notify_all();
   });
   GateWorkerGuard guard{app, gate};
-  if (exporting) CHECK(startExport(app, output));
+  if (exporting) CHECK(test_export::start(app, output));
   app.renderer.start(); CHECK(gate.wait(1));
   bool waited = false;
-  std::thread release([&] {
-    std::unique_lock<std::mutex> lock(probe.mutex);
-    waited = probe.cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe.observed; }) && probe.intact;
-    lock.unlock(); gate.unblock();
-  });
+  std::thread release;
+  if (exporting) {
+    waited = !app.renderer.canCaptureSnapshot() && app.full.px.data() == oldFull &&
+             findNode(app, oldId)->processor.get() == processor;
+    gate.unblock();
+    CHECK(test_export::finish(app));
+  } else {
+    release = std::thread([&] {
+      std::unique_lock<std::mutex> lock(probe.mutex);
+      waited = probe.cv.wait_for(lock, std::chrono::seconds(2), [&] { return probe.observed; }) && probe.intact;
+      lock.unlock();
+      gate.unblock();
+    });
+  }
   const bool applied = append ? appendGrade(app, grade) : applyGrade(app, grade);
-  release.join(); app.renderer.joinExport();
+  if (release.joinable()) release.join();
   CHECK(applied && waited && idle(app) && app.full.px.data() == oldFull && app.preview == oldPreview);
   CHECK(app.nodes.size() == (append ? 3u : 2u));
   const auto frame = publication(app);
@@ -1273,8 +1289,8 @@ static bool testTransferLifetimes() {
   return true;
 }
 
-static bool testFragmentCaptureOwnership(bool exporting, bool failing) {
-  Files files; Gate gate; App app; source(app);
+static bool testFragmentCaptureOwnership(bool failing) {
+  Gate gate; App app; source(app);
   const NodeId id{"capture-borrowed"};
   auto *processor = numeric(app, id, 2.0f); CHECK(processor);
   processor->captureRuntime = &app.renderer;
@@ -1314,11 +1330,9 @@ static bool testFragmentCaptureOwnership(bool exporting, bool failing) {
 
   processor->failCapture = failing;
   gate.arm();
-  const auto exportPath = files.path("capture.png");
-  if (exporting) CHECK(startExport(app, exportPath)); else app.renderer.requestDocumentPreview();
+  app.renderer.requestDocumentPreview();
   CHECK(gate.wait(1) && processor->rendering);
-  state = RenderRuntimeTestAccess::snapshot(app.renderer);
-  CHECK(exporting ? state.exportBusy : state.previewBusy);
+  CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).previewBusy);
   bool waited = false;
   std::thread release([&] {
     std::unique_lock<std::mutex> lock(probe.mutex);
@@ -1328,11 +1342,11 @@ static bool testFragmentCaptureOwnership(bool exporting, bool failing) {
   warnings = {"untouched"};
   const bool capturedOk = captureNodeFragment(app, {id}, captured, warnings);
   const auto status = app.getStatus();
-  release.join(); app.renderer.joinExport();
+  release.join();
   CHECK(capturedOk == !failing && waited && probe.completed && probe.quiet);
   CHECK(!processor->unsafeCapture && !processor->unsafeSync && processor->syncs == 2 && processor->captures == 2 && idle(app));
   CHECK(RenderRuntimeTestAccess::snapshot(app.renderer).mutationDepth == 0);
-  CHECK(app.getStatus() == (exporting || failing ? status : "1×1 preview"));
+  CHECK(app.getStatus() == (failing ? status : "1×1 preview"));
   CHECK(captured.nodes.size() == 1 && captured.nodes[0].id == id.value && captured.nodes[0].paramsJson.at("gain") == "2");
   CHECK(captured.positions.at(id.value).x == 7.5 && captured.positions.at(id.value).y == -3);
   CHECK(failing ? warnings == std::vector<std::string>{"untouched"} : warnings.empty());
@@ -1340,14 +1354,6 @@ static bool testFragmentCaptureOwnership(bool exporting, bool failing) {
   CHECK(app.full.px.data() == pixels && app.preview == preview && findNode(app, id)->processor.get() == processor);
   CHECK(findNode(app, id)->fixedInputs.at(ports::image) == image(app.primarySource));
   CHECK(publication(app).result.state == EvaluationState::Available && std::get<ImageValue>(publication(app).result.value)->px[0] == 0.5f);
-  if (exporting) {
-    const auto expected = files.path("expected.png"); auto reference = app.full;
-    for (size_t i = 0; i < reference.px.size(); ++i) if (i % 4 != 3) reference.px[i] *= 2;
-    CHECK(writeImage(reference, expected, app.outputEncoding, 92));
-    Image actual, wanted; ColorEncoding encoding; bool raw;
-    CHECK(loadImage(exportPath, actual, encoding, raw) && loadImage(expected, wanted, encoding, raw));
-    CHECK(actual.w == 2 && actual.h == 1 && actual.px == wanted.px);
-  }
   // Failed capture releases ownership, and a later capture/render succeeds.
   processor->failCapture = false;
   CHECK(captureNodeFragment(app, {id}, captured, warnings) && !processor->unsafeCapture);
@@ -1355,8 +1361,8 @@ static bool testFragmentCaptureOwnership(bool exporting, bool failing) {
   return true;
 }
 static bool testFragmentCaptures() {
-  for (bool exporting : {false, true}) for (bool failing : {false, true})
-    if (!testFragmentCaptureOwnership(exporting, failing)) return false;
+  for (bool failing : {false, true})
+    if (!testFragmentCaptureOwnership(failing)) return false;
   return true;
 }
 
@@ -1460,7 +1466,7 @@ static bool testQuietOutcomes() {
       if (outcome == 4) executor.cancelled = true;
     }
     if (outcome == 3) fault.failAt = fault.attempts + 2; // Export succeeds; quiet preview throws outside evaluator.
-    CHECK(runExportJob(app, files.path("quiet.png")) && idle(app));
+    CHECK(test_export::run(app, files.path("quiet.png")) && idle(app));
     CHECK(std::filesystem::exists(files.path("quiet.png")));
     const auto frame = publication(app);
     if (outcome == 0 || outcome == 4) {
@@ -1536,7 +1542,7 @@ static bool testUnchangedCommandsRetainDemand() {
     app.renderer.requestInspection(image(effect));
     if (demand != 1) { app.renderer.start(); CHECK(idle(app)); }
     if (demand == 2) { gate.arm(); app.renderer.requestInspection(image(effect)); CHECK(gate.wait(1)); }
-    if (demand == 3) { gate.arm(); CHECK(startExport(app, files.path("unchanged.png")) && gate.wait(1)); }
+    if (demand == 3) { gate.arm(); CHECK(test_export::start(app, files.path("unchanged.png")) && gate.wait(1)); }
     const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
     const auto frame = publication(app);
     const int calls = processor->calls;
@@ -1596,7 +1602,7 @@ static bool testUnchangedCommandsRetainDemand() {
     CHECK(app.documentOutput == image(effect) && findNode(app, effect)->processor.get() == processor &&
           findNode(app, effect)->fixedInputs.at(ports::image) == image(app.primarySource));
     gate.unblock();
-    if (demand == 3) app.renderer.joinExport();
+    if (demand == 3) test_export::finish(app);
     if (demand == 1) app.renderer.start();
     CHECK(idle(app) && publication(app).result.requested == image(effect));
     // A genuine change still owns exclusion and publishes a new graph result.
@@ -1788,7 +1794,7 @@ static bool testRejectedParameterEdits() {
     if (demand != 1) { app.renderer.start(); CHECK(idle(app) && pixels(app, 2.0f)); }
     if (demand == 2) { gate.arm(); app.renderer.requestPreview(); CHECK(gate.wait(1)); }
     const auto output = files.path("parameter-export.png");
-    if (demand == 3) { gate.arm(); CHECK(startExport(app, output) && gate.wait(1)); }
+    if (demand == 3) { gate.arm(); CHECK(test_export::start(app, output) && gate.wait(1)); }
     const auto before = RenderRuntimeTestAccess::snapshot(app.renderer);
     const auto frame = publication(app);
     const auto calls = processor->calls.load();
@@ -1812,7 +1818,7 @@ static bool testRejectedParameterEdits() {
     CHECK(std::get<double>(findNode(app, effect)->processor->parameters()[0].value) == 1.0);
     gate.unblock();
     if (demand == 3) {
-      app.renderer.joinExport();
+      test_export::finish(app);
       auto expected = app.full;
       for (size_t i = 0; i < expected.px.size(); ++i) if (i % 4 != 3) expected.px[i] *= 2.0f;
       const auto reference = files.path("parameter-reference.png");
@@ -1955,10 +1961,10 @@ bool testGraphRuntime() {
       {"6D Image-to-Mask and Mask-to-Image endpoint supersession", testEndpointSupersession},
       {"6D full-resolution graph export, reachable warnings, refusal and resolution context", testExportPolicyAndContext},
       {"6D allocation-style worker exception publishes Error and worker survives mutation", testWorkerExceptionBoundary},
-      {"6D B1 async export retains Photo A while openPath waits to commit Photo B", testExportPhotoSwitch},
+      {"6D B1 export retains Photo A and refuses a drop until the session has finished", testExportPhotoSwitch},
       {"6D I1 photo switching drains active preview and keeps Source dimensions coherent", testPreviewPhotoSwitch},
-      {"Copy Node read-only capture drains active preview/export, recovers quietly and releases on failure", testFragmentCaptures},
-      {"Step 7 Replace/Append drain borrowed preview/export nodes and pixels", testTransferLifetimes},
+      {"Copy Node read-only capture drains preview, recovers quietly and releases on failure", testFragmentCaptures},
+      {"Step 7 Replace/Append drain preview and retain export ownership until completion", testTransferLifetimes},
       {"6D I2 prepared preview/recolour remains responsive and rejects stale presentation", testPresentationResponsiveness},
       {"6D I3 no-image processor edits preserve initial guidance without evaluation", testNoImageGuidance},
       {"6D I4 quiet restoration reports current failures and preserves successful export status", testQuietOutcomes},

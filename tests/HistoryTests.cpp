@@ -1,6 +1,7 @@
 #include "HistoryTests.h"
 
 #include "AppState.h"
+#include "ExportTestSession.h"
 #include "DocumentMutation.h"
 #include "GraphCommands.h"
 #include "GraphEvaluator.h"
@@ -248,7 +249,12 @@ bool outputOnlyAndPendingEdits() {
   const auto id = *app.selectedNodeId();
   struct Stop {
     App &app; Probe &probe;
-    ~Stop() { probe.unblock(); app.renderer.shutdown(); RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr); }
+    ~Stop() {
+      probe.unblock();
+      app.exportDialog.session.reset();
+      app.renderer.shutdown();
+      RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
+    }
   } stop{app, probe};
   RenderRuntimeTestAccess::evaluation(app.renderer, nullptr, [](void *context) {
     auto &probe = *static_cast<Probe *>(context); ++probe.evaluations; probe.hold();
@@ -275,8 +281,7 @@ bool outputOnlyAndPendingEdits() {
 
   int exportEntry;
   { std::lock_guard<std::mutex> lock(probe.mutex); probe.release = false; exportEntry = probe.entered + 1; }
-  auto exporting = app.renderer.acquireExport(); CHECK(bool(exporting));
-  exporting.start([&]() noexcept { probe.hold(); }); CHECK(probe.await(exportEntry));
+  CHECK(test_export::start(app, files.path("display-export.png")) && probe.await(exportEntry));
   app.setStatus("Exporting test image");
   const auto exportBefore = RenderRuntimeTestAccess::snapshot(app.renderer);
   const auto mutations = probe.mutations.load(), evaluations = probe.evaluations.load(), waits = probe.waits.load();
@@ -288,7 +293,7 @@ bool outputOnlyAndPendingEdits() {
       exportAfter.previewPending == exportBefore.previewPending && exportAfter.displayPending &&
       probe.mutations == mutations && probe.evaluations == evaluations && probe.waits == waits &&
       app.getStatus() == "Exporting test image" && app.history.size() == exportSize + 1;
-  probe.unblock(); app.renderer.joinExport();
+  probe.unblock(); CHECK(test_export::finish(app));
   CHECK(exportSafe);
   CHECK(RenderRuntimeTestAccess::wait(app.renderer, [](auto state) { return !state.previewBusy && !state.previewPending && !state.displayPending; }));
   CHECK(probe.evaluations == evaluations + 1); // Only the runtime's established export recovery preview.
@@ -357,33 +362,14 @@ bool photoLifetimeAndGuards() {
   CHECK(!document_detail::openPhoto(app, b, {}, failed));
   CHECK(!document_detail::openFolder(app, files.dir.string(), {}, failed));
   CHECK(app.path == a && app.history.size() == size && app.history.cursor() == cursor && app.history.canRedo());
-  // If an export guard regresses, the observer releases the worker at the
-  // attempted drain so this test fails deterministically instead of hanging.
-  struct ExportProbe { std::mutex mutex; std::condition_variable cv; bool release = false, waited = false; } probe;
-  RenderRuntimeTestAccess::observe(app.renderer, &probe, [](void *context, auto event) noexcept {
-    if (event != RenderRuntimeTestAccess::Event::MutationWaiting) return;
-    auto &probe = *static_cast<ExportProbe *>(context);
-    std::lock_guard<std::mutex> lock(probe.mutex);
-    probe.waited = probe.release = true;
-    probe.cv.notify_all();
-  });
-  {
-    auto exporting = app.renderer.acquireExport(); CHECK(bool(exporting));
-    exporting.start([&]() noexcept {
-      std::unique_lock<std::mutex> lock(probe.mutex);
-      probe.cv.wait(lock, [&] { return probe.release; });
-    });
-  }
-  document_detail::GradeSnapshot untouched; untouched.workingProcessors["untouched"] = true;
-  const bool captured = document_detail::captureGradeSnapshot(app, untouched);
-  const bool undone = app.history.undo(app), redone = app.history.redo(app);
-  const bool recorded = app.history.recordCompletedEdit(app);
-  {
-    std::lock_guard<std::mutex> lock(probe.mutex); probe.release = true; probe.cv.notify_all();
-  }
+  // All of these history operations must refuse while the production session
+  // owns the live grade, including after its item is ready for collection.
+  CHECK(test_export::start(app, files.path("history-export.png")));
   app.renderer.joinExport();
-  RenderRuntimeTestAccess::observe(app.renderer, nullptr, nullptr);
-  CHECK(!captured && !undone && !redone && !recorded && !probe.waited);
+  document_detail::GradeSnapshot untouched; untouched.workingProcessors["untouched"] = true;
+  CHECK(!document_detail::captureGradeSnapshot(app, untouched));
+  CHECK(!app.history.undo(app) && !app.history.redo(app) && !app.history.recordCompletedEdit(app));
+  CHECK(test_export::finish(app));
   CHECK(untouched.workingProcessors.count("untouched"));
   CHECK(app.history.size() == size && app.history.cursor() == cursor);
   CHECK(app.history.recordCompletedEdit(app) && app.history.canRedo());

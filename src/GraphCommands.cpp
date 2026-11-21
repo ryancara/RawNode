@@ -70,8 +70,9 @@ class StagedEdit {
     auto invalid = graphStructureError(view());
     if (!invalid.empty()) return {invalid, std::nullopt};
     if (additions.empty() && unchanged()) return {{}, addedSlot};
-    // Staging reads immutable topology on the control thread. Only a validated
-    // change drains preview/export, before touching live storage or processors.
+    // Staging reads immutable topology on the control thread. A validated
+    // change drains preview before touching live storage or processors.
+    // The control thread must release export ownership before committing.
     std::optional<document_detail::DocumentMutation> mutation;
     if (owner) mutation.emplace(*owner);
     // Topology-only and Slot edits preserve Node addresses. Deletion can shift

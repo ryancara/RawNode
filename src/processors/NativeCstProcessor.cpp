@@ -1,11 +1,5 @@
 #include "processors/NativeCstProcessor.h"
 
-#include "color/LinearColorTransform.h"
-#include "color/TransferFunction.h"
-
-#include <cmath>
-#include <limits>
-
 namespace {
 
 bool validGamutValue(int value) {
@@ -129,78 +123,8 @@ ProcessorResult NativeCstProcessor::render(const Image &input, Image &output, co
       !validGammaValue(inputGamma) || !validGammaValue(outputGamma))
     return ProcessorResult::failure(1, "Invalid CST selection");
 
-  double matrix[3][3] = {};
-  if (!linearColorTransformMatrix((RgbGamut)inputSpace, (RgbGamut)outputSpace, matrix))
+  if (!transformImageEncoding(input, output, {(RgbGamut)inputSpace, (TransferFunction)inputGamma},
+                              {(RgbGamut)outputSpace, (TransferFunction)outputGamma}))
     return ProcessorResult::failure(2, "Unsupported CST colour-space transform");
-
-  const TransferFunction inTf = (TransferFunction)inputGamma;
-  const TransferFunction outTf = (TransferFunction)outputGamma;
-
-  output = input;
-  const double floatMax = (double)std::numeric_limits<float>::max();
-  const auto invalidatePixel = [&](size_t i) {
-    const float nan = std::numeric_limits<float>::quiet_NaN();
-    output.px[i + 0] = nan;
-    output.px[i + 1] = nan;
-    output.px[i + 2] = nan;
-  };
-  const auto finiteFloat = [&](double v) {
-    if (v > floatMax) return std::numeric_limits<float>::max();
-    if (v < -floatMax) return -std::numeric_limits<float>::max();
-    return (float)v;
-  };
-
-  for (size_t i = 0; i + 3 < output.px.size(); i += 4) {
-    const double ir = input.px[i + 0];
-    const double ig = input.px[i + 1];
-    const double ib = input.px[i + 2];
-
-    // Never leave one pixel partly in the input encoding and partly in the
-    // output encoding. Non-finite upstream RGB makes the whole RGB triplet
-    // invalid while alpha remains untouched.
-    if (!std::isfinite(ir) || !std::isfinite(ig) || !std::isfinite(ib)) {
-      invalidatePixel(i);
-      continue;
-    }
-
-    const double decoded[3] = {
-        decodeTransfer(ir, inTf),
-        decodeTransfer(ig, inTf),
-        decodeTransfer(ib, inTf),
-    };
-    if (!std::isfinite(decoded[0]) || !std::isfinite(decoded[1]) ||
-        !std::isfinite(decoded[2])) {
-      invalidatePixel(i);
-      continue;
-    }
-
-    double converted[3] = {};
-    for (int row = 0; row < 3; ++row)
-      converted[row] = matrix[row][0] * decoded[0] +
-                       matrix[row][1] * decoded[1] +
-                       matrix[row][2] * decoded[2];
-
-    if (!std::isfinite(converted[0]) || !std::isfinite(converted[1]) ||
-        !std::isfinite(converted[2])) {
-      invalidatePixel(i);
-      continue;
-    }
-
-    const double encoded[3] = {
-        encodeTransfer(converted[0], outTf),
-        encodeTransfer(converted[1], outTf),
-        encodeTransfer(converted[2], outTf),
-    };
-    if (!std::isfinite(encoded[0]) || !std::isfinite(encoded[1]) ||
-        !std::isfinite(encoded[2])) {
-      invalidatePixel(i);
-      continue;
-    }
-
-    output.px[i + 0] = finiteFloat(encoded[0]);
-    output.px[i + 1] = finiteFloat(encoded[1]);
-    output.px[i + 2] = finiteFloat(encoded[2]);
-    // Alpha is copied unchanged by output = input.
-  }
   return ProcessorResult::success();
 }

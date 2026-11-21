@@ -23,6 +23,7 @@
 
 bool openDroppedPhoto(App &app, const std::string &path, const SaveFailurePrompt &prompt,
                       const document_detail::ActionTestOptions &options) {
+  if (app.exportDialog.open || app.renderer.exportInProgress()) return false;
   finishUiEdits(app);
   const bool opened = document_detail::openPhoto(app, path, prompt, options);
   if (opened) app.parameterGesture.reset();
@@ -79,8 +80,10 @@ int runApp(const std::string &optionalPath) {
   while (true) {
     glfwPollEvents();
     if (glfwWindowShouldClose(app.window)) {
-      // Resolve saving while all workers and editor resources are still usable.
-      if (prepareShutdown(app, config, preferencesLoaded, promptSaveFailure)) {
+      // Keep pumping export until the in-flight photograph and result are ready.
+      if (app.exportDialog.session && app.exportDialog.session->running()) {
+        app.exportDialog.session->cancel();
+      } else if (prepareShutdown(app, config, preferencesLoaded, promptSaveFailure)) {
         if (!app.preferencesWarning.empty()) {
           std::fprintf(stderr, "%s\n", app.preferencesWarning.c_str());
           pfd::message("Application preferences", app.preferencesWarning, pfd::choice::ok, pfd::icon::warning).result();

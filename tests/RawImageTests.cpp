@@ -1,5 +1,7 @@
 #include "RawImageTests.h"
-#include "imgio/ImageIO.h"
+#include "AppState.h"
+#include "ExportTestSession.h"
+#include "imgio/ImageIOPriv.h"
 
 #include <libraw/libraw.h>
 #if RAWNODE_ENABLE_JXL_DNG
@@ -268,6 +270,41 @@ Image decodeRawImage(const std::string &path,
   require(raw && detected == encoding, "RAW dispatch/working encoding");
   return out;
 }
+void checkUngradedBatch(const Fixture &fixture) {
+  Files files;
+  const auto raw = writeFixture(files, "pair", fixture);
+  const auto jpeg = (files.dir / "pair.jpg").u8string();
+  const auto folder = files.dir / "exported";
+  require(fs::create_directory(folder), "create batch destination");
+  require(writeImage({{.25f, .50f, .75f, 1.0f}, 1, 1}, jpeg), "write JPEG companion");
+  App app;
+  for (const auto &path : {raw, jpeg}) {
+    FilmstripEntry entry; entry.path = path;
+    app.filmstrip.push_back(std::move(entry));
+    app.filmstripSelection.insert(path);
+  }
+  ExportSession session(app, ExportScope::Selected, folder.u8string(), ExistingExport::Skip);
+  require(session.running() && session.targets().size() == 2, "start ungraded RAW/JPEG batch");
+  test_export::finish(app, session);
+  for (const auto &result : session.results())
+    require(result.outcome == ExportOutcome::Exported, result.message.c_str());
+  require(session.results().size() == 2, "complete ungraded RAW/JPEG batch");
+  const auto exportedRaw = (folder / "pair.dng.jpg").u8string();
+  const auto exportedJpeg = (folder / "pair.jpg.jpg").u8string();
+  Image image; ColorEncoding encoding; bool decodedRaw = false;
+  require(loadImage(exportedRaw, image, encoding, decodedRaw) && !decodedRaw && image.w == 64 && image.h == 48,
+          "ungraded RAW exports a full-resolution JPEG");
+  std::vector<uint8_t> profile;
+  require(extractJpgIcc(exportedRaw, profile) && rawNodeIccEncoding(profile, encoding) &&
+              encoding == ColorEncoding{RgbGamut::Rec709, TransferFunction::SRGB},
+          "ungraded RAW JPEG is tagged with the output defaults");
+  require(loadImage(exportedJpeg, image, encoding, decodedRaw) && image.w == 1 && image.h == 1,
+          "same-stem JPEG has its own derivative");
+  for (const auto &path : {raw, jpeg, exportedRaw, exportedJpeg})
+    require(!fs::exists(inputSidecarPath(path)), "batch creates no source or derivative sidecar");
+  std::fprintf(stderr, "PASS ungraded %s/JPEG batch with same-stem names\n",
+               fixture.jxl ? "JPEG XL DNG" : "RAW");
+}
 } // namespace
 
 bool testRawImages() {
@@ -342,6 +379,12 @@ bool testRawImages() {
                 image.px.empty(),
             "unsupported Stage 2 TrimBounds geometry must be rejected");
     std::fprintf(stderr, "PASS RAW Stage 2 TrimBounds rejection\n");
+#endif
+    checkUngradedBatch(Fixture{});
+#if RAWNODE_ENABLE_JXL_DNG
+    Fixture jxlBatch;
+    jxlBatch.jxl = true;
+    checkUngradedBatch(jxlBatch);
 #endif
     // Optional private fixtures exercise the same public loader without
     // committing photos.

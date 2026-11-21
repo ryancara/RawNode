@@ -840,7 +840,7 @@ bool inspectorContexts() {
   CHECK(!canCopySelectedNode(app) && !copySelectedNode(app) && !destroyNode(app, app.primarySource));
   ui.click(app, ui.listOutput);
   CHECK(app.outputSelected() && !app.selectedNodeId() && !selectedNode(app));
-  CHECK(ui.inspectorLastItem == ui.inspectorId("JPEG quality"));
+  CHECK(ui.inspectorLastItem == ui.inspectorId("Output gamma"));
   CHECK(ui.inspectorLog.find("Output colour space") != std::string::npos &&
         ui.inspectorLog.find("Output gamma") != std::string::npos &&
         ui.inspectorLog.find("RAW gamma") == std::string::npos);
@@ -859,15 +859,11 @@ bool inspectorContexts() {
   const auto after = RenderRuntimeTestAccess::snapshot(app.renderer);
   CHECK(after.epoch == before.epoch && after.previewPending == before.previewPending &&
         after.displayPending == before.displayPending && mutations == 0 && graphJson(app) == topology);
-  // Application export preferences stay editable even on a protected photo.
   selectOutput(app); app.sidecarWriteBlockedPath = app.path; ui.tick(app);
-  CHECK(!(ui.inspectorItemFlags & ImGuiItemFlags_Disabled));
-  const auto quality = ui.inspectorLastRect;
-  ui.click(app, {quality.Min.x + (quality.Max.x - quality.Min.x) * 0.3f, quality.GetCenter().y});
-  CHECK(app.jpegQuality != 92 && capturePreferences(app).jpegQuality == app.jpegQuality);
+  CHECK(ui.inspectorItemFlags & ImGuiItemFlags_Disabled);
+  CHECK(ui.inspectorLog.find("Export format") == std::string::npos &&
+        ui.inspectorLog.find("JPEG quality") == std::string::npos);
   CHECK(captureGradeColor(app).outputColorSpace == "rec709");
-  app.exportFormat = 0; ui.tick(app);
-  CHECK(ui.inspectorLastItem == ui.inspectorId("Export format"));
   app.sidecarWriteBlockedPath.clear();
   CHECK(selectNode(app, app.primarySource));
   Node spare; spare.id = NodeId{"inspector-spare"};
@@ -953,6 +949,39 @@ bool processorPickerInBothViews() {
         ui.nodesLog.find("Exposure") == std::string::npos);
   std::snprintf(app.pluginFilter, sizeof app.pluginFilter, "no-such-processor-xyz"); ui.tick(app);
   CHECK(ui.nodesLog.find("No matches") != std::string::npos);
+  return true;
+}
+
+bool exportDialogScope() {
+  for (bool protectedPhoto : {false, true}) {
+    Ui ui;
+    ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    App app;
+    app.path = "current.png";
+    app.full = {{.25f, .25f, .25f, 1.0f}, 1, 1};
+    if (protectedPhoto) app.sidecarWriteBlockedPath = app.path;
+    FilmstripEntry entry; entry.path = "selected.png"; entry.mark = PhotoMark::Reject;
+    app.filmstrip.push_back(std::move(entry));
+    app.filmstripSelection.insert("selected.png");
+    app.filmstripMarkFilter = PhotoMark::Pick;
+    const auto frame = [&] {
+      auto &io = ImGui::GetIO(); io.DisplaySize = {1280, 800}; io.DeltaTime = 1.0f / 60;
+      ImGui::NewFrame(); DrawUiFrame(app); ImGui::EndFrame();
+    };
+    auto &io = ImGui::GetIO();
+    io.ConfigMacOSXBehaviors = protectedPhoto;
+    const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+    frame();
+    io.AddKeyEvent(modifier, true); io.AddKeyEvent(ImGuiKey_E, true);
+    frame();
+    io.AddKeyEvent(ImGuiKey_E, false); io.AddKeyEvent(modifier, false);
+    frame();
+    const auto *popup = ImGui::FindWindowByName("Export photographs");
+    CHECK(popup && popup->Active && app.exportDialog.open && !app.exportDialog.session);
+    CHECK(app.exportDialog.scope == (protectedPhoto ? ExportScope::Selected : ExportScope::Current));
+    CHECK(app.exportDialog.existing == ExistingExport::Skip && app.path == "current.png");
+    CHECK(app.filmstripSelection.count("selected.png") && selectedPhotographsForExport(app).hidden == 1);
+  }
   return true;
 }
 
@@ -1900,6 +1929,7 @@ bool testGraphView() {
        std::make_pair("contextual Inspector, List endpoints, protected controls and selection isolation", inspectorContexts),
        std::make_pair("Inspector RAW gamma edits re-decode/render the photo and preserve global defaults", inspectorRawGammaEdit),
        std::make_pair("searchable processor picker inserts by shared selection in List and Graph", processorPickerInBothViews),
+       std::make_pair("unified Export opens for Source-only or hidden selection", exportDialogScope),
        std::make_pair("new workspace default and custom/floating ini restart", workspaceDocking),
        std::make_pair("first-launch framing waits for settled docking geometry", firstDockedFrame)}) {
     if (!test.second()) { std::fprintf(stderr, "FAILED graph view: %s\n", test.first); return false; }

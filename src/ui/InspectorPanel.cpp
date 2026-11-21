@@ -103,9 +103,6 @@ void drawOutputSettings(App &app) {
     output = app.outputEncoding;
   }
   drawColourControls(app, output, false);
-  ImGui::Separator();
-  ImGui::Combo("Export format", &app.exportFormat, "PNG (8-bit)\0JPEG\0");
-  if (app.exportFormat == 1) ImGui::SliderInt("JPEG quality", &app.jpegQuality, 1, 100);
 }
 }  // namespace
 

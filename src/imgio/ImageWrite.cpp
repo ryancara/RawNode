@@ -188,7 +188,7 @@ static bool writeJpgWithIcc(const Image &img, const std::string &path, const std
 
 bool writeImageWithIcc(const Image &img, const std::string &path, const std::vector<uint8_t> &icc, int jpegQuality) {
   if (img.w <= 0 || img.h <= 0) return false;
-  std::string e = fs::path(path).extension().string();
+  std::string e = fs::u8path(path).extension().u8string();
   for (char &ch : e) ch = (char)tolower((unsigned char)ch);
 
   if (e == ".png") return writePngWithIcc(img, path, icc);

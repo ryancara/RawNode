@@ -34,18 +34,155 @@ SaveFailureDecision promptSaveFailure(const std::string &error) {
   return SaveFailureDecision::Cancel;
 }
 
-void doExport(App &app) {
-  if (app.full.px.empty() || !app.hasProcessingOutput()) return;
-  const char *exts[] = {".png", ".jpg"};
-  const char *filters[] = {"PNG (8-bit)", "*.png", "JPEG", "*.jpg *.jpeg"};
-  std::string def = fs::path(app.path).stem().string() + exts[app.exportFormat];
-  auto sel = pfd::save_file("Export", def, {filters[app.exportFormat * 2], filters[app.exportFormat * 2 + 1]});
-  std::string outPath = sel.result();
-  if (outPath.empty()) return;
-  if (fs::path(outPath).extension().empty()) outPath += exts[app.exportFormat];
-  ui::finishPreviewInteraction(app, true);
-  finishParameterGesture(app, true);
-  startExport(app, outPath);
+static bool canExport(const App &app) {
+  return !app.exportDialog.open && !app.renderer.exportInProgress() &&
+         !app.parameterGesture && app.previewInteraction.drag == ui::PreviewDrag::None &&
+         !app.previewInteraction.editPending && !app.graphCanvas.dragging && !app.graphCanvas.positionEditPending &&
+         (canExportCurrent(app) || !app.filmstripSelection.empty());
+}
+
+static void doExport(App &app) {
+  app.exportDialog = {};
+  app.exportDialog.open = true;
+  app.exportDialog.scope = canExportCurrent(app) ? ExportScope::Current : ExportScope::Selected;
+}
+
+static void chooseExportDestination(App &app) {
+  auto &dialog = app.exportDialog;
+  if (dialog.scope == ExportScope::Selected) {
+    auto folder = pfd::select_folder("Export to folder", dialog.destination).result();
+    if (!folder.empty()) dialog.destination = std::move(folder);
+    return;
+  }
+  const bool jpeg = app.exportFormat == 1;
+  const char *extension = jpeg ? ".jpg" : ".png";
+  const auto defaultName = fs::u8path(app.path).stem().u8string() + extension;
+  const std::vector<std::string> filters = jpeg ? std::vector<std::string>{"JPEG", "*.jpg *.jpeg"} :
+                                                std::vector<std::string>{"PNG (8-bit)", "*.png"};
+  auto path = pfd::save_file("Export photograph", dialog.destination.empty() ? defaultName : dialog.destination,
+                            filters, pfd::opt::force_overwrite).result();
+  if (path.empty()) return;
+  if (fs::u8path(path).extension().empty()) path += extension;
+  dialog.destination = std::move(path);
+  dialog.error.clear();
+}
+
+static void confirmExport(App &app) {
+  auto &dialog = app.exportDialog;
+  try {
+    if (dialog.scope == ExportScope::Current) {
+      auto extension = fs::u8path(dialog.destination).extension().u8string();
+      for (char &ch : extension) if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';
+      if (app.exportFormat == 1 ? extension != ".jpg" && extension != ".jpeg" : extension != ".png") {
+        dialog.error = "Choose a filename that matches the export format.";
+        return;
+      }
+    }
+    auto session = std::make_unique<ExportSession>(app, dialog.scope, dialog.destination, dialog.existing);
+    if (session->running()) dialog.session = std::move(session);
+    else dialog.error = "Could not start export.";
+  } catch (const std::exception &error) {
+    dialog.error = error.what();
+  }
+}
+
+static void drawExportDialog(App &app) {
+  auto &dialog = app.exportDialog;
+  if (!dialog.open) return;
+  if (!ImGui::IsPopupOpen("Export photographs")) ImGui::OpenPopup("Export photographs");
+  ImGui::SetNextWindowSize(ImVec2(480, 0), ImGuiCond_Appearing);
+  if (!ImGui::BeginPopupModal("Export photographs", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+  bool close = false;
+  if (auto *session = dialog.session.get()) {
+    const auto &targets = session->targets();
+    const auto &results = session->results();
+    if (session->running()) {
+      const auto name = fs::u8path(targets[results.size()].source).filename().u8string();
+      ImGui::TextWrapped("%s", name.c_str());
+      ImGui::ProgressBar(float(results.size()) / float(targets.size()), ImVec2(-1, 0),
+                         (std::to_string(results.size()) + " / " + std::to_string(targets.size())).c_str());
+      ImGui::BeginDisabled(session->cancelling());
+      if (ImGui::Button(session->cancelling() ? "Cancelling…" : "Cancel Export")) session->cancel();
+      ImGui::EndDisabled();
+      session->advance();
+    } else {
+      size_t exported = 0, skipped = 0, failed = 0;
+      bool details = false;
+      for (const auto &result : results) {
+        exported += result.outcome == ExportOutcome::Exported;
+        skipped += result.outcome == ExportOutcome::Skipped;
+        failed += result.outcome == ExportOutcome::Failed;
+        details |= result.outcome != ExportOutcome::Exported || !result.warnings.empty();
+      }
+      ImGui::Text("%zu exported, %zu skipped, %zu failed, %zu unprocessed",
+                  exported, skipped, failed, targets.size() - results.size());
+      if (details) {
+        ImGui::BeginChild("Export details", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 8));
+        for (size_t i = 0; i < results.size(); ++i) {
+          const auto &result = results[i];
+          if (result.outcome == ExportOutcome::Exported && result.warnings.empty()) continue;
+          auto name = fs::u8path(targets[i].source).filename().u8string();
+          if (result.outcome == ExportOutcome::Exported) ImGui::TextWrapped("%s", name.c_str());
+          else ImGui::TextWrapped("%s (%s) — %s", name.c_str(),
+                                 result.outcome == ExportOutcome::Skipped ? "Skipped" : "Failed",
+                                 result.message.empty() ? "Graph evaluation failed" : result.message.c_str());
+          for (const auto &warning : result.warnings) ImGui::TextWrapped("%s", warning.c_str());
+        }
+        ImGui::EndChild();
+      }
+      close = ImGui::Button("Done");
+    }
+  } else {
+    const auto selection = selectedPhotographsForExport(app);
+    const bool currentAvailable = canExportCurrent(app);
+    const auto setScope = [&](ExportScope scope) {
+      if (dialog.scope == scope) return;
+      dialog.scope = scope;
+      dialog.destination.clear();
+      dialog.error.clear();
+    };
+    ImGui::BeginDisabled(!currentAvailable);
+    if (ImGui::RadioButton("Current Photograph", dialog.scope == ExportScope::Current)) setScope(ExportScope::Current);
+    ImGui::EndDisabled();
+    if (currentAvailable) {
+      ImGui::SameLine();
+      ImGui::TextDisabled("%s", fs::u8path(app.path).filename().u8string().c_str());
+    }
+    ImGui::BeginDisabled(selection.paths.empty());
+    if (ImGui::RadioButton("Selected Photographs", dialog.scope == ExportScope::Selected)) setScope(ExportScope::Selected);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextDisabled("%zu selected, %zu hidden", selection.paths.size(), selection.hidden);
+
+    ImGui::Separator();
+    if (ImGui::Button(dialog.scope == ExportScope::Current ? "Choose filename…" : "Choose folder…"))
+      chooseExportDestination(app);
+    if (!dialog.destination.empty()) ImGui::TextWrapped("%s", dialog.destination.c_str());
+    if (ImGui::Combo("Export format", &app.exportFormat, "PNG (8-bit)\0JPEG\0")) {
+      if (dialog.scope == ExportScope::Current) dialog.destination.clear();
+      dialog.error.clear();
+    }
+    if (app.exportFormat == 1) ImGui::SliderInt("JPEG quality", &app.jpegQuality, 1, 100);
+    ImGui::TextUnformatted("Existing files");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Skip", dialog.existing == ExistingExport::Skip)) dialog.existing = ExistingExport::Skip;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Overwrite", dialog.existing == ExistingExport::Overwrite))
+      dialog.existing = ExistingExport::Overwrite;
+    if (!dialog.error.empty()) ImGui::TextWrapped("%s", dialog.error.c_str());
+
+    const bool eligible = dialog.scope == ExportScope::Current ? currentAvailable : !selection.paths.empty();
+    ImGui::BeginDisabled(dialog.destination.empty() || !eligible);
+    if (ImGui::Button("Export")) confirmExport(app);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    close = ImGui::Button("Cancel");
+  }
+  if (close) {
+    dialog = {};
+    ImGui::CloseCurrentPopup();
+  }
+  ImGui::EndPopup();
 }
 
 void finishUiEdits(App &app) {
@@ -168,11 +305,6 @@ static void openFolderDialog(App &app) {
   if (!path.empty()) app.pendingFolderDir = path;
 }
 
-static bool canExport(const App &app) {
-  // Parameter eligibility also excludes an active export and protected photos.
-  return !app.full.px.empty() && app.hasProcessingOutput() && app.renderer.canEditParameters();
-}
-
 static void drawFileToolbar(App &app) {
   auto *viewport = ImGui::GetMainViewport();
   const float width = std::max(1.0f, viewport->Size.x - 2 * ImGui::GetStyle().WindowPadding.x);
@@ -223,7 +355,7 @@ void DrawUiFrame(App &app) {
     applyTheme(app.themeIndex);
     app.themeApplyPending = false;
   }
-  if (!app.pendingFolderDir.empty()) {
+  if (!app.exportDialog.open && !app.pendingFolderDir.empty()) {
     const std::string dir = std::move(app.pendingFolderDir);
     app.pendingFolderDir.clear();
     finishUiEdits(app);
@@ -329,7 +461,7 @@ void DrawUiFrame(App &app) {
     ImGui::EndMainMenuBar();
   }
 
-  if (!ImGui::GetIO().WantTextInput && !ImGui::GetInputTextState(ImGui::GetActiveID())) {
+  if (!app.exportDialog.open && !ImGui::GetIO().WantTextInput && !ImGui::GetInputTextState(ImGui::GetActiveID())) {
     const bool redo = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, ImGuiInputFlags_None) ||
         (!ImGui::GetIO().ConfigMacOSXBehaviors && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiInputFlags_None));
     if (redo && canRedoGrade(app)) app.history.redo(app);
@@ -347,19 +479,22 @@ void DrawUiFrame(App &app) {
       pasteFromClipboard(app);
   }
 
-  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_RightBracket) ||
-      ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_RightBracket))
-    app.showRight = !app.showRight;
-  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash) ||
-      ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_Backslash))
-    app.showFilmstrip = !app.showFilmstrip;
-  if (!ImGui::GetIO().WantTextInput) {
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_O)) openFolderDialog(app);
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) openImageDialog(app);
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_E) && canExport(app)) doExport(app);
-  }
+  if (!app.exportDialog.open) {
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_RightBracket) ||
+        ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_RightBracket))
+      app.showRight = !app.showRight;
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash) ||
+        ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_Backslash))
+      app.showFilmstrip = !app.showFilmstrip;
+    if (!ImGui::GetIO().WantTextInput) {
+      if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_O)) openFolderDialog(app);
+      else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) openImageDialog(app);
+      if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_E) && canExport(app)) doExport(app);
+    }
 
+  }
   drawFileToolbar(app);
+  drawExportDialog(app);
   DockLayout::BeginMainDockSpace(app);
 
   if (app.showRight) {
@@ -417,7 +552,9 @@ void DrawUiFrame(App &app) {
     if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
   }
-  finishParameterGesture(app);
-  ui::finishPreviewInteraction(app);
-  ui::finishGraphDrag(app);
+  if (!app.exportDialog.open) {
+    finishParameterGesture(app);
+    ui::finishPreviewInteraction(app);
+    ui::finishGraphDrag(app);
+  }
 }

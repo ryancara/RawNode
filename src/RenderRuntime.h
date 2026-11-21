@@ -26,7 +26,7 @@ class RenderRuntime {
   RenderRuntime &operator=(const RenderRuntime &) = delete;
 
   void start();                         // Optional; tests may evaluate without a worker.
-  void shutdown() noexcept;            // Terminal and idempotent; drains both workers.
+  void shutdown() noexcept;            // Terminal and idempotent; call after releasing export.
   void requestPreview();
   void requestInspection(const OutputRef &endpoint, bool overlay = false);
   void requestDocumentPreview();
@@ -49,18 +49,18 @@ class RenderRuntime {
   EvaluationResult evaluateOwned(const OutputRef &endpoint, const EvaluationContext &context,
                                  ImageValue source, const RenderCancellation &cancellation = {});
 
-  // Export-specific execution ownership, also used by synchronous export.
-  // The export path captures its request and publishes final status while the
-  // lease is held. start() transfers it to our owned thread only on success;
-  // capture/thread-start failures leave the caller's lease intact for reporting.
+  EvaluationResult evaluateOwned(GraphView graph, const EvaluationContext &context,
+                                 ImageValue source);
+
+  // The control thread retains this lease across the entire export. Each item
+  // joins before its borrowed graph is retired, on that same control thread.
   class Export {
    public:
     ~Export() noexcept;
     Export(const Export &) = delete;
     Export &operator=(const Export &) = delete;
     explicit operator bool() const { return runtime_ != nullptr; }
-    // Export keeps its exception/status policy inside the closure. Reject an
-    // unguarded throwing entry point rather than inventing runtime status policy.
+
     template<class Work> void start(Work work) {
       static_assert(std::is_nothrow_invocable_v<Work &>, "export work must handle its exceptions");
       startOwned(std::move(work));
@@ -72,7 +72,7 @@ class RenderRuntime {
     void startOwned(std::function<void()> work);
     RenderRuntime *runtime_;
   };
-  Export acquireExport();              // Joins previous execution before reuse.
+  Export acquireExport();
   void joinExport();
 
  private:
@@ -87,7 +87,7 @@ class RenderRuntime {
   void reportPreviewException(const std::shared_ptr<const OutputRef> &endpoint, int generation,
                               uint64_t demand) noexcept;
   void queuePreview(bool quiet);        // mutex_ held; normal demand wins.
-  bool cancelAndDrain(std::unique_lock<std::mutex> &lock);
+  bool cancelAndDrainPreview(std::unique_lock<std::mutex> &lock);
 
   void runPreview();
   void finishPreview() noexcept;
@@ -97,7 +97,7 @@ class RenderRuntime {
 
   // Configured only through the self-test friend, before execution. Observers
   // run with mutex_ held, must not re-enter the runtime, and cannot throw.
-  enum class Event { WorkerIdle, MutationWaiting, ExportWaiting, ExportAcquired,
+  enum class Event { WorkerIdle, MutationWaiting, ExportWaiting, ExportAcquired, ExportJoining,
                      ExportReleased, MutationCompleted, Stopping, Stopped };
   void observe(Event event) const noexcept;
   void (*observer_)(void *, Event) noexcept = nullptr;

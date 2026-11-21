@@ -28,7 +28,7 @@ No evaluator, topology, grade schema, colour maths or decoding contract changes.
 | RAW working gamut/gamma | Source Inspector for RAW input only; current photo, never global defaults |
 | Processor parameters/filter/groups | Inspector, retaining stable node widget IDs, export exclusion and protected-photo guards |
 | Output gamut/gamma | Output Inspector; photo grade and existing display refresh |
-| Export format/JPEG quality | Output Inspector; application preferences, including on protected photos |
+| Export format/JPEG quality | Output Inspector at the PR 2A checkpoint. D060 moves these application preferences to the Export dialog. |
 | Preview resolution | Preview control area; existing rebuildPreview path |
 | Searchable native/CTL/OFX picker | Nodes toolbar in both modes; unchanged append insertion |
 

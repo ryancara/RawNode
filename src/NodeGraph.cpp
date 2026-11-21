@@ -629,6 +629,23 @@ RestoredGraph restoreGraph(const PersistGraph &graph, const std::map<std::string
   return restored;
 }
 
+RestoredGraph sourceOnlyGraph() {
+  RestoredGraph graph;
+  Node source(NodeOperation::Source);
+  graph.primarySource = source.id = NodeId{"source"};
+  graph.output = {source.id, ports::image};
+  graph.nodes.push_back(std::move(source));
+  return graph;
+}
+
+RestoredPhotoGrade restorePhotoGrade(const PersistGrade &grade) {
+  ColorEncoding raw, output;
+  if (!colorEncodingFromIds(grade.color.rawColorSpace, grade.color.rawGamma, raw) ||
+      !colorEncodingFromIds(grade.color.outputColorSpace, grade.color.outputGamma, output))
+    throw std::runtime_error("Invalid grade colour settings");
+  return {restoreGraph(grade.graph), raw, output};
+}
+
 RestoredChain restoreChain(App &app, const PersistChain &chain, bool strictParameters) {
   RestoredChain restored;
   restored.nodes.reserve(chain.nodes.size() + 1);

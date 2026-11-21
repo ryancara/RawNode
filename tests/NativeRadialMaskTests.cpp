@@ -1,6 +1,6 @@
 #include "NativeRadialMaskTests.h"
 
-#include "Export.h"
+#include "ExportTestSession.h"
 #include "GraphCommands.h"
 #include "GraphEvaluator.h"
 #include "NodeGraph.h"
@@ -523,7 +523,7 @@ bool editingAndPersistence() {
   }
   const auto exported = files.path("export.png"), expected = files.path("expected.png");
   CHECK(writeImage(Image{edited, 8, 8}, expected, app.outputEncoding));
-  CHECK(runExportJob(app, exported) && idle(app));
+  CHECK(test_export::run(app, exported) && idle(app));
   Image actual, baseline;
   ColorEncoding detected; bool raw;
   CHECK(loadImage(exported, actual, detected, raw) && loadImage(expected, baseline, detected, raw));

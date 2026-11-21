@@ -122,8 +122,9 @@ bool captureNodeFragment(App &app, const std::vector<NodeId> &ids, PersistFragme
   document_detail::DocumentMutation::assertControlThread(app);
   if (!requireEditableGraph(app)) return false;
   if (ids.empty()) { app.setStatus("No nodes to capture"); return false; }
-  // Topology and identity belong to the control thread; processor state is
-  // synchronised/read only after DocumentMutation drains preview and export.
+  // Topology and identity belong to the control thread. DocumentMutation
+  // drains preview before reading or synchronising processor state.
+  // The control thread must release export ownership before capture.
   for (auto it = ids.begin(); it != ids.end(); ++it) {
     const Node *node = findNode(app, *it);
     if (!node || node->operation == NodeOperation::Source || std::find(ids.begin(), it, *it) != it) {
@@ -413,10 +414,10 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
     PersistPositions positions;
     if (!protectedSource && file.grade) {
       try {
-        restored = restoreGraph(file.grade->graph);
-        if (!colorEncodingFromIds(file.grade->color.rawColorSpace, file.grade->color.rawGamma, raw) ||
-            !colorEncodingFromIds(file.grade->color.outputColorSpace, file.grade->color.outputGamma, output))
-          throw std::runtime_error("Invalid grade colour settings");
+        auto prepared = restorePhotoGrade(*file.grade);
+        restored = std::move(prepared.graph);
+        raw = prepared.raw;
+        output = prepared.output;
         positions = file.grade->positions;
       } catch (const std::exception &failure) {
         error = inputSidecarPath(path) + ": " + failure.what();
@@ -424,12 +425,7 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
       }
     }
     if (protectedSource || !file.grade) {
-      RestoredGraph sourceOnly;
-      Node source(NodeOperation::Source);
-      sourceOnly.primarySource = source.id = NodeId{"source"};
-      sourceOnly.output = {source.id, ports::image};
-      sourceOnly.nodes.push_back(std::move(source));
-      restored = std::move(sourceOnly);
+      restored = sourceOnlyGraph();
       positions.clear();
       if (protectedSource) {
         raw = {RgbGamut::Rec709, TransferFunction::Linear};

@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -320,6 +321,81 @@ static void linearRec709ToDisplayRGBA8(const Image &img, std::vector<unsigned ch
       dst += 4;
     }
   }
+}
+
+bool transformImageEncoding(const Image &input, Image &output, ColorEncoding source, ColorEncoding target) {
+  double matrix[3][3] = {};
+  if (!linearColorTransformMatrix(source.gamut, target.gamut, matrix)) return false;
+  const auto inTf = source.gamma;
+  const auto outTf = target.gamma;
+
+  output = input;
+  const double floatMax = (double)std::numeric_limits<float>::max();
+  const auto invalidatePixel = [&](size_t i) {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    output.px[i + 0] = nan;
+    output.px[i + 1] = nan;
+    output.px[i + 2] = nan;
+  };
+  const auto finiteFloat = [&](double v) {
+    if (v > floatMax) return std::numeric_limits<float>::max();
+    if (v < -floatMax) return -std::numeric_limits<float>::max();
+    return (float)v;
+  };
+
+  for (size_t i = 0; i + 3 < output.px.size(); i += 4) {
+    const double ir = input.px[i + 0];
+    const double ig = input.px[i + 1];
+    const double ib = input.px[i + 2];
+
+    // Never leave one pixel partly in the input encoding and partly in the
+    // output encoding. Non-finite upstream RGB makes the whole RGB triplet
+    // invalid while alpha remains untouched.
+    if (!std::isfinite(ir) || !std::isfinite(ig) || !std::isfinite(ib)) {
+      invalidatePixel(i);
+      continue;
+    }
+
+    const double decoded[3] = {
+        decodeTransfer(ir, inTf),
+        decodeTransfer(ig, inTf),
+        decodeTransfer(ib, inTf),
+    };
+    if (!std::isfinite(decoded[0]) || !std::isfinite(decoded[1]) ||
+        !std::isfinite(decoded[2])) {
+      invalidatePixel(i);
+      continue;
+    }
+
+    double converted[3] = {};
+    for (int row = 0; row < 3; ++row)
+      converted[row] = matrix[row][0] * decoded[0] +
+                       matrix[row][1] * decoded[1] +
+                       matrix[row][2] * decoded[2];
+
+    if (!std::isfinite(converted[0]) || !std::isfinite(converted[1]) ||
+        !std::isfinite(converted[2])) {
+      invalidatePixel(i);
+      continue;
+    }
+
+    const double encoded[3] = {
+        encodeTransfer(converted[0], outTf),
+        encodeTransfer(converted[1], outTf),
+        encodeTransfer(converted[2], outTf),
+    };
+    if (!std::isfinite(encoded[0]) || !std::isfinite(encoded[1]) ||
+        !std::isfinite(encoded[2])) {
+      invalidatePixel(i);
+      continue;
+    }
+
+    output.px[i + 0] = finiteFloat(encoded[0]);
+    output.px[i + 1] = finiteFloat(encoded[1]);
+    output.px[i + 2] = finiteFloat(encoded[2]);
+    // Alpha is copied unchanged by output = input.
+  }
+  return true;
 }
 
 void toDisplayRGBA8(const Image &img, ColorEncoding encoding,

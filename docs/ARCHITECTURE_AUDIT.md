@@ -327,7 +327,7 @@ architecture decisions beyond the accepted target and D019–D038.
 | Runtime/display/colour locking | No lock-order cycle or deadlock was found in the reviewed paths. Some critical sections could be shorter; no pre-Step-5 lock redesign. Leaf App locks must not call back into RenderRuntime while held. |
 | Reserved/shadow graph fields | Transitional only. Do not extend them into a second graph model. Remove or redefine unused fields as real topology and evaluation land together in Step 6. |
 | Source/export sidecar question | Superseded by D038 and PR #53: sidecars belong only to editable source documents; exported derivatives receive none. There is no future source/export capture-convergence task. |
-| `runExportJob` test seam | Retain the useful synchronous production export test seam; no present reason to remove or redesign it. |
+| `runExportJob` test seam | Retained at the audit checkpoint. D060 replaces it with tests that drive the production `ExportSession`. |
 | Single-level mutation-completion regression | Complete in PR #54. Changed edits queue normal demand and interrupted unchanged edits queue quiet recovery before the mutation gate opens; deterministic coverage now protects both. |
 | `uploadTexture` | The checkpoint recommended removing this dead path with the Step 6 evaluator/display boundary; that cleanup is complete in merged PR #58. |
 | Alpha | Global alpha association remains deliberately unresolved; masks are not image alpha. Source alpha differs across formats. Revisit TIFF, EXR, OpenFX and JPEG flattening before transparent compositing/alpha-carrying workflows, not as an invented Step 5 global contract. |

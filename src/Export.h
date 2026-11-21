@@ -1,16 +1,51 @@
 #pragma once
 
+#include <cstddef>
+#include <memory>
 #include <string>
+#include <vector>
 
 struct App;
 
-// Full-resolution evaluation and file production. Both entry points capture
-// inputs on the control thread under RenderRuntime ownership, preserving the
-// accepted document state when Export is confirmed. Ownership is held through
-// file writing and final status publication; each graph operation owns sizing.
-// Both refuse destinations identifying app.path (including filesystem aliases)
-// before file opening; other existing destinations remain valid export targets.
-// Synchronous entry point, currently used by tests.
-bool runExportJob(App &app, const std::string &outPath);
-// Asynchronous entry point used by the production UI.
-bool startExport(App &app, const std::string &outPath);
+struct ExportSelection {
+  std::vector<std::string> paths;
+  std::size_t hidden = 0;
+};
+
+ExportSelection selectedPhotographsForExport(const App &app);
+bool canExportCurrent(const App &app);
+
+enum class ExportScope { Current, Selected };
+enum class ExistingExport { Skip, Overwrite };
+enum class ExportOutcome { Exported, Skipped, Failed };
+
+struct ExportPhotoResult {
+  ExportOutcome outcome = ExportOutcome::Failed;
+  std::string message;
+  std::vector<std::string> warnings;
+};
+
+struct ExportTarget {
+  std::string source;
+  std::string destination;
+};
+
+// Control-thread owner of one confirmed request and its transient results.
+// Each tick takes a finished item or dispatches the next one. Destruction
+// drains an in-flight item before releasing the render lease.
+class ExportSession {
+ public:
+  ExportSession(App &app, ExportScope scope, const std::string &destination, ExistingExport existing);
+  ~ExportSession();
+  void advance();
+  void cancel() { cancelRequested_ = true; }
+  bool cancelling() const { return cancelRequested_; }
+  bool running() const;
+  const std::vector<ExportTarget> &targets() const;
+  const std::vector<ExportPhotoResult> &results() const;
+
+ private:
+  struct State;
+  std::unique_ptr<State> state_;
+  bool cancelRequested_ = false;
+};
