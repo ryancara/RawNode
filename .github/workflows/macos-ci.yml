@@ -85,42 +85,57 @@ jobs:
             <key>CFBundleName</key><string>OFX Raw Host</string>
             <key>CFBundlePackageType</key><string>APPL</string>
             <key>CFBundleShortVersionString</key><string>0.0.0</string>
-            <key>LSMinimumSystemVersion</key><string>12.0</string>
+            <key>LSMinimumSystemVersion</key><string>15.0</string>
+            <key>NSHighResolutionCapable</key><true/>
           </dict></plist>
           PLIST
           # Bundle both direct and transitive Homebrew libraries instead of
           # relying on packages installed on the build/test machine.
           crop="$app/Contents/PlugIns/OfxRawHost.ofx.bundle/Contents/MacOS/OfxRawHost.ofx"
-          dylibbundler -ns -b -x "$binary" -x "$crop" \
+          bundle_path='@executable_path/../Frameworks/'
+          printf 'quit\n' | dylibbundler -ns -b -x "$binary" -x "$crop" \
             -d "$app/Contents/Frameworks" \
-            -p '@executable_path/../Frameworks/' \
-            -i /System/Library -i /usr/lib
-          # dylibbundler can rewrite distinct Homebrew rpaths to the same
-          # bundle path. Modern dyld rejects duplicate LC_RPATH entries.
+            -p "$bundle_path"
+          # Distinct Homebrew rpaths can collapse to one bundled path.
           for file in "$binary" "$crop" "$app"/Contents/Frameworks/*.dylib; do
-            duplicates="$(otool -l "$file" | awk '$1 == "cmd" && $2 == "LC_RPATH" {getline; getline; print $2}' | sort | uniq -d)"
-            while IFS= read -r rpath; do
-              test -n "$rpath" || continue
-              while [ "$(otool -l "$file" | awk -v p="$rpath" '$1 == "path" && $2 == p {n++} END {print n+0}')" -gt 1 ]; do
-                install_name_tool -delete_rpath "$rpath" "$file"
-              done
-              if ! otool -l "$file" | awk '$1 == "cmd" && $2 == "LC_RPATH" {getline; getline; print $2}' | grep -Fxq "$rpath"; then
-                install_name_tool -add_rpath "$rpath" "$file"
-              fi
-            done <<< "$duplicates"
+            while [ "$(otool -l "$file" | grep -cF "path $bundle_path ")" -gt 1 ]; do
+              install_name_tool -delete_rpath "$bundle_path" "$file"
+            done
           done
-          cp "$(brew --prefix libomp)/LICENSE.TXT" "$app/Contents/Resources/RawDependencyNotices/libomp-LICENSE.TXT"
+
+          # Retain binary redistribution notices alongside the packaged app.
+          notices="$app/Contents/Resources/RawDependencyNotices"
+          cp LICENSE "$notices/RawNode-LICENSE.txt"
+          for dependency in ctl glfw imgui; do
+            cp "$BUILD_DIR/_deps/$dependency-src"/LICENSE* "$notices/$dependency/"
+            cp "$BUILD_DIR/_deps/$dependency-src/." "$notices/$dependency/" -R
+          done
+          cp third_party/fontawesome/README.md "$notices/FontAwesome.txt"
+          cp third_party/fontawesome/LICENSE.txt "$notices/FontAwesome-LICENSE.txt"
+          cp third_party/openfx/LICENSE.md "$notices/OpenFX.md"
+          cp third_party/openfx/Support/LICENSE "$notices/OpenFX-Support.txt"
+          cp third_party/tinyexr/tinyexr.h "$notices/TinyEXR.h"
+          for formula in jpeg-turbo libomp libtiff little-cms2 openexr imath libdeflate openjph webp xz zstd; do
+            root="$(realpath "$(brew --prefix "$formula")")"
+            mkdir -p "$notices/$formula"
+            find "$root" -maxdepth 2 -type f \( -iname 'LICENSE*' -o -iname 'LICENCE*' -o -iname 'COPYING*' -o -iname 'COPYRIGHT*' \) \
+              -exec cp {} "$notices/$formula/" \;
+            if [ -z "$(ls -A "$notices/$formula")" ]; then
+              echo "Missing licence notice for $formula" >&2
+              exit 1
+            fi
+          done
           for lib in "$app"/Contents/Frameworks/*.dylib; do
             codesign --force --sign - "$lib"
           done
           codesign --force --sign - "$app/Contents/PlugIns/OfxRawHost.ofx.bundle"
           codesign --force --sign - "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
-          # Reject absolute Homebrew load paths in the app, bundled libraries
-          # and bundled OFX module, including transitive library dependencies.
+          # Only macOS system libraries and app-local libraries are permitted.
           for file in "$binary" "$crop" "$app"/Contents/Frameworks/*.dylib; do
-            if otool -L "$file" | grep -E "^[[:space:]]*/(opt/homebrew|usr/local)/"; then
-              echo "Unbundled Homebrew dependency in $file" >&2
+            if otool -L "$file" | awk 'NR > 1 {print $1}' |
+                grep -Ev '^(/usr/lib/|/System/Library/|@executable_path/../Frameworks/)'; then
+              echo "Unbundled library dependency in $file" >&2
               exit 1
             fi
           done
@@ -128,6 +143,8 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$app" "$BUILD_DIR/RawNode-macOS-arm64-JXL-${{ matrix.jxl }}.zip"
 
       - name: Upload portable macOS test build
+        # SDK-enabled binaries are not distributed before redistribution review.
+        if: matrix.jxl == 'OFF'
         uses: actions/upload-artifact@v4
         with:
           name: RawNode-macOS-arm64-JXL-${{ matrix.jxl }}
