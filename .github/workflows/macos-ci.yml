@@ -30,7 +30,7 @@ jobs:
           submodules: recursive
 
       - name: Install build dependencies
-        run: brew install cmake pkg-config jpeg-turbo libtiff little-cms2 openexr python libomp
+        run: brew install cmake pkg-config jpeg-turbo libtiff little-cms2 openexr python libomp dylibbundler
 
       - name: Configure clean Release build
         run: |
@@ -69,3 +69,84 @@ jobs:
       - name: Self-test
         run: |
           "$BUILD_DIR/OfxRawHost.app/Contents/MacOS/OfxRawHost" --selftest
+
+      - name: Package portable macOS test app
+        run: |
+          set -euo pipefail
+          app="$BUILD_DIR/OfxRawHost.app"
+          binary="$app/Contents/MacOS/OfxRawHost"
+          mkdir -p "$app/Contents/Frameworks"
+          cat > "$app/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>OfxRawHost</string>
+            <key>CFBundleIdentifier</key><string>com.aaronmurniadi.ofxrawhost</string>
+            <key>CFBundleName</key><string>OFX Raw Host</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>0.0.0</string>
+            <key>LSMinimumSystemVersion</key><string>15.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          # Bundle both direct and transitive Homebrew libraries instead of
+          # relying on packages installed on the build/test machine.
+          crop="$app/Contents/PlugIns/OfxRawHost.ofx.bundle/Contents/MacOS/OfxRawHost.ofx"
+          bundle_path='@executable_path/../Frameworks/'
+          printf 'quit\n' | dylibbundler -ns -b -x "$binary" -x "$crop" \
+            -d "$app/Contents/Frameworks" \
+            -p "$bundle_path"
+          # Distinct Homebrew rpaths can collapse to one bundled path.
+          for file in "$binary" "$crop" "$app"/Contents/Frameworks/*.dylib; do
+            while [ "$(otool -l "$file" | grep -cF "path $bundle_path ")" -gt 1 ]; do
+              install_name_tool -delete_rpath "$bundle_path" "$file"
+            done
+          done
+
+          # Retain binary redistribution notices alongside the packaged app.
+          notices="$app/Contents/Resources/RawDependencyNotices"
+          cp LICENSE "$notices/RawNode-LICENSE.txt"
+          for dependency in ctl glfw imgui; do
+            mkdir -p "$notices/$dependency"
+            cp "$BUILD_DIR/_deps/$dependency-src"/LICENSE* "$notices/$dependency/"
+          done
+          cp third_party/fontawesome/README.md "$notices/FontAwesome.txt"
+          cp third_party/fontawesome/LICENSE.txt "$notices/FontAwesome-LICENSE.txt"
+          cp third_party/openfx/LICENSE.md "$notices/OpenFX.md"
+          cp third_party/openfx/Support/LICENSE "$notices/OpenFX-Support.txt"
+          cp third_party/tinyexr/tinyexr.h "$notices/TinyEXR.h"
+          for formula in jpeg-turbo libomp libtiff little-cms2 openexr imath libdeflate openjph webp xz zstd; do
+            root="$(realpath "$(brew --prefix "$formula")")"
+            mkdir -p "$notices/$formula"
+            find "$root" -maxdepth 2 -type f \( -iname 'LICENSE*' -o -iname 'LICENCE*' -o -iname 'COPYING*' -o -iname 'COPYRIGHT*' \) \
+              -exec cp {} "$notices/$formula/" \;
+            if [ -z "$(ls -A "$notices/$formula")" ]; then
+              echo "Missing licence notice for $formula" >&2
+              exit 1
+            fi
+          done
+          for lib in "$app"/Contents/Frameworks/*.dylib; do
+            codesign --force --sign - "$lib"
+          done
+          codesign --force --sign - "$app/Contents/PlugIns/OfxRawHost.ofx.bundle"
+          codesign --force --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          # Only macOS system libraries and app-local libraries are permitted.
+          for file in "$binary" "$crop" "$app"/Contents/Frameworks/*.dylib; do
+            if otool -L "$file" | awk 'NR > 1 {print $1}' |
+                grep -Ev '^(/usr/lib/|/System/Library/|@executable_path/../Frameworks/)'; then
+              echo "Unbundled library dependency in $file" >&2
+              exit 1
+            fi
+          done
+          "$binary" --selftest
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$BUILD_DIR/RawNode-macOS-arm64-JXL-${{ matrix.jxl }}.zip"
+
+      - name: Upload portable macOS test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: RawNode-macOS-arm64-JXL-${{ matrix.jxl }}
+          path: ${{ env.BUILD_DIR }}/RawNode-macOS-arm64-JXL-${{ matrix.jxl }}.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

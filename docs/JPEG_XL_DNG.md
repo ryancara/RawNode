@@ -262,8 +262,10 @@ DMG distribution, relocation to a Mac without Homebrew, Developer ID/notarizatio
 and minimum-OS compatibility (including Homebrew libomp's deployment target)
 remain unverified. Current signatures are ad-hoc.
 
-Before default enablement or distributing JPEG XL-enabled binaries, retain these
-separate validation requirements:
+Before enabling JPEG XL by default or advertising it as production-ready in a
+formal release, retain these separate validation requirements. Experimental
+macOS CI builds may be shared for testing with the required redistribution
+notices and licence obligations satisfied:
 
 - Compare paired PureRAW High-Fidelity JPEG XL and ordinary DNGs from the same RAW
   with a trusted external render. Verify WB/as-shot metadata, matrices/profiles,
@@ -292,7 +294,9 @@ still require release review. Fetched libraries retain their own licences.
 CMake collects principal notices in `RawDependencyNotices` and copies them into
 macOS app Resources. This does not replace a complete binary notice/source-offer
 review, including LibRaw's selected LGPL/CDDL obligations, per-file notices and
-reproducible source availability. Never ship an optional SDK binary without that
-review and the required acknowledgements. No externally fetched parser is a
+reproducible source availability. Distributing an optional SDK-enabled binary, including a test artifact,
+requires the applicable notices and licence compliance. The broader
+release-readiness and binary redistribution review remains necessary before
+promoting JPEG XL support to a formal public release. No externally fetched parser is a
 security guarantee; retain malformed-input/memory-safety validation and monitor
 upstream security fixes when updating these exact pins.
