@@ -45,10 +45,11 @@ The current codebase is a clean base for feature development. New work should re
 ### Hard dependencies
 
 Default preset selection and configurable shortcut assignments require the
-Settings UI. The Preset Panel can be built independently using the existing
-preset operations. Multi-photo application builds on the merged Filmstrip
-selection and grade persistence. Step 8 masking is independent of Settings,
-presets and shortcuts and may proceed earlier or in parallel.
+Settings UI. Settings provides the folder picker for the preset root. The
+Preset Panel depends on the stored root directory and existing preset
+operations. Multi-photo application builds on the merged Filmstrip selection
+and grade persistence. Step 8 masking is independent of Settings, presets and
+shortcuts and may proceed earlier or in parallel.
 
 The agreed Step 8 exit gate is Step 9's mandatory feature entry condition.
 After the gate, run the bounded performance checkpoint immediately before the
@@ -118,7 +119,9 @@ are non-blocking follow-ups.
   validation remains tracked separately.
 - **Step 8 — in progress:** practical non-AI masking workflows
   under the Step 5 and Step 8 contracts. TIFF and EXR format correctness and
-  JPEG encoder UB remain independently tracked follow-ups.
+  JPEG encoder UB remain independently tracked follow-ups. Correct TIFF
+  photometric and extra-channel handling before introducing external TIFF Mask
+  inputs.
 
 The completed stabilisation tasks are not extra migration steps.
 
@@ -144,17 +147,33 @@ See `SIDECAR.md` and `docs/STEP7_PERSISTENCE_DESIGN.md` for exact semantics.
 The former linear `PersistChain` transfers and `.rawnodepreset` files are
 historical; live legacy transfer readers are retired without migration or deletion.
 
-### Multi-photo grade and preset application
+## Application Settings
 
-Apply a copied full grade or preset to all selected photos in one action using
-the [existing Filmstrip selection](docs/FILMSTRIP_SELECTION.md). Validate each
-destination grade and update its sidecar through the existing grade persistence
-path.
+Add a small user-facing **Settings** menu/window over the existing
+[`preferences.json` system](docs/workspace-format.md). Start with the existing
+global RAW/Output defaults and relevant export/UI preferences. Provide a folder
+picker for the root preset directory and store the selection in the existing
+global `preferences.json`. Keep the default preset and shortcut assignments in
+the same global preferences as their milestones are implemented. Add
+configurable CTL, DCTL and OFX search locations and backend-specific pages only
+when needed for usable features. MIDI, OSC and scripting belong to separate
+planned work.
+
+## Preset Panel
+
+Provide **View → Preset Panel** to show or hide a preset browser. Read the
+configured root from global preferences. Populate the browser solely from that
+directory's filesystem hierarchy, showing subfolders and `.rawnode.json` preset
+files. Apply presets through the existing **Replace** and **Append** operations. A
+general-purpose branched-graph Append workflow may be staged separately when
+existing graph commands cannot support it safely. Step 7 provides shared
+persistence and reconstruction mechanisms.
 
 ## Default grade preset
 
 **Planned.** Use [Application Settings](#application-settings) to select a
-default preset from the user's preset folder. Apply it using **Replace**.
+default preset from the configured root preset directory or any of its
+subfolders. Apply it using **Replace**.
 Opening precedence is **saved grade → configured default preset → global
 RAW/Output defaults**, following the [saved-grade and protected-sidecar rules](docs/PROJECT_CONTEXT.md#saved-grades-and-future-default-presets).
 Folder scanning and thumbnail generation create no sidecars. Successfully opening
@@ -163,23 +182,12 @@ updates to unopened photos do not create grades. Deliberately saved empty grades
 still win. Changing the default leaves saved grades untouched, and users can
 manually apply another preset.
 
-## Application Settings
+## Multi-photo grade and preset application
 
-Add a small user-facing **Settings** menu/window over the existing
-[`preferences.json` system](docs/workspace-format.md). Start with the existing
-global RAW/Output defaults and relevant export/UI preferences. Keep preset
-locations, the default preset and shortcut assignments in the same global
-preferences as their milestones are implemented. Add configurable CTL, DCTL
-and OFX search locations and backend-specific pages only when needed for usable
-features. MIDI, OSC and scripting belong to separate planned work.
-
-## Preset Panel
-
-Provide **View → Preset Panel** to show or hide a preset browser. Use the existing
-`.rawnode.json` format and **Replace** and **Append** operations. A general-purpose
-branched-graph Append workflow may be staged separately when existing graph
-commands cannot support it safely. Step 7 provides shared persistence and
-reconstruction mechanisms.
+**Planned.** Apply a copied full grade or preset to all selected photos in one
+action using the [existing Filmstrip selection](docs/FILMSTRIP_SELECTION.md).
+Validate each destination grade and update its sidecar through the existing
+grade persistence path.
 
 ## DCTL compatibility
 
@@ -226,9 +234,11 @@ The initial in-editor photo-marking slice is merged as #114:
   action. The initial slice adds no fixed marking bindings.
 
 Keep this folder-based with no catalogue/database or automatic deletion. Step 7's
-metadata-only writer preserves complete grades. This milestone supports marking
-while editing. High-volume first-pass culling stays outside RawNode. Filmstrip
-selection and confirmed native Trash are separate merged milestones.
+metadata-only writer preserves complete grades. The initial milestone supports
+decisions while editing through the existing browsing and decode paths. Keep
+high-volume first-pass culling, including any separate fast-RAW browsing or
+decode-skipping pipeline, outside this milestone. Filmstrip selection and
+confirmed native Trash are separate merged milestones.
 See [marking behaviour and validation](docs/PHOTO_MARKING.md).
 
 ## Batch / workspace export
@@ -497,7 +507,8 @@ The Step 8 gate is the sole feature entry condition. This separately numbered
 **whole-codebase** quality milestone replaces the narrow post-first-Mask review
 under [D055](docs/DECISIONS.md#d055--step-9-whole-codebase-readability-simplicity-and-architecture-audit).
 The audit covers architecture, readability, correctness and maintainability.
-Preserve colour accuracy, user-data integrity and safe concurrency throughout.
+Preserve correctness, colour accuracy, user-data integrity and concurrency
+guarantees throughout.
 
 **Canonical Step 9 programme:**
 

@@ -397,7 +397,8 @@ It is presentation text, not save tracking; save again at the next boundary.
 Document actions refuse departure after failure unless Discard was explicit.
 Unwritable folders may prompt on navigation/close even with no adjustments.
 
-The future default preset is selected from the user's preset folder.
+The future default preset is selected in Settings from the configured root
+preset directory or one of its subfolders.
 When opening a photograph, use this precedence:
 
 1. Restore an existing saved grade, including an intentionally empty one.
@@ -900,8 +901,9 @@ The [suggested implementation order](../ROADMAP.md#suggested-implementation-orde
 starts with minimal Application Settings over global preferences, then the
 Preset Panel, default preset selection and automatic application, assignable
 keyboard shortcuts, and multi-photo grade/preset application. Settings is
-required for default preset selection and shortcut assignments. The panel
-reuses the existing preset operations and can proceed independently.
+required for default preset selection and shortcut assignments. It provides a
+folder picker for the root preset directory. The panel reads the saved
+directory from global preferences and reuses the existing preset operations.
 
 Step 8 masking can proceed alongside those workflows. Its agreed exit gate is
 the mandatory feature condition for Step 9, with the performance checkpoint
@@ -994,8 +996,8 @@ Step 9 whole-codebase quality audit (D055) is a distinct future milestone.
 photometric/extra-channel handling, EXR chromaticities, and the existing JPEG
 writer undefined behaviour. Give them focused correctness PRs and appropriate
 tests/sanitizer evidence when scheduled; address a concrete user-data or safety
-regression earlier if discovered. TIFF photometric/extra-channel handling is
-relevant to future external TIFF Mask support. Other documented
+regression earlier if discovered. Correct TIFF photometric/extra-channel
+handling before introducing external TIFF Mask inputs. Other documented
 lifetime/exception-safety follow-ups remain tracked separately.
 
 **Completed Step 7 checkpoint and implementation — retained verification criteria:**
