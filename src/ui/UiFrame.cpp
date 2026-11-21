@@ -305,6 +305,57 @@ static void openFolderDialog(App &app) {
   if (!path.empty()) app.pendingFolderDir = path;
 }
 
+static void drawDirectorySetting(const char *label, const char *pickerTitle, std::string &path,
+                                 std::string &feedback) {
+  ImGui::PushID(label);
+  ImGui::TextUnformatted(label);
+  if (ImGui::Button("Choose Folder…")) {
+    if (!pfd::settings::available()) {
+      feedback = "No system folder picker is available.";
+    } else {
+      auto selected = pfd::select_folder(pickerTitle, directoryPreferenceError(path).empty() ? path : "").result();
+      if (!selected.empty()) {
+        feedback = directoryPreferenceError(selected);
+        if (feedback.empty()) path = std::move(selected);
+        else feedback = "Could not use the selected folder. " + feedback;
+      }
+    }
+  }
+  ImGui::SameLine();
+  ImGui::BeginDisabled(path.empty());
+  if (ImGui::Button("Clear")) {
+    path.clear();
+    feedback.clear();
+  }
+  ImGui::EndDisabled();
+  if (path.empty()) ImGui::TextDisabled("No directory configured");
+  else ImGui::TextWrapped("%s", path.c_str());
+  if (!feedback.empty()) ImGui::TextWrapped("%s", feedback.c_str());
+  ImGui::PopID();
+}
+
+static void drawSettings(App &app, bool requested) {
+  auto &window = app.settingsWindow;
+  if (requested) {
+    window.open = true;
+    window.presetFeedback = directoryPreferenceError(app.presetDirectory);
+    window.ctlScriptsFeedback = directoryPreferenceError(app.ctlScriptsDirectory);
+    ImGui::SetNextWindowFocus();
+  }
+  if (!window.open) return;
+  ImGui::SetNextWindowSize(ImVec2(460, 300), ImGuiCond_FirstUseEver);
+  if (ImGui::Begin("Settings", &window.open, ImGuiWindowFlags_NoDocking)) {
+    ImGui::SeparatorText("Presets");
+    drawDirectorySetting("Root preset directory", "Choose the root preset directory",
+                         app.presetDirectory, window.presetFeedback);
+    ImGui::Spacing();
+    ImGui::SeparatorText("Processors");
+    drawDirectorySetting("CTL scripts directory", "Choose the CTL scripts directory",
+                         app.ctlScriptsDirectory, window.ctlScriptsFeedback);
+  }
+  ImGui::End();
+}
+
 static void drawFileToolbar(App &app) {
   auto *viewport = ImGui::GetMainViewport();
   const float width = std::max(1.0f, viewport->Size.x - 2 * ImGui::GetStyle().WindowPadding.x);
@@ -362,6 +413,7 @@ void DrawUiFrame(App &app) {
     openFolder(app, dir, promptSaveFailure);
   }
 
+  bool settingsRequested = false;
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("File")) {
 #ifdef __APPLE__
@@ -385,6 +437,8 @@ void DrawUiFrame(App &app) {
 #else
       if (ImGui::MenuItem("Export", "Ctrl+E", false, canExport(app))) doExport(app);
 #endif
+      ImGui::Separator();
+      settingsRequested = ImGui::MenuItem("Settings…");
 #ifdef __APPLE__
       if (ImGui::MenuItem("Quit", "⌘+Q")) glfwSetWindowShouldClose(app.window, 1);
 #else
@@ -515,6 +569,8 @@ void DrawUiFrame(App &app) {
     if (ImGui::Begin(DockLayout::kFilmstrip, &app.showFilmstrip)) drawFilmstripPanel(app);
     ImGui::End();
   }
+
+  drawSettings(app, settingsRequested);
 
   if (app.showAbout) {
     ImGui::OpenPopup("About RawNode");

@@ -584,9 +584,10 @@ management system.
 
 Photo sidecars own each photograph's complete grade, colour settings and photo
 metadata. Global application preferences own theme, dock/window layout, export
-defaults and default RAW working/Output settings. Future default-preset choice,
-CTL/DCTL/OFX/preset locations, shortcuts and input mappings belong to this same
-scope when implemented. There are no competing folder-level RAW defaults.
+defaults, default RAW working/Output settings, the preset root and the CTL
+scripts directory. Future default-preset choice, DCTL/OFX locations, shortcuts
+and input mappings belong to this same scope when implemented. There are no
+competing folder-level RAW defaults.
 
 Step 7 PR 5 implements global `preferences.json` and ImGui `layout.ini` in
 `~/Library/Application Support/RawNode/` on macOS and `$XDG_CONFIG_HOME/RawNode/`
@@ -898,12 +899,12 @@ compositing or alpha-carrying I/O requires it.
 ## Near-term roadmap
 
 The [suggested implementation order](../ROADMAP.md#suggested-implementation-order)
-starts with minimal Application Settings over global preferences, then the
-Preset Panel, default preset selection and automatic application, assignable
-keyboard shortcuts, and multi-photo grade/preset application. Settings is
-required for default preset selection and shortcut assignments. It provides a
-folder picker for the root preset directory. The panel reads the saved
-directory from global preferences and reuses the existing preset operations.
+starts with Application Settings over global preferences, then the Preset
+Panel, default preset selection and automatic application, assignable keyboard
+shortcuts, and multi-photo grade/preset application. **File → Settings…**
+configures the optional preset root and CTL scripts directory. The planned
+Preset Panel will use the saved root and the existing preset operations. CTL
+discovery will use the saved scripts directory in a later milestone.
 
 Step 8 masking can proceed alongside those workflows. Its agreed exit gate is
 the mandatory feature condition for Step 9, with the performance checkpoint
