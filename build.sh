@@ -5,17 +5,17 @@
 set -e
 cd "$(dirname "$0")"
 BUILD="${BUILD_DIR:-build}"
-CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release"
+set -- -DCMAKE_BUILD_TYPE=Release
 if [ -n "${ARCHS:-}" ] && [ "$(uname)" = Darwin ]; then
-  CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_OSX_ARCHITECTURES=$ARCHS"
+  set -- "$@" "-DCMAKE_OSX_ARCHITECTURES=$ARCHS"
 fi
 if [ -n "${MACOSX_DEPLOYMENT_TARGET:-}" ] && [ "$(uname)" = Darwin ]; then
-  CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET"
+  set -- "$@" "-DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET"
 fi
 if [ "${OFX_NATIVE_ARCH:-0}" = "1" ]; then
-  CMAKE_ARGS="$CMAKE_ARGS -DOFX_NATIVE_ARCH=ON"
+  set -- "$@" -DOFX_NATIVE_ARCH=ON
 fi
-cmake -S . -B "$BUILD" $CMAKE_ARGS
+cmake -S . -B "$BUILD" "$@"
 cmake --build "$BUILD" --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}"
 
 if [ "$(uname)" = Darwin ]; then

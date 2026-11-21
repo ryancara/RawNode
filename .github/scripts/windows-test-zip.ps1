@@ -84,7 +84,8 @@ Expand-Archive -LiteralPath $zip -DestinationPath $extracted
 $app = Join-Path $extracted $name
 foreach ($required in 'OfxRawHost.exe', 'fa-solid-900.ttf', 'vcruntime140.dll', 'msvcp140.dll',
     'vcomp140.dll', 'RawDependencyNotices/LibRaw/LICENSE.CDDL',
-    'RawDependencyNotices/DISTRIBUTION_NOTICES.md', 'RawDependencyNotices/Source.txt', 'Plugins/OfxRawHost.ofx.bundle/Contents/Win64/OfxRawHost.ofx',
+    'RawDependencyNotices/DISTRIBUTION_NOTICES.md', 'RawDependencyNotices/Source.txt',
+    'Plugins/OfxRawHost.ofx.bundle/Contents/Win64/OfxRawHost.ofx',
     'Plugins/OfxRawHost.ofx.bundle/Contents/Info.plist') {
     if (!(Test-Path "$app/$required" -PathType Leaf)) { throw "Missing runtime resource: $required" }
 }
@@ -124,7 +125,7 @@ try {
     $env:OFX_PLUGIN_PATH = $null
     $env:CTL_MODULE_PATH = $null
     $process = Start-Process -FilePath "$app/OfxRawHost.exe" -ArgumentList '--selftest' `
-        -WorkingDirectory $app -PassThru `
+        -WorkingDirectory $extracted -PassThru `
         -RedirectStandardOutput "$output/extracted-selftest.stdout.log" `
         -RedirectStandardError "$output/extracted-selftest.stderr.log"
     # Keep the process handle so ExitCode remains available after it exits.

@@ -1,8 +1,11 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 
 struct GLFWwindow;
+
+std::filesystem::path ImGuiBackend_IconFontPath();
 
 bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex, const std::string &layoutPath);
 void ImGuiBackend_NewFrame();
