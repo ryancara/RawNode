@@ -143,8 +143,6 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$app" "$BUILD_DIR/RawNode-macOS-arm64-JXL-${{ matrix.jxl }}.zip"
 
       - name: Upload portable macOS test build
-        # SDK-enabled binaries are not distributed before redistribution review.
-        if: matrix.jxl == 'OFF'
         uses: actions/upload-artifact@v4
         with:
           name: RawNode-macOS-arm64-JXL-${{ matrix.jxl }}
