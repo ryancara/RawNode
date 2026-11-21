@@ -29,6 +29,15 @@ automatically deleted. Retired Left Panel fields `showLeft` and `leftW` are no
 longer read or written; unrelated preferences, including `showRight` (Inspector)
 and `rightW`, retain their existing scope.
 
+Open **File → Settings…** to choose or clear the root preset directory under
+**Presets** and the CTL scripts directory under **Processors**. The optional
+`presetDirectory` and `ctlScriptsDirectory` fields contain absolute UTF-8
+directory paths. Clearing a directory omits its field on save. Missing fields
+and empty strings both mean no directory is configured. Settings reports
+unavailable saved paths when opened and keeps the paths available to change or
+clear. Choosing a folder requires an existing directory. Cancelling the picker
+keeps the prior selection.
+
 Preferences load before UI initialisation and the first photo opening, and save
 on normal shutdown even without an opened folder. A cancelled photo-save departure
 keeps the editor and renderer usable and does not finish shutdown. Directory and
@@ -45,7 +54,7 @@ Unknown optional fields do not invalidate a supported file, but are not currentl
 preserved when that file is saved again. Unsupported future file versions are
 protected from overwriting. Future implemented application preferences
 can add optional fields with sensible defaults without replacing this persistence
-system; no shortcut, MIDI, plugin-path or preset-path schema is defined here.
+system.
 
 Both colour pairs use stable IDs, for example:
 

@@ -47,6 +47,19 @@ void size(const Value &root, const char *key, float &out, double low, double hig
     else warn(warning, std::string(key) + ": invalid size; using default");
   }
 }
+fs::path absoluteDirectoryPath(const std::string &path) {
+  if (path.find('\0') != std::string::npos) return {};
+  const auto nativePath = fs::u8path(path);
+  return nativePath.is_absolute() ? nativePath : fs::path{};
+}
+void directory(const Value &root, const char *key, std::string &out, std::string &warning) {
+  const auto *value = optional(root, key);
+  if (!value) return;
+  if (value->type == Type::String && (value->string.empty() || !absoluteDirectoryPath(value->string).empty()))
+    out = value->string;
+  else
+    warn(warning, std::string(key) + ": expected an absolute directory path or an empty string; leaving unset");
+}
 void color(const Value &root, const char *key, ColorEncoding &out, std::string &warning) {
   const auto *pair = optional(root, key);
   if (!pair) return;
@@ -157,6 +170,8 @@ bool loadPreferences(const std::string &path, Preferences &out, std::string &war
   boolean(root, "showFilmstrip", out.showFilmstrip, warning);
   size(root, "rightW", out.rightW, 1, 10000, warning);
   size(root, "filmstripH", out.filmstripH, 48, 240, warning);
+  directory(root, "presetDirectory", out.presetDirectory, warning);
+  directory(root, "ctlScriptsDirectory", out.ctlScriptsDirectory, warning);
   if (!warning.empty()) warning = path + ":\n" + warning;
   return true;
 }
@@ -176,12 +191,33 @@ bool preferences_detail::save(const std::string &path, const Preferences &p, std
       << ",\n  \"nodesView\":\"" << (p.nodesView == NodesView::Graph ? "graph" : "list") << "\""
       << ",\n  \"showFilmstrip\":" << (p.showFilmstrip ? "true" : "false")
       << ",\n  \"rightW\":" << p.rightW
-      << ",\n  \"filmstripH\":" << p.filmstripH << "\n}\n";
+      << ",\n  \"filmstripH\":" << p.filmstripH;
+  if (!p.presetDirectory.empty()) out << ",\n  \"presetDirectory\":" << jsonStringValue(p.presetDirectory);
+  if (!p.ctlScriptsDirectory.empty()) out << ",\n  \"ctlScriptsDirectory\":" << jsonStringValue(p.ctlScriptsDirectory);
+  out << "\n}\n";
   return persist_detail::replaceFileAtomically(path, out.str(), error, fault);
 }
 
 bool savePreferences(const std::string &path, const Preferences &preferences, std::string &error) {
   return preferences_detail::save(path, preferences, error, persist_detail::FileFault::None);
+}
+
+std::string directoryPreferenceError(const std::string &path) {
+  if (path.empty()) return {};
+  // Native directory names can contain bytes the strict preferences reader rejects.
+  Value value;
+  std::string jsonError;
+  if (!persist_json::read(jsonStringValue(path), value, jsonError))
+    return "The directory path must be valid UTF-8.";
+  const auto nativePath = absoluteDirectoryPath(path);
+  if (nativePath.empty()) return "Choose a valid absolute directory path.";
+  std::error_code error;
+  const auto status = fs::status(nativePath, error);
+  if (error == std::errc::no_such_file_or_directory || status.type() == fs::file_type::not_found)
+    return "The directory could not be found.";
+  if (error) return "The directory is unavailable: " + error.message();
+  if (!fs::is_directory(status)) return "The path is not a directory.";
+  return {};
 }
 
 Preferences capturePreferences(const App &app) {
@@ -196,6 +232,8 @@ Preferences capturePreferences(const App &app) {
   p.showNodes = app.showNodes; p.nodesView = app.nodesView;
   p.showRight = app.showRight; p.showFilmstrip = app.showFilmstrip;
   p.rightW = app.rightW; p.filmstripH = app.filmstripH;
+  p.presetDirectory = app.presetDirectory;
+  p.ctlScriptsDirectory = app.ctlScriptsDirectory;
   return p;
 }
 
@@ -214,6 +252,8 @@ void applyPreferences(App &app, const Preferences &p) {
   app.showNodes = p.showNodes; app.nodesView = p.nodesView;
   app.showRight = p.showRight; app.showFilmstrip = p.showFilmstrip;
   app.rightW = p.rightW; app.filmstripH = p.filmstripH;
+  app.presetDirectory = p.presetDirectory;
+  app.ctlScriptsDirectory = p.ctlScriptsDirectory;
 }
 
 bool initialisePreferences(App &app, const ConfigPaths &paths) {

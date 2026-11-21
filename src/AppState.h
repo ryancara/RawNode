@@ -163,7 +163,14 @@ struct App {
   bool outputSelected() const { return std::holds_alternative<InspectorEndpoint>(selection); }
 
   std::string folderDir;
+  std::string presetDirectory;
+  std::string ctlScriptsDirectory;
   std::string preferencesWarning;
+  struct SettingsWindow {
+    bool open = false;
+    std::string presetFeedback;
+    std::string ctlScriptsFeedback;
+  } settingsWindow;
   std::vector<FilmstripEntry> filmstrip;
   int filmstripIndex = -1;  // Photograph open in the editor, independent of selection.
   // Transient UI-thread identities, using the paths already owned by filmstrip.
