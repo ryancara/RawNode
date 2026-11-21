@@ -14,10 +14,7 @@ before Step 8 masking/compositing. See [project context](docs/PROJECT_CONTEXT.md
 [roadmap](ROADMAP.md), [Graph UI validation](docs/GRAPH_VIEW_VALIDATION.md) and
 [earlier manual validation](docs/STEP6_MANUAL_VALIDATION.md).
 
-The upstream release badges, installation instructions and release history below
-refer to OFX Raw Host, not current RawNode release or validation status.
-
-[![Latest release](https://img.shields.io/github/v/release/aaronmurniadi/ofxrawhost)](https://github.com/aaronmurniadi/ofxrawhost/releases/latest)
+[![Latest RawNode release](https://img.shields.io/github/v/release/ryancara/RawNode)](https://github.com/ryancara/RawNode/releases)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)
 ![Built with](https://img.shields.io/badge/C%2B%2B17%20%2B%20Dear%20ImGui-lightgrey)
 
@@ -79,19 +76,27 @@ to report the cropped output dimensions directly to the host.
 
 ---
 
-## Install (macOS)
+## Download RawNode
 
-Download the DMG for your Mac from [Releases](https://github.com/aaronmurniadi/ofxrawhost/releases/latest):
+Download the ZIP for your computer from [RawNode Releases](https://github.com/ryancara/RawNode/releases).
+Each filename includes the release version.
 
-- **Apple Silicon (M1 and later):** `OfxRawHost-macOS-arm64.dmg`
-- **Intel:** `OfxRawHost-macOS-x86_64.dmg`
+| Platform | Archive |
+| --- | --- |
+| macOS 15 or later, Apple Silicon, JPEG XL ON (experimental) | `RawNode-macOS-arm64-JXL-ON-v<VERSION>.zip` |
+| macOS 15 or later, Apple Silicon, JPEG XL OFF | `RawNode-macOS-arm64-JXL-OFF-v<VERSION>.zip` |
+| macOS 15 or later, Intel, JPEG XL OFF | `RawNode-macOS-x86_64-JXL-OFF-v<VERSION>.zip` |
+| Windows 10 version 1903 or later, x64, JPEG XL OFF | `RawNode-Windows-x64-JXL-OFF-v<VERSION>.zip` |
 
-Open it and drag **OfxRawHost** onto **Applications**.
-The app is ad-hoc signed, so on first launch right-click it and choose **Open**, or run:
+- **macOS:** Extract the ZIP and move `OfxRawHost.app` to Applications.
+  The app is ad-hoc signed. If Gatekeeper blocks the first launch, use
+  **System Settings → Privacy & Security → Open Anyway**.
+- **Windows:** Extract the entire ZIP and launch `OfxRawHost.exe` from the
+  extracted folder. Keep the DLLs, plugins and fonts alongside it. The app
+  is unsigned and requires an OpenGL 3.3-capable graphics driver.
 
-```sh
-xattr -dr com.apple.quarantine /Applications/OfxRawHost.app
-```
+The Apple Silicon JPEG XL ON build is for testing integer JPEG XL DNG
+decoding. See [JPEG XL DNG validation](docs/JPEG_XL_DNG.md) for its limits.
 
 ---
 
@@ -171,7 +176,7 @@ Successful macOS CI runs upload `RawNode-macOS-arm64-JXL-OFF` and
 artifact, extract the outer archive and then extract the enclosed ZIP to
 obtain `OfxRawHost.app`. These 14-day, ad-hoc-signed test builds require
 **macOS 15 or later**. Gatekeeper may require **System Settings → Privacy &
-Security → Open Anyway**. They are experimental, not notarised releases.
+Security → Open Anyway**. These builds are experimental.
 
 JPEG XL ON contains the optional Adobe DNG SDK and is intended for testing
 integer JPEG XL DNG support. Licence notices are bundled in the app Resources;
@@ -243,7 +248,6 @@ settings. Current development milestones are in [ROADMAP.md](ROADMAP.md).
 | Selftest validation + performance instrumentation                   | Done (v0.3.10) |
 | Fix OFX Metal render readback (blank spektrafilm output)            | Done (v0.3.11) |
 | Click-to-step −/+ buttons on numeric parameter sliders              | Done (v0.3.11) |
-| Packaged Windows and Linux releases                                 | Planned        |
 
 ---
 

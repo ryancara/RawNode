@@ -4,16 +4,19 @@
 # Self-check: build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 set -e
 cd "$(dirname "$0")"
-BUILD=build
+BUILD="${BUILD_DIR:-build}"
 CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release"
 if [ -n "${ARCHS:-}" ] && [ "$(uname)" = Darwin ]; then
   CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_OSX_ARCHITECTURES=$ARCHS"
+fi
+if [ -n "${MACOSX_DEPLOYMENT_TARGET:-}" ] && [ "$(uname)" = Darwin ]; then
+  CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOSX_DEPLOYMENT_TARGET"
 fi
 if [ "${OFX_NATIVE_ARCH:-0}" = "1" ]; then
   CMAKE_ARGS="$CMAKE_ARGS -DOFX_NATIVE_ARCH=ON"
 fi
 cmake -S . -B "$BUILD" $CMAKE_ARGS
-cmake --build "$BUILD" -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)"
+cmake --build "$BUILD" --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)}"
 
 if [ "$(uname)" = Darwin ]; then
   APP="$BUILD/OfxRawHost.app"
@@ -40,7 +43,7 @@ if [ "$(uname)" = Darwin ]; then
   <key>CFBundleName</key><string>OFX Raw Host</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>${VERSION:-0.0.0}</string>
-  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>LSMinimumSystemVersion</key><string>${MACOSX_DEPLOYMENT_TARGET:-12.0}</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>CFBundleDocumentTypes</key><array><dict>
     <key>CFBundleTypeRole</key><string>Viewer</string>

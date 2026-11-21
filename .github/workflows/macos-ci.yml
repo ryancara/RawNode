@@ -3,31 +3,46 @@ name: macOS CI
 on:
   push:
   pull_request:
+  workflow_call:
+    inputs:
+      release_version:
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: macos-ci-${{ github.ref }}
+  group: macos-ci-${{ inputs.release_version || 'development' }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  arm64-build-selftest:
-    # Standard GitHub-hosted Apple Silicon runner; no Intel/Rosetta build.
-    runs-on: macos-15
+  build-selftest:
+    runs-on: ${{ matrix.arch == 'arm64' && 'macos-15' || 'macos-15-intel' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
+        arch: ${{ fromJSON(inputs.release_version != '' && '["arm64","x86_64"]' || '["arm64"]') }}
         jxl: ["OFF", "ON"]
+        exclude:
+          - arch: x86_64
+            jxl: "ON"
     env:
+      ARCHS: ${{ matrix.arch }}
+      JXL: ${{ matrix.jxl }}
       BUILD_DIR: build-jxl-${{ matrix.jxl }}
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+      VERSION: ${{ inputs.release_version || '0.0.0' }}
+      PACKAGE_NAME: RawNode-macOS-${{ matrix.arch }}-JXL-${{ matrix.jxl }}${{ inputs.release_version && format('-v{0}', inputs.release_version) || '' }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          ref: ${{ inputs.release_version != '' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Install build dependencies
         run: brew install cmake pkg-config jpeg-turbo libtiff little-cms2 openexr python libomp dylibbundler
@@ -36,25 +51,26 @@ jobs:
         run: |
           rm -rf "$BUILD_DIR"
           cmake -S . -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_ARCHITECTURES="$ARCHS" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOSX_DEPLOYMENT_TARGET" \
             -DCMAKE_PREFIX_PATH="$(brew --prefix jpeg-turbo)" \
-            -DRAWNODE_ENABLE_JXL_DNG=${{ matrix.jxl }} \
+            -DRAWNODE_ENABLE_JXL_DNG="$JXL" \
             -DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp" \
             -DOpenMP_CXX_INCLUDE_DIR="$(brew --prefix libomp)/include" \
             -DOpenMP_CXX_LIB_NAMES=omp \
             -DOpenMP_omp_LIBRARY="$(brew --prefix libomp)/lib/libomp.dylib"
-          grep -x 'RAWNODE_ENABLE_JXL_DNG:BOOL=${{ matrix.jxl }}' "$BUILD_DIR/CMakeCache.txt"
+          grep -Fx "RAWNODE_ENABLE_JXL_DNG:BOOL=$JXL" "$BUILD_DIR/CMakeCache.txt"
 
       - name: Build
-        run: cmake --build "$BUILD_DIR" --parallel 2
+        run: ./build.sh
 
-      - name: Verify Apple Silicon and actual LibRaw OpenMP linkage
+      - name: Verify native architecture and actual LibRaw OpenMP linkage
         run: |
-          test "$(uname -m)" = arm64
+          test "$(uname -m)" = "$ARCHS"
           binary="$BUILD_DIR/OfxRawHost.app/Contents/MacOS/OfxRawHost"
           file "$binary"
-          test "$(lipo -archs "$binary")" = arm64
-          test "$(lipo -archs "$BUILD_DIR/libRawNodeRaw.a")" = arm64
+          test "$(lipo -archs "$binary")" = "$ARCHS"
+          test "$(lipo -archs "$BUILD_DIR/libRawNodeRaw.a")" = "$ARCHS"
           cat "$BUILD_DIR/CMakeFiles/RawNodeRaw.dir/flags.make"
           grep -F -- '-Xpreprocessor -fopenmp' "$BUILD_DIR/CMakeFiles/RawNodeRaw.dir/flags.make"
           grep -F -- '-DLIBRAW_FORCE_OPENMP' "$BUILD_DIR/CMakeFiles/RawNodeRaw.dir/flags.make"
@@ -70,83 +86,14 @@ jobs:
         run: |
           "$BUILD_DIR/OfxRawHost.app/Contents/MacOS/OfxRawHost" --selftest
 
-      - name: Package portable macOS test app
-        run: |
-          set -euo pipefail
-          app="$BUILD_DIR/OfxRawHost.app"
-          binary="$app/Contents/MacOS/OfxRawHost"
-          mkdir -p "$app/Contents/Frameworks"
-          cat > "$app/Contents/Info.plist" <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-            <key>CFBundleExecutable</key><string>OfxRawHost</string>
-            <key>CFBundleIdentifier</key><string>com.aaronmurniadi.ofxrawhost</string>
-            <key>CFBundleName</key><string>OFX Raw Host</string>
-            <key>CFBundlePackageType</key><string>APPL</string>
-            <key>CFBundleShortVersionString</key><string>0.0.0</string>
-            <key>LSMinimumSystemVersion</key><string>15.0</string>
-            <key>NSHighResolutionCapable</key><true/>
-          </dict></plist>
-          PLIST
-          # Bundle both direct and transitive Homebrew libraries instead of
-          # relying on packages installed on the build/test machine.
-          crop="$app/Contents/PlugIns/OfxRawHost.ofx.bundle/Contents/MacOS/OfxRawHost.ofx"
-          bundle_path='@executable_path/../Frameworks/'
-          printf 'quit\n' | dylibbundler -ns -b -x "$binary" -x "$crop" \
-            -d "$app/Contents/Frameworks" \
-            -p "$bundle_path"
-          # Distinct Homebrew rpaths can collapse to one bundled path.
-          for file in "$binary" "$crop" "$app"/Contents/Frameworks/*.dylib; do
-            while [ "$(otool -l "$file" | grep -cF "path $bundle_path ")" -gt 1 ]; do
-              install_name_tool -delete_rpath "$bundle_path" "$file"
-            done
-          done
+      - name: Assemble and verify portable macOS ZIP
+        run: bash .github/scripts/macos-package.sh
 
-          # Retain binary redistribution notices alongside the packaged app.
-          notices="$app/Contents/Resources/RawDependencyNotices"
-          cp LICENSE "$notices/RawNode-LICENSE.txt"
-          for dependency in ctl glfw imgui; do
-            mkdir -p "$notices/$dependency"
-            cp "$BUILD_DIR/_deps/$dependency-src"/LICENSE* "$notices/$dependency/"
-          done
-          cp third_party/fontawesome/README.md "$notices/FontAwesome.txt"
-          cp third_party/fontawesome/LICENSE.txt "$notices/FontAwesome-LICENSE.txt"
-          cp third_party/openfx/LICENSE.md "$notices/OpenFX.md"
-          cp third_party/openfx/Support/LICENSE "$notices/OpenFX-Support.txt"
-          cp third_party/tinyexr/tinyexr.h "$notices/TinyEXR.h"
-          for formula in jpeg-turbo libomp libtiff little-cms2 openexr imath libdeflate openjph webp xz zstd; do
-            root="$(realpath "$(brew --prefix "$formula")")"
-            mkdir -p "$notices/$formula"
-            find "$root" -maxdepth 2 -type f \( -iname 'LICENSE*' -o -iname 'LICENCE*' -o -iname 'COPYING*' -o -iname 'COPYRIGHT*' \) \
-              -exec cp {} "$notices/$formula/" \;
-            if [ -z "$(ls -A "$notices/$formula")" ]; then
-              echo "Missing licence notice for $formula" >&2
-              exit 1
-            fi
-          done
-          for lib in "$app"/Contents/Frameworks/*.dylib; do
-            codesign --force --sign - "$lib"
-          done
-          codesign --force --sign - "$app/Contents/PlugIns/OfxRawHost.ofx.bundle"
-          codesign --force --sign - "$app"
-          codesign --verify --deep --strict --verbose=2 "$app"
-          # Only macOS system libraries and app-local libraries are permitted.
-          for file in "$binary" "$crop" "$app"/Contents/Frameworks/*.dylib; do
-            if otool -L "$file" | awk 'NR > 1 {print $1}' |
-                grep -Ev '^(/usr/lib/|/System/Library/|@executable_path/../Frameworks/)'; then
-              echo "Unbundled library dependency in $file" >&2
-              exit 1
-            fi
-          done
-          "$binary" --selftest
-          ditto -c -k --sequesterRsrc --keepParent "$app" "$BUILD_DIR/RawNode-macOS-arm64-JXL-${{ matrix.jxl }}.zip"
-
-      - name: Upload portable macOS test build
+      - name: Upload portable macOS ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: RawNode-macOS-arm64-JXL-${{ matrix.jxl }}
-          path: ${{ env.BUILD_DIR }}/RawNode-macOS-arm64-JXL-${{ matrix.jxl }}.zip
+          name: ${{ env.PACKAGE_NAME }}
+          path: ${{ env.BUILD_DIR }}/${{ env.PACKAGE_NAME }}.zip
           if-no-files-found: error
           retention-days: 14
           compression-level: 0

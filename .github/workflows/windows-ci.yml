@@ -4,23 +4,32 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_version:
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-ci-${{ github.ref }}
+  group: windows-ci-${{ inputs.release_version || 'development' }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   msvc-x64-build-selftest:
     runs-on: windows-2022
     timeout-minutes: 45
+    env:
+      RELEASE_VERSION: ${{ inputs.release_version }}
+      PACKAGE_NAME: ${{ inputs.release_version && format('RawNode-Windows-x64-JXL-OFF-v{0}', inputs.release_version) || 'RawNode-Windows-x64-Release' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          ref: ${{ inputs.release_version != '' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Install build dependencies
         run: |
@@ -33,21 +42,38 @@ jobs:
           "-DVCPKG_INSTALLED_DIR=$pwd/native-deps/vcpkg"
           -DRAWNODE_ENABLE_JXL_DNG=OFF
 
+      - name: Verify JPEG XL configuration
+        run: |
+          if (!(Select-String -LiteralPath build/CMakeCache.txt -Pattern '^RAWNODE_ENABLE_JXL_DNG:BOOL=OFF$')) {
+            throw 'Expected JPEG XL to be disabled'
+          }
+
       - name: Build
         run: cmake --build build --config Release --parallel 2
 
       - name: Self-test
         run: ./build/Release/OfxRawHost.exe --selftest
 
-      - name: Assemble and verify portable test ZIP
+      - name: Assemble and verify portable ZIP
         shell: pwsh
         run: ./.github/scripts/windows-test-zip.ps1
 
       - name: Upload portable test build
+        if: inputs.release_version == ''
         uses: actions/upload-artifact@v4
         with:
           name: RawNode-Windows-x64-Release
           path: ${{ runner.temp }}/rawnode-windows-artifact/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload release ZIP
+        if: inputs.release_version != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_NAME }}
+          path: ${{ runner.temp }}/rawnode-windows-artifact/${{ env.PACKAGE_NAME }}.zip
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
