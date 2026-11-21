@@ -43,6 +43,7 @@
 #include "persist/ProjectPersist.h"
 #include "persist/DocumentActions.h"
 #include "ui/UiContext.h"
+#include "ui/ImGuiBackend.h"
 #include "imgui.h"
 
 #include <tiffio.h>
@@ -2051,6 +2052,15 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 static int runSelfTestsImpl() {
+  {
+    const fs::path iconFont = ImGuiBackend_IconFontPath();
+    ImFontAtlas atlas;
+    if (iconFont.empty() || !atlas.AddFontFromFileTTF(iconFont.u8string().c_str(), 13.0f) || !atlas.Build()) {
+      return fail("bundled Font Awesome icon font unavailable");
+    }
+    printf("ok  Bundled Font Awesome icon font\n");
+  }
+
   if (!testNativeRadialMask()) return fail("Native Radial Mask");
   if (!testMaskOverlay()) return fail("Mask Overlay alignment");
   if (!testPreviewInteraction()) return fail("Preview interaction");

@@ -1,6 +1,7 @@
 #include "ui/ImGuiBackend.h"
 
 #include "ui/Themes.h"
+#include "platform/ExecutableDirectory.h"
 
 #include "IconsFontAwesome6.h"
 #include "imgui.h"
@@ -16,6 +17,19 @@
 #include <string>
 
 namespace fs = std::filesystem;
+
+fs::path ImGuiBackend_IconFontPath() {
+  const fs::path executable = executableDirectory();
+  if (executable.empty()) return {};
+  constexpr const char *name = "fa-solid-900.ttf";
+  std::error_code error;
+#ifdef __APPLE__
+  const fs::path bundledFont = executable.parent_path() / "Resources" / name;
+  if (fs::is_regular_file(bundledFont, error)) return bundledFont;
+#endif
+  const fs::path adjacentFont = executable / name;
+  return fs::is_regular_file(adjacentFont, error) ? adjacentFont : fs::path{};
+}
 
 void ImGuiBackend_ConfigureLayout(const std::string &layoutPath) {
   // The caller retains this path for the entire context lifetime. Empty disables
@@ -75,20 +89,10 @@ bool ImGuiBackend_Init(GLFWwindow *window, int themeIndex, const std::string &la
     iconsCfg.OversampleH = 2;
     iconsCfg.OversampleV = 2;
     static const ImWchar iconRanges[] = {0xf00d, 0xf00d, 0xf053, 0xf055, 0xf062, 0xf063, 0xf077, 0xf078, 0xf06e, 0xf070, 0};
-    const char *cands[] = {
-        OFX_ICON_FONT_PATH,
-        "fa-solid-900.ttf",
-        "../Resources/fa-solid-900.ttf",
-    };
-    bool loaded = false;
-    for (const char *path : cands) {
-      if (!path || !path[0] || !fs::exists(path)) continue;
-      if (io.Fonts->AddFontFromFileTTF(path, fontCfg.SizePixels, &iconsCfg, iconRanges)) {
-        loaded = true;
-        break;
-      }
+    const fs::path font = ImGuiBackend_IconFontPath();
+    if (font.empty() || !io.Fonts->AddFontFromFileTTF(font.u8string().c_str(), fontCfg.SizePixels, &iconsCfg, iconRanges)) {
+      std::fprintf(stderr, "warning: could not load Font Awesome icon font\n");
     }
-    if (!loaded) std::fprintf(stderr, "warning: could not load Font Awesome icon font\n");
   }
   io.FontGlobalScale = 1.0f / dpi;
   applyTheme(themeIndex);

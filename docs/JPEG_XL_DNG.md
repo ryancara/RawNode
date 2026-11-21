@@ -247,25 +247,23 @@ and independent failure probes.
 
 ## Release configuration and remaining validation
 
-Normal release builds explicitly keep JPEG XL **OFF**. The workflow tests arm64
-on `macos-15` and Intel on `macos-15-intel`; branch dispatches use app version
-0.0.0 and tag builds retain their tagged version. It bundles libomp and its
-licence, rewrites the executable load command to
-`@executable_path/../Frameworks/libomp.dylib`, signs nested code before the parent
-and verifies signatures before packaging and inside each mounted DMG. Both
-architectures have completed these checks and packaged self-tests successfully;
-no public release is needed for this branch validation.
+The release workflow builds three macOS ZIPs on native macOS 15 runners:
+Apple Silicon JPEG XL OFF and experimental ON, and Intel JPEG XL OFF. It also
+builds the Windows x64 portable ZIP with JPEG XL OFF. The source-build default
+remains OFF. macOS ZIPs include the Homebrew runtime libraries, with load paths,
+architecture, deployment target and signatures verified after extraction.
+Windows ZIPs include app-local DLLs, with architecture and imports verified
+after extraction. Both platforms run the full self-test from the extracted
+package.
 
-This validates the packages on runners with Homebrew dependencies available.
-Other existing Homebrew runtime libraries are not newly bundled. Dependency-free
-DMG distribution, relocation to a Mac without Homebrew, Developer ID/notarization
-and minimum-OS compatibility (including Homebrew libomp's deployment target)
-remain unverified. Current signatures are ad-hoc.
+Release packaging can be checked on a draft pull request that changes packaging,
+or through a branch dispatch using version 0.0.0. A successful push of a
+`vMAJOR.MINOR.PATCH` tag is required to publish the versioned assets. macOS
+signatures are ad-hoc. Native desktop testing on a clean computer remains a
+separate check.
 
-Before enabling JPEG XL by default or advertising it as production-ready in a
-formal release, retain these separate validation requirements. Experimental
-macOS CI builds may be shared for testing with the required redistribution
-notices and licence obligations satisfied:
+Before enabling JPEG XL by default or advertising it as production-ready,
+retain these validation requirements:
 
 - Compare paired PureRAW High-Fidelity JPEG XL and ordinary DNGs from the same RAW
   with a trusted external render. Verify WB/as-shot metadata, matrices/profiles,
@@ -280,8 +278,8 @@ notices and licence obligations satisfied:
   support remains outstanding: its ON path has configuration support but no
   completed native validation. Intel JPEG XL ON is also not covered by the
   release checks, which use OFF.
-- Complete portable packaging and the binary licensing/redistribution review
-  below. Passing hosted-runner DMG tests does not complete these requirements.
+- Complete the binary licensing and redistribution review below before the
+  first public release.
 
 ## Licensing and security
 

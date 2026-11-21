@@ -190,13 +190,11 @@ and float RGBA image path. Floating-point JPEG XL development and unsupported
 TrimBounds geometry are explicitly rejected; DefaultCrop is not applied.
 
 Linux and Apple Silicon Release OFF/ON builds and full self-tests are validated,
-including JPEG XL numerical checks and actual LibRaw OpenMP linkage. macOS arm64
-and Intel release DMGs pass signature, architecture, libomp/load-path and packaged
-self-test checks with JPEG XL **OFF**. Enabling JPEG XL by default or in distributed
-releases remains deferred. PureRAW photographic reference comparisons, Windows
-JPEG XL ON, macOS sanitizers, portable dependency packaging and redistribution
-review remain open; see [JPEG_XL_DNG.md](JPEG_XL_DNG.md) for the supported limits
-and evidence.
+including JPEG XL numerical checks and actual LibRaw OpenMP linkage. The release
+workflow packages Apple Silicon OFF and experimental ON, Intel OFF and Windows
+x64 OFF. Default enablement, PureRAW reference comparisons, Windows JPEG XL ON,
+macOS sanitizers and the binary redistribution review remain open. See
+[JPEG_XL_DNG.md](JPEG_XL_DNG.md) for the supported limits and evidence.
 
 ## Current renderer shape
 
@@ -646,7 +644,7 @@ suppressions. The normal application shutdown still needs a focused correction.
 These are known but are not reasons to expand unrelated focused PRs:
 
 - the production OpenFX plugin descriptor shutdown leak described above;
-- JPEG XL default enablement and portable binary distribution remain deferred;
+- JPEG XL default enablement remains deferred;
   see [JPEG_XL_DNG.md](JPEG_XL_DNG.md);
 - TIFF SubIFD handling is incomplete for some RAW-like TIFF structures;
 - some default bundled Crops produce a black boundary row from floating-point

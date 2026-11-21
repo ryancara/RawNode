@@ -1,10 +1,11 @@
-# Assemble the existing Windows CI outputs; this is a portable test build only.
+# Assemble and test a portable Windows ZIP for development CI or GitHub Releases.
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+$name = if ($env:PACKAGE_NAME) { $env:PACKAGE_NAME } else { 'RawNode-Windows-x64-Release' }
 $workspace = (Get-Location).Path
 $output = Join-Path $env:RUNNER_TEMP 'rawnode-windows-artifact'
-$stage = Join-Path $env:RUNNER_TEMP 'rawnode-windows-stage/RawNode-Windows-x64-Release'
+$stage = Join-Path $env:RUNNER_TEMP "rawnode-windows-stage/$name"
 $extracted = Join-Path $env:RUNNER_TEMP 'RawNode isolated extraction'
 $hiddenWorkspace = "$workspace.unavailable"
 New-Item -ItemType Directory -Path $output, $stage | Out-Null
@@ -44,7 +45,19 @@ Get-ChildItem native-deps/vcpkg/x64-windows/share -Recurse -Filter copyright | F
 }
 $commit = git rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw 'Cannot identify build commit' }
-@"
+$source = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/tree/$commit"
+if ($env:RELEASE_VERSION) {
+    @"
+RawNode $env:RELEASE_VERSION for Windows x64
+Source and build instructions: $source
+
+Extract the entire ZIP and launch OfxRawHost.exe from this folder.
+Windows 10 version 1903 or later and an OpenGL 3.3-capable driver are required.
+JPEG XL DNG support is OFF. The application is unsigned.
+Licence notices are in LICENSE, RawDependencyNotices and ThirdPartyNotices.
+"@ | Set-Content "$stage/README.txt"
+} else {
+    @"
 RawNode Windows x64 Release - manual validation test build
 Commit: $commit
 CI run: https://github.com/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
@@ -62,13 +75,17 @@ CI verifies the extracted application with its full --selftest, with the
 original checkout renamed and PATH limited to Windows system directories.
 Interactive desktop behaviour still needs manual validation.
 "@ | Set-Content "$stage/TEST-BUILD.txt"
+}
+"RawNode source and build instructions: $source" | Set-Content "$stage/RawDependencyNotices/Source.txt"
 
-$zip = Join-Path $output 'RawNode-Windows-x64-Release.zip'
+$zip = Join-Path $output "$name.zip"
 Compress-Archive -Path $stage -DestinationPath $zip
 Expand-Archive -LiteralPath $zip -DestinationPath $extracted
-$app = Join-Path $extracted 'RawNode-Windows-x64-Release'
+$app = Join-Path $extracted $name
 foreach ($required in 'OfxRawHost.exe', 'fa-solid-900.ttf', 'vcruntime140.dll', 'msvcp140.dll',
-    'vcomp140.dll', 'Plugins/OfxRawHost.ofx.bundle/Contents/Win64/OfxRawHost.ofx',
+    'vcomp140.dll', 'RawDependencyNotices/LibRaw/LICENSE.CDDL',
+    'RawDependencyNotices/DISTRIBUTION_NOTICES.md', 'RawDependencyNotices/Source.txt',
+    'Plugins/OfxRawHost.ofx.bundle/Contents/Win64/OfxRawHost.ofx',
     'Plugins/OfxRawHost.ofx.bundle/Contents/Info.plist') {
     if (!(Test-Path "$app/$required" -PathType Leaf)) { throw "Missing runtime resource: $required" }
 }
@@ -102,13 +119,13 @@ try {
     # Set-Location alone leaves the process's directory handle on the checkout,
     # which prevents Windows from renaming that directory.
     [Environment]::CurrentDirectory = $app
-    # Hide sources, build outputs, vcpkg and the compiled-in source font path.
+    # Hide sources, build outputs and vcpkg.
     Move-Item -LiteralPath $workspace -Destination $hiddenWorkspace
     $env:PATH = "$env:SystemRoot/System32;$env:SystemRoot"
     $env:OFX_PLUGIN_PATH = $null
     $env:CTL_MODULE_PATH = $null
     $process = Start-Process -FilePath "$app/OfxRawHost.exe" -ArgumentList '--selftest' `
-        -WorkingDirectory $app -PassThru `
+        -WorkingDirectory $extracted -PassThru `
         -RedirectStandardOutput "$output/extracted-selftest.stdout.log" `
         -RedirectStandardError "$output/extracted-selftest.stderr.log"
     # Keep the process handle so ExitCode remains available after it exits.

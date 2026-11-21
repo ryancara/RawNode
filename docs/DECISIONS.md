@@ -831,9 +831,9 @@ development, using the existing image, colour and rendering architecture.
 Unsupported floating-point JPEG XL development fails explicitly; integer decoding
 retains the documented stage and geometry limits.
 
-JPEG XL remains OFF by default and in normal release builds. Default enablement
-and JPEG XL integration into distributed releases are deferred. Dependency,
-validation, licensing and distribution details belong in
+JPEG XL remains OFF by default and in standard release builds. Apple Silicon
+release ZIPs also offer an experimental ON variant. Intel and Windows release
+ZIPs use OFF. Dependency, validation, licensing and distribution details are in
 [JPEG_XL_DNG.md](JPEG_XL_DNG.md).
 
 ## D058 — Shared atomic persistence

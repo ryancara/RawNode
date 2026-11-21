@@ -48,6 +48,13 @@ FetchContent_MakeAvailable(ctl)
 find_package(PkgConfig QUIET)
 include(cmake/RawDependencies.cmake)
 
+# Extra notices for distribution of the application.
+file(COPY "${PROJECT_SOURCE_DIR}/docs/DISTRIBUTION_NOTICES.md"
+  DESTINATION "${rawnode_notices}")
+file(COPY "${PROJECT_SOURCE_DIR}/third_party/stb"
+  "${PROJECT_SOURCE_DIR}/third_party/portable-file-dialogs"
+  DESTINATION "${rawnode_notices}" FILES_MATCHING PATTERN "*.h")
+
 # --- libtiff ---
 if(PkgConfig_FOUND)
   pkg_check_modules(LIBTIFF IMPORTED_TARGET libtiff-4)
@@ -135,6 +142,7 @@ add_executable(OfxRawHost
   src/persist/Preferences.cpp
   src/persist/DocumentActions.cpp
   src/persist/PhotoTrash.cpp
+  src/platform/ExecutableDirectory.cpp
   src/platform/FileTrash.cpp
   src/persist/ProjectPersistSave.cpp
   src/persist/ProjectPersistLoad.cpp
@@ -202,10 +210,7 @@ target_include_directories(OfxRawHost PRIVATE
   third_party/fontawesome
 )
 
-target_compile_definitions(OfxRawHost PRIVATE
-  "OFX_ICON_FONT_PATH=\"${CMAKE_SOURCE_DIR}/third_party/fontawesome/fa-solid-900.ttf\""
-  GL_SILENCE_DEPRECATION
-)
+target_compile_definitions(OfxRawHost PRIVATE GL_SILENCE_DEPRECATION)
 
 add_custom_command(TARGET OfxRawHost POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different

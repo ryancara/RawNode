@@ -1,6 +1,7 @@
 #include "ofx/OfxHost.h"
 #include "ofx/OfxHostPriv.h"
 #include "ofx/OfxMetal.h"
+#include "platform/ExecutableDirectory.h"
 #include "ofxGPURender.h"
 
 #include "ofxParam.h"
@@ -15,11 +16,7 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#elif defined(__APPLE__)
-#include <mach-o/dyld.h>
-#include <dlfcn.h>
 #else
-#include <unistd.h>
 #include <dlfcn.h>
 #endif
 
@@ -135,29 +132,6 @@ static void loadBundle(const fs::path &bundle) {
   }
 }
 
-// Directory containing the running executable, for finding bundled plugins.
-static fs::path exeDir() {
-#ifdef _WIN32
-  wchar_t buf[MAX_PATH];
-  const DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
-  if (n == 0 || n >= MAX_PATH) return {};
-  return fs::path(buf).parent_path();
-#elif defined(__APPLE__)
-  char buf[4096];
-  uint32_t sz = sizeof(buf);
-  if (_NSGetExecutablePath(buf, &sz) != 0) return {};
-  std::error_code ec;
-  fs::path p = fs::weakly_canonical(fs::path(buf), ec);
-  return (ec ? fs::path(buf) : p).parent_path();
-#else
-  char buf[4096];
-  const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-  if (n <= 0) return {};
-  buf[n] = '\0';
-  return fs::path(buf).parent_path();
-#endif
-}
-
 void loadPlugins() {
   std::vector<std::string> dirs;
   if (const char *env = getenv("OFX_PLUGIN_PATH")) {
@@ -182,7 +156,7 @@ void loadPlugins() {
 #endif
   // Bundled plugins shipped with the app: <exe>/Plugins (dev build tree) and
   // <exe>/../PlugIns (macOS app bundle Contents/PlugIns).
-  const fs::path exe = exeDir();
+  const fs::path exe = executableDirectory();
   if (!exe.empty()) {
     dirs.push_back((exe / "Plugins").string());
     dirs.push_back((exe / ".." / "PlugIns").string());
