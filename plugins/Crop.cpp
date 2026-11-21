@@ -11,7 +11,7 @@
 #include <memory>
 
 #define kPluginName "Crop"
-#define kPluginGrouping "OFX Raw Host"
+#define kPluginGrouping "RawNode"
 #define kPluginDescription "Crop to an aspect ratio with adjustable crop amount and center offsets."
 #define kPluginIdentifier "com.aaronmurniadi.ofxrawhost.crop"
 #define kPluginVersionMajor 1
