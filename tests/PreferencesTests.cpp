@@ -151,6 +151,7 @@ bool directoryPreferencesLifecycle() {
   const auto presets = files.dir / fs::u8path(u8"pr\u00e9sets");
   const auto scripts = files.dir / "CTL scripts";
   CHECK(fs::create_directory(presets) && fs::create_directory(scripts));
+  CHECK(directoryPreferenceError(presets.u8string()).empty());
   write(config.preferences, configured);
 
   App first;
@@ -205,6 +206,13 @@ bool invalidDirectoryPreferences() {
   CHECK(!directoryPreferenceError(loaded.ctlScriptsDirectory).empty());
   CHECK(directoryPreferenceError(files.dir.u8string()).empty());
   CHECK(directoryPreferenceError("").empty() && !fs::exists(files.dir / "missing"));
+
+  const auto invalidUtf8 = files.dir.u8string() + "/invalid-\xff";
+#ifdef __linux__
+  // Reproduce a real directory the picker can return on Linux.
+  CHECK(fs::create_directory(fs::path(invalidUtf8)));
+#endif
+  CHECK(directoryPreferenceError(invalidUtf8).find("UTF-8") != std::string::npos);
   return true;
 }
 

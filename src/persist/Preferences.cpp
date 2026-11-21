@@ -49,13 +49,8 @@ void size(const Value &root, const char *key, float &out, double low, double hig
 }
 fs::path absoluteDirectoryPath(const std::string &path) {
   if (path.find('\0') != std::string::npos) return {};
-  try {
-    const auto nativePath = fs::u8path(path);
-    if (nativePath.is_absolute()) return nativePath;
-  } catch (const fs::filesystem_error &) {
-    // A malformed UTF-8 path can fail conversion on Windows.
-  }
-  return {};
+  const auto nativePath = fs::u8path(path);
+  return nativePath.is_absolute() ? nativePath : fs::path{};
 }
 void directory(const Value &root, const char *key, std::string &out, std::string &warning) {
   const auto *value = optional(root, key);
@@ -209,6 +204,11 @@ bool savePreferences(const std::string &path, const Preferences &preferences, st
 
 std::string directoryPreferenceError(const std::string &path) {
   if (path.empty()) return {};
+  // Native directory names can contain bytes the strict preferences reader rejects.
+  Value value;
+  std::string jsonError;
+  if (!persist_json::read(jsonStringValue(path), value, jsonError))
+    return "The directory path must be valid UTF-8.";
   const auto nativePath = absoluteDirectoryPath(path);
   if (nativePath.empty()) return "Choose a valid absolute directory path.";
   std::error_code error;
