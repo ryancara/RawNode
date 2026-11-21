@@ -164,6 +164,17 @@ build/OfxRawHost.app/Contents/MacOS/OfxRawHost --selftest
 build/OfxRawHost --selftest
 ```
 
+### macOS Apple Silicon development downloads
+
+Successful macOS CI runs upload `RawNode-macOS-arm64-JXL-OFF` under **Artifacts**.
+Download the artifact, extract the outer archive and then extract the enclosed ZIP
+to obtain `OfxRawHost.app`. These 14-day, ad-hoc-signed test builds require
+**macOS 15 or later**. Gatekeeper may require **System Settings → Privacy &
+Security → Open Anyway**. They are not notarised public releases.
+
+The JPEG XL ON configuration is built, packaged and self-tested in CI, but is
+**not uploaded** pending the binary redistribution and licensing review
+described in [JPEG XL DNG validation](docs/JPEG_XL_DNG.md).
 ### Windows x64
 
 Use Windows 10 version 1903 or later, CMake 3.21 or later, Visual Studio 2022
