@@ -69,3 +69,46 @@ jobs:
       - name: Self-test
         run: |
           "$BUILD_DIR/OfxRawHost.app/Contents/MacOS/OfxRawHost" --selftest
+
+      - name: Package portable macOS test app
+        run: |
+          set -euo pipefail
+          app="$BUILD_DIR/OfxRawHost.app"
+          binary="$app/Contents/MacOS/OfxRawHost"
+          mkdir -p "$app/Contents/Frameworks"
+          cat > "$app/Contents/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleExecutable</key><string>OfxRawHost</string>
+            <key>CFBundleIdentifier</key><string>com.aaronmurniadi.ofxrawhost</string>
+            <key>CFBundleName</key><string>OFX Raw Host</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>0.0.0</string>
+            <key>LSMinimumSystemVersion</key><string>12.0</string>
+          </dict></plist>
+          PLIST
+          omp_prefix="$(brew --prefix libomp)"
+          omp_ref="$(otool -L "$binary" | awk '$1 ~ /libomp[.]dylib$/ {print $1}')"
+          test -n "$omp_ref"
+          cp -L "$omp_prefix/lib/libomp.dylib" "$app/Contents/Frameworks/libomp.dylib"
+          cp "$omp_prefix/LICENSE.TXT" "$app/Contents/Resources/RawDependencyNotices/libomp-LICENSE.TXT"
+          chmod u+w "$app/Contents/Frameworks/libomp.dylib"
+          install_name_tool -id '@rpath/libomp.dylib' "$app/Contents/Frameworks/libomp.dylib"
+          install_name_tool -change "$omp_ref" '@executable_path/../Frameworks/libomp.dylib' "$binary"
+          codesign --force --sign - "$app/Contents/PlugIns/OfxRawHost.ofx.bundle"
+          codesign --force --sign - "$app/Contents/Frameworks/libomp.dylib"
+          codesign --force --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          otool -L "$binary" | grep -F '@executable_path/../Frameworks/libomp.dylib'
+          "$binary" --selftest
+          ditto -c -k --sequesterRsrc --keepParent "$app" "$BUILD_DIR/RawNode-macOS-arm64-JXL-${{ matrix.jxl }}.zip"
+
+      - name: Upload portable macOS test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: RawNode-macOS-arm64-JXL-${{ matrix.jxl }}
+          path: ${{ env.BUILD_DIR }}/RawNode-macOS-arm64-JXL-${{ matrix.jxl }}.zip
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
