@@ -1,3 +1,7 @@
+// This product includes DNG technology under license by Adobe.
+// Adobe DNG Specification patent licence
+// https://helpx.adobe.com/camera-raw/desktop/dng-and-file-formats/digital-negative.html
+
 #include "imgio/ImageIO.h"
 #include "color/LinearColorTransform.h"
 #include "color/TransferFunction.h"

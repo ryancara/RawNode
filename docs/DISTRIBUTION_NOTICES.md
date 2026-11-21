@@ -7,6 +7,13 @@ identifies the version of the OpenFX SDK. CMakeLists.txt and
 cmake/RawDependencies.cmake identify fetched source versions and the patches
 used to build them.
 
+## Adobe DNG patent notice
+
+**This product includes DNG technology under license by Adobe.**
+
+This notice applies to both JPEG XL ON and OFF builds. See the
+[Adobe DNG Specification patent licence](https://helpx.adobe.com/camera-raw/desktop/dng-and-file-formats/digital-negative.html).
+
 ## LibRaw
 
 This distribution includes LibRaw 0.22.3 under the Common Development and
@@ -16,6 +23,50 @@ under the CDDL at https://github.com/LibRaw/LibRaw/tree/0.22.3 and as an
 archive at https://codeload.github.com/LibRaw/LibRaw/tar.gz/refs/tags/0.22.3.
 RawNode's bridge and build configuration are available at the RawNode source
 revision in Source.txt.
+
+### DCB demosaicing and FBDD denoising
+
+The licence and credits below are from
+[LibRaw 0.22.3's dcb_demosaic.cpp](https://github.com/LibRaw/LibRaw/blob/0.22.3/src/demosaic/dcb_demosaic.cpp).
+
+```text
+Copyright (C) 2010,  Jacek Gozdz (cuniek@kft.umcs.lublin.pl)
+
+This code is licensed under a (3-clause) BSD license as follows :
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following
+conditions are met:
+
+* Redistributions of source code must retain the above copyright
+  notice, this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above
+  copyright notice, this list of conditions and the following
+  disclaimer in the documentation and/or other materials provided
+  with the distribution.
+* Neither the name of the author nor the names of its
+  contributors may be used to endorse or promote products
+  derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL
+THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY
+OF SUCH DAMAGE.
+
+DCB demosaicing by Jacek Gozdz (cuniek@kft.umcs.lublin.pl)
+
+FBDD denoising by Jacek Gozdz (cuniek@kft.umcs.lublin.pl) and
+Luis Sanz Rodríguez (luis.sanz.rodriguez@gmail.com)
+```
 
 ## JPEG
 
