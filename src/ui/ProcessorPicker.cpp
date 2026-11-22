@@ -49,12 +49,33 @@ static void drawCtlScripts(App &app, const ui::CtlScriptFolder &folder, const st
   }
 }
 
+static void fitExpandablePicker() {
+  // A normal popup only picks its initial position. Keep room for the list to
+  // grow when a folder expands, and let ImGui scroll when it reaches that limit.
+  const auto *viewport = ImGui::GetWindowViewport();
+  const auto buttonMin = ImGui::GetItemRectMin();
+  const auto buttonMax = ImGui::GetItemRectMax();
+  const auto padding = ImGui::GetStyle().DisplaySafeAreaPadding;
+  const float above = buttonMin.y - viewport->WorkPos.y - padding.y;
+  const float below = viewport->WorkPos.y + viewport->WorkSize.y - buttonMax.y - padding.y;
+  const float left = buttonMax.x - viewport->WorkPos.x - padding.x;
+  const float right = viewport->WorkPos.x + viewport->WorkSize.x - buttonMin.x - padding.x;
+  const bool openAbove = above > below;
+  const bool alignRight = left > right;
+  ImGui::SetNextWindowPos(ImVec2(alignRight ? buttonMax.x : buttonMin.x,
+                                openAbove ? buttonMin.y : buttonMax.y),
+                          ImGuiCond_Always, ImVec2(alignRight ? 1.0f : 0.0f, openAbove ? 1.0f : 0.0f));
+  ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(std::max(left, right), std::max(above, below)));
+}
+
 void drawProcessorPicker(App &app) {
   ImGui::BeginDisabled(app.isPhotoProtected());
   if (ImGui::Button("+ Add Processor")) {
     app.ctlScriptDiscovery = ui::discoverCtlScripts(app.ctlScriptsDirectory);
     ImGui::OpenPopup("##addPluginPopup");
   }
+  const auto &discovery = app.ctlScriptDiscovery;
+  if (!discovery.contents.folders.empty() || !discovery.contents.scripts.empty()) fitExpandablePicker();
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
@@ -116,7 +137,6 @@ void drawProcessorPicker(App &app) {
       }
     }
 
-    const auto &discovery = app.ctlScriptDiscovery;
     ImGui::PushID("Discovered CTL scripts");
     drawCtlScripts(app, discovery.contents, "", q, showedCtlHeader);
     ImGui::PopID();
