@@ -30,7 +30,7 @@ The current codebase is a clean base for feature development. New work should re
 
 ### Suggested implementation order
 
-1. [Minimal Application Settings UI](#application-settings) over the existing global preferences.
+1. [Minimal Application Settings UI](#application-settings) for the preset and CTL directories.
 2. [Preset Panel](#preset-panel) using the existing preset format and Replace/Append operations.
 3. [Default preset selection and automatic application](#default-grade-preset)
    through Settings and grade replacement.
@@ -45,9 +45,9 @@ The current codebase is a clean base for feature development. New work should re
 ### Hard dependencies
 
 Default preset selection and configurable shortcut assignments require the
-Settings UI. Settings provides the folder picker for the preset root. The
-Preset Panel depends on the stored root directory and existing preset
-operations. Multi-photo application builds on the merged Filmstrip selection
+Settings UI. The Preset Panel depends on the preset root stored in Settings and
+existing preset operations. CTL discovery depends on the stored CTL scripts
+directory. Multi-photo application builds on the merged Filmstrip selection
 and grade persistence. Step 8 masking is independent of Settings, presets and
 shortcuts and may proceed earlier or in parallel.
 
@@ -149,15 +149,16 @@ historical; live legacy transfer readers are retired without migration or deleti
 
 ## Application Settings
 
-Add a small user-facing **Settings** menu/window over the existing
-[`preferences.json` system](docs/workspace-format.md). Start with the existing
-global RAW/Output defaults and relevant export/UI preferences. Provide a folder
-picker for the root preset directory and store the selection in the existing
-global `preferences.json`. Keep the default preset and shortcut assignments in
-the same global preferences as their milestones are implemented. Add
-configurable CTL, DCTL and OFX search locations and backend-specific pages only
-when needed for usable features. MIDI, OSC and scripting belong to separate
-planned work.
+**File → Settings…** opens a floating window with native folder pickers for
+the preset root and the CTL scripts directory. Both are optional and use the
+existing [`preferences.json` system](docs/workspace-format.md). The Preset Panel
+and CTL discovery are subsequent milestones.
+
+Add controls for global RAW/Output defaults and relevant export/UI preferences
+in later work. Keep the default preset and shortcut assignments in the same
+global preferences as their milestones are implemented. Add configurable DCTL
+and OFX search locations and backend-specific pages when needed for usable
+features. MIDI, OSC and scripting belong to separate planned work.
 
 ## Preset Panel
 

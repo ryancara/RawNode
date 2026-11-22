@@ -145,6 +145,77 @@ bool nodesViewPreference() {
   return true;
 }
 
+bool directoryPreferencesLifecycle() {
+  Files files;
+  const ConfigPaths config{files.path("preferences.json"), ""};
+  const auto presets = files.dir / fs::u8path(u8"pr\u00e9sets");
+  const auto scripts = files.dir / "CTL scripts";
+  CHECK(fs::create_directory(presets) && fs::create_directory(scripts));
+  CHECK(directoryPreferenceError(presets.u8string()).empty());
+  write(config.preferences, configured);
+
+  App first;
+  CHECK(initialisePreferences(first, config) && first.preferencesWarning.empty());
+  CHECK(first.presetDirectory.empty() && first.ctlScriptsDirectory.empty());
+  first.presetDirectory = presets.u8string();
+  first.ctlScriptsDirectory = scripts.u8string();
+  CHECK(prepareShutdown(first, config, true));
+
+  App restarted;
+  CHECK(initialisePreferences(restarted, config) && restarted.preferencesWarning.empty());
+  CHECK(restarted.presetDirectory == presets.u8string() && restarted.ctlScriptsDirectory == scripts.u8string());
+  CHECK(restarted.rawWorkingEncoding == storedRaw && restarted.defaultOutputEncoding == storedOutput);
+  CHECK(restarted.themeIndex == 1 && restarted.jpegQuality == 73);
+  CHECK(!restarted.showRight && !restarted.showFilmstrip);
+
+  restarted.presetDirectory.clear();
+  restarted.ctlScriptsDirectory.clear();
+  CHECK(prepareShutdown(restarted, config, true));
+  const auto saved = bytes(config.preferences);
+  CHECK(saved.find("presetDirectory") == std::string::npos && saved.find("ctlScriptsDirectory") == std::string::npos);
+  Preferences p;
+  std::string warning;
+  CHECK(loadPreferences(config.preferences, p, warning) && warning.empty());
+  CHECK(p.presetDirectory.empty() && p.ctlScriptsDirectory.empty());
+  CHECK(p.themeIndex == 1 && p.jpegQuality == 73);
+  return true;
+}
+
+bool invalidDirectoryPreferences() {
+  Files files;
+  const auto path = files.path("preferences.json");
+  Preferences p;
+  std::string warning;
+  write(path, "{" + header + R"(,"presetDirectory":"","ctlScriptsDirectory":""})");
+  CHECK(loadPreferences(path, p, warning) && warning.empty());
+  CHECK(p.presetDirectory.empty() && p.ctlScriptsDirectory.empty());
+  write(path, "{" + header + R"(,"presetDirectory":7,"ctlScriptsDirectory":"relative/path","themeIndex":1})");
+  CHECK(loadPreferences(path, p, warning));
+  CHECK(warning.find("presetDirectory") != std::string::npos &&
+        warning.find("ctlScriptsDirectory") != std::string::npos);
+  CHECK(p.presetDirectory.empty() && p.ctlScriptsDirectory.empty() && p.themeIndex == 1);
+
+  // A missing drive or a moved folder must not erase the user's selection.
+  p.presetDirectory = (files.dir / "missing").u8string();
+  p.ctlScriptsDirectory = (files.dir / "preferences.json").u8string();
+  CHECK(savePreferences(path, p, warning));
+  Preferences loaded;
+  CHECK(loadPreferences(path, loaded, warning) && warning.empty());
+  CHECK(loaded.presetDirectory == p.presetDirectory && loaded.ctlScriptsDirectory == p.ctlScriptsDirectory);
+  CHECK(!directoryPreferenceError(loaded.presetDirectory).empty());
+  CHECK(!directoryPreferenceError(loaded.ctlScriptsDirectory).empty());
+  CHECK(directoryPreferenceError(files.dir.u8string()).empty());
+  CHECK(directoryPreferenceError("").empty() && !fs::exists(files.dir / "missing"));
+
+  const auto invalidUtf8 = files.dir.u8string() + "/invalid-\xff";
+#ifdef __linux__
+  // Reproduce a real directory the picker can return on Linux.
+  CHECK(fs::create_directory(fs::path(invalidUtf8)));
+#endif
+  CHECK(directoryPreferenceError(invalidUtf8).find("UTF-8") != std::string::npos);
+  return true;
+}
+
 bool atomicFailuresAndPaths() {
   Files files;
   const auto home = files.path("home"), xdg = files.path("config");
@@ -234,6 +305,7 @@ bool protectedPreferencesShutdown() {
     App app;
     const bool preferencesLoaded = initialisePreferences(app, config);
     app.themeIndex = 1;
+    app.presetDirectory = app.ctlScriptsDirectory = files.dir.u8string();
     CHECK(prepareShutdown(app, config, preferencesLoaded));
     CHECK(bytes(config.preferences) == original);
     CHECK(!preferencesLoaded && !app.preferencesWarning.empty());
@@ -453,6 +525,8 @@ bool testPreferences() {
   for (const auto &test : {
        std::make_pair("codec, optional fields and pair fallbacks", codecAndOptionalFields),
        std::make_pair("List/Graph preference compatibility and validation", nodesViewPreference),
+       std::make_pair("directory preferences persist and clear across startup and shutdown", directoryPreferencesLifecycle),
+       std::make_pair("malformed and unavailable directory preferences", invalidDirectoryPreferences),
        std::make_pair("config paths and checked atomic failures", atomicFailuresAndPaths),
        std::make_pair("unsupported/malformed preferences survive shutdown", protectedPreferencesShutdown),
        std::make_pair("startup colours, folder retirement and shutdown cancellation", startupPhotoFolderAndShutdown),
