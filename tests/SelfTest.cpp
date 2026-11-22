@@ -42,6 +42,7 @@
 #include "processors/OfxProcessor.h"
 #include "persist/ProjectPersist.h"
 #include "persist/DocumentActions.h"
+#include "ui/CtlScriptDiscovery.h"
 #include "ui/UiContext.h"
 #include "ui/ImGuiBackend.h"
 #include "imgui.h"
@@ -2050,6 +2051,57 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
   return writeRgba16TiffWithIcc(p, rgba, icc);
 }
 
+static bool testCtlScriptDiscovery() {
+  struct TestDirectory {
+    fs::path path = fs::temp_directory_path() /
+        ("rawnode-selftest-ctl-discovery-" +
+         std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    ~TestDirectory() {
+      std::error_code error;
+      fs::remove_all(path, error);
+    }
+  } files;
+
+  const auto unconfigured = ui::discoverCtlScripts("");
+  if (!unconfigured.directory.empty() || unconfigured.scanError) return false;
+  const auto missing = ui::discoverCtlScripts(files.path.u8string());
+  if (!missing.scanError || !missing.contents.folders.empty() || !missing.contents.scripts.empty())
+    return false;
+
+  const auto root = files.path / fs::u8path(u8"CTL bibliothèque");
+  const auto nested = root / "alpha" / "Nested";
+  const auto other = root / "Beta";
+  fs::create_directories(nested);
+  fs::create_directories(other);
+  fs::create_directories(root / "Unused.ctl");
+  const auto empty = ui::discoverCtlScripts(root.u8string());
+  if (empty.scanError || !empty.contents.folders.empty() || !empty.contents.scripts.empty())
+    return false;
+
+  // These files deliberately contain no runnable processors. Discovery only lists paths.
+  const auto unicodeScript = u8"café.ctl";
+  for (const auto &path : {root / "Zebra.CTL", root / "apple.ctl", root / "skip.ctl.txt",
+                           root / "skip.dctl", nested / fs::u8path(unicodeScript),
+                           other / fs::u8path(unicodeScript)}) {
+    if (!(std::ofstream(path) << "Invalid script fixture\n")) return false;
+  }
+
+  const auto discovered = ui::discoverCtlScripts(root.u8string());
+  const auto &contents = discovered.contents;
+  if (discovered.scanError || discovered.directory != root ||
+      contents.scripts != std::vector<std::string>{"apple.ctl", "Zebra.CTL"} ||
+      contents.folders.size() != 2) return false;
+  const auto &alpha = contents.folders[0];
+  const auto &beta = contents.folders[1];
+  if (alpha.name != "alpha" || !alpha.scripts.empty() || alpha.folders.size() != 1 ||
+      alpha.folders[0].name != "Nested" || alpha.folders[0].scripts != std::vector<std::string>{unicodeScript} ||
+      beta.name != "Beta" || beta.scripts != std::vector<std::string>{unicodeScript}) return false;
+
+  fs::remove(root / "apple.ctl");
+  const auto rescanned = ui::discoverCtlScripts(root.u8string());
+  return !rescanned.scanError && rescanned.contents.scripts == std::vector<std::string>{"Zebra.CTL"};
+}
+
 // Renders a gray ramp through every installed filter plugin and writes export formats.
 static int runSelfTestsImpl() {
   {
@@ -2068,6 +2120,8 @@ static int runSelfTestsImpl() {
   if (!testPngColor()) return fail("PNG colour correctness");
   if (!testExportSafety()) return fail("export safety");
   if (!testPreferences()) return fail("Step 7 preferences");
+  if (!testCtlScriptDiscovery()) return fail("CTL script directory discovery");
+  printf("ok  CTL script directory discovery\n");
   if (!testPresetsAndClipboard()) return fail("Step 7 presets and clipboard");
   if (!testGradeHistory()) return fail("Grade history");
   if (!testHistoryUi()) return fail("History UI");
