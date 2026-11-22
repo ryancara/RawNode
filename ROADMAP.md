@@ -152,7 +152,8 @@ historical; live legacy transfer readers are retired without migration or deleti
 **File → Settings…** opens a floating window with native folder pickers for
 the preset root and the CTL scripts directory. Both are optional and use the
 existing [`preferences.json` system](docs/workspace-format.md). The Preset Panel
-and CTL discovery are subsequent milestones.
+is a subsequent milestone. Add Processor lists CTL scripts from the configured
+directory and its subfolders each time the picker opens.
 
 Add controls for global RAW/Output defaults and relevant export/UI preferences
 in later work. Keep the default preset and shortcut assignments in the same

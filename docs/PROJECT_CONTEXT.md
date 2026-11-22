@@ -903,8 +903,8 @@ starts with Application Settings over global preferences, then the Preset
 Panel, default preset selection and automatic application, assignable keyboard
 shortcuts, and multi-photo grade/preset application. **File → Settings…**
 configures the optional preset root and CTL scripts directory. The planned
-Preset Panel will use the saved root and the existing preset operations. CTL
-discovery will use the saved scripts directory in a later milestone.
+Preset Panel will use the saved root and the existing preset operations. Add
+Processor uses the saved CTL scripts directory when opening its picker.
 
 Step 8 masking can proceed alongside those workflows. Its agreed exit gate is
 the mandatory feature condition for Step 9, with the performance checkpoint
