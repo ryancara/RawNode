@@ -12,6 +12,7 @@ namespace {
 int lower(unsigned char c) { return std::tolower(c); }
 
 bool alphabetical(const std::string &left, const std::string &right) {
+  // Compare case-insensitively, breaking ties by byte order.
   const auto [a, b] = std::mismatch(left.begin(), left.end(), right.begin(), right.end(),
                                     [](char x, char y) { return lower(x) == lower(y); });
   if (a == left.end() || b == right.end()) {

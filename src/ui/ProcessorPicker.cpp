@@ -18,19 +18,19 @@ static bool icontains(const std::string &hay, const std::string &needle) {
   return it != hay.end();
 }
 
-static void ctlHeader(bool &shown) {
-  if (shown) return;
+static void ctlHeader(bool &headerShown) {
+  if (headerShown) return;
   ImGui::SeparatorText("CTL");
-  shown = true;
+  headerShown = true;
 }
 
 static void drawCtlScripts(App &app, const ui::CtlScriptFolder &folder, const std::string &prefix,
-                           const std::string &query, bool &shown) {
+                           const std::string &query, bool &headerShown) {
   for (const auto &child : folder.folders) {
     if (!query.empty()) {
-      drawCtlScripts(app, child, prefix + child.name + '/', query, shown);
+      drawCtlScripts(app, child, prefix + child.name + '/', query, headerShown);
     } else if (ImGui::TreeNode(child.name.c_str())) {
-      drawCtlScripts(app, child, prefix + child.name + '/', query, shown);
+      drawCtlScripts(app, child, prefix + child.name + '/', query, headerShown);
       ImGui::TreePop();
     }
   }
@@ -38,7 +38,7 @@ static void drawCtlScripts(App &app, const ui::CtlScriptFolder &folder, const st
   for (const auto &script : folder.scripts) {
     const auto relativePath = prefix + script;
     if (!icontains(relativePath, query)) continue;
-    ctlHeader(shown);
+    ctlHeader(headerShown);
     // Search results show the relative path so matching basenames remain distinct.
     if (ImGui::Selectable(query.empty() ? script.c_str() : relativePath.c_str())) {
       const auto path = app.ctlScriptDiscovery.directory / std::filesystem::u8path(relativePath);
@@ -75,7 +75,7 @@ void drawProcessorPicker(App &app) {
     ImGui::OpenPopup("##addPluginPopup");
   }
   const auto &discovery = app.ctlScriptDiscovery;
-  if (!discovery.contents.folders.empty() || !discovery.contents.scripts.empty()) fitExpandablePicker();
+  fitExpandablePicker();
   if (ImGui::BeginPopup("##addPluginPopup")) {
     if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::SetNextItemWidth(-1);
