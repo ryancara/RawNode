@@ -42,7 +42,7 @@
 #include "processors/OfxProcessor.h"
 #include "persist/ProjectPersist.h"
 #include "persist/DocumentActions.h"
-#include "ui/CtlScriptDiscovery.h"
+#include "platform/DirectoryDiscovery.h"
 #include "ui/UiContext.h"
 #include "ui/ImGuiBackend.h"
 #include "imgui.h"
@@ -2051,7 +2051,7 @@ static bool writeGray16TiffWithIcc(const fs::path &p, uint16_t value,
   return writeRgba16TiffWithIcc(p, rgba, icc);
 }
 
-static bool testCtlScriptDiscovery() {
+static bool testDirectoryDiscovery() {
   struct TestDirectory {
     fs::path path = fs::temp_directory_path() /
         ("rawnode-selftest-ctl-discovery-" +
@@ -2062,11 +2062,10 @@ static bool testCtlScriptDiscovery() {
     }
   } files;
 
-  const auto unconfigured = ui::discoverCtlScripts("");
-  if (!unconfigured.directory.empty() || unconfigured.scanError) return false;
-  const auto missing = ui::discoverCtlScripts(files.path.u8string());
-  if (!missing.scanError || !missing.contents.folders.empty() || !missing.contents.scripts.empty())
-    return false;
+  const auto unconfigured = discoverDirectory({}, ".ctl");
+  if (!unconfigured.contents.path.empty() || unconfigured.scanError) return false;
+  const auto missing = discoverDirectory(files.path, ".ctl");
+  if (!missing.scanError || !missing.contents.empty()) return false;
 
   const auto root = files.path / fs::u8path(u8"CTL bibliothèque");
   const auto nested = root / "alpha" / "Nested";
@@ -2074,9 +2073,8 @@ static bool testCtlScriptDiscovery() {
   fs::create_directories(nested);
   fs::create_directories(other);
   fs::create_directories(root / "Unused.ctl");
-  const auto empty = ui::discoverCtlScripts(root.u8string());
-  if (empty.scanError || !empty.contents.folders.empty() || !empty.contents.scripts.empty())
-    return false;
+  const auto empty = discoverDirectory(root, ".ctl");
+  if (empty.scanError || !empty.contents.empty()) return false;
 
   // These files deliberately contain no runnable processors. Discovery only lists paths.
   const auto unicodeScript = u8"café.ctl";
@@ -2086,20 +2084,32 @@ static bool testCtlScriptDiscovery() {
     if (!(std::ofstream(path) << "Invalid script fixture\n")) return false;
   }
 
-  const auto discovered = ui::discoverCtlScripts(root.u8string());
+  // Link creation may be unavailable on Windows or on the temporary filesystem.
+  std::error_code linkError;
+  fs::create_symlink(root / "apple.ctl", root / "alias.ctl", linkError);
+  fs::create_directory_symlink(nested, root / "linked-nested", linkError);
+  const auto linkedRoot = files.path / "linked-root";
+  fs::create_directory_symlink(root, linkedRoot, linkError);
+  if (!linkError) {
+    const auto linked = discoverDirectory(linkedRoot, ".ctl");
+    if (linked.scanError || linked.contents.files !=
+        std::vector<fs::path>{linkedRoot / "apple.ctl", linkedRoot / "Zebra.CTL"}) return false;
+  }
+
+  const auto discovered = discoverDirectory(root, ".ctl");
   const auto &contents = discovered.contents;
-  if (discovered.scanError || discovered.directory != root ||
-      contents.scripts != std::vector<std::string>{"apple.ctl", "Zebra.CTL"} ||
+  if (discovered.scanError || contents.path != root ||
+      contents.files != std::vector<fs::path>{root / "apple.ctl", root / "Zebra.CTL"} ||
       contents.folders.size() != 2) return false;
   const auto &alpha = contents.folders[0];
   const auto &beta = contents.folders[1];
-  if (alpha.name != "alpha" || !alpha.scripts.empty() || alpha.folders.size() != 1 ||
-      alpha.folders[0].name != "Nested" || alpha.folders[0].scripts != std::vector<std::string>{unicodeScript} ||
-      beta.name != "Beta" || beta.scripts != std::vector<std::string>{unicodeScript}) return false;
+  if (alpha.path != root / "alpha" || !alpha.files.empty() || alpha.folders.size() != 1 ||
+      alpha.folders[0].path != nested || alpha.folders[0].files != std::vector<fs::path>{nested / fs::u8path(unicodeScript)} ||
+      beta.path != other || beta.files != std::vector<fs::path>{other / fs::u8path(unicodeScript)}) return false;
 
   fs::remove(root / "apple.ctl");
-  const auto rescanned = ui::discoverCtlScripts(root.u8string());
-  return !rescanned.scanError && rescanned.contents.scripts == std::vector<std::string>{"Zebra.CTL"};
+  const auto rescanned = discoverDirectory(root, ".ctl");
+  return !rescanned.scanError && rescanned.contents.files == std::vector<fs::path>{root / "Zebra.CTL"};
 }
 
 // Renders a gray ramp through every installed filter plugin and writes export formats.
@@ -2120,8 +2130,8 @@ static int runSelfTestsImpl() {
   if (!testPngColor()) return fail("PNG colour correctness");
   if (!testExportSafety()) return fail("export safety");
   if (!testPreferences()) return fail("Step 7 preferences");
-  if (!testCtlScriptDiscovery()) return fail("CTL script directory discovery");
-  printf("ok  CTL script directory discovery\n");
+  if (!testDirectoryDiscovery()) return fail("Shared directory discovery");
+  printf("ok  Shared directory discovery\n");
   if (!testPresetsAndClipboard()) return fail("Step 7 presets and clipboard");
   if (!testGradeHistory()) return fail("Grade history");
   if (!testHistoryUi()) return fail("History UI");

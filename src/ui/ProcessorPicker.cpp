@@ -24,24 +24,26 @@ static void ctlHeader(bool &headerShown) {
   headerShown = true;
 }
 
-static void drawCtlScripts(App &app, const ui::CtlScriptFolder &folder, const std::string &prefix,
+static void drawCtlScripts(App &app, const DirectoryFolder &folder, const std::filesystem::path &root,
                            const std::string &query, bool &headerShown) {
   for (const auto &child : folder.folders) {
     if (!query.empty()) {
-      drawCtlScripts(app, child, prefix + child.name + '/', query, headerShown);
-    } else if (ImGui::TreeNode(child.name.c_str())) {
-      drawCtlScripts(app, child, prefix + child.name + '/', query, headerShown);
-      ImGui::TreePop();
+      drawCtlScripts(app, child, root, query, headerShown);
+    } else {
+      const auto name = child.path.filename().u8string();
+      if (ImGui::TreeNode(name.c_str())) {
+        drawCtlScripts(app, child, root, query, headerShown);
+        ImGui::TreePop();
+      }
     }
   }
 
-  for (const auto &script : folder.scripts) {
-    const auto relativePath = prefix + script;
-    if (!icontains(relativePath, query)) continue;
-    ctlHeader(headerShown);
+  for (const auto &path : folder.files) {
     // Search results show the relative path so matching basenames remain distinct.
-    if (ImGui::Selectable(query.empty() ? script.c_str() : relativePath.c_str())) {
-      const auto path = app.ctlScriptDiscovery.directory / std::filesystem::u8path(relativePath);
+    const auto label = query.empty() ? path.filename().u8string() : path.lexically_relative(root).generic_u8string();
+    if (!icontains(label, query)) continue;
+    ctlHeader(headerShown);
+    if (ImGui::Selectable(label.c_str())) {
       addCtlNode(app, path.u8string());
       app.pluginFilter[0] = '\0';
       ImGui::CloseCurrentPopup();
@@ -71,7 +73,7 @@ static void fitExpandablePicker() {
 void drawProcessorPicker(App &app) {
   ImGui::BeginDisabled(app.isPhotoProtected());
   if (ImGui::Button("+ Add Processor")) {
-    app.ctlScriptDiscovery = ui::discoverCtlScripts(app.ctlScriptsDirectory);
+    app.ctlScriptDiscovery = discoverDirectory(std::filesystem::u8path(app.ctlScriptsDirectory), ".ctl");
     ImGui::OpenPopup("##addPluginPopup");
   }
   const auto &discovery = app.ctlScriptDiscovery;
@@ -138,10 +140,10 @@ void drawProcessorPicker(App &app) {
     }
 
     ImGui::PushID("Discovered CTL scripts");
-    drawCtlScripts(app, discovery.contents, "", q, showedCtlHeader);
+    drawCtlScripts(app, discovery.contents, discovery.contents.path, q, showedCtlHeader);
     ImGui::PopID();
-    if (showManualCtl && !discovery.directory.empty()) {
-      const bool empty = discovery.contents.folders.empty() && discovery.contents.scripts.empty();
+    if (showManualCtl && !discovery.contents.path.empty()) {
+      const bool empty = discovery.contents.empty();
       if (discovery.scanError) {
         ImGui::TextDisabled("%s", empty ? "Could not scan CTL scripts directory"
                                        : "Some CTL scripts could not be listed");

@@ -154,6 +154,8 @@ the preset root and the CTL scripts directory. Both are optional and use the
 existing [`preferences.json` system](docs/workspace-format.md). The Preset Panel
 uses the configured preset root. Add Processor lists CTL scripts from the
 configured directory and its subfolders each time the picker opens.
+Both browsers match filename suffixes without regard to ASCII case and skip
+symbolic-link entries found within their configured directories.
 
 Add controls for global RAW/Output defaults and relevant export/UI preferences
 in later work. Keep the default preset and shortcut assignments in the same
@@ -165,7 +167,8 @@ features. MIDI, OSC and scripting belong to separate planned work.
 
 **View → Preset Panel** opens a dockable browser for `.rawnode.json` files in the
 root configured in **File → Settings…** and its subfolders. The listing updates
-on open, on a root change and with **Refresh**. Select a file, then apply it
+on open, on a root change and with **Refresh**. The selection's relative path
+stays visible beside the apply controls. Select a file, then apply it
 with **Replace Grade** or **Append**. These actions use the existing grade
 operations, including the linear incoming-graph requirement for Append.
 **Edit → Presets** still opens the native file chooser for presets elsewhere.

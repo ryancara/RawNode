@@ -164,7 +164,19 @@ bool completePresetsAndOverwrite() {
   app.nodePositions[app.primarySource.value] = {-10.5, 8};
   const auto path = files.path("preset.rawnode.json");
   CHECK(savePreset(app, path) && copyGrade(app)); // Editable Source-only grade.
-  CHECK(savePresetDialog(app, files.path("extension")) && fs::exists(files.path("extension.rawnode.json")));
+  const struct {
+    const char *chosen;
+    const char *saved;
+  } presetNames[] = {
+    {"Portra 400", "Portra 400.rawnode.json"},
+    {"Portra 400 v1.5", "Portra 400 v1.5.rawnode.json"},
+    {"Portra.RAWNODE.JSON", "Portra.RAWNODE.JSON"},
+    {"Look.RawNode.Json", "Look.RawNode.Json"},
+    {"Look.json", "Look.json.rawnode.json"},
+  };
+  for (const auto &name : presetNames) {
+    CHECK(savePresetDialog(app, files.path(name.chosen)) && fs::exists(files.path(name.saved)));
+  }
   PersistFile saved; std::string error;
   CHECK(readGraphSidecar(path, saved, error) == SidecarReadStatus::Loaded && saved.grade && !saved.metadataJson);
   CHECK(saved.grade->graph.nodes.size() == 1 && saved.grade->positions.at(app.primarySource.value).x == -10.5);
@@ -408,49 +420,53 @@ bool presetPanelDiscoveryAndRefresh() {
   Files files;
   App app;
   auto &panel = app.presetPanel;
-  panel.update(true, app.presetDirectory);
+  panel.updateListing(true, app.presetDirectory);
   CHECK(panel.contents.empty() && panel.feedback.find("Settings") != std::string::npos);
   app.presetDirectory = (files.dir / "presets").u8string();
-  panel.update(true, app.presetDirectory);
+  panel.updateListing(true, app.presetDirectory);
   CHECK(panel.contents.empty() && panel.feedback.find("could not be found") != std::string::npos);
 
   const auto root = fs::u8path(app.presetDirectory);
   fs::create_directory(root);
-  panel.update(true, app.presetDirectory, true);
+  panel.updateListing(true, app.presetDirectory, true);
   CHECK(panel.contents.empty() && panel.feedback == "No presets found.");
 
   fs::create_directories(root / "a" / "nested");
   fs::create_directory(root / "b");
   fs::create_directory(root / "empty.rawnode.json");
-  for (const auto *name : {"z.rawnode.json", "a.rawnode.json", "ignored.json", "backup.rawnode.json.bak",
-                           "a/nested/look.rawnode.json", "b/look.rawnode.json", "empty.rawnode.json/unrelated.txt"}) {
+  for (const auto *name : {"Z.RAWNODE.JSON", "a.rawnode.json", "ignored.json", "backup.rawnode.json.bak",
+                           "a/nested/look.RawNode.Json", "b/look.RawNode.Json", "empty.rawnode.json/unrelated.txt"}) {
     // Discovery uses the filename alone. Decoding will reject these fixtures.
     CHECK(bool(std::ofstream(root / name) << "Invalid preset fixture\n"));
   }
-  panel.update(true, app.presetDirectory);
+  panel.updateListing(true, app.presetDirectory);
   CHECK(panel.contents.empty());
-  panel.update(true, app.presetDirectory, true);
+  panel.updateListing(true, app.presetDirectory, true);
   CHECK(panel.feedback.empty());
-  CHECK((panel.contents.presets == std::vector<fs::path>{root / "a.rawnode.json", root / "z.rawnode.json"}));
+  CHECK((panel.contents.files == std::vector<fs::path>{root / "a.rawnode.json", root / "Z.RAWNODE.JSON"}));
   const auto &folders = panel.contents.folders;
   CHECK(folders.size() == 2 && folders[0].path == root / "a" && folders[1].path == root / "b");
-  CHECK(folders[0].presets.empty() && folders[0].folders.size() == 1);
-  CHECK(folders[0].folders[0].presets == std::vector<fs::path>{root / "a" / "nested" / "look.rawnode.json"});
-  CHECK(folders[1].presets == std::vector<fs::path>{root / "b" / "look.rawnode.json"});
+  CHECK(folders[0].files.empty() && folders[0].folders.size() == 1);
+  CHECK(folders[0].folders[0].files == std::vector<fs::path>{root / "a" / "nested" / "look.RawNode.Json"});
+  CHECK(folders[1].files == std::vector<fs::path>{root / "b" / "look.RawNode.Json"});
 
-  panel.selectedPath = root / "z.rawnode.json";
+  panel.selectedPath = panel.contents.files.front();
+  panel.updateListing(true, app.presetDirectory, true);
+  CHECK(panel.selectedPath.empty());
+
+  panel.selectedPath = root / "Z.RAWNODE.JSON";
   fs::remove(panel.selectedPath);
-  panel.update(true, app.presetDirectory);
-  CHECK(panel.contents.presets.size() == 2 && panel.selectedPath == root / "z.rawnode.json");
-  panel.update(false, app.presetDirectory);
-  panel.update(true, app.presetDirectory);
-  CHECK(panel.contents.presets == std::vector<fs::path>{root / "a.rawnode.json"} && panel.selectedPath.empty());
-  panel.selectedPath = panel.contents.presets.front();
+  panel.updateListing(true, app.presetDirectory);
+  CHECK(panel.contents.files.size() == 2 && panel.selectedPath == root / "Z.RAWNODE.JSON");
+  panel.updateListing(false, app.presetDirectory);
+  panel.updateListing(true, app.presetDirectory);
+  CHECK(panel.contents.files == std::vector<fs::path>{root / "a.rawnode.json"} && panel.selectedPath.empty());
+  panel.selectedPath = panel.contents.files.front();
 
   app.presetDirectory = (root / "b").u8string();
-  panel.update(true, app.presetDirectory);
+  panel.updateListing(true, app.presetDirectory);
   CHECK(panel.contents.folders.empty() && panel.selectedPath.empty());
-  CHECK(panel.contents.presets == std::vector<fs::path>{root / "b" / "look.rawnode.json"});
+  CHECK(panel.contents.files == std::vector<fs::path>{root / "b" / "look.RawNode.Json"});
   return true;
 }
 
@@ -458,14 +474,14 @@ bool discoveredPresetThroughActions() {
   Files files;
   const auto folder = files.dir / "looks";
   fs::create_directory(folder);
-  const auto preset = folder / "warm.rawnode.json";
+  const auto preset = folder / "warm.RawNode.Json";
   CHECK(bool(std::ofstream(preset) << file(source + ',' + processor("exposure", "camera"), "exposure")));
 
   App app;
-  app.presetPanel.update(true, files.dir.u8string());
+  app.presetPanel.updateListing(true, files.dir.u8string());
   const auto &folders = app.presetPanel.contents.folders;
-  CHECK(folders.size() == 1 && folders[0].presets.size() == 1);
-  app.presetPanel.selectedPath = folders[0].presets.front();
+  CHECK(folders.size() == 1 && folders[0].files.size() == 1);
+  app.presetPanel.selectedPath = folders[0].files.front();
   const auto path = app.presetPanel.selectedPath.u8string();
   CHECK(path == preset.u8string() && app.nodes.size() == 1);
   CHECK(loadPresetDialog(app, false, path) && app.nodes.size() == 2);

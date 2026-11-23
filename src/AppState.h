@@ -7,7 +7,7 @@
 #include "RenderRuntime.h"
 #include "persist/ProjectPersist.h"
 #include "persist/Preferences.h"
-#include "ui/CtlScriptDiscovery.h"
+#include "platform/DirectoryDiscovery.h"
 #include "ui/GraphCanvas.h"
 #include "ui/ParamWidgets.h"
 #include "ui/PresetPanel.h"
@@ -147,7 +147,7 @@ struct App {
   float rightW = 420.0f;
   char paramFilter[128] = {};
   char pluginFilter[128] = {};
-  ui::CtlScriptDiscovery ctlScriptDiscovery;
+  DirectoryDiscovery ctlScriptDiscovery;
   float previewZoom = 1.0f;  // 1 = fit in view
   int themeIndex = 2;        // Photoshop
   float previewPanX = 0.0f;

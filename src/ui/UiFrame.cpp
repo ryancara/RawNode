@@ -253,7 +253,7 @@ bool savePresetDialog(App &app, std::string path) {
                           pfd::opt::force_overwrite).result();
   }
   if (path.empty()) return false;
-  if (fs::path(path).extension().empty()) path += ".rawnode.json";
+  if (!hasFilenameSuffix(path, ".rawnode.json")) path += ".rawnode.json";
   return savePreset(app, path, [](const std::string &destination) {
     if (!pfd::settings::available()) return false;
     return pfd::message("Replace preset?", "Replace the grade in " + destination + "?",
