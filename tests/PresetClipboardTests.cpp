@@ -404,6 +404,82 @@ bool endpointSelectionAppendsThroughActions() {
   return true;
 }
 
+bool presetPanelDiscoveryAndRefresh() {
+  Files files;
+  App app;
+  auto &panel = app.presetPanel;
+  panel.update(true, app.presetDirectory);
+  CHECK(panel.contents.empty() && panel.feedback.find("Settings") != std::string::npos);
+  app.presetDirectory = (files.dir / "presets").u8string();
+  panel.update(true, app.presetDirectory);
+  CHECK(panel.contents.empty() && panel.feedback.find("could not be found") != std::string::npos);
+
+  const auto root = fs::u8path(app.presetDirectory);
+  fs::create_directory(root);
+  panel.update(true, app.presetDirectory, true);
+  CHECK(panel.contents.empty() && panel.feedback == "No presets found.");
+
+  fs::create_directories(root / "a" / "nested");
+  fs::create_directory(root / "b");
+  fs::create_directory(root / "empty.rawnode.json");
+  for (const auto *name : {"z.rawnode.json", "a.rawnode.json", "ignored.json", "backup.rawnode.json.bak",
+                           "a/nested/look.rawnode.json", "b/look.rawnode.json", "empty.rawnode.json/unrelated.txt"}) {
+    // Discovery uses the filename alone. Decoding will reject these fixtures.
+    CHECK(bool(std::ofstream(root / name) << "Invalid preset fixture\n"));
+  }
+  panel.update(true, app.presetDirectory);
+  CHECK(panel.contents.empty());
+  panel.update(true, app.presetDirectory, true);
+  CHECK(panel.feedback.empty());
+  CHECK((panel.contents.presets == std::vector<fs::path>{root / "a.rawnode.json", root / "z.rawnode.json"}));
+  const auto &folders = panel.contents.folders;
+  CHECK(folders.size() == 2 && folders[0].path == root / "a" && folders[1].path == root / "b");
+  CHECK(folders[0].presets.empty() && folders[0].folders.size() == 1);
+  CHECK(folders[0].folders[0].presets == std::vector<fs::path>{root / "a" / "nested" / "look.rawnode.json"});
+  CHECK(folders[1].presets == std::vector<fs::path>{root / "b" / "look.rawnode.json"});
+
+  panel.selectedPath = root / "z.rawnode.json";
+  fs::remove(panel.selectedPath);
+  panel.update(true, app.presetDirectory);
+  CHECK(panel.contents.presets.size() == 2 && panel.selectedPath == root / "z.rawnode.json");
+  panel.update(false, app.presetDirectory);
+  panel.update(true, app.presetDirectory);
+  CHECK(panel.contents.presets == std::vector<fs::path>{root / "a.rawnode.json"} && panel.selectedPath.empty());
+  panel.selectedPath = panel.contents.presets.front();
+
+  app.presetDirectory = (root / "b").u8string();
+  panel.update(true, app.presetDirectory);
+  CHECK(panel.contents.folders.empty() && panel.selectedPath.empty());
+  CHECK(panel.contents.presets == std::vector<fs::path>{root / "b" / "look.rawnode.json"});
+  return true;
+}
+
+bool discoveredPresetThroughActions() {
+  Files files;
+  const auto folder = files.dir / "looks";
+  fs::create_directory(folder);
+  const auto preset = folder / "warm.rawnode.json";
+  CHECK(bool(std::ofstream(preset) << file(source + ',' + processor("exposure", "camera"), "exposure")));
+
+  App app;
+  app.presetPanel.update(true, files.dir.u8string());
+  const auto &folders = app.presetPanel.contents.folders;
+  CHECK(folders.size() == 1 && folders[0].presets.size() == 1);
+  app.presetPanel.selectedPath = folders[0].presets.front();
+  const auto path = app.presetPanel.selectedPath.u8string();
+  CHECK(path == preset.u8string() && app.nodes.size() == 1);
+  CHECK(loadPresetDialog(app, false, path) && app.nodes.size() == 2);
+  CHECK(app.documentOutput == image("exposure"));
+  CHECK(loadPresetDialog(app, true, path) && app.nodes.size() == 3);
+  CHECK(app.documentOutput != image("exposure") && findNode(app, NodeId{"exposure"}));
+
+  const auto before = payload(app);
+  fs::remove(preset);
+  CHECK(!loadPresetDialog(app, false, path));
+  CHECK(app.getStatus().find("Preset does not exist") != std::string::npos && payload(app) == before);
+  return true;
+}
+
 bool rejectIncomingOffSpineConsumer() {
   App app;
   const auto destination = grade(file(processor("end", "start", "-1") + ',' + processor("branch", "start", "3") + ',' +
@@ -605,6 +681,8 @@ bool testPresetsAndClipboard() {
       std::make_pair("linear middle/end Append preserves branches, bindings/positions and rejects atomically", linearAppendAndRejection),
       std::make_pair("selected final-node Append/Paste updates Output and evaluates the complete chain", insertAfterSelectedFinalNode),
       std::make_pair("Source/Output selection appends paste and preset through UI actions", endpointSelectionAppendsThroughActions),
+      std::make_pair("Preset Panel hierarchy, filtering, visibility, refresh and root changes", presetPanelDiscoveryAndRefresh),
+      std::make_pair("discovered preset uses existing Replace, Append and missing-file diagnostics", discoveredPresetThroughActions),
       std::make_pair("incoming off-spine consumer rejects without changing document state", rejectIncomingOffSpineConsumer),
       std::make_pair("independent fragment capture, fresh IDs, detached links and real clipboard refusal", fragmentsAndClipboard),
       std::make_pair("internal Mask/Reference/Slot state and external-link diagnostics", fragmentSlotsAndExternalLinks)}) {

@@ -7,6 +7,7 @@
 void drawProcessorPicker(App &app);
 void drawInspector(App &app);
 void drawNodesPanel(App &app);
+void drawPresetPanel(App &app);
 // Headless interaction tests replace only the GL upload boundary.
 void drawPreviewPanel(App &app, void (*upload)(App &) = nullptr);
 SaveFailureDecision promptSaveFailure(const std::string &error);

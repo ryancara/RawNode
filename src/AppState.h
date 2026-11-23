@@ -10,6 +10,7 @@
 #include "ui/CtlScriptDiscovery.h"
 #include "ui/GraphCanvas.h"
 #include "ui/ParamWidgets.h"
+#include "ui/PresetPanel.h"
 #include "ui/PreviewInteraction.h"
 
 #include <GLFW/glfw3.h>
@@ -166,6 +167,8 @@ struct App {
 
   std::string folderDir;
   std::string presetDirectory;
+  bool showPresetPanel = false;
+  ui::PresetPanelState presetPanel;
   std::string ctlScriptsDirectory;
   std::string preferencesWarning;
   struct SettingsWindow {

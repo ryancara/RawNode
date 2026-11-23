@@ -155,6 +155,7 @@ add_executable(OfxRawHost
   src/ui/Widgets.cpp
   src/ui/ParamWidgets.cpp
   src/ui/CtlScriptDiscovery.cpp
+  src/ui/PresetPanel.cpp
   src/ui/ProcessorPicker.cpp
   src/ui/NodeList.cpp
   src/ui/NodeListPanel.cpp

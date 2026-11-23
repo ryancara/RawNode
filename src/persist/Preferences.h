@@ -20,6 +20,7 @@ struct Preferences {
   bool showNodes = true;
   NodesView nodesView = NodesView::List;
   bool showFilmstrip = true;
+  bool showPresetPanel = false;
   float rightW = 420.0f;
   float filmstripH = 96.0f;
   // Absolute UTF-8 paths. Empty means no directory is configured.

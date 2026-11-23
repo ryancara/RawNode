@@ -492,6 +492,7 @@ void DrawUiFrame(App &app) {
       ImGui::MenuItem("Inspector", "Ctrl+]", &app.showRight);
       ImGui::MenuItem("Filmstrip", "Ctrl+\\", &app.showFilmstrip);
 #endif
+      ImGui::MenuItem("Preset Panel", nullptr, &app.showPresetPanel);
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Theme")) {
@@ -571,6 +572,7 @@ void DrawUiFrame(App &app) {
   }
 
   drawSettings(app, settingsRequested);
+  drawPresetPanel(app);
 
   if (app.showAbout) {
     ImGui::OpenPopup("About RawNode");
