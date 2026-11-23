@@ -68,7 +68,7 @@ void ui::PresetPanelState::update(bool visible, const std::string &directory, bo
   selectedPath.clear();
   contents = {};
   if (directory.empty()) {
-    feedback = "Choose a preset directory in File → Settings.";
+    feedback = "Choose a preset directory in File > Settings.";
     return;
   }
   feedback = directoryPreferenceError(directory);
