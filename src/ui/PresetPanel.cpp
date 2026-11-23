@@ -19,15 +19,15 @@ ui::PresetFolder scanFolder(const fs::path &path, bool &scanError) {
        it.increment(iterationError)) {
     const auto &entry = *it;
     std::error_code entryError;
-    // Directory links can leave the configured tree or lead back into it.
-    if (fs::is_directory(entry.symlink_status(entryError))) {
+    // Directory links can cycle, and the preset loader requires a regular file.
+    const auto status = entry.symlink_status(entryError);
+    if (fs::is_directory(status)) {
       auto child = scanFolder(entry.path(), scanError);
       if (!child.empty()) folder.folders.push_back(std::move(child));
-    } else if (!entryError) {
+    } else if (fs::is_regular_file(status)) {
       const auto name = entry.path().filename().u8string();
       constexpr std::string_view suffix = ".rawnode.json";
-      if (name.size() >= suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0 &&
-          entry.is_regular_file(entryError))
+      if (name.size() >= suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0)
         folder.presets.push_back(entry.path());
     }
     if (entryError) scanError = true;
