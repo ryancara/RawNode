@@ -253,7 +253,7 @@ bool savePresetDialog(App &app, std::string path) {
                           pfd::opt::force_overwrite).result();
   }
   if (path.empty()) return false;
-  if (fs::path(path).extension().empty()) path += ".rawnode.json";
+  if (!hasFilenameSuffix(path, ".rawnode.json")) path += ".rawnode.json";
   return savePreset(app, path, [](const std::string &destination) {
     if (!pfd::settings::available()) return false;
     return pfd::message("Replace preset?", "Replace the grade in " + destination + "?",
@@ -492,6 +492,7 @@ void DrawUiFrame(App &app) {
       ImGui::MenuItem("Inspector", "Ctrl+]", &app.showRight);
       ImGui::MenuItem("Filmstrip", "Ctrl+\\", &app.showFilmstrip);
 #endif
+      ImGui::MenuItem("Preset Panel", nullptr, &app.showPresetPanel);
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Theme")) {
@@ -571,6 +572,7 @@ void DrawUiFrame(App &app) {
   }
 
   drawSettings(app, settingsRequested);
+  drawPresetPanel(app);
 
   if (app.showAbout) {
     ImGui::OpenPopup("About RawNode");

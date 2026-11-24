@@ -157,13 +157,16 @@ bool directoryPreferencesLifecycle() {
   App first;
   CHECK(initialisePreferences(first, config) && first.preferencesWarning.empty());
   CHECK(first.presetDirectory.empty() && first.ctlScriptsDirectory.empty());
+  CHECK(!first.showPresetPanel);
   first.presetDirectory = presets.u8string();
   first.ctlScriptsDirectory = scripts.u8string();
+  first.showPresetPanel = true;
   CHECK(prepareShutdown(first, config, true));
 
   App restarted;
   CHECK(initialisePreferences(restarted, config) && restarted.preferencesWarning.empty());
   CHECK(restarted.presetDirectory == presets.u8string() && restarted.ctlScriptsDirectory == scripts.u8string());
+  CHECK(restarted.showPresetPanel);
   CHECK(restarted.rawWorkingEncoding == storedRaw && restarted.defaultOutputEncoding == storedOutput);
   CHECK(restarted.themeIndex == 1 && restarted.jpegQuality == 73);
   CHECK(!restarted.showRight && !restarted.showFilmstrip);

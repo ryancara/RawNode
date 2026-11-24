@@ -13,17 +13,20 @@ Application settings live in one directory resolved at startup:
 | Linux | `$XDG_CONFIG_HOME/RawNode/`, or `~/.config/RawNode/` |
 | Windows | `%APPDATA%\RawNode\` |
 
-`preferences.json` stores theme, Inspector/Nodes and filmstrip visibility,
-fallback Inspector width/filmstrip height, preview resolution, export format/JPEG
-quality, and default RAW working/Output colour pairs. Docking and window geometry
-remain in ImGui's native `layout.ini`. Both paths stay fixed for the session;
-changing photograph folders changes neither preferences nor docking.
+`preferences.json` stores theme, Inspector/Nodes/Filmstrip/Preset Panel
+visibility, fallback Inspector width/filmstrip height, preview resolution,
+export format/JPEG quality, and default RAW working/Output colour pairs.
+Docking and window geometry remain in ImGui's native `layout.ini`. Both paths
+stay fixed for the session; changing photograph folders changes neither
+preferences nor docking.
 
 The optional `nodesView` string accepts `"list"` or `"graph"`. Missing or invalid
 values use List; invalid values warn without discarding other valid preferences.
-The optional `showNodes` boolean defaults to true. Canvas pan/zoom are transient;
-photo layout coordinates remain in `grade.positions`, not preferences. New default docking places Preview above Nodes, Inspector right and Filmstrip
-across the bottom. New custom/floating arrangements persist normally; historical
+The optional `showNodes` and `showPresetPanel` booleans default to true and false,
+respectively. Preset selection and canvas pan/zoom are transient.
+Photo layout coordinates remain in `grade.positions`. Default docking places
+Preview above Nodes, Inspector right and Filmstrip across the bottom.
+New custom/floating arrangements persist normally; historical
 window-layout migration is deliberately unsupported (D051). No configuration is
 automatically deleted. Retired Left Panel fields `showLeft` and `leftW` are no
 longer read or written; unrelated preferences, including `showRight` (Inspector)

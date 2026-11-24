@@ -168,6 +168,7 @@ bool loadPreferences(const std::string &path, Preferences &out, std::string &war
       warn(warning, "nodesView: expected list or graph; using List View");
   }
   boolean(root, "showFilmstrip", out.showFilmstrip, warning);
+  boolean(root, "showPresetPanel", out.showPresetPanel, warning);
   size(root, "rightW", out.rightW, 1, 10000, warning);
   size(root, "filmstripH", out.filmstripH, 48, 240, warning);
   directory(root, "presetDirectory", out.presetDirectory, warning);
@@ -190,6 +191,7 @@ bool preferences_detail::save(const std::string &path, const Preferences &p, std
       << ",\n  \"showNodes\":" << (p.showNodes ? "true" : "false")
       << ",\n  \"nodesView\":\"" << (p.nodesView == NodesView::Graph ? "graph" : "list") << "\""
       << ",\n  \"showFilmstrip\":" << (p.showFilmstrip ? "true" : "false")
+      << ",\n  \"showPresetPanel\":" << (p.showPresetPanel ? "true" : "false")
       << ",\n  \"rightW\":" << p.rightW
       << ",\n  \"filmstripH\":" << p.filmstripH;
   if (!p.presetDirectory.empty()) out << ",\n  \"presetDirectory\":" << jsonStringValue(p.presetDirectory);
@@ -231,6 +233,7 @@ Preferences capturePreferences(const App &app) {
   p.previewRes = app.previewRes; p.themeIndex = app.themeIndex;
   p.showNodes = app.showNodes; p.nodesView = app.nodesView;
   p.showRight = app.showRight; p.showFilmstrip = app.showFilmstrip;
+  p.showPresetPanel = app.showPresetPanel;
   p.rightW = app.rightW; p.filmstripH = app.filmstripH;
   p.presetDirectory = app.presetDirectory;
   p.ctlScriptsDirectory = app.ctlScriptsDirectory;
@@ -251,6 +254,7 @@ void applyPreferences(App &app, const Preferences &p) {
   app.previewRes = p.previewRes; app.themeIndex = p.themeIndex;
   app.showNodes = p.showNodes; app.nodesView = p.nodesView;
   app.showRight = p.showRight; app.showFilmstrip = p.showFilmstrip;
+  app.showPresetPanel = p.showPresetPanel;
   app.rightW = p.rightW; app.filmstripH = p.filmstripH;
   app.presetDirectory = p.presetDirectory;
   app.ctlScriptsDirectory = p.ctlScriptsDirectory;

@@ -554,20 +554,20 @@ all clipboard payloads; optional node X/Y positions remain graph layout.
 
 Step 7 replaced the linear preset/clipboard paths with this shared
 representation and reusable graph validation, identity and reconstruction
-mechanisms for Replace/Append. It added no preset-management UI. The later
-Preset Panel can
-expose both actions. Branched incoming Append can be staged separately if
-existing graph commands cannot support it safely; refuse unsupported operations
-without speculative graph-editing machinery. D045's no-flattening requirement
-continues to apply to the graph-native paths.
+mechanisms for Replace/Append. **View → Preset Panel** browses the directory
+configured in **File → Settings…** and calls those same operations on explicit
+application. The dockable panel remembers its visibility. Its listing and
+selection are transient, with a fresh listing and cleared selection on open,
+root change or **Refresh**. General branched incoming Append remains deferred.
+D045's no-flattening requirement continues to apply to the graph-native paths.
 
 Historical Sidecar V1/V2 files are protected without migration; live legacy
 preset/clipboard readers and `.rawnodepreset` workflows are retired. Do not add
 legacy migration readers or
 compatibility frameworks solely for development-era files, and do not
 automatically delete existing files. Protection from accidental destruction
-remains required independently of backwards compatibility. Preset browsing,
-folder selection, defaults and multi-photo workflows remain later features.
+remains required independently of backwards compatibility. Default preset
+selection and automatic application remain the next preset milestone.
 
 ### Preserve existing node identity behaviour
 
@@ -899,12 +899,10 @@ compositing or alpha-carrying I/O requires it.
 ## Near-term roadmap
 
 The [suggested implementation order](../ROADMAP.md#suggested-implementation-order)
-starts with Application Settings over global preferences, then the Preset
-Panel, default preset selection and automatic application, assignable keyboard
-shortcuts, and multi-photo grade/preset application. **File → Settings…**
-configures the optional preset root and CTL scripts directory. The planned
-Preset Panel will use the saved root and the existing preset operations. Add
-Processor uses the saved CTL scripts directory when opening its picker.
+continues with default preset selection and automatic application, assignable
+keyboard shortcuts, and multi-photo grade/preset application. **File → Settings…**
+configures the optional preset and CTL roots for the Preset Panel and the
+Add Processor picker, respectively.
 
 Step 8 masking can proceed alongside those workflows. Its agreed exit gate is
 the mandatory feature condition for Step 9, with the performance checkpoint

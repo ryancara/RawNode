@@ -142,6 +142,7 @@ add_executable(OfxRawHost
   src/persist/Preferences.cpp
   src/persist/DocumentActions.cpp
   src/persist/PhotoTrash.cpp
+  src/platform/DirectoryDiscovery.cpp
   src/platform/ExecutableDirectory.cpp
   src/platform/FileTrash.cpp
   src/persist/ProjectPersistSave.cpp
@@ -154,7 +155,7 @@ add_executable(OfxRawHost
   src/ui/UiFrame.cpp
   src/ui/Widgets.cpp
   src/ui/ParamWidgets.cpp
-  src/ui/CtlScriptDiscovery.cpp
+  src/ui/PresetPanel.cpp
   src/ui/ProcessorPicker.cpp
   src/ui/NodeList.cpp
   src/ui/NodeListPanel.cpp
