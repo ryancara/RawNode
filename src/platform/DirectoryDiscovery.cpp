@@ -16,6 +16,7 @@ bool sameLetter(char left, char right) {
   return lowerAscii(left) == lowerAscii(right);
 }
 
+// Compare case-insensitively, breaking ties by byte order.
 bool alphabetical(const fs::path &left, const fs::path &right) {
   const auto a = left.filename().u8string();
   const auto b = right.filename().u8string();
