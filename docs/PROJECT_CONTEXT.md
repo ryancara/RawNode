@@ -399,7 +399,8 @@ Unwritable folders may prompt on navigation/close even with no adjustments.
 
 The **Default preset** selector in **File → Settings…** offers **None** and
 relative paths from the configured preset root and its subfolders. Changing or
-clearing the root clears the selection. Opening a photograph follows this order:
+clearing the root clears the selection. Changing the selected default never
+alters a saved grade. Opening a photograph follows this order:
 
 1. Restore an existing saved grade, including an intentionally empty one.
 2. Otherwise, apply the configured default preset, if any, using Replace
@@ -409,16 +410,22 @@ clearing the root clears the selection. Opening a photograph follows this order:
 The preset grade is reconstructed before decoding. Its RAW working encoding
 drives the first decode, and its Output encoding and graph become the initial
 history state. The initial sidecar save preserves the destination's metadata.
-If the preset cannot be read or reconstructed, opening stops with a diagnostic
-and the current document remains editable. The configured selection is retained
-so the user can fix, change or clear it. RawNode records the resulting grade in
-the sidecar without any preset reference.
+If the preset cannot be read or reconstructed, opening stops before publishing
+the incoming photo or saving its grade. The current document stays in place, and
+the diagnostic directs the user to change or clear the default in Settings.
+RawNode records a successfully applied grade in the sidecar without any preset
+reference.
 
 Unreadable, invalid, unsupported or incompatible sidecars open as protected
 source views when decoding succeeds. Those views have a persistent warning and
 disable editing, paste and preset application. Ordinary save failures retain
 unsaved edits through the existing retry/discard/cancel interaction. Users can
 manually apply another preset to an editable photo after opening it.
+
+[D060](DECISIONS.md#d060--sequential-photograph-export) still governs export of
+unopened, ungraded photographs. It uses the Source-only graph and global RAW
+and Output defaults. Applying the default preset during export is a separate
+product decision awaiting owner approval.
 
 ### Independent grade and photo metadata
 

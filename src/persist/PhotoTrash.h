@@ -30,6 +30,8 @@ struct PhotoTrashResult {
   std::vector<std::string> errors;
   // Exact photo/sidecar paths permanently deleted after native confirmation.
   std::vector<std::string> deletedPaths;
+  // Opening is a separate step after removal. Report the first failed attempt.
+  std::string firstOpenError;
   std::string message() const;
 };
 // Caller confirms the captured request and completes current-photo UI edits.

@@ -225,6 +225,8 @@ bool defaultPresetPreference() {
   Files files;
   const ConfigPaths config{files.path("preferences.json"), ""};
   const std::string relative = u8"Looks/caf\u00e9.RaWnOdE.JsOn";
+  CHECK(validDefaultPresetPath(relative));
+  CHECK(!validDefaultPresetPath("bad\xff.rawnode.json"));
   App first;
   first.presetDirectory = files.dir.u8string();
   first.defaultPreset = relative;
@@ -484,8 +486,9 @@ bool defaultPresetSettings() {
   const std::string nested = u8"b\u00e9ta/Look.RAWNODE.JSON";
   CHECK(fs::create_directories(root / "Alpha") && fs::create_directories(root / fs::u8path(nested).parent_path()));
   const auto preset = R"({"format":"rawnode","version":1,"grade":{"color":{"rawWorking":{"colorSpace":"aces-ap1","gamma":"linear"},"output":{"colorSpace":"display-p3","gamma":"srgb"}},"graph":{"primarySource":"preset-source","documentOutput":{"node":"preset-source","port":"image"},"nodes":[{"id":"preset-source","kind":"source"}]}}})";
-  for (const auto &relative : {std::string("Alpha/Look.RAWNODE.JSON"), nested, std::string("z.rawnode.json")})
+  for (const auto &relative : {std::string("Alpha/Look.RAWNODE.JSON"), nested})
     CHECK(bool(std::ofstream(root / fs::u8path(relative)) << preset));
+  CHECK(bool(std::ofstream(root / "z.rawnode.json") << "{"));
   CHECK(bool(std::ofstream(root / "ignore.json") << preset));
 
   ImGuiContextScope context;
@@ -519,7 +522,7 @@ bool defaultPresetSettings() {
   frame();
   CHECK(app.settingsWindow.defaultPresetChoices == expected);
   const int nestedIndex = 1;
-  const auto nestedId = ImHashStr("##preset", 0, popup->GetID(nestedIndex));
+  const auto nestedId = ImHashStr(nested.c_str(), 0, popup->GetID(nestedIndex));
   frame(nestedId); frame();
   CHECK(app.defaultPreset == nested && app.settingsWindow.defaultPresetFeedback.empty());
   CHECK(app.preview == preview && app.history.size() == 1 && app.photoRawWorkingEncoding == fallbackRaw);
@@ -530,6 +533,10 @@ bool defaultPresetSettings() {
   CHECK(app.defaultPreset == nested && !app.settingsWindow.defaultPresetFeedback.empty());
   CHECK(app.settingsWindow.defaultPresetChoices ==
         (std::vector<std::string>{"Alpha/Look.RAWNODE.JSON", "new.rawnode.json", "z.rawnode.json"}));
+  frame(ImHashStr("z.rawnode.json", 0, popup->GetID(2))); frame();
+  CHECK(app.defaultPreset == "z.rawnode.json");
+  CHECK(app.settingsWindow.defaultPresetFeedback.find("Could not read default preset") != std::string::npos);
+  frame(combo); frame();
   frame(popup->GetID("None")); frame();
   CHECK(app.defaultPreset.empty() && app.settingsWindow.defaultPresetFeedback.empty());
 

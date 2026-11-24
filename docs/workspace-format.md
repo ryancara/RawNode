@@ -46,9 +46,9 @@ discovered in the configured root and its subfolders. The list refreshes each
 time the selector opens. The optional `defaultPreset` string stores the chosen
 UTF-8 path relative to `presetDirectory`, for example
 `Portraits/Warm.rawnode.json`. A missing or empty value means **None**. Changing
-or clearing the configured root clears this selection. If the selected file
-becomes unavailable, Settings shows the saved selection and an error so the
-user can change or clear it.
+or clearing the configured root clears this selection. If RawNode cannot read
+the selected file as a preset, Settings shows the saved selection and the read
+error so the user can change or clear it.
 
 Preferences load before UI initialisation and the first photo opening, and save
 on normal shutdown even without an opened folder. A cancelled photo-save departure

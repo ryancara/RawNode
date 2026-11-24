@@ -177,7 +177,7 @@ struct App {
     std::string presetFeedback;
     std::vector<std::string> defaultPresetChoices;
     std::string defaultPresetFeedback;
-    bool presetScanError = false;
+    bool defaultPresetScanError = false;
     std::string ctlScriptsFeedback;
   } settingsWindow;
   std::vector<FilmstripEntry> filmstrip;

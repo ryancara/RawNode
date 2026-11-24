@@ -1466,6 +1466,7 @@ bool defaultPresetFailures() {
   CHECK(unchanged() && !fs::exists(sidecar) && defaultPresetDecodeCalls == 0);
   CHECK(app.getStatus().find("default preset look.rawnode.json") != std::string::npos);
   CHECK(app.getStatus().find("Preset does not exist") != std::string::npos);
+  CHECK(app.getStatus().find("Change or clear the default in File > Settings") != std::string::npos);
 
   write(sidecar, metadataOnly);
   write(preset, "{");
@@ -1481,6 +1482,7 @@ bool defaultPresetFailures() {
   CHECK(!document_detail::openPhoto(app, incoming, {}, options));
   CHECK(unchanged() && bytes(sidecar) == metadataOnly && defaultPresetDecodeCalls == 0);
   CHECK(app.getStatus().find("Invalid parameter value: exposure") != std::string::npos);
+  CHECK(app.getStatus().find("Change or clear the default in File > Settings") != std::string::npos);
 
   write(preset, file(exposure + ',' + source, "gain"));
   CHECK(!document_detail::openPhoto(app, failedRaw, {}, options));

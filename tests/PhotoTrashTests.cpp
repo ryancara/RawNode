@@ -492,6 +492,42 @@ bool protectedAndFailedReplacement() {
   CHECK(bytes(inputSidecarPath(b)) == "new source owns this sidecar");
   return true;
 }
+
+bool defaultPresetFailureAfterTrash() {
+  for (const bool hasSavedReplacement : {false, true}) {
+    Files files;
+    const auto current = files.photo("a-current.png");
+    const auto ungraded = files.photo("b-ungraded.png");
+    const auto broken = files.path("c-undecodable.png");
+    const auto brokenSidecar = inputSidecarPath(broken);
+    write(broken, "Not a PNG");
+    write(brokenSidecar, "Protected sidecar");
+    App app;
+    std::string replacement;
+    if (hasSavedReplacement) {
+      replacement = files.photo("d-saved.png");
+      CHECK(openPath(app, replacement));
+    }
+    scan(app, files);
+    CHECK(openPath(app, current));
+    app.filmstripSelection = {current};
+    app.presetDirectory = files.dir.u8string();
+    app.defaultPreset = "missing.rawnode.json";
+
+    const auto result = execute(app, capturePhotoTrashRequest(app), files);
+    CHECK(result.moved == 1 && result.deleted == 0 && result.failed == 0);
+    CHECK(!result.cancelled && result.errors.empty());
+    CHECK(files.calls == (std::vector<std::string>{current, inputSidecarPath(current)}));
+    CHECK(app.path == replacement && app.history.size() == (hasSavedReplacement ? 1u : 0u));
+    CHECK(!fs::exists(inputSidecarPath(ungraded)) && bytes(brokenSidecar) == "Protected sidecar");
+    CHECK(result.firstOpenError.find("Could not apply default preset missing.rawnode.json") != std::string::npos);
+    CHECK(result.firstOpenError.find("Preset does not exist") != std::string::npos);
+    CHECK(result.firstOpenError.find("Change or clear the default in File > Settings") != std::string::npos);
+    CHECK(result.message() == "Moved 1 photograph to Trash; 0 failed.\n" + result.firstOpenError);
+    CHECK(app.getStatus() == result.message());
+  }
+  return true;
+}
 }  // namespace
 
 bool testPhotoTrash() {
@@ -504,6 +540,7 @@ bool testPhotoTrash() {
       std::make_pair("current failure/success, last photo, orphan protection and usable empty editor", currentPhotoTransitions),
       std::make_pair("Retry/Discard/Cancel and active-export source restriction", saveDecisionsAndExport),
       std::make_pair("preview execution drained and obsolete thumbnail generation cannot publish", previewAndThumbnailLifetime),
+      std::make_pair("first replacement-opening error survives Trash with and without a saved replacement", defaultPresetFailureAfterTrash),
       std::make_pair("protected current source, failed replacement and no substituted-source save", protectedAndFailedReplacement)}) {
     if (!test.second()) { std::fprintf(stderr, "FAIL photo Trash: %s\n", test.first); return false; }
   }

@@ -184,8 +184,9 @@ RAW/Output defaults**, following the [saved-grade and protected-sidecar rules](d
 Folder scanning and thumbnail generation create no sidecars. Successfully opening
 a photograph for editing establishes and persists its grade (D050). Metadata-only
 updates to unopened photos create no grades. A saved Source-only grade takes
-precedence. If the default fails to load or reconstruct, opening stops and the
-selection stays available in Settings for correction.
+precedence. Changing the selected default never alters saved grades. If the
+default fails to load or reconstruct, opening stops and the selection stays
+available in Settings for correction.
 
 ## Multi-photo grade and preset application
 

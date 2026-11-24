@@ -19,7 +19,8 @@ bool promptPhotoTrash(const std::string &message) {
 }
 
 void reportPhotoTrash(const PhotoTrashResult &result) {
-  if ((!result.errors.empty() || !result.deletedPaths.empty()) && pfd::settings::available())
+  if ((!result.errors.empty() || !result.deletedPaths.empty() || !result.firstOpenError.empty()) &&
+      pfd::settings::available())
     pfd::message("Move to Trash results", result.message(), pfd::choice::ok, pfd::icon::warning).result();
 }
 

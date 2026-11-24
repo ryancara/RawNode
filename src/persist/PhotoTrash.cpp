@@ -138,6 +138,7 @@ std::string PhotoTrashResult::message() const {
   if (cancelled) text += " Remaining work cancelled.";
   for (const auto &path : deletedPaths) text += "\nPermanently deleted: " + path;
   for (const auto &error : errors) text += "\n" + error;
+  if (!firstOpenError.empty()) text += "\n" + firstOpenError;
   return text;
 }
 
@@ -210,6 +211,7 @@ PhotoTrashResult document_detail::trashPhotographs(App &app, const PhotoTrashReq
     // keeps preview dispatch closed until this outer removal/transition ends.
     for (const auto &entry : app.filmstrip) {
       if (openPreparedPhoto(app, entry.path, options)) break;
+      if (result.firstOpenError.empty()) result.firstOpenError = app.getStatus();
     }
   }
   app.setStatus(result.message());

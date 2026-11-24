@@ -48,6 +48,12 @@ void size(const Value &root, const char *key, float &out, double low, double hig
     else warn(warning, std::string(key) + ": invalid size; using default");
   }
 }
+bool isValidUtf8Path(const std::string &path) {
+  // Native filenames can contain byte sequences the strict preferences file cannot store.
+  Value value;
+  std::string error;
+  return persist_json::read(jsonStringValue(path), value, error);
+}
 fs::path absoluteDirectoryPath(const std::string &path) {
   if (path.find('\0') != std::string::npos) return {};
   const auto nativePath = fs::u8path(path);
@@ -81,9 +87,7 @@ std::string pairJson(ColorEncoding encoding) {
 
 bool validDefaultPresetPath(const std::string &path) {
   if (path.find('\0') != std::string::npos || !hasFilenameSuffix(path, ".rawnode.json")) return false;
-  Value value;
-  std::string error;
-  if (!persist_json::read(jsonStringValue(path), value, error)) return false;
+  if (!isValidUtf8Path(path)) return false;
   const auto relative = fs::u8path(path);
   if (relative.has_root_path()) return false;
   for (const auto &component : relative)
@@ -228,10 +232,7 @@ bool savePreferences(const std::string &path, const Preferences &preferences, st
 
 std::string directoryPreferenceError(const std::string &path) {
   if (path.empty()) return {};
-  // Native directory names can contain bytes the strict preferences reader rejects.
-  Value value;
-  std::string jsonError;
-  if (!persist_json::read(jsonStringValue(path), value, jsonError))
+  if (!isValidUtf8Path(path))
     return "The directory path must be valid UTF-8.";
   const auto nativePath = absoluteDirectoryPath(path);
   if (nativePath.empty()) return "Choose a valid absolute directory path.";

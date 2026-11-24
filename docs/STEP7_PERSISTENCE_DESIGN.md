@@ -266,11 +266,11 @@ For photograph opening:
    same path. On failure offer Retry / Discard / Cancel; retain the live document
    until a save succeeds or discard is explicit. Read the incoming sidecar after
    this save so same-photo reopening cannot reload stale settings.
-2. Stage incoming source, graph and colours. Restore an existing grade; otherwise
-   initialise from global defaults (or the future selected default grade preset
-   via Replace). Never inherit the previous photo's Output setting. Saved RAW
-   settings determine decoding; restore nodes/parameters/bindings, validate and
-   prepare preview pixels before publishing anything.
+2. Stage incoming source, graph and colours. Restore an existing grade first.
+   For an eligible ungraded photo, use the configured default preset with
+   Replace semantics or initialise from global defaults if no preset is set.
+   The incoming grade determines RAW decoding and Output. Restore and validate
+   nodes, parameters and bindings, then prepare preview pixels before publishing.
 3. Use the existing `DocumentMutation` boundary for processor lifetime and live
    replacement. Complete fallible preparation before swapping path, source
    pixels/encoding, preview, graph endpoints and Output settings. Reset selection/
@@ -508,13 +508,11 @@ controls or manual-file-edit workflow is required during Step 7.
 Photo controls require an editable photograph (RAW controls a RAW) and change
 only that photograph. Opening/applying a grade never writes preferences. Remove
 `updateSessionDefault` from the photo RAW reload path. With no photograph open,
-photo controls cannot become default-setting controls. Default colour pairs are
-separate from the future default grade preset: precedence remains saved grade
-(including empty) → future default grade preset via Replace → global defaults.
-Step 7 implements neither Settings UI nor default-preset selection/application.
-Future plugin/preset paths, default-preset choice, shortcuts and Graph/List
-preference belong here when implemented, without
-placeholder machinery in Step 7.
+photo controls cannot become default-setting controls. Opening precedence is
+saved grade (including Source-only grades), configured default preset with
+Replace semantics, then global defaults. Step 7 established the persistence
+boundary. The [application settings format](workspace-format.md) describes how
+later features use it, including the preset root and default preset selection.
 
 Retire workspace JSON read/write calls, per-folder `.ofxrawhost-layout.ini`
 switching and CWD `ofxrawhost.ini`. Do not migrate or delete these old files.
@@ -606,11 +604,14 @@ RAW working pair for raster grades remains part of the implemented schema.
 PRs 1–2 subsequently implemented the strict JSON reader and checked POSIX atomic
 replacement. D058 extends the shared writer to Windows.
 Outstanding manual evidence/waivers apply only to the relevant live paths.
-Future automatic default-preset application failure handling remains deferred to
-that feature's implementation milestone.
+If the configured default preset cannot be read or reconstructed, an eligible
+opening fails before publication or initial saving. The existing document and
+default selection are preserved. A saved grade that cannot be restored instead
+permits a protected source view if decoding succeeds. See the
+[current opening policy](PROJECT_CONTEXT.md#saved-grades-and-default-presets).
 
 Defer branched incoming attachment, dynamic unknown-operation interfaces, asset
-relocation, default-preset/culling UI, Graph View and masks to their actual
+relocation, culling UI, Graph View and masks to their actual
 features. Keep one authoritative graph and two persistence scopes.
 
 **Historical task boundary for PR #62:** its scope was design only, with no

@@ -354,43 +354,37 @@ static void refreshDefaultPresetFeedback(App &app) {
   if (app.defaultPreset.empty()) return;
   PersistGrade grade;
   std::string error;
-  if (!loadDefaultPreset(app, grade, error)) feedback = "Default preset unavailable. " + error;
+  if (!loadDefaultPreset(app, grade, error)) feedback = "Could not read default preset. " + error;
 }
 
 static void drawDefaultPresetSetting(App &app) {
   auto &window = app.settingsWindow;
-  if (ImGui::BeginCombo("Default preset", nullptr, ImGuiComboFlags_CustomPreview)) {
+  const char *preview = app.defaultPreset.empty() ? "None" : app.defaultPreset.c_str();
+  if (ImGui::BeginCombo("Default preset", preview)) {
     if (ImGui::IsWindowAppearing()) {
       const auto listing = discoverDirectory(fs::u8path(app.presetDirectory), ".rawnode.json");
       window.defaultPresetChoices.clear();
       appendPresetChoices(listing.contents, listing.contents.path, window.defaultPresetChoices);
-      window.presetScanError = listing.scanError;
+      window.defaultPresetScanError = listing.scanError;
       refreshDefaultPresetFeedback(app);
     }
     if (ImGui::Selectable("None", app.defaultPreset.empty())) {
       app.defaultPreset.clear();
-      refreshDefaultPresetFeedback(app);
+      window.defaultPresetFeedback.clear();
     }
     for (size_t i = 0; i < window.defaultPresetChoices.size(); ++i) {
       const auto &choice = window.defaultPresetChoices[i];
       ImGui::PushID(static_cast<int>(i));
-      // Render file paths literally, including ImGui's label delimiters.
-      const auto position = ImGui::GetCursorScreenPos();
-      if (ImGui::Selectable("##preset", app.defaultPreset == choice, 0, ImGui::CalcTextSize(choice.c_str()))) {
+      if (ImGui::Selectable(choice.c_str(), app.defaultPreset == choice)) {
         app.defaultPreset = choice;
         refreshDefaultPresetFeedback(app);
       }
-      ImGui::GetWindowDrawList()->AddText(position, ImGui::GetColorU32(ImGuiCol_Text), choice.c_str());
       ImGui::PopID();
     }
-    if (window.presetScanError) ImGui::TextDisabled("Some preset locations could not be read.");
+    if (window.defaultPresetScanError) ImGui::TextDisabled("Some preset locations could not be read.");
     ImGui::EndCombo();
   }
   if (!app.defaultPreset.empty()) ImGui::SetItemTooltip("%s", app.defaultPreset.c_str());
-  if (ImGui::BeginComboPreview()) {
-    ImGui::TextUnformatted(app.defaultPreset.empty() ? "None" : app.defaultPreset.c_str());
-    ImGui::EndComboPreview();
-  }
   ImGui::TextWrapped("Applies when opening a photograph without a saved grade.");
   if (!window.defaultPresetFeedback.empty()) ImGui::TextWrapped("%s", window.defaultPresetFeedback.c_str());
 }
@@ -411,7 +405,7 @@ static void drawSettings(App &app, bool requested) {
     if (drawDirectorySetting("Root preset directory", "Choose the root preset directory",
                              app.presetDirectory, window.presetFeedback)) {
       app.defaultPreset.clear();
-      refreshDefaultPresetFeedback(app);
+      window.defaultPresetFeedback.clear();
     }
     drawDefaultPresetSetting(app);
     ImGui::Spacing();
