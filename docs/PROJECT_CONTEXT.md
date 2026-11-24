@@ -374,7 +374,7 @@ without a separate metadata file, project system, catalogue or database
 (D001, D010). The following establishes behaviour and scope, not JSON field names.
 Persistence must not depend on transient renderer scheduling state.
 
-### Saved grades and future default presets
+### Saved grades and default presets
 
 A saved grade comprises the graph, parameters/connections and photograph's RAW
 working/Output settings. Opening a photograph in the editor establishes and
@@ -397,29 +397,28 @@ It is presentation text, not save tracking; save again at the next boundary.
 Document actions refuse departure after failure unless Discard was explicit.
 Unwritable folders may prompt on navigation/close even with no adjustments.
 
-The future default preset is selected in Settings from the configured root
-preset directory or one of its subfolders.
-When opening a photograph, use this precedence:
+The **Default preset** selector in **File → Settings…** offers **None** and
+relative paths from the configured preset root and its subfolders. Changing or
+clearing the root clears the selection. Opening a photograph follows this order:
 
 1. Restore an existing saved grade, including an intentionally empty one.
 2. Otherwise, apply the configured default preset, if any, using Replace
    semantics, including its RAW and Output colour settings.
 3. Otherwise, use the normal global processing/RAW/Output defaults.
 
-A preset applied with Replace supplies its colour settings; global defaults
-must not override them. Failed default loading or application must not be
-recorded as successful application.
-Unreadable, invalid, unsupported or incompatible sidecars are errors, not
-unedited photographs; they must not trigger a default preset. Allow source
-viewing with a persistent warning, but disable grade editing, paste and preset
-application while protected. Ordinary save failures retain unsaved edits through
-a simple retry/discard/cancel interaction. Changing the selected default never
-alters saved grades. On editable photos users may manually apply another preset;
-future multi-photo application extends that action to a selection.
-Do not track which default was previously used. Default selection UI and
-automatic application are later workflow features, not Step 7 implementations.
-Failure handling for that future default-preset application remains deferred to
-its implementation milestone.
+The preset grade is reconstructed before decoding. Its RAW working encoding
+drives the first decode, and its Output encoding and graph become the initial
+history state. The initial sidecar save preserves the destination's metadata.
+If the preset cannot be read or reconstructed, opening stops with a diagnostic
+and the current document remains editable. The configured selection is retained
+so the user can fix, change or clear it. RawNode records the resulting grade in
+the sidecar without any preset reference.
+
+Unreadable, invalid, unsupported or incompatible sidecars open as protected
+source views when decoding succeeds. Those views have a persistent warning and
+disable editing, paste and preset application. Ordinary save failures retain
+unsaved edits through the existing retry/discard/cancel interaction. Users can
+manually apply another preset to an editable photo after opening it.
 
 ### Independent grade and photo metadata
 
@@ -566,8 +565,7 @@ preset/clipboard readers and `.rawnodepreset` workflows are retired. Do not add
 legacy migration readers or
 compatibility frameworks solely for development-era files, and do not
 automatically delete existing files. Protection from accidental destruction
-remains required independently of backwards compatibility. Default preset
-selection and automatic application remain the next preset milestone.
+remains required independently of backwards compatibility.
 
 ### Preserve existing node identity behaviour
 
@@ -584,8 +582,8 @@ management system.
 
 Photo sidecars own each photograph's complete grade, colour settings and photo
 metadata. Global application preferences own theme, dock/window layout, export
-defaults, default RAW working/Output settings, the preset root and the CTL
-scripts directory. Future default-preset choice, DCTL/OFX locations, shortcuts
+defaults, default RAW working/Output settings, the preset root, its default
+preset selection and the CTL scripts directory. Future DCTL/OFX locations, shortcuts
 and input mappings belong to this same scope when implemented. There are no
 competing folder-level RAW defaults.
 
@@ -899,8 +897,8 @@ compositing or alpha-carrying I/O requires it.
 ## Near-term roadmap
 
 The [suggested implementation order](../ROADMAP.md#suggested-implementation-order)
-continues with default preset selection and automatic application, assignable
-keyboard shortcuts, and multi-photo grade/preset application. **File → Settings…**
+continues with assignable keyboard shortcuts and multi-photo grade/preset
+application. **File → Settings…**
 configures the optional preset and CTL roots for the Preset Panel and the
 Add Processor picker, respectively.
 
@@ -1034,8 +1032,8 @@ behaviour and photo/global settings ownership in "Persistence direction" above.
 Editor opening establishes a grade; unopened metadata-only photos remain valid.
 No live dirty/presence tracking is required for lifecycle saves (D050).
 Step 7 completed the preset/clipboard transition and workspace-persistence
-cleanup. Default-preset UI/application, assignable shortcuts, and multi-photo grade
-application remain separate workflow milestones.
+cleanup. Assignable shortcuts and multi-photo grade application remain separate
+workflow milestones.
 
 **Accepted sidecar/layout direction (D048):** each editable source photograph
 uses one sidecar for the authoritative graph and optional compact X/Y positions

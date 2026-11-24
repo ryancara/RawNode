@@ -73,10 +73,12 @@ bool codecAndOptionalFields() {
   App missing;
   CHECK(initialisePreferences(missing, {path, ""}) && missing.preferencesWarning.empty());
   CHECK(missing.rawWorkingEncoding == fallbackRaw && missing.defaultOutputEncoding == fallbackOutput);
+  CHECK(missing.defaultPreset.empty());
   write(path, configured);
   App startup;
   CHECK(initialisePreferences(startup, {path, ""}) && startup.preferencesWarning.empty());
   CHECK(startup.rawWorkingEncoding == storedRaw && startup.defaultOutputEncoding == storedOutput);
+  CHECK(startup.defaultPreset.empty());
   CHECK(startup.themeIndex == 1 && startup.previewRes == 0 && startup.exportFormat == 0 && startup.jpegQuality == 73);
   CHECK(!startup.showRight && !startup.showFilmstrip);
   CHECK(startup.rightW == 388.25f && startup.filmstripH == 144.5f);
@@ -216,6 +218,44 @@ bool invalidDirectoryPreferences() {
   CHECK(fs::create_directory(fs::path(invalidUtf8)));
 #endif
   CHECK(directoryPreferenceError(invalidUtf8).find("UTF-8") != std::string::npos);
+  return true;
+}
+
+bool defaultPresetPreference() {
+  Files files;
+  const ConfigPaths config{files.path("preferences.json"), ""};
+  const std::string relative = u8"Looks/caf\u00e9.RaWnOdE.JsOn";
+  App first;
+  first.presetDirectory = files.dir.u8string();
+  first.defaultPreset = relative;
+  CHECK(prepareShutdown(first, config, true));
+  // Missing files are retained across startup, so opening can report the error
+  // and the user can fix the existing selection.
+  CHECK(!fs::exists(files.dir / fs::u8path(relative)));
+  App restarted;
+  CHECK(initialisePreferences(restarted, config) && restarted.preferencesWarning.empty());
+  CHECK(restarted.presetDirectory == first.presetDirectory && restarted.defaultPreset == relative);
+  restarted.defaultPreset.clear();
+  CHECK(prepareShutdown(restarted, config, true));
+  CHECK(bytes(config.preferences).find("defaultPreset") == std::string::npos);
+
+  Preferences preferences;
+  std::string warning;
+  const auto root = ",\"presetDirectory\":" + jsonStringValue(files.dir.u8string());
+  write(config.preferences, "{" + header + root + R"(,"defaultPreset":""})");
+  CHECK(loadPreferences(config.preferences, preferences, warning) && warning.empty());
+  CHECK(preferences.defaultPreset.empty());
+  for (const auto &invalid : {std::string("7"), jsonStringValue(files.path("absolute.rawnode.json")),
+       jsonStringValue("../outside.rawnode.json"), jsonStringValue("nested/../escape.rawnode.json"),
+       jsonStringValue("wrong.json"), jsonStringValue(std::string("bad\0.rawnode.json", 17))}) {
+    write(config.preferences, "{" + header + root + ",\"defaultPreset\":" + invalid + R"(,"themeIndex":1})");
+    CHECK(loadPreferences(config.preferences, preferences, warning));
+    CHECK(warning.find("defaultPreset") != std::string::npos && preferences.defaultPreset.empty());
+    CHECK(preferences.presetDirectory == first.presetDirectory && preferences.themeIndex == 1);
+  }
+  write(config.preferences, "{" + header + R"(,"defaultPreset":"look.rawnode.json"})");
+  CHECK(loadPreferences(config.preferences, preferences, warning));
+  CHECK(warning.find("defaultPreset") != std::string::npos && preferences.defaultPreset.empty());
   return true;
 }
 
@@ -437,6 +477,69 @@ void beginFrame(ImVec2 displaySize = {1200, 800}) {
   io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
   ImGui::NewFrame();
 }
+
+bool defaultPresetSettings() {
+  Files files;
+  const auto root = files.dir / "presets";
+  const std::string nested = u8"b\u00e9ta/Look.RAWNODE.JSON";
+  CHECK(fs::create_directories(root / "Alpha") && fs::create_directories(root / fs::u8path(nested).parent_path()));
+  const auto preset = R"({"format":"rawnode","version":1,"grade":{"color":{"rawWorking":{"colorSpace":"aces-ap1","gamma":"linear"},"output":{"colorSpace":"display-p3","gamma":"srgb"}},"graph":{"primarySource":"preset-source","documentOutput":{"node":"preset-source","port":"image"},"nodes":[{"id":"preset-source","kind":"source"}]}}})";
+  for (const auto &relative : {std::string("Alpha/Look.RAWNODE.JSON"), nested, std::string("z.rawnode.json")})
+    CHECK(bool(std::ofstream(root / fs::u8path(relative)) << preset));
+  CHECK(bool(std::ofstream(root / "ignore.json") << preset));
+
+  ImGuiContextScope context;
+  ImGuiBackend_ConfigureLayout("");
+  ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
+  App app;
+  document_detail::ActionTestOptions options;
+  options.decode = decodeRaw;
+  CHECK(document_detail::openPhoto(app, newPhoto(files.dir, "photo.nef"), {}, options));
+  const auto preview = app.preview;
+  const auto sidecar = inputSidecarPath(app.path);
+  const auto original = bytes(sidecar);
+  app.settingsWindow.open = true;
+  app.presetDirectory = root.u8string();
+  app.defaultPreset = "missing.rawnode.json";
+  const auto frame = [&](ImGuiID activate = 0) {
+    if (activate) ImGui::ActivateItemByID(activate);
+    beginFrame(); DrawUiFrame(app); ImGui::EndFrame();
+  };
+  frame(); frame();
+  auto *settings = ImGui::FindWindowByName("Settings");
+  CHECK(settings);
+  const auto combo = settings->GetID("Default preset");
+  frame(combo); frame();
+  auto *popup = ImGui::FindWindowByName("##Combo_00");
+  CHECK(popup && popup->Active);
+  const std::vector<std::string> expected{"Alpha/Look.RAWNODE.JSON", nested, "z.rawnode.json"};
+  CHECK(app.settingsWindow.defaultPresetChoices == expected);
+  CHECK(app.settingsWindow.defaultPresetFeedback.find("missing.rawnode.json") != std::string::npos);
+  CHECK(bool(std::ofstream(root / "new.rawnode.json") << preset));
+  frame();
+  CHECK(app.settingsWindow.defaultPresetChoices == expected);
+  const int nestedIndex = 1;
+  const auto nestedId = ImHashStr("##preset", 0, popup->GetID(nestedIndex));
+  frame(nestedId); frame();
+  CHECK(app.defaultPreset == nested && app.settingsWindow.defaultPresetFeedback.empty());
+  CHECK(app.preview == preview && app.history.size() == 1 && app.photoRawWorkingEncoding == fallbackRaw);
+  CHECK(app.outputEncoding == fallbackOutput && bytes(sidecar) == original);
+
+  CHECK(fs::remove(root / fs::u8path(nested)));
+  frame(combo); frame();
+  CHECK(app.defaultPreset == nested && !app.settingsWindow.defaultPresetFeedback.empty());
+  CHECK(app.settingsWindow.defaultPresetChoices ==
+        (std::vector<std::string>{"Alpha/Look.RAWNODE.JSON", "new.rawnode.json", "z.rawnode.json"}));
+  frame(popup->GetID("None")); frame();
+  CHECK(app.defaultPreset.empty() && app.settingsWindow.defaultPresetFeedback.empty());
+
+  app.defaultPreset = "Alpha/Look.RAWNODE.JSON";
+  frame(ImHashStr("Clear", 0, settings->GetID("Root preset directory")));
+  CHECK(app.presetDirectory.empty() && app.defaultPreset.empty());
+  CHECK(app.preview == preview && app.history.size() == 1 && bytes(sidecar) == original);
+  return true;
+}
+
 bool warningGeometry() {
   const char *name = "Application preferences warning";
   for (const bool staleLayout : {false, true}) {
@@ -530,6 +633,8 @@ bool testPreferences() {
        std::make_pair("List/Graph preference compatibility and validation", nodesViewPreference),
        std::make_pair("directory preferences persist and clear across startup and shutdown", directoryPreferencesLifecycle),
        std::make_pair("malformed and unavailable directory preferences", invalidDirectoryPreferences),
+       std::make_pair("optional UTF-8 default preset persists and validates independently", defaultPresetPreference),
+       std::make_pair("default preset Settings discovers on demand and preserves the current grade", defaultPresetSettings),
        std::make_pair("config paths and checked atomic failures", atomicFailuresAndPaths),
        std::make_pair("unsupported/malformed preferences survive shutdown", protectedPreferencesShutdown),
        std::make_pair("startup colours, folder retirement and shutdown cancellation", startupPhotoFolderAndShutdown),

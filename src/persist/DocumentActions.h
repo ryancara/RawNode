@@ -24,6 +24,8 @@ bool captureNodeFragment(App &app, const std::vector<NodeId> &ids, PersistFragme
                          std::vector<std::string> &warnings);
 using OverwritePrompt = std::function<bool(const std::string &path)>;
 bool savePreset(App &app, const std::string &path, const OverwritePrompt &confirm = {});
+// Read the configured default grade only. Does not reconstruct or modify a document.
+bool loadDefaultPreset(const App &app, PersistGrade &grade, std::string &error);
 enum class SaveFailureDecision { Retry, Discard, Cancel };
 using SaveFailurePrompt = std::function<SaveFailureDecision(const std::string &error)>;
 bool saveCurrentInputSidecar(App &app, std::string *error = nullptr);

@@ -33,7 +33,7 @@ The current codebase is a clean base for feature development. New work should re
 1. [Minimal Application Settings UI](#application-settings) for the preset and CTL directories (implemented).
 2. [Preset Panel](#preset-panel) using the existing preset format and Replace/Append operations (implemented).
 3. [Default preset selection and automatic application](#default-grade-preset)
-   through Settings and grade replacement.
+   through Settings and grade replacement (implemented).
 4. [Assignable keyboard shortcuts](#assignable-keyboard-shortcuts) configured
    in Settings and invoking existing actions.
 5. [Multi-photo grade/preset application](#multi-photo-grade-and-preset-application)
@@ -158,8 +158,8 @@ Both browsers match filename suffixes without regard to ASCII case and skip
 symbolic-link entries found within their configured directories.
 
 Add controls for global RAW/Output defaults and relevant export/UI preferences
-in later work. Keep the default preset and shortcut assignments in the same
-global preferences as their milestones are implemented. Add configurable DCTL
+in later work. Store shortcut assignments alongside the default preset in global
+preferences. Add configurable DCTL
 and OFX search locations and backend-specific pages when needed for usable
 features. MIDI, OSC and scripting belong to separate planned work.
 
@@ -175,16 +175,17 @@ operations, including the linear incoming-graph requirement for Append.
 
 ## Default grade preset
 
-**Planned.** Use [Application Settings](#application-settings) to select a
-default preset from the configured root preset directory or any of its
-subfolders. Apply it using **Replace**.
+**Implemented.** In [Application Settings](#application-settings), choose
+**None** or a preset from the configured root and its subfolders. Changing or
+clearing the root clears the default. An eligible photograph opens with the
+preset's complete grade and colour settings.
 Opening precedence is **saved grade → configured default preset → global
-RAW/Output defaults**, following the [saved-grade and protected-sidecar rules](docs/PROJECT_CONTEXT.md#saved-grades-and-future-default-presets).
+RAW/Output defaults**, following the [saved-grade and protected-sidecar rules](docs/PROJECT_CONTEXT.md#saved-grades-and-default-presets).
 Folder scanning and thumbnail generation create no sidecars. Successfully opening
 a photograph for editing establishes and persists its grade (D050). Metadata-only
-updates to unopened photos do not create grades. Deliberately saved empty grades
-still win. Changing the default leaves saved grades untouched, and users can
-manually apply another preset.
+updates to unopened photos create no grades. A saved Source-only grade takes
+precedence. If the default fails to load or reconstruct, opening stops and the
+selection stays available in Settings for correction.
 
 ## Multi-photo grade and preset application
 

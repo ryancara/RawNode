@@ -26,6 +26,8 @@ struct Preferences {
   // Absolute UTF-8 paths. Empty means no directory is configured.
   std::string presetDirectory;
   std::string ctlScriptsDirectory;
+  // UTF-8 path relative to presetDirectory. Empty means no default preset.
+  std::string defaultPreset;
 };
 
 struct ConfigPaths {
@@ -41,6 +43,7 @@ bool loadPreferences(const std::string &path, Preferences &out, std::string &war
 bool savePreferences(const std::string &path, const Preferences &preferences, std::string &error);
 // Check a configured or picked directory on demand. Empty paths are valid.
 std::string directoryPreferenceError(const std::string &path);
+bool validDefaultPresetPath(const std::string &path);
 Preferences capturePreferences(const App &app);
 void applyPreferences(App &app, const Preferences &preferences);
 // Production startup seam: load and apply before ImGui or the first photograph.
