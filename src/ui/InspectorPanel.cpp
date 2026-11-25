@@ -38,7 +38,8 @@ static void drawProcessorParameters(App &app) {
     ImGui::PopID();
     return;
   }
-  if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F))
+  if (!ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) &&
+      (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F)))
     ImGui::SetKeyboardFocusHere();
   const bool hasFilter = app.paramFilter[0] != '\0';
   if (hasFilter) {

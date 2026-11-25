@@ -68,6 +68,17 @@ protected from overwriting. Future implemented application preferences
 can add optional fields with sensible defaults without replacing this persistence
 system.
 
+The optional `keyboardBindings` array records the effective assignments. Each
+entry contains a named `key`, a list of named `modifiers` and an ordered list
+of `commands` that currently contains one command ID. For example,
+`{"key":"Z","modifiers":["primary"],"commands":["undo"]}` uses Command on macOS
+and Control on Windows and Linux. Omit the field for platform defaults. An empty
+array clears all keyboard bindings. The first valid assignment for a chord wins
+when a file contains duplicates. Invalid entries produce a preferences warning
+and valid entries still load. A non-empty array with no valid entries uses
+platform defaults. The operating system or window manager may intercept a
+configured assignment before RawNode receives it.
+
 Both colour pairs use stable IDs, for example:
 
 ```json

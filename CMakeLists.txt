@@ -153,6 +153,8 @@ add_executable(OfxRawHost
   src/ui/ImGuiBackend.cpp
   src/ui/DockLayout.cpp
   src/ui/UiFrame.cpp
+  src/ui/KeyboardBindings.cpp
+  src/ui/ShortcutSettings.cpp
   src/ui/Widgets.cpp
   src/ui/ParamWidgets.cpp
   src/ui/PresetPanel.cpp

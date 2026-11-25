@@ -1,6 +1,9 @@
 #pragma once
 
 #include "color/ColorEncoding.h"
+#include "ui/KeyboardBindings.h"
+
+#include <optional>
 #include <string>
 
 struct App;
@@ -28,6 +31,8 @@ struct Preferences {
   std::string ctlScriptsDirectory;
   // UTF-8 path relative to presetDirectory. Empty means no default preset.
   std::string defaultPreset;
+  // Absent uses platform defaults. An empty list deliberately clears all shortcuts.
+  std::optional<ui::KeyboardBindings> keyboardBindings;
 };
 
 struct ConfigPaths {

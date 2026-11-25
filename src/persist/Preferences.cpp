@@ -79,6 +79,73 @@ void color(const Value &root, const char *key, ColorEncoding &out, std::string &
   }
   warn(warning, std::string(key) + ": incomplete, malformed or unknown colour pair; using built-in default");
 }
+std::optional<ui::KeyboardBinding> readKeyboardBinding(const Value &value) {
+  const auto *key = optional(value, "key");
+  const auto *modifiers = optional(value, "modifiers");
+  const auto *commands = optional(value, "commands");
+  if (value.type != Type::Object || !key || key->type != Type::String ||
+      !modifiers || modifiers->type != Type::Array || !commands || commands->type != Type::Array ||
+      commands->array.size() != 1 || commands->array.front().type != Type::String)
+    return std::nullopt;
+
+  const auto namedKey = ui::keyboardKeyFromId(key->string);
+  const auto command = ui::commandFromId(commands->array.front().string);
+  if (namedKey == ImGuiKey_None || !command) return std::nullopt;
+  ImGuiKeyChord chord = namedKey;
+  for (const auto &name : modifiers->array) {
+    if (name.type != Type::String) return std::nullopt;
+    const auto modifier = ui::shortcutModifierFromId(name.string);
+    if (modifier == ImGuiKey_None || (chord & modifier)) return std::nullopt;
+    chord |= modifier;
+  }
+  return ui::KeyboardBinding{chord, {*command}};
+}
+
+void loadKeyboardBindings(const Value &root, Preferences &out, std::string &warning) {
+  const auto *value = optional(root, "keyboardBindings");
+  if (!value) return;
+  if (value->type != Type::Array) {
+    warn(warning, "keyboardBindings: expected an array, using defaults");
+    return;
+  }
+
+  ui::KeyboardBindings bindings;
+  for (size_t index = 0; index < value->array.size(); ++index) {
+    auto binding = readKeyboardBinding(value->array[index]);
+    const auto error = binding ? ui::shortcutAssignmentError(bindings, binding->trigger)
+                               : "Expected a known key, modifiers and one supported command.";
+    if (error.empty()) bindings.push_back(std::move(*binding));
+    else warn(warning, "keyboardBindings entry " + std::to_string(index + 1) + ": " + error);
+  }
+  if (value->array.empty() || !bindings.empty()) out.keyboardBindings = std::move(bindings);
+}
+
+void writeKeyboardBindings(std::ostream &out, const ui::KeyboardBindings &bindings) {
+  out << ",\n  \"keyboardBindings\":[";
+  const char *separator = "";
+  for (const auto &binding : bindings) {
+    out << separator << "\n    {\"key\":"
+        << jsonStringValue(std::string(ui::keyboardKeyId(static_cast<ImGuiKey>(binding.trigger & ~ImGuiMod_Mask_))))
+        << ",\"modifiers\":[";
+    const char *modifierSeparator = "";
+    for (const auto &modifier : ui::shortcutModifiers) {
+      if (!(binding.trigger & modifier.flag)) continue;
+      out << modifierSeparator << jsonStringValue(modifier.id);
+      modifierSeparator = ",";
+    }
+    out << "],\"commands\":[";
+    const char *commandSeparator = "";
+    for (auto command : binding.commands) {
+      out << commandSeparator << jsonStringValue(ui::commandInfo(command).id);
+      commandSeparator = ",";
+    }
+    out << "]}";
+    separator = ",";
+  }
+  if (!bindings.empty()) out << "\n  ";
+  out << "]";
+}
+
 std::string pairJson(ColorEncoding encoding) {
   return "{\"colorSpace\":" + jsonStringValue(rgbGamutId(encoding.gamut)) +
          ",\"gamma\":" + jsonStringValue(transferFunctionId(encoding.gamma)) + "}";
@@ -198,6 +265,7 @@ bool loadPreferences(const std::string &path, Preferences &out, std::string &war
     else
       out.defaultPreset = value->string;
   }
+  loadKeyboardBindings(root, out, warning);
   if (!warning.empty()) warning = path + ":\n" + warning;
   return true;
 }
@@ -222,6 +290,7 @@ bool preferences_detail::save(const std::string &path, const Preferences &p, std
   if (!p.presetDirectory.empty()) out << ",\n  \"presetDirectory\":" << jsonStringValue(p.presetDirectory);
   if (!p.defaultPreset.empty()) out << ",\n  \"defaultPreset\":" << jsonStringValue(p.defaultPreset);
   if (!p.ctlScriptsDirectory.empty()) out << ",\n  \"ctlScriptsDirectory\":" << jsonStringValue(p.ctlScriptsDirectory);
+  if (p.keyboardBindings) writeKeyboardBindings(out, *p.keyboardBindings);
   out << "\n}\n";
   return persist_detail::replaceFileAtomically(path, out.str(), error, fault);
 }
@@ -261,6 +330,7 @@ Preferences capturePreferences(const App &app) {
   p.presetDirectory = app.presetDirectory;
   p.defaultPreset = app.defaultPreset;
   p.ctlScriptsDirectory = app.ctlScriptsDirectory;
+  p.keyboardBindings = app.keyboardBindings;
   return p;
 }
 
@@ -283,6 +353,7 @@ void applyPreferences(App &app, const Preferences &p) {
   app.presetDirectory = p.presetDirectory;
   app.defaultPreset = p.defaultPreset;
   app.ctlScriptsDirectory = p.ctlScriptsDirectory;
+  app.keyboardBindings = p.keyboardBindings;
 }
 
 bool initialisePreferences(App &app, const ConfigPaths &paths) {

@@ -34,10 +34,13 @@ SaveFailureDecision promptSaveFailure(const std::string &error) {
   return SaveFailureDecision::Cancel;
 }
 
+static bool uiEditInProgress(const App &app) {
+  return app.parameterGesture || app.previewInteraction.drag != ui::PreviewDrag::None ||
+         app.previewInteraction.editPending || app.graphCanvas.dragging || app.graphCanvas.positionEditPending;
+}
+
 static bool canExport(const App &app) {
-  return !app.exportDialog.open && !app.renderer.exportInProgress() &&
-         !app.parameterGesture && app.previewInteraction.drag == ui::PreviewDrag::None &&
-         !app.previewInteraction.editPending && !app.graphCanvas.dragging && !app.graphCanvas.positionEditPending &&
+  return !app.exportDialog.open && !app.renderer.exportInProgress() && !uiEditInProgress(app) &&
          (canExportCurrent(app) || !app.filmstripSelection.empty());
 }
 
@@ -393,13 +396,14 @@ static void drawSettings(App &app, bool requested) {
   auto &window = app.settingsWindow;
   if (requested) {
     window.open = true;
+    window.shortcutFeedback.clear();
     window.presetFeedback = directoryPreferenceError(app.presetDirectory);
     window.ctlScriptsFeedback = directoryPreferenceError(app.ctlScriptsDirectory);
     refreshDefaultPresetFeedback(app);
     ImGui::SetNextWindowFocus();
   }
   if (!window.open) return;
-  ImGui::SetNextWindowSize(ImVec2(460, 300), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(460, 400), ImGuiCond_FirstUseEver);
   if (ImGui::Begin("Settings", &window.open, ImGuiWindowFlags_NoDocking)) {
     ImGui::SeparatorText("Presets");
     if (drawDirectorySetting("Root preset directory", "Choose the root preset directory",
@@ -412,11 +416,75 @@ static void drawSettings(App &app, bool requested) {
     ImGui::SeparatorText("Processors");
     drawDirectorySetting("CTL scripts directory", "Choose the CTL scripts directory",
                          app.ctlScriptsDirectory, window.ctlScriptsFeedback);
+    ImGui::Spacing();
+    ui::drawShortcutSettings(app);
   }
   ImGui::End();
 }
 
-static void drawFileToolbar(App &app) {
+using Command = ui::ApplicationCommand;
+
+static bool canInvokeCommand(const App &app, Command command) {
+  switch (command) {
+    case Command::OpenImage:
+    case Command::OpenFolder: return !app.renderer.exportInProgress();
+    case Command::Export: return canExport(app);
+    case Command::Undo: return canUndoGrade(app);
+    case Command::Redo: return canRedoGrade(app);
+    case Command::CopyNode: return !app.renderer.exportInProgress() && canCopySelectedNode(app);
+    case Command::CopyFullGrade:
+    case Command::Paste: return !app.renderer.exportInProgress() && !app.isPhotoProtected();
+    case Command::Inspector:
+    case Command::Filmstrip: return true;
+    case Command::Count: break;
+  }
+  return false;
+}
+
+static void invokeCommand(App &app, Command command) {
+  if (!canInvokeCommand(app, command)) return;
+  switch (command) {
+    case Command::OpenImage: openImageDialog(app); break;
+    case Command::OpenFolder: openFolderDialog(app); break;
+    case Command::Export: doExport(app); break;
+    case Command::Undo: app.history.undo(app); break;
+    case Command::Redo: app.history.redo(app); break;
+    case Command::CopyNode: copySelectedNode(app); break;
+    case Command::CopyFullGrade: copyGrade(app); break;
+    case Command::Paste: pasteFromClipboard(app); break;
+    case Command::Inspector: app.showRight = !app.showRight; break;
+    case Command::Filmstrip: app.showFilmstrip = !app.showFilmstrip; break;
+    case Command::Count: break;
+  }
+}
+
+static void drawCommandMenuItem(const App &app, std::optional<Command> &selectedCommand, Command command,
+                                bool checked = false) {
+  const auto shortcuts = ui::shortcutLabels(ui::effectiveKeyboardBindings(app), command,
+                                            ImGui::GetIO().ConfigMacOSXBehaviors);
+  if (ImGui::MenuItem(ui::commandInfo(command).label, shortcuts.empty() ? nullptr : shortcuts.c_str(),
+                     checked, canInvokeCommand(app, command)))
+    selectedCommand = command;
+}
+
+static bool keyboardShortcutBlocked(const App &app) {
+  return app.exportDialog.open || uiEditInProgress(app) ||
+         ImGui::IsAnyItemActive() || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
+}
+
+static void dispatchKeyboardShortcut(App &app) {
+  // Require an exact chord and a base key that ImGui has neither owned nor locked.
+  // Panel shortcuts that poll without claiming keys are reserved at assignment.
+  for (const auto &binding : ui::effectiveKeyboardBindings(app)) {
+    if (binding.commands.size() != 1) continue;
+    if (ImGui::IsKeyChordPressed(binding.trigger, ImGuiInputFlags_None, ImGuiKeyOwner_NoOwner)) {
+      invokeCommand(app, binding.commands.front());
+      return;
+    }
+  }
+}
+
+static void drawFileToolbar(App &app, std::optional<Command> &selectedCommand) {
   auto *viewport = ImGui::GetMainViewport();
   const float width = std::max(1.0f, viewport->Size.x - 2 * ImGui::GetStyle().WindowPadding.x);
   float height = ImGui::GetFrameHeight() + 2 * ImGui::GetStyle().WindowPadding.y;
@@ -425,12 +493,14 @@ static void drawFileToolbar(App &app) {
               ImGui::GetStyle().ItemSpacing.y;
   const auto flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings;
   if (ImGui::BeginViewportSideBar("##FileToolbar", viewport, ImGuiDir_Up, height, flags)) {
-    if (ImGui::Button("Open Image")) openImageDialog(app);
+    ImGui::BeginDisabled(app.renderer.exportInProgress());
+    if (ImGui::Button("Open Image")) selectedCommand = Command::OpenImage;
     ImGui::SameLine();
-    if (ImGui::Button("Open Folder")) openFolderDialog(app);
+    if (ImGui::Button("Open Folder")) selectedCommand = Command::OpenFolder;
+    ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::BeginDisabled(!canExport(app));
-    if (ImGui::Button("Export")) doExport(app);
+    ImGui::BeginDisabled(!canInvokeCommand(app, Command::Export));
+    if (ImGui::Button("Export")) selectedCommand = Command::Export;
     ImGui::EndDisabled();
     ImGui::SameLine();
     const auto status = app.getStatus();
@@ -442,15 +512,15 @@ static void drawFileToolbar(App &app) {
 }
 
 static bool historyIdle(const App &app) {
-  return !app.path.empty() && app.renderer.canCaptureSnapshot() &&
-         !app.parameterGesture && app.previewInteraction.drag == ui::PreviewDrag::None &&
-         !app.previewInteraction.editPending && !app.graphCanvas.dragging && !app.graphCanvas.positionEditPending;
+  return !app.path.empty() && app.renderer.canCaptureSnapshot() && !uiEditInProgress(app);
 }
 
 bool canUndoGrade(const App &app) { return historyIdle(app) && app.history.canUndo(); }
 bool canRedoGrade(const App &app) { return historyIdle(app) && app.history.canRedo(); }
 
 void DrawUiFrame(App &app) {
+  // Drawing can end an edit or close a popup before the frame's key is dispatched.
+  const bool shortcutWasBlocked = keyboardShortcutBlocked(app);
   if (!app.preferencesWarning.empty()) {
     bool visible = true;
     // Set the width every frame: old ini files may contain a collapsed width.
@@ -474,63 +544,34 @@ void DrawUiFrame(App &app) {
   }
 
   bool settingsRequested = false;
+  std::optional<Command> selectedCommand;
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("File")) {
-#ifdef __APPLE__
-      if (ImGui::MenuItem("Open image", "⌘+O")) {
-#else
-      if (ImGui::MenuItem("Open image", "Ctrl+O")) {
-#endif
-        openImageDialog(app);
-      }
-#ifdef __APPLE__
-      if (ImGui::MenuItem("Open Folder", "⌘+Shift+O")) {
-#else
-      if (ImGui::MenuItem("Open Folder", "Ctrl+Shift+O")) {
-#endif
-        openFolderDialog(app);
-      }
+      drawCommandMenuItem(app, selectedCommand, Command::OpenImage);
+      drawCommandMenuItem(app, selectedCommand, Command::OpenFolder);
       if (ImGui::MenuItem("Save Grade", nullptr, false, !app.path.empty() && !app.isPhotoProtected()))
         saveCurrentInputSidecar(app);
-#ifdef __APPLE__
-      if (ImGui::MenuItem("Export", "⌘+E", false, canExport(app))) doExport(app);
-#else
-      if (ImGui::MenuItem("Export", "Ctrl+E", false, canExport(app))) doExport(app);
-#endif
+      drawCommandMenuItem(app, selectedCommand, Command::Export);
       ImGui::Separator();
       settingsRequested = ImGui::MenuItem("Settings...");
 #ifdef __APPLE__
-      if (ImGui::MenuItem("Quit", "⌘+Q")) glfwSetWindowShouldClose(app.window, 1);
+      // GLFW's native application menu owns Command+Q.
+      const char *quitShortcut = "⌘+Q";
 #else
-      if (ImGui::MenuItem("Quit", "Ctrl+Q")) glfwSetWindowShouldClose(app.window, 1);
+      const char *quitShortcut = nullptr;
 #endif
+      if (ImGui::MenuItem("Quit", quitShortcut)) glfwSetWindowShouldClose(app.window, 1);
       ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Edit")) {
-      const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
-      if (ImGui::MenuItem("Undo", mac ? "⌘+Z" : "Ctrl+Z", false, canUndoGrade(app))) app.history.undo(app);
-      if (ImGui::MenuItem("Redo", mac ? "⌘+Shift+Z" : "Ctrl+Shift+Z / Ctrl+Y", false, canRedoGrade(app))) app.history.redo(app);
+      drawCommandMenuItem(app, selectedCommand, Command::Undo);
+      drawCommandMenuItem(app, selectedCommand, Command::Redo);
       ImGui::Separator();
-#ifdef __APPLE__
-      const char *copyShortcut = "⌘+C";
-      const char *pasteShortcut = "⌘+V";
-#else
-      const char *copyShortcut = "Ctrl+C";
-      const char *pasteShortcut = "Ctrl+V";
-#endif
+      drawCommandMenuItem(app, selectedCommand, Command::CopyNode);
+      drawCommandMenuItem(app, selectedCommand, Command::CopyFullGrade);
+      drawCommandMenuItem(app, selectedCommand, Command::Paste);
+      ImGui::Separator();
       const bool editable = !app.isPhotoProtected();
-      if (ImGui::MenuItem("Copy Node", copyShortcut, false, canCopySelectedNode(app)))
-        copySelectedNode(app);
-#ifdef __APPLE__
-      const char *copyGradeShortcut = "⌘+Shift+C";
-#else
-      const char *copyGradeShortcut = "Ctrl+Shift+C";
-#endif
-      if (ImGui::MenuItem("Copy Full Grade", copyGradeShortcut, false, editable))
-        copyGrade(app);
-      if (ImGui::MenuItem("Paste", pasteShortcut, false, editable))
-        pasteFromClipboard(app);
-      ImGui::Separator();
       if (ImGui::BeginMenu("Presets")) {
         if (ImGui::MenuItem("Save Preset…", nullptr, false, editable))
           savePresetDialog(app);
@@ -545,13 +586,8 @@ void DrawUiFrame(App &app) {
     }
     if (ImGui::BeginMenu("View")) {
       ImGui::MenuItem("Nodes", nullptr, &app.showNodes);
-#ifdef __APPLE__
-      ImGui::MenuItem("Inspector", "⌘+]", &app.showRight);
-      ImGui::MenuItem("Filmstrip", "⌘+\\", &app.showFilmstrip);
-#else
-      ImGui::MenuItem("Inspector", "Ctrl+]", &app.showRight);
-      ImGui::MenuItem("Filmstrip", "Ctrl+\\", &app.showFilmstrip);
-#endif
+      drawCommandMenuItem(app, selectedCommand, Command::Inspector, app.showRight);
+      drawCommandMenuItem(app, selectedCommand, Command::Filmstrip, app.showFilmstrip);
       ImGui::MenuItem("Preset Panel", nullptr, &app.showPresetPanel);
       ImGui::EndMenu();
     }
@@ -573,39 +609,9 @@ void DrawUiFrame(App &app) {
     ImGui::EndMainMenuBar();
   }
 
-  if (!app.exportDialog.open && !ImGui::GetIO().WantTextInput && !ImGui::GetInputTextState(ImGui::GetActiveID())) {
-    const bool redo = ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, ImGuiInputFlags_None) ||
-        (!ImGui::GetIO().ConfigMacOSXBehaviors && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Y, ImGuiInputFlags_None));
-    if (redo && canRedoGrade(app)) app.history.redo(app);
-    else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Z, ImGuiInputFlags_None) && canUndoGrade(app)) app.history.undo(app);
-    // With ConfigMacOSXBehaviors enabled, Dear ImGui maps ImGuiMod_Ctrl to
-    // Command on macOS and to Control on Windows/Linux.
-    const ImGuiKeyChord copyNodeChord = ImGuiMod_Ctrl | ImGuiKey_C;
-    const ImGuiKeyChord pasteChord = ImGuiMod_Ctrl | ImGuiKey_V;
-    const ImGuiKeyChord copyGradeChord = ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C;
-    if (ImGui::IsKeyChordPressed(copyGradeChord))
-      copyGrade(app);
-    else if (ImGui::IsKeyChordPressed(copyNodeChord))
-      copySelectedNode(app);
-    if (ImGui::IsKeyChordPressed(pasteChord))
-      pasteFromClipboard(app);
-  }
-
-  if (!app.exportDialog.open) {
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_RightBracket) ||
-        ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_RightBracket))
-      app.showRight = !app.showRight;
-    if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Backslash) ||
-        ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_Backslash))
-      app.showFilmstrip = !app.showFilmstrip;
-    if (!ImGui::GetIO().WantTextInput) {
-      if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_O)) openFolderDialog(app);
-      else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_O)) openImageDialog(app);
-      if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_E) && canExport(app)) doExport(app);
-    }
-
-  }
-  drawFileToolbar(app);
+  drawFileToolbar(app, selectedCommand);
+  if (selectedCommand) invokeCommand(app, *selectedCommand);
+  drawSettings(app, settingsRequested);
   drawExportDialog(app);
   DockLayout::BeginMainDockSpace(app);
 
@@ -631,7 +637,6 @@ void DrawUiFrame(App &app) {
     ImGui::End();
   }
 
-  drawSettings(app, settingsRequested);
   drawPresetPanel(app);
 
   if (app.showAbout) {
@@ -649,6 +654,9 @@ void DrawUiFrame(App &app) {
     if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
     ImGui::EndPopup();
   }
+
+  if (!selectedCommand && !shortcutWasBlocked && !keyboardShortcutBlocked(app))
+    dispatchKeyboardShortcut(app);
 
   if (!app.exportDialog.open) {
     finishParameterGesture(app);

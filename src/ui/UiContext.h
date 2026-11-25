@@ -38,3 +38,11 @@ bool pasteFromClipboard(App &app);
 bool savePresetDialog(App &app, std::string path = {});
 // A supplied path skips only the native chooser, retaining the UI anchor policy.
 bool loadPresetDialog(App &app, bool append, std::string path = {});
+
+namespace ui {
+inline const KeyboardBindings &effectiveKeyboardBindings(const App &app) {
+  if (app.keyboardBindings) return *app.keyboardBindings;
+  return defaultKeyboardBindings(ImGui::GetIO().ConfigMacOSXBehaviors);
+}
+void drawShortcutSettings(App &app);
+}
