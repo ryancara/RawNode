@@ -38,6 +38,12 @@ static void drawProcessorParameters(App &app) {
     ImGui::PopID();
     return;
   }
+  if (!app.targetedParameter.empty()) {
+    std::string label = app.targetedParameter;
+    for (const auto &param : node->processor->parameters())
+      if (param.id == app.targetedParameter && !param.label.empty()) label = param.label;
+    ImGui::TextDisabled("Target: %s", label.c_str());
+  }
   if (!ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) &&
       (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F)))
     ImGui::SetKeyboardFocusHere();

@@ -905,14 +905,10 @@ compositing or alpha-carrying I/O requires it.
 
 **File → Settings…** configures the optional preset and CTL roots for the Preset
 Panel and the Add Processor picker. Its **Keyboard Shortcuts** section configures
-existing application actions. Each assignment holds one typed command, shares
-action eligibility with the menus, and persists in global preferences. The
-platform defaults apply when the binding field is absent or a non-empty array
-contains no valid entries. An empty array clears all shortcuts. Users choose
-combinations that reach RawNode through their operating system or window manager.
-
-Ordered commands, targets and continuous keyboard and mouse adjustment are later
-stages of the [command bindings design](COMMAND_BINDINGS_DESIGN.md). Multi-photo
+one action or an ordered sequence, including photograph marking/navigation,
+node selection and scalar parameter editing. Assignments use global preferences
+and existing action and Undo boundaries. Held-key and modifier-wheel adjustments
+are planned for PR 3. See the [command bindings design](COMMAND_BINDINGS_DESIGN.md). Multi-photo
 grade/preset application remains a separate workflow in the
 [suggested implementation order](../ROADMAP.md#suggested-implementation-order).
 

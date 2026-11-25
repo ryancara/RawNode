@@ -844,6 +844,39 @@ bool parameterGestureFrames(Plugin &plugin) {
     CHECK(ui::moveGraphNode(app, id, {-10, 25}) && app.history.recordMetadataChange(app));
     CHECK(cache(*findNode(app, id)).syncs == metadataSyncs);
   }
+  using Command = ui::ApplicationCommand;
+  ui::CommandStep target(Command::TargetParameter), value(Command::SetValue);
+  target.operand = std::string("integer");
+  const auto notifications = cache(*findNode(app, id)).notifications;
+  value.operand = 35.0;
+  CHECK(ui::executeCommands(app, {target, value, Command::Increase}));
+  CHECK(parameter(*findNode(app, id), "integer").value == ParameterValue(36));
+  CHECK(cache(*findNode(app, id)).notifications == notifications + 6); // Begin, Changed, End for each write.
+  value.operand = 36.0;
+  CHECK(ui::executeCommands(app, {value}) && cache(*findNode(app, id)).notifications == notifications + 6);
+  value.operand = 0.5;
+  CHECK(!ui::executeCommands(app, {value, Command::ResetParameter}));
+  value.operand = 1e30;
+  CHECK(!ui::executeCommands(app, {value}) && parameter(*findNode(app, id), "integer").value == ParameterValue(36));
+  CHECK(ui::executeCommands(app, {Command::ResetParameter}) && parameter(*findNode(app, id), "integer").value == ParameterValue(0));
+  target.operand = std::string("hiddenPersistent");
+  CHECK(!ui::executeCommands(app, {target}));
+  // Two instances share the identity. Make the selected instance's own
+  // value unavailable and verify the command cannot fall through to its peer.
+  CHECK(addNode(app, plugin.index));
+  const auto duplicate = *app.selectedNodeId();
+  auto *effect = static_cast<OfxProcessor *>(selectedNode(app)->processor.get())->effect();
+  auto *gain = findParam(effect, "visiblePersistent");
+  CHECK(gain);
+  properties().propSetInt(H(&gain->props), kOfxParamPropEnabled, 0, 0);
+  ui::CommandStep processor(Command::SelectProcessor);
+  processor.operand = ui::ProcessorIdentity{"ofx", plugin.plugin.pluginIdentifier};
+  target.operand = std::string("visiblePersistent");
+  CHECK(!ui::executeCommands(app, {processor, target}) && app.selectedNodeId() == duplicate);
+  properties().propSetInt(H(&gain->props), kOfxParamPropEnabled, 0, 1);
+  properties().propSetDouble(H(&gain->props), kOfxParamPropIncrement, 0, 0.25);
+  CHECK(ui::executeCommands(app, {target, Command::Decrease}));
+  CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(0.75));
   plugin.syncCacheOnCapture = false;
   std::puts("ok  OFX ImGui gestures: string/vector/numeric/choice/bool/reset/button grouping, one sync at completion, metadata exclusion");
   return true;

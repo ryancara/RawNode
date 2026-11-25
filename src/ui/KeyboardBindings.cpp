@@ -1,5 +1,6 @@
 #include "ui/KeyboardBindings.h"
 
+#include <cmath>
 #include <iterator>
 
 namespace ui {
@@ -73,6 +74,36 @@ const char *reservedShortcut(ImGuiKeyChord chord) {
 
 static_assert(std::size(applicationCommands) == static_cast<int>(ApplicationCommand::Count));
 
+CommandStep::CommandStep(ApplicationCommand command) : kind(command) {
+  switch (kind) {
+    case Command::SelectPosition: operand = 1; break;
+    case Command::SelectProcessor: operand = ProcessorIdentity{}; break;
+    case Command::TargetParameter: operand = std::string{}; break;
+    case Command::SetValue:
+    case Command::AdjustValue: operand = 0.0; break;
+    default: break;
+  }
+}
+
+std::string sequenceError(const CommandSequence &commands) {
+  if (commands.empty()) return "Add a command.";
+  for (const auto &step : commands) {
+    if ((step.kind == Command::OpenImage || step.kind == Command::OpenFolder || step.kind == Command::Export) &&
+        &step != &commands.back())
+      return std::string(commandInfo(step.kind).label) + " must be the last command.";
+    if (const auto *position = std::get_if<int>(&step.operand); position && *position < 1)
+      return "List positions start at 1.";
+    if (const auto *identity = std::get_if<ProcessorIdentity>(&step.operand);
+        identity && (identity->backend.empty() || identity->identifier.empty()))
+      return "Enter the processor backend and identifier.";
+    if (const auto *parameter = std::get_if<std::string>(&step.operand); parameter && parameter->empty())
+      return "Enter a parameter identifier.";
+    if (const auto *value = std::get_if<double>(&step.operand); value && !std::isfinite(*value))
+      return "Enter a finite value.";
+  }
+  return {};
+}
+
 const KeyboardBindings &defaultKeyboardBindings(bool mac) {
   static const auto macBindings = makeDefaults(true);
   static const auto otherBindings = makeDefaults(false);
@@ -142,7 +173,7 @@ std::string shortcutAssignmentError(const KeyboardBindings &bindings, ImGuiKeyCh
   for (const auto &binding : bindings) {
     if (binding.trigger != replacing && binding.trigger == chord) {
       if (binding.commands.size() == 1)
-        return std::string("Already assigned to ") + commandInfo(binding.commands.front()).label + ".";
+        return std::string("Already assigned to ") + commandInfo(binding.commands.front().kind).label + ".";
       return "This shortcut is already assigned.";
     }
   }

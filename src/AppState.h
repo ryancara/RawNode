@@ -159,6 +159,7 @@ struct App {
   OutputRef documentOutput{primarySource, ports::image};
   // UI identity only; Output has no NodeId and selection is never persisted.
   InspectorSelection selection;
+  std::string targetedParameter; // Transient ID on the Inspector selection.
   std::optional<NodeId> selectedNodeId() const {
     if (const auto *id = std::get_if<NodeId>(&selection)) return *id;
     return std::nullopt;
@@ -173,6 +174,8 @@ struct App {
   std::string ctlScriptsDirectory;
   std::string preferencesWarning;
   std::optional<ui::KeyboardBindings> keyboardBindings;
+  // A preview requested by an earlier step can publish status after a failure.
+  std::string shortcutFailure;
   struct SettingsWindow {
     bool open = false;
     std::string presetFeedback;
@@ -182,6 +185,7 @@ struct App {
     std::string ctlScriptsFeedback;
     ui::ApplicationCommand shortcutCommand = ui::ApplicationCommand::OpenImage;
     ImGuiKeyChord shortcutBeingChanged = 0;
+    ui::CommandSequence draftCommands;
     std::string shortcutFeedback;
   } settingsWindow;
   std::vector<FilmstripEntry> filmstrip;

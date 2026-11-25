@@ -929,11 +929,11 @@ provide the implementation boundaries.
 The first stage configures currently effective application shortcuts and derives
 menu labels from those assignments. Users choose assignments their operating
 system or window manager delivers to RawNode. Native shortcuts retain their
-platform behaviour. Ordered execution, targeting, scalar edits and continuous
-adjustment follow in later stages. MIDI, OSC, hardware controllers and scripting
-remain separate work. See the
-[command bindings design](COMMAND_BINDINGS_DESIGN.md) for the agreed targeting
-and history rules, implementation recommendations and open product choices.
+platform behaviour. Ordered commands resolve each target on the current document,
+stop on failure and preserve completed edits. Node and parameter commands share
+the Inspector selection. Photograph navigation follows visible Filmstrip order
+from the open photograph. Continuous adjustments are planned for PR 3.
+See the [command bindings design](COMMAND_BINDINGS_DESIGN.md) for the detailed contract.
 
 ## Pending decisions
 

@@ -51,7 +51,7 @@ bool addNativeRadialMaskNode(App &app);
 bool addCtlNode(App &app, const std::string &path);
 bool destroyNode(App &app, const NodeId &id);
 bool moveNode(App &app, const NodeId &from, const NodeId &to);
-void setNodeEnabled(App &app, const NodeId &id, bool enabled);
+bool setNodeEnabled(App &app, const NodeId &id, bool enabled);
 
 // Historical V2 sidecar support only; live capture uses captureGraph/captureGrade.
 // Refuse before writing when V2 cannot represent the topology.

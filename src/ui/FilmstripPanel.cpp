@@ -24,6 +24,29 @@ void reportPhotoTrash(const PhotoTrashResult &result) {
     pfd::message("Move to Trash results", result.message(), pfd::choice::ok, pfd::icon::warning).result();
 }
 
+// Copy the path before opening, which can update Filmstrip state.
+static bool activateFilmstripPhoto(App &app, std::string path, const SaveFailurePrompt &prompt) {
+  finishUiEdits(app);
+  if (!openPath(app, path, prompt)) return false;
+  app.filmstripSelection = {path};
+  app.filmstripAnchor = path;
+  app.parameterGesture.reset();
+  return true;
+}
+
+bool navigateFilmstrip(App &app, bool forward, const SaveFailurePrompt &prompt) {
+  const int size = static_cast<int>(app.filmstrip.size());
+  int index = app.filmstripIndex;
+  if (index < 0 || index >= size) index = forward ? -1 : size;
+  const int direction = forward ? 1 : -1;
+  for (index += direction; index >= 0 && index < size; index += direction) {
+    const auto &entry = app.filmstrip[index];
+    if (filmstripEntryVisible(app, entry)) return activateFilmstripPhoto(app, entry.path, prompt);
+  }
+  app.setStatus(forward ? "No next visible photograph" : "No previous visible photograph");
+  return false;
+}
+
 void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt,
                         const PhotoTrashConfirmation &confirm, const TrashOperation &move,
                         const std::function<void(const PhotoTrashResult &)> &report) {
@@ -168,14 +191,7 @@ void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt,
       if (io.KeyCtrl || io.KeyShift) {
         selectFilmstripEntry(app, i, io.KeyCtrl, io.KeyShift);
       } else {
-        const std::string path = e.path;
-        finishUiEdits(app);
-        if (openPath(app, path, prompt)) {
-          // Opening refreshes the mark and may hide this path under the filter.
-          app.filmstripSelection = {path};
-          app.filmstripAnchor = path;
-          app.parameterGesture.reset();
-        }
+        activateFilmstripPhoto(app, e.path, prompt);
       }
     }
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))

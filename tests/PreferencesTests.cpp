@@ -149,7 +149,7 @@ bool defaultKeyboardBindings() {
         return binding.trigger == trigger && binding.invokes(command);
       });
     };
-    for (const auto &binding : expected) CHECK(matches(binding.trigger, binding.commands.front()) == 1);
+    for (const auto &binding : expected) CHECK(matches(binding.trigger, binding.commands.front().kind) == 1);
     CHECK(matches(ImGuiMod_Ctrl | ImGuiKey_Y, Command::Redo) == (mac ? 0 : 1));
   }
   return true;
@@ -170,7 +170,7 @@ bool keyboardBindingsLifecycle() {
     {"key":"K","modifiers":["shift","primary"],"commands":["redo"]},
     {"key":"Backspace","modifiers":[],"commands":["paste"]},
     {"key":625,"modifiers":[],"commands":["export"]},
-    {"key":"P","modifiers":[],"commands":["paste","redo"]},
+    {"key":"P","modifiers":[],"commands":["export","redo"]},
     {"key":"PageDown","modifiers":[],"commands":["toggle-filmstrip"]},
     {"key":"Home","modifiers":[],"commands":["toggle-inspector"]},
     {"key":"Q","modifiers":["primary"],"commands":["copy-node"]},
@@ -215,6 +215,40 @@ bool keyboardBindingsLifecycle() {
   App invalidEntries;
   CHECK(initialisePreferences(invalidEntries, config) && !invalidEntries.preferencesWarning.empty());
   CHECK(!invalidEntries.keyboardBindings && invalidEntries.themeIndex == 1);
+  return true;
+}
+
+bool typedBindingRoundTrip() {
+  using Command = ui::ApplicationCommand;
+  Files files;
+  const auto path = files.path("commands.json");
+  write(path, "{" + header + R"(,"keyboardBindings":[
+    {"key":"F8","modifiers":[],"commands":[{"id":"select-position","position":2},
+      {"id":"select-processor","backend":"ctl","processor":"/future/grade.ctl"},
+      {"id":"target-parameter","parameter":"gain"},{"id":"adjust-value","value":-0.12345678901234567},
+      "reset-parameter"]},
+    {"key":"F9","modifiers":[],"commands":["toggle-inspector",{"id":"adjust-value","value":"1"}]},
+    {"key":"F10","modifiers":[],"commands":[{"id":"select-position","position":0}]}
+  ]})");
+  Preferences preferences;
+  std::string warning;
+  CHECK(loadPreferences(path, preferences, warning) && !warning.empty());
+  for (int read = 0; read < 2; ++read) {
+    CHECK(preferences.keyboardBindings && preferences.keyboardBindings->size() == 1);
+    const auto &binding = preferences.keyboardBindings->front();
+    CHECK(binding.trigger == ImGuiKey_F8 && binding.commands.size() == 5);
+    const auto &steps = binding.commands;
+    CHECK(steps[0].kind == Command::SelectPosition && std::get<int>(steps[0].operand) == 2);
+    const auto &identity = std::get<ui::ProcessorIdentity>(steps[1].operand);
+    CHECK(steps[1].kind == Command::SelectProcessor && identity.backend == "ctl" && identity.identifier == "/future/grade.ctl");
+    CHECK(steps[2].kind == Command::TargetParameter && std::get<std::string>(steps[2].operand) == "gain");
+    CHECK(steps[3].kind == Command::AdjustValue && std::get<double>(steps[3].operand) == -0.12345678901234567);
+    CHECK(steps[4].kind == Command::ResetParameter);
+    if (read == 0) {
+      CHECK(savePreferences(path, preferences, warning));
+      CHECK(loadPreferences(path, preferences, warning) && warning.empty());
+    }
+  }
   return true;
 }
 
@@ -747,6 +781,63 @@ bool keyboardShortcutSettings() {
   frame(settings->GetID("Restore all defaults"));
   frame();
   CHECK(!app.keyboardBindings);
+  // Create and reorder a sequence through the real Settings modal. Restoring
+  // Filmstrip alone must keep a binding that happens to begin with Filmstrip.
+  frame(settings->GetID("New sequence..."));
+  frame();
+  auto *editor = ImGui::GetTopMostPopupModal();
+  CHECK(editor);
+  ImGuiWindow *rows = nullptr;
+  for (auto *child : editor->DC.ChildWindows) if (child->ChildId == editor->GetID("Commands")) rows = child;
+  CHECK(rows);
+  frame(rows->GetID("Add command"));
+  frame();
+  CHECK(app.settingsWindow.draftCommands.size() == 2);
+  frame(ImHashStr("Up", 0, rows->GetID(1)));
+  frame();
+  CHECK(app.settingsWindow.draftCommands.front().kind == Command::SelectCurrent);
+  frame(ImHashStr("Down", 0, rows->GetID(0)));
+  frame();
+  frame(editor->GetID("Assign shortcut..."));
+  frame();
+  key(ImGuiKey_F9);
+  CHECK(app.keyboardBindings && app.keyboardBindings->back().trigger == ImGuiKey_F9);
+  CHECK(!app.keyboardBindings->back().invokes(Command::Filmstrip));
+  frame(settings->GetID("Restore action defaults"));
+  frame();
+  const auto &restored = *app.keyboardBindings;
+  const auto sequence = std::find_if(restored.begin(), restored.end(), [](const auto &b) { return b.trigger == ImGuiKey_F9; });
+  CHECK(sequence != restored.end() && sequence->commands.size() == 2);
+  CHECK(sequence->commands[0].kind == Command::Filmstrip && sequence->commands[1].kind == Command::SelectCurrent);
+  // Configure the same typed processor operand used by manual preferences
+  // through a live-grade picker, then edit the saved binding in place.
+  CHECK(addNativeExposureNode(app));
+  app.settingsWindow.shortcutCommand = Command::SelectProcessor;
+  frame(settings->GetID("Add shortcut..."));
+  frame();
+  frame(ImHashStr("Processor in grade", 0, rows->GetID(0)));
+  frame();
+  combo = ImGui::FindWindowByName("##Combo_00");
+  CHECK(combo && combo->Active);
+  const auto pickerNode = combo->GetID(app.selectedNodeId()->value.c_str());
+  frame(ImHashStr("Exposure", 0, pickerNode));
+  frame();
+  frame(editor->GetID("Assign shortcut..."));
+  frame();
+  key(ImGuiKey_F10);
+  const auto &picked = app.keyboardBindings->back();
+  CHECK(picked.trigger == ImGuiKey_F10 && picked.invokes(Command::SelectProcessor));
+  const auto &identity = std::get<ui::ProcessorIdentity>(picked.commands[0].operand);
+  CHECK(identity.backend == "native" && identity.identifier == "rawnode.native.exposure");
+  frame(ImHashStr("Edit commands...", 0, settings->GetID(ImGuiKey_F10)));
+  frame();
+  frame(rows->GetID("Add command"));
+  frame();
+  frame(ImHashStr("Remove", 0, rows->GetID(0)));
+  frame();
+  frame(editor->GetID("Save commands"));
+  frame();
+  CHECK(app.keyboardBindings->back().trigger == ImGuiKey_F10 && app.keyboardBindings->back().invokes(Command::SelectCurrent));
   return true;
 }
 
@@ -840,6 +931,7 @@ bool globalLayout() {
 bool testPreferences() {
   for (const auto &test : {
        std::make_pair("codec, optional fields and pair fallbacks", codecAndOptionalFields),
+       std::make_pair("typed keyboard commands and malformed sequence isolation", typedBindingRoundTrip),
        std::make_pair("keyboard defaults match the base revision", defaultKeyboardBindings),
        std::make_pair("keyboard binding preference compatibility, recovery and restart", keyboardBindingsLifecycle),
        std::make_pair("keyboard shortcut Settings capture, conflicts, clearing and restore", keyboardShortcutSettings),

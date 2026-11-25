@@ -99,6 +99,7 @@ bool selectNode(App &app, std::optional<NodeId> id) {
     app.previewInteraction.stop();
     const auto mode = previewMode(app);
     app.selection = std::move(selection);
+    app.targetedParameter.clear();
     app.paramFilter[0] = '\0';
     if (mode != PreviewMode::Photo && !setPreviewMode(app, mode)) setPreviewMode(app, PreviewMode::Photo);
   }
@@ -110,6 +111,7 @@ void selectOutput(App &app) {
     app.previewInteraction.stop();
     const auto mode = previewMode(app);
     app.selection = InspectorEndpoint::Output;
+    app.targetedParameter.clear();
     app.paramFilter[0] = '\0';
     if (mode != PreviewMode::Photo) setPreviewMode(app, PreviewMode::Photo);
   }
@@ -316,16 +318,14 @@ bool moveNode(App &app, const NodeId &from, const NodeId &to) {
   return result.ok();
 }
 
-void setNodeEnabled(App &app, const NodeId &id, bool enabled) {
-  if (!requireEditableGraph(app)) return;
+bool setNodeEnabled(App &app, const NodeId &id, bool enabled) {
+  if (!requireEditableGraph(app)) return false;
   Node *node = findNode(app, id);
-  if (!node || node->enabled == enabled || node->operation == NodeOperation::Source) return;
-  {
-    DocumentMutation mutation(app);
-    node->enabled = enabled;
-    mutation.changed();
-    app.history.recordCompletedEdit(app, &mutation);
-  }
+  if (!node || node->enabled == enabled || node->operation == NodeOperation::Source) return false;
+  DocumentMutation mutation(app);
+  node->enabled = enabled;
+  mutation.changed();
+  return app.path.empty() || app.history.recordCompletedEdit(app, &mutation);
 }
 
 static std::vector<NodeId> linearCaptureOrder(const App &app) {
