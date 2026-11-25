@@ -122,6 +122,55 @@ bool codecAndOptionalFields() {
   return true;
 }
 
+bool keyboardBindingsLifecycle() {
+  Files files;
+  const ConfigPaths config{files.path("preferences.json"), ""};
+  write(config.preferences, configured);
+  App first;
+  CHECK(initialisePreferences(first, config) && !first.keyboardBindings);
+  CHECK(prepareShutdown(first, config, true));
+  CHECK(bytes(config.preferences).find("keyboardBindings") == std::string::npos);
+
+  // Hand-authored stable IDs exercise the reader independently of its writer.
+  write(config.preferences, "{" + header + R"(,"themeIndex":1,"keyboardBindings":[
+    {"key":"K","modifiers":["primary","shift"],"commands":["undo"]},
+    {"key":"K","modifiers":["shift","primary"],"commands":["redo"]},
+    {"key":"Backspace","modifiers":[],"commands":["paste"]},
+    {"key":625,"modifiers":[],"commands":["export"]},
+    {"key":"P","modifiers":[],"commands":["paste","redo"]},
+    {"key":"F8","modifiers":[],"commands":["toggle-filmstrip"]}
+  ]})");
+  App loaded;
+  CHECK(initialisePreferences(loaded, config) && loaded.themeIndex == 1);
+  CHECK(loaded.preferencesWarning.find("Already assigned to Undo") != std::string::npos);
+  CHECK(loaded.preferencesWarning.find("Reserved for removing nodes") != std::string::npos);
+  CHECK(loaded.preferencesWarning.find("keyboardBindings entry 5") != std::string::npos);
+  const auto checkBindings = [](const App &app) {
+    using ui::ApplicationCommand;
+    return app.keyboardBindings && app.keyboardBindings->size() == 2 &&
+           (*app.keyboardBindings)[0].trigger == (ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_K) &&
+           (*app.keyboardBindings)[0].invokes(ApplicationCommand::Undo) &&
+           (*app.keyboardBindings)[1].trigger == ImGuiKey_F8 &&
+           (*app.keyboardBindings)[1].invokes(ApplicationCommand::Filmstrip);
+  };
+  CHECK(checkBindings(loaded) && prepareShutdown(loaded, config, true));
+
+  App restarted;
+  CHECK(initialisePreferences(restarted, config) && restarted.preferencesWarning.empty());
+  CHECK(checkBindings(restarted) && restarted.themeIndex == 1);
+  restarted.keyboardBindings->clear();
+  CHECK(prepareShutdown(restarted, config, true));
+  App unbound;
+  CHECK(initialisePreferences(unbound, config) && unbound.preferencesWarning.empty());
+  CHECK(unbound.keyboardBindings && unbound.keyboardBindings->empty());
+
+  write(config.preferences, "{" + header + R"(,"themeIndex":1,"keyboardBindings":"invalid"})");
+  App malformed;
+  CHECK(initialisePreferences(malformed, config) && !malformed.preferencesWarning.empty());
+  CHECK(!malformed.keyboardBindings && malformed.themeIndex == 1);
+  return true;
+}
+
 bool nodesViewPreference() {
   Files files;
   const auto path = files.path("preferences.json");
@@ -547,6 +596,66 @@ bool defaultPresetSettings() {
   return true;
 }
 
+bool keyboardShortcutSettings() {
+  ImGuiContextScope context;
+  ImGuiBackend_ConfigureLayout("");
+  auto &io = ImGui::GetIO();
+  io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
+  io.ConfigInputTrickleEventQueue = false;
+  App app;
+  app.settingsWindow.open = true;
+  app.settingsWindow.shortcutCommand = ui::ApplicationCommand::Filmstrip;
+  const auto frame = [&](ImGuiID activate = 0) {
+    if (activate) ImGui::ActivateItemByID(activate);
+    beginFrame(); DrawUiFrame(app); ImGui::EndFrame();
+  };
+  const auto key = [&](ImGuiKey key, bool primary = false) {
+    const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+    if (primary) io.AddKeyEvent(modifier, true);
+    io.AddKeyEvent(key, true);
+    frame();
+    io.AddKeyEvent(key, false);
+    if (primary) io.AddKeyEvent(modifier, false);
+    frame();
+  };
+
+  frame();
+  auto *settings = ImGui::FindWindowByName("Settings");
+  CHECK(settings);
+  settings->StateStorage.SetInt(settings->GetID("Keyboard Shortcuts"), 1);
+  frame();
+  const auto change = ImHashStr("Change...", 0, settings->GetID(ImGuiMod_Ctrl | ImGuiKey_Backslash));
+  frame(change);
+  frame();
+  CHECK(ImGui::GetTopMostPopupModal());
+  key(ImGuiKey_RightBracket, true);
+  CHECK(app.showRight && app.showFilmstrip && !app.keyboardBindings);
+  CHECK(app.settingsWindow.shortcutFeedback == "Already assigned to Inspector.");
+  key(ImGuiKey_F8);
+  CHECK(!ImGui::GetTopMostPopupModal() && app.showFilmstrip && app.keyboardBindings);
+  key(ImGuiKey_Backslash, true);
+  CHECK(app.showFilmstrip);  // The replaced default has no second dispatch path.
+  key(ImGuiKey_F8);
+  CHECK(!app.showFilmstrip);
+  key(ImGuiKey_F8);
+  CHECK(app.showFilmstrip);
+
+  frame(ImHashStr("Clear", 0, settings->GetID(ImGuiKey_F8)));
+  frame();
+  CHECK(ui::shortcutLabels(ui::effectiveKeyboardBindings(app), ui::ApplicationCommand::Filmstrip,
+                           io.ConfigMacOSXBehaviors).find("F8") == std::string::npos);
+  key(ImGuiKey_F8);
+  CHECK(app.showFilmstrip);
+  frame(settings->GetID("Restore action defaults"));
+  frame();
+  key(ImGuiKey_Backslash, true);
+  CHECK(!app.showFilmstrip);
+  frame(settings->GetID("Restore all defaults"));
+  frame();
+  CHECK(!app.keyboardBindings);
+  return true;
+}
+
 bool warningGeometry() {
   const char *name = "Application preferences warning";
   for (const bool staleLayout : {false, true}) {
@@ -637,6 +746,8 @@ bool globalLayout() {
 bool testPreferences() {
   for (const auto &test : {
        std::make_pair("codec, optional fields and pair fallbacks", codecAndOptionalFields),
+       std::make_pair("keyboard binding preference compatibility, recovery and restart", keyboardBindingsLifecycle),
+       std::make_pair("keyboard shortcut Settings capture, conflicts, clearing and restore", keyboardShortcutSettings),
        std::make_pair("List/Graph preference compatibility and validation", nodesViewPreference),
        std::make_pair("directory preferences persist and clear across startup and shutdown", directoryPreferencesLifecycle),
        std::make_pair("malformed and unavailable directory preferences", invalidDirectoryPreferences),

@@ -413,6 +413,14 @@ bool shortcutsAndMenus() {
     app.history.noteUnrecordedEdit();
     CHECK(!canUndoGrade(app)); ui.key(app, ImGuiKey_Z, false, true); CHECK(app.nodes.size() == 2);
     CHECK(app.history.recordCompletedEdit(app));
+    // A modal keeps ownership even when no text item is active.
+    app.showAbout = true;
+    ui.tick(app);
+    CHECK(ImGui::GetTopMostPopupModal());
+    ui.key(app, ImGuiKey_Z, false, true);
+    CHECK(app.nodes.size() == 2);
+    ImGui::ClosePopupToLevel(0, true);
+    ui.tick(app);
     // Actual Edit menu disabled flags, including the platform shortcut text.
     ui.click(app, {65, 10});
     auto *menu = ImGui::FindWindowByName("##Menu_00"); CHECK(menu);
@@ -423,6 +431,23 @@ bool shortcutsAndMenus() {
     ui.click(app, undo); CHECK(app.nodes.size() == 1);
     ui.click(app, {65, 10}); ui.click(app, redo); CHECK(app.nodes.size() == 2);
     ui.key(app, ImGuiKey_Escape);
+    app.keyboardBindings = ui::KeyboardBindings{{ImGuiKey_F8, {ui::ApplicationCommand::Undo}}};
+    ui.click(app, {65, 10});
+    CHECK(ui.log.find("Undo") != std::string::npos && ui.log.find("F8") != std::string::npos);
+    CHECK(ui.log.find(mac ? "⌘+Z" : "Ctrl+Z") == std::string::npos);
+    ui.key(app, ImGuiKey_Escape);
+    ui.key(app, ImGuiKey_Z, false, true);
+    CHECK(app.nodes.size() == 2);
+    ui.key(app, ImGuiKey_F8);
+    CHECK(app.nodes.size() == 1);
+    CHECK(app.history.redo(app));
+    app.keyboardBindings->clear();
+    ui.click(app, {65, 10});
+    CHECK(ui.log.find("Undo") != std::string::npos && ui.log.find("F8") == std::string::npos);
+    ui.key(app, ImGuiKey_Escape);
+    ui.key(app, ImGuiKey_F8);
+    CHECK(app.nodes.size() == 2);
+    app.keyboardBindings.reset();
     app.history.clear();
     ui.key(app, ImGuiKey_Z, false, true); CHECK(app.nodes.size() == 2 && !canUndoGrade(app));
   }

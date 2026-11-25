@@ -23,6 +23,7 @@ add_library(PersistenceCore STATIC
   ${root}/src/GraphModel.cpp ${root}/src/GraphValidation.cpp
   ${root}/src/color/ColorEncoding.cpp ${root}/src/color/TransferFunction.cpp
   ${root}/src/color/LinearColorTransform.cpp ${root}/src/ui/Themes.cpp
+  ${root}/src/ui/KeyboardBindings.cpp
   ${imgui}/imgui.cpp ${imgui}/imgui_draw.cpp ${imgui}/imgui_tables.cpp ${imgui}/imgui_widgets.cpp)
 target_compile_features(PersistenceCore PUBLIC cxx_std_17)
 target_include_directories(PersistenceCore PUBLIC ${root}/src ${root}/tests ${imgui} ${root}/native-deps/glfw/include)

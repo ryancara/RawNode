@@ -916,6 +916,23 @@ transactions and writes no sidecars. A failed derivative write can leave an
 incomplete file. Originals outside the open photograph and Filmstrip are
 outside the source-overwrite check.
 
+## D061 — Configurable commands and input bindings
+
+**Status:** Owner-approved milestone design. Implementation is staged.
+
+Keyboard and modifier-wheel bindings share a vocabulary of typed commands.
+Each binding holds an ordered list, including a one-command list for an
+ordinary shortcut. Settings edits structured assignments. Global preferences,
+ImGui input ownership and existing application, graph and history operations
+provide the implementation boundaries.
+
+The first stage configures currently effective application shortcuts and derives
+menu labels from those assignments. Ordered execution, targeting, scalar edits
+and continuous adjustment follow in later stages. MIDI, OSC, hardware controllers
+and scripting remain separate work. See the
+[command bindings design](COMMAND_BINDINGS_DESIGN.md) for the agreed targeting
+and history rules, implementation recommendations and open product choices.
+
 ## Pending decisions
 
 The following remain intentionally deferred until the corresponding feature:

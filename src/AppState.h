@@ -172,6 +172,7 @@ struct App {
   ui::PresetPanelState presetPanel;
   std::string ctlScriptsDirectory;
   std::string preferencesWarning;
+  std::optional<ui::KeyboardBindings> keyboardBindings;
   struct SettingsWindow {
     bool open = false;
     std::string presetFeedback;
@@ -179,6 +180,9 @@ struct App {
     std::string defaultPresetFeedback;
     bool defaultPresetScanError = false;
     std::string ctlScriptsFeedback;
+    ui::ApplicationCommand shortcutCommand = ui::ApplicationCommand::OpenImage;
+    ImGuiKeyChord shortcutBeingChanged = 0;
+    std::string shortcutFeedback;
   } settingsWindow;
   std::vector<FilmstripEntry> filmstrip;
   int filmstripIndex = -1;  // Photograph open in the editor, independent of selection.

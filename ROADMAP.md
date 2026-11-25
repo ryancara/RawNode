@@ -34,8 +34,8 @@ The current codebase is a clean base for feature development. New work should re
 2. [Preset Panel](#preset-panel) using the existing preset format and Replace/Append operations (implemented).
 3. [Default preset selection and automatic application](#default-grade-preset)
    through Settings and grade replacement (implemented).
-4. [Assignable keyboard shortcuts](#assignable-keyboard-shortcuts) configured
-   in Settings and invoking existing actions.
+4. [Configurable commands and input bindings](#configurable-commands-and-input-bindings),
+   beginning with keyboard shortcuts for existing actions.
 5. [Multi-photo grade/preset application](#multi-photo-grade-and-preset-application)
    using Filmstrip selection and existing grade persistence.
 6. [Completion of the practical Step 8 masking core](#masks-and-local-adjustments).
@@ -44,8 +44,8 @@ The current codebase is a clean base for feature development. New work should re
 
 ### Hard dependencies
 
-Default preset selection and configurable shortcut assignments require the
-Settings UI. The Preset Panel depends on the preset root stored in Settings and
+Default preset selection and configurable keyboard and mouse assignments require
+the Settings UI. The Preset Panel depends on the preset root stored in Settings and
 existing preset operations. CTL discovery depends on the stored CTL scripts
 directory. Multi-photo application builds on the merged Filmstrip selection
 and grade persistence. Step 8 masking is independent of Settings, presets and
@@ -158,10 +158,9 @@ Both browsers match filename suffixes without regard to ASCII case and skip
 symbolic-link entries found within their configured directories.
 
 Add controls for global RAW/Output defaults and relevant export/UI preferences
-in later work. Store shortcut assignments alongside the default preset in global
-preferences. Add configurable DCTL
-and OFX search locations and backend-specific pages when needed for usable
-features. MIDI, OSC and scripting belong to separate planned work.
+in later work. Store configurable input assignments alongside the default preset
+in global preferences. Add configurable DCTL and OFX search locations and
+backend-specific pages when needed for usable features.
 
 ## Preset Panel
 
@@ -372,18 +371,24 @@ user-facing mask workflows remain Step 8, after the visual editor milestone.
 Do not build a second graph model, renderer or persistence representation for
 Graph View.
 
-## Assignable keyboard shortcuts
+## Configurable commands and input bindings
 
-Configure shortcuts in [Application Settings](#application-settings), persist
-assignments in the existing global preferences and invoke existing application
-actions.
+Use [Application Settings](#application-settings) and global preferences to bind
+keyboard and mouse inputs to ordered lists of typed commands. The
+[agreed design](docs/COMMAND_BINDINGS_DESIGN.md) records the requirements,
+implementation recommendations and open product choices.
+
+1. Configure keyboard shortcuts for existing application actions. Each binding
+   contains one command. Menus display the effective assignments.
+2. Add ordered sequences, node and parameter targeting, and scalar parameter
+   editing. Settle photo navigation and marking shortcuts for this stage.
+3. Add held adjustment keys and modifier-wheel adjustment in Preview using
+   the existing gesture and history lifecycle.
 
 ## Advanced input systems
 
-Keyboard/mouse parameter bindings are a separate future milestone, with
-assignments edited in Settings and stored in global preferences. MIDI,
-OSC / TouchOSC, jog wheels and other hardware controllers can build on the same
-action and parameter paths when scheduled. Scripting remains a later extension.
+MIDI, OSC / TouchOSC, jog wheels and other hardware controllers are separate
+future work. Scripting is a separate future extension.
 
 ## RAW architecture refactor
 
