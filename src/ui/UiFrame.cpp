@@ -527,7 +527,7 @@ bool ui::executeCommands(App &app, const CommandSequence &commands, const SaveFa
     if (invokeCommand(app, step, prompt, reason)) continue;
     // The original standalone shortcuts use the action's existing feedback.
     if (commands.size() == 1 && step.kind <= Command::Filmstrip) return false;
-    if (reason.empty()) reason = "Unavailable or cancelled";
+    if (reason.empty()) reason = "Did not complete";
     app.shortcutFailure = "Step " + std::to_string(i + 1) + " (" + commandInfo(step.kind).label + "): " + reason;
     return false;
   }

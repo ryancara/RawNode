@@ -531,7 +531,7 @@ bool shortcutsAndMenus() {
     CHECK(app.nodes.size() == 1 && !canUndoGrade(app) && canRedoGrade(app));
     app.setStatus("Unrelated preview status");
     CHECK(!ui::executeCommands(app, {ui::ApplicationCommand::Undo, ui::ApplicationCommand::Inspector}));
-    CHECK(app.shortcutFailure == "Step 1 (Undo): Unavailable or cancelled" && !app.showRight);
+    CHECK(app.shortcutFailure == "Step 1 (Undo): Did not complete" && !app.showRight);
     ui.key(app, ImGuiKey_Z, false, true);
     CHECK(app.shortcutFailure.empty());
     ui.key(app, ImGuiKey_C, false, true);

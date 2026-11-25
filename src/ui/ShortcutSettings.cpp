@@ -257,9 +257,13 @@ void drawShortcutSettings(App &app) {
   if (!assigned) ImGui::TextDisabled("Unassigned");
 
   if (ImGui::Button("Add shortcut...")) {
-    window.draftCommands = {window.shortcutCommand};
-    if (std::holds_alternative<std::monostate>(window.draftCommands.front().operand)) beginCapture(app, 0);
-    else beginSequence(app, 0, std::move(window.draftCommands));
+    CommandSequence commands{window.shortcutCommand};
+    if (std::holds_alternative<std::monostate>(commands.front().operand)) {
+      window.draftCommands = std::move(commands);
+      beginCapture(app, 0);
+    } else {
+      beginSequence(app, 0, std::move(commands));
+    }
   }
   const auto &defaults = defaultKeyboardBindings(mac);
   if (std::any_of(defaults.begin(), defaults.end(), [&](const auto &b) { return b.invokes(window.shortcutCommand); })) {

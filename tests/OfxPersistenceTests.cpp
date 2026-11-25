@@ -1268,7 +1268,7 @@ bool historyCaptureFailureAndMemory(SyncPlugin &plugin) {
     defer(app, *findNode(app, id), 6);
     CHECK(!ui::executeCommands(app, {Command::Paste, Command::Inspector}));
     CHECK(app.nodes.size() == 3 && app.history.hasUnrecordedEdit() && app.showRight);
-    CHECK(app.shortcutFailure == "Step 1 (Paste): Unavailable or cancelled");
+    CHECK(app.shortcutFailure == "Step 1 (Paste): Did not complete");
     pasteState.status = kOfxStatOK;
     CHECK(app.history.recordCompletedEdit(app));
   }
