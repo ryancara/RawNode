@@ -730,19 +730,20 @@ bool keyboardShortcutSettings() {
   key(ImGuiKey_Escape);
   CHECK(!ImGui::GetTopMostPopupModal() && app.keyboardBindings->size() == 2);
 
-  frame(settings->GetID("Add shortcut..."));
-  frame();
   const auto primary = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
   io.AddKeyEvent(primary, true);
   io.AddKeyEvent(ImGuiKey_Space, true);
-  frame();
-  CHECK(!ImGui::GetTopMostPopupModal() && app.keyboardBindings->size() == 3);
+  // Open and complete capture in one frame, leaving no popup at either dispatch check.
+  frame(settings->GetID("Add shortcut..."));
+  CHECK(!ImGui::GetTopMostPopupModal() && !app.showFilmstrip && app.keyboardBindings->size() == 3);
   io.AddKeyEvent(primary, false);
   frame();
   // Preview polls the level of Space while starting a pan.
   CHECK(!ImGui::IsKeyDown(ImGuiKey_Space));
   io.AddKeyEvent(ImGuiKey_Space, false);
   frame();
+  key(ImGuiKey_Space, true);
+  CHECK(app.showFilmstrip);
   frame(settings->GetID("Restore all defaults"));
   frame();
   CHECK(!app.keyboardBindings);

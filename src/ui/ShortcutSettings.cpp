@@ -89,8 +89,8 @@ void restoreCommandDefaults(App &app, ApplicationCommand command, bool mac) {
 }
 }  // namespace
 
-bool drawShortcutSettings(App &app) {
-  if (!ImGui::CollapsingHeader("Keyboard Shortcuts")) return false;
+void drawShortcutSettings(App &app) {
+  if (!ImGui::CollapsingHeader("Keyboard Shortcuts")) return;
 
   auto &window = app.settingsWindow;
   const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
@@ -130,8 +130,7 @@ bool drawShortcutSettings(App &app) {
     app.keyboardBindings.reset();
     window.shortcutFeedback.clear();
   }
-  const bool capturing = drawCapture(app);
-  if (!capturing && !window.shortcutFeedback.empty()) ImGui::TextWrapped("%s", window.shortcutFeedback.c_str());
-  return capturing;
+  if (!drawCapture(app) && !window.shortcutFeedback.empty())
+    ImGui::TextWrapped("%s", window.shortcutFeedback.c_str());
 }
 }  // namespace ui

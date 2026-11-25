@@ -56,7 +56,7 @@ const char *reservedShortcut(ImGuiKeyChord chord) {
 
   if (key == ImGuiKey_Tab || key == ImGuiKey_Escape ||
       key == ImGuiKey_Enter || key == ImGuiKey_KeypadEnter)
-    return "Reserved for keyboard navigation.";
+    return "Reserved for focus, confirmation and cancellation.";
   if (chord == (ImGuiMod_Ctrl | ImGuiKey_A)) return "Reserved for Filmstrip Select All.";
   if (chord == (ImGuiMod_Ctrl | ImGuiKey_F) || chord == (ImGuiMod_Super | ImGuiKey_F))
     return "Reserved for Inspector parameter search.";

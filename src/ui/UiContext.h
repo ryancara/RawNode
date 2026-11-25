@@ -44,6 +44,5 @@ inline const KeyboardBindings &effectiveKeyboardBindings(const App &app) {
   if (app.keyboardBindings) return *app.keyboardBindings;
   return defaultKeyboardBindings(ImGui::GetIO().ConfigMacOSXBehaviors);
 }
-// True throughout the capture frame, including the press that closes it.
-bool drawShortcutSettings(App &app);
+void drawShortcutSettings(App &app);
 }

@@ -392,7 +392,7 @@ static void drawDefaultPresetSetting(App &app) {
   if (!window.defaultPresetFeedback.empty()) ImGui::TextWrapped("%s", window.defaultPresetFeedback.c_str());
 }
 
-static bool drawSettings(App &app, bool requested) {
+static void drawSettings(App &app, bool requested) {
   auto &window = app.settingsWindow;
   if (requested) {
     window.open = true;
@@ -402,8 +402,7 @@ static bool drawSettings(App &app, bool requested) {
     refreshDefaultPresetFeedback(app);
     ImGui::SetNextWindowFocus();
   }
-  if (!window.open) return false;
-  bool capturingShortcut = false;
+  if (!window.open) return;
   ImGui::SetNextWindowSize(ImVec2(460, 400), ImGuiCond_FirstUseEver);
   if (ImGui::Begin("Settings", &window.open, ImGuiWindowFlags_NoDocking)) {
     ImGui::SeparatorText("Presets");
@@ -418,10 +417,9 @@ static bool drawSettings(App &app, bool requested) {
     drawDirectorySetting("CTL scripts directory", "Choose the CTL scripts directory",
                          app.ctlScriptsDirectory, window.ctlScriptsFeedback);
     ImGui::Spacing();
-    capturingShortcut = ui::drawShortcutSettings(app);
+    ui::drawShortcutSettings(app);
   }
   ImGui::End();
-  return capturingShortcut;
 }
 
 using Command = ui::ApplicationCommand;
@@ -613,7 +611,7 @@ void DrawUiFrame(App &app) {
 
   drawFileToolbar(app, selectedCommand);
   if (selectedCommand) invokeCommand(app, *selectedCommand);
-  const bool capturingShortcut = drawSettings(app, settingsRequested);
+  drawSettings(app, settingsRequested);
   drawExportDialog(app);
   DockLayout::BeginMainDockSpace(app);
 
@@ -657,9 +655,7 @@ void DrawUiFrame(App &app) {
     ImGui::EndPopup();
   }
 
-  // A capture can both open and close during drawSettings in a single frame.
-  if (!selectedCommand && !capturingShortcut &&
-      !shortcutWasBlocked && !keyboardShortcutBlocked(app))
+  if (!selectedCommand && !shortcutWasBlocked && !keyboardShortcutBlocked(app))
     dispatchKeyboardShortcut(app);
 
   if (!app.exportDialog.open) {
