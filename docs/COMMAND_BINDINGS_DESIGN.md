@@ -29,7 +29,15 @@ Use the current global preferences lifecycle and atomic writer. Store stable com
 
 Derive menu shortcut labels from effective bindings, not separately maintained hardcoded strings. A binding containing multiple commands is not advertised as the shortcut for an individual menu action. Preserve actual existing shortcut defaults, including platform-specific alternatives where applicable. Support clearing/resetting assignments and prevent overlapping bindings that could execute simultaneously. Exact preference schema, conflict policy and capture controls are implementation details to validate in PR 1.
 
-Use platform-aware primary modifiers (Command on macOS, Control on Windows/Linux). Respect native reserved keys, actual pinned ImGui semantics, text and numeric entry, active controls, modal dialogs, binding capture, export restrictions and existing panel focus. Keep destructive actions subject to existing context and confirmation. Migrate only handlers for actions made configurable; do not leave duplicate active handlers.
+Use platform-aware primary modifiers (Command on macOS, Control on Windows/Linux).
+Respect the pinned ImGui semantics, text and numeric entry, active controls,
+menus and popups, binding capture, export restrictions and existing panel focus.
+Reserve chords used by RawNode and ImGui controls where they would conflict with
+application shortcuts. The operating system or window manager may intercept an
+assignment before it reaches RawNode. Users choose chords their desktop delivers,
+and RawNode leaves native shortcut behaviour to the platform. Keep destructive
+actions subject to existing context and confirmation. Use one active handler for
+each migrated shortcut.
 
 ## 3. Node and parameter targets
 
@@ -62,7 +70,7 @@ Agreed history grouping: one completed edit per tap, per held adjustment key, an
 ## 6. Product choices not yet settled
 
 - Final assignable-action catalog and defaults beyond currently effective bindings. Preserve existing actual defaults; examples are not automatically shipped.
-- Whether Quit becomes configurable on platforms where it is not currently handled; native macOS reserved shortcuts must remain native. Do not advertise an ineffective shortcut.
+- Whether Quit becomes configurable on platforms where it has no existing shortcut. Keep native macOS Quit behaviour and its existing label.
 - Exact Settings layout, capture workflow, conflict feedback, target indication and numeric step controls.
 - Photo navigation's precise interaction with Filmstrip filters and multi-selection. Recommended: visible Filmstrip order, relative to the open photo, no wrap; reuse successful thumbnail activation semantics. Confirm before implementation.
 - Exact handling of fractional trackpad deltas and integer adjustment. Establish through focused native validation rather than speculative machinery.

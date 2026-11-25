@@ -7,11 +7,9 @@
 #include "color/TransferFunction.h"
 #include "platform/DirectoryDiscovery.h"
 
-#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <locale>
-#include <iterator>
 #include <sstream>
 #ifndef _WIN32
 #include <unistd.h>
@@ -91,22 +89,16 @@ std::optional<ui::KeyboardBinding> readKeyboardBinding(const Value &value) {
     return std::nullopt;
 
   const auto namedKey = ui::keyboardKeyFromId(key->string);
-  if (namedKey == ImGuiKey_None) return std::nullopt;
+  const auto command = ui::commandFromId(commands->array.front().string);
+  if (namedKey == ImGuiKey_None || !command) return std::nullopt;
   ImGuiKeyChord chord = namedKey;
   for (const auto &name : modifiers->array) {
     if (name.type != Type::String) return std::nullopt;
-    const auto modifier = std::find_if(std::begin(ui::shortcutModifiers), std::end(ui::shortcutModifiers),
-                                      [&](const auto &entry) { return name.string == entry.id; });
-    if (modifier == std::end(ui::shortcutModifiers) || (chord & modifier->flag)) return std::nullopt;
-    chord |= modifier->flag;
+    const auto modifier = ui::shortcutModifierFromId(name.string);
+    if (modifier == ImGuiKey_None || (chord & modifier)) return std::nullopt;
+    chord |= modifier;
   }
-
-  for (int index = 0; index < static_cast<int>(ui::ApplicationCommand::Count); ++index) {
-    const auto command = static_cast<ui::ApplicationCommand>(index);
-    if (commands->array.front().string == ui::commandInfo(command).id)
-      return ui::KeyboardBinding{chord, {command}};
-  }
-  return std::nullopt;
+  return ui::KeyboardBinding{chord, {*command}};
 }
 
 void loadKeyboardBindings(const Value &root, Preferences &out, std::string &warning) {
@@ -120,7 +112,7 @@ void loadKeyboardBindings(const Value &root, Preferences &out, std::string &warn
   ui::KeyboardBindings bindings;
   for (size_t index = 0; index < value->array.size(); ++index) {
     auto binding = readKeyboardBinding(value->array[index]);
-    const auto error = binding ? ui::shortcutAssignmentError(bindings, binding->trigger, ui::nativeMacKeyboard)
+    const auto error = binding ? ui::shortcutAssignmentError(bindings, binding->trigger)
                                : "Expected a known key, modifiers and one supported command.";
     if (error.empty()) bindings.push_back(std::move(*binding));
     else warn(warning, "keyboardBindings entry " + std::to_string(index + 1) + ": " + error);

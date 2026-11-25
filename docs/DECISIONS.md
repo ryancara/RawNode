@@ -927,9 +927,11 @@ ImGui input ownership and existing application, graph and history operations
 provide the implementation boundaries.
 
 The first stage configures currently effective application shortcuts and derives
-menu labels from those assignments. Ordered execution, targeting, scalar edits
-and continuous adjustment follow in later stages. MIDI, OSC, hardware controllers
-and scripting remain separate work. See the
+menu labels from those assignments. Users choose assignments their operating
+system or window manager delivers to RawNode. Native shortcuts retain their
+platform behaviour. Ordered execution, targeting, scalar edits and continuous
+adjustment follow in later stages. MIDI, OSC, hardware controllers and scripting
+remain separate work. See the
 [command bindings design](COMMAND_BINDINGS_DESIGN.md) for the agreed targeting
 and history rules, implementation recommendations and open product choices.
 

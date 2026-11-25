@@ -448,8 +448,8 @@ button even without a folder or visible thumbnail; protected opening leaves it
 Unknown. Failed saves/navigation never change the selected mark. A single-row
 filmstrip toolbar and inline mark-warning tooltip preserve thumbnail space at
 the unchanged default height. Unknown sidecars remain distinct from Unmarked.
-Assignable shortcuts and multi-photo operations are separate milestones; see
-[photo marking](PHOTO_MARKING.md) for scope and validation.
+Configurable input bindings and multi-photo operations are separate milestones.
+See [photo marking](PHOTO_MARKING.md) for scope and validation.
 
 Filmstrip multi-photo selection is merged as PR #115, independently of
 the open editor photograph. App owns a transient set of entry paths and one
@@ -590,9 +590,9 @@ management system.
 Photo sidecars own each photograph's complete grade, colour settings and photo
 metadata. Global application preferences own theme, dock/window layout, export
 defaults, default RAW working/Output settings, the preset root, its default
-preset selection and the CTL scripts directory. Future DCTL/OFX locations, shortcuts
-and input mappings belong to this same scope when implemented. There are no
-competing folder-level RAW defaults.
+preset selection, the CTL scripts directory and keyboard shortcut assignments.
+Future DCTL/OFX locations and additional input mappings belong to this same
+scope when implemented. There are no competing folder-level RAW defaults.
 
 Step 7 PR 5 implements global `preferences.json` and ImGui `layout.ini` in
 `~/Library/Application Support/RawNode/` on macOS and `$XDG_CONFIG_HOME/RawNode/`
@@ -903,11 +903,18 @@ compositing or alpha-carrying I/O requires it.
 
 ## Near-term roadmap
 
-The [suggested implementation order](../ROADMAP.md#suggested-implementation-order)
-continues with assignable keyboard shortcuts and multi-photo grade/preset
-application. **File → Settings…**
-configures the optional preset and CTL roots for the Preset Panel and the
-Add Processor picker, respectively.
+**File → Settings…** configures the optional preset and CTL roots for the Preset
+Panel and the Add Processor picker. Its **Keyboard Shortcuts** section configures
+existing application actions. Each assignment holds one typed command, shares
+action eligibility with the menus, and persists in global preferences. The
+platform defaults apply when the binding field is absent or a non-empty array
+contains no valid entries. An empty array clears all shortcuts. Users choose
+combinations that reach RawNode through their operating system or window manager.
+
+Ordered commands, targets and continuous keyboard and mouse adjustment are later
+stages of the [command bindings design](COMMAND_BINDINGS_DESIGN.md). Multi-photo
+grade/preset application remains a separate workflow in the
+[suggested implementation order](../ROADMAP.md#suggested-implementation-order).
 
 Step 8 masking can proceed alongside those workflows. Its agreed exit gate is
 the mandatory feature condition for Step 9, with the performance checkpoint
@@ -1039,8 +1046,8 @@ behaviour and photo/global settings ownership in "Persistence direction" above.
 Editor opening establishes a grade; unopened metadata-only photos remain valid.
 No live dirty/presence tracking is required for lifecycle saves (D050).
 Step 7 completed the preset/clipboard transition and workspace-persistence
-cleanup. Assignable shortcuts and multi-photo grade application remain separate
-workflow milestones.
+cleanup. Configurable input bindings and multi-photo grade application remain
+separate workflow milestones.
 
 **Accepted sidecar/layout direction (D048):** each editable source photograph
 uses one sidecar for the authoritative graph and optional compact X/Y positions

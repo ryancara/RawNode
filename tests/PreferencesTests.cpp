@@ -11,10 +11,12 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <set>
 #include <stdexcept>
 #ifndef _WIN32
@@ -122,6 +124,37 @@ bool codecAndOptionalFields() {
   return true;
 }
 
+bool defaultKeyboardBindings() {
+  using Command = ui::ApplicationCommand;
+  // Effective shortcuts from the pre-feature handlers at 7a5dd82.
+  const ui::KeyboardBinding expected[]{
+      {ImGuiMod_Ctrl | ImGuiKey_O, {Command::OpenImage}},
+      {ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_O, {Command::OpenFolder}},
+      {ImGuiMod_Ctrl | ImGuiKey_E, {Command::Export}},
+      {ImGuiMod_Ctrl | ImGuiKey_Z, {Command::Undo}},
+      {ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, {Command::Redo}},
+      {ImGuiMod_Ctrl | ImGuiKey_C, {Command::CopyNode}},
+      {ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C, {Command::CopyFullGrade}},
+      {ImGuiMod_Ctrl | ImGuiKey_V, {Command::Paste}},
+      {ImGuiMod_Ctrl | ImGuiKey_RightBracket, {Command::Inspector}},
+      {ImGuiMod_Super | ImGuiKey_RightBracket, {Command::Inspector}},
+      {ImGuiMod_Ctrl | ImGuiKey_Backslash, {Command::Filmstrip}},
+      {ImGuiMod_Super | ImGuiKey_Backslash, {Command::Filmstrip}},
+  };
+  for (const bool mac : {false, true}) {
+    const auto &actual = ui::defaultKeyboardBindings(mac);
+    CHECK(actual.size() == std::size(expected) + (mac ? 0 : 1));
+    const auto matches = [&](ImGuiKeyChord trigger, Command command) {
+      return std::count_if(actual.begin(), actual.end(), [&](const auto &binding) {
+        return binding.trigger == trigger && binding.invokes(command);
+      });
+    };
+    for (const auto &binding : expected) CHECK(matches(binding.trigger, binding.commands.front()) == 1);
+    CHECK(matches(ImGuiMod_Ctrl | ImGuiKey_Y, Command::Redo) == (mac ? 0 : 1));
+  }
+  return true;
+}
+
 bool keyboardBindingsLifecycle() {
   Files files;
   const ConfigPaths config{files.path("preferences.json"), ""};
@@ -138,7 +171,10 @@ bool keyboardBindingsLifecycle() {
     {"key":"Backspace","modifiers":[],"commands":["paste"]},
     {"key":625,"modifiers":[],"commands":["export"]},
     {"key":"P","modifiers":[],"commands":["paste","redo"]},
-    {"key":"F8","modifiers":[],"commands":["toggle-filmstrip"]}
+    {"key":"PageDown","modifiers":[],"commands":["toggle-filmstrip"]},
+    {"key":"Home","modifiers":[],"commands":["toggle-inspector"]},
+    {"key":"Q","modifiers":["primary"],"commands":["copy-node"]},
+    {"key":"F4","modifiers":["alt"],"commands":["paste"]}
   ]})");
   App loaded;
   CHECK(initialisePreferences(loaded, config) && loaded.themeIndex == 1);
@@ -147,11 +183,14 @@ bool keyboardBindingsLifecycle() {
   CHECK(loaded.preferencesWarning.find("keyboardBindings entry 5") != std::string::npos);
   const auto checkBindings = [](const App &app) {
     using ui::ApplicationCommand;
-    return app.keyboardBindings && app.keyboardBindings->size() == 2 &&
-           (*app.keyboardBindings)[0].trigger == (ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_K) &&
-           (*app.keyboardBindings)[0].invokes(ApplicationCommand::Undo) &&
-           (*app.keyboardBindings)[1].trigger == ImGuiKey_F8 &&
-           (*app.keyboardBindings)[1].invokes(ApplicationCommand::Filmstrip);
+    if (!app.keyboardBindings || app.keyboardBindings->size() != 5) return false;
+    const auto &bindings = *app.keyboardBindings;
+    return bindings[0].trigger == (ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_K) &&
+           bindings[0].invokes(ApplicationCommand::Undo) &&
+           bindings[1].trigger == ImGuiKey_PageDown && bindings[1].invokes(ApplicationCommand::Filmstrip) &&
+           bindings[2].trigger == ImGuiKey_Home && bindings[2].invokes(ApplicationCommand::Inspector) &&
+           bindings[3].trigger == (ImGuiMod_Ctrl | ImGuiKey_Q) && bindings[3].invokes(ApplicationCommand::CopyNode) &&
+           bindings[4].trigger == (ImGuiMod_Alt | ImGuiKey_F4) && bindings[4].invokes(ApplicationCommand::Paste);
   };
   CHECK(checkBindings(loaded) && prepareShutdown(loaded, config, true));
 
@@ -168,6 +207,14 @@ bool keyboardBindingsLifecycle() {
   App malformed;
   CHECK(initialisePreferences(malformed, config) && !malformed.preferencesWarning.empty());
   CHECK(!malformed.keyboardBindings && malformed.themeIndex == 1);
+  write(config.preferences, "{" + header + R"(,"themeIndex":1,"keyboardBindings":[
+    {"key":"Tab","modifiers":[],"commands":["undo"]},
+    {"key":"F8","modifiers":[],"commands":["unknown-command"]},
+    {"key":"F8","modifiers":["unknown-modifier"],"commands":["undo"]}
+  ]})");
+  App invalidEntries;
+  CHECK(initialisePreferences(invalidEntries, config) && !invalidEntries.preferencesWarning.empty());
+  CHECK(!invalidEntries.keyboardBindings && invalidEntries.themeIndex == 1);
   return true;
 }
 
@@ -600,7 +647,7 @@ bool keyboardShortcutSettings() {
   ImGuiContextScope context;
   ImGuiBackend_ConfigureLayout("");
   auto &io = ImGui::GetIO();
-  io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
+  io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
   io.ConfigInputTrickleEventQueue = false;
   App app;
   app.settingsWindow.open = true;
@@ -609,11 +656,11 @@ bool keyboardShortcutSettings() {
     if (activate) ImGui::ActivateItemByID(activate);
     beginFrame(); DrawUiFrame(app); ImGui::EndFrame();
   };
-  const auto key = [&](ImGuiKey key, bool primary = false) {
+  const auto key = [&](ImGuiKey key, bool primary = false, ImGuiID activate = 0) {
     const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
     if (primary) io.AddKeyEvent(modifier, true);
     io.AddKeyEvent(key, true);
-    frame();
+    frame(activate);
     io.AddKeyEvent(key, false);
     if (primary) io.AddKeyEvent(modifier, false);
     frame();
@@ -624,6 +671,16 @@ bool keyboardShortcutSettings() {
   CHECK(settings);
   settings->StateStorage.SetInt(settings->GetID("Keyboard Shortcuts"), 1);
   frame();
+  frame(settings->GetID("Action"));
+  frame();
+  CHECK(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
+  key(ImGuiKey_RightBracket, true);
+  CHECK(app.showRight && ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
+  auto *combo = ImGui::FindWindowByName("##Combo_00");
+  CHECK(combo && combo->Active);
+  key(ImGuiKey_RightBracket, true, combo->GetID("Filmstrip"));
+  CHECK(app.showRight && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
+
   const auto change = ImHashStr("Change...", 0, settings->GetID(ImGuiMod_Ctrl | ImGuiKey_Backslash));
   frame(change);
   frame();
@@ -631,25 +688,61 @@ bool keyboardShortcutSettings() {
   key(ImGuiKey_RightBracket, true);
   CHECK(app.showRight && app.showFilmstrip && !app.keyboardBindings);
   CHECK(app.settingsWindow.shortcutFeedback == "Already assigned to Inspector.");
-  key(ImGuiKey_F8);
+  key(ImGuiKey_LeftArrow);
   CHECK(!ImGui::GetTopMostPopupModal() && app.showFilmstrip && app.keyboardBindings);
   key(ImGuiKey_Backslash, true);
   CHECK(app.showFilmstrip);  // The replaced default has no second dispatch path.
-  key(ImGuiKey_F8);
+  key(ImGuiKey_LeftArrow);
   CHECK(!app.showFilmstrip);
-  key(ImGuiKey_F8);
+  key(ImGuiKey_LeftArrow);
   CHECK(app.showFilmstrip);
 
-  frame(ImHashStr("Clear", 0, settings->GetID(ImGuiKey_F8)));
+  frame(ImHashStr("Clear", 0, settings->GetID(ImGuiKey_LeftArrow)));
   frame();
-  CHECK(ui::shortcutLabels(ui::effectiveKeyboardBindings(app), ui::ApplicationCommand::Filmstrip,
-                           io.ConfigMacOSXBehaviors).find("F8") == std::string::npos);
-  key(ImGuiKey_F8);
+  const auto &remaining = ui::effectiveKeyboardBindings(app);
+  CHECK(std::none_of(remaining.begin(), remaining.end(), [](const auto &binding) {
+    return binding.trigger == ImGuiKey_LeftArrow;
+  }));
+  key(ImGuiKey_LeftArrow);
   CHECK(app.showFilmstrip);
   frame(settings->GetID("Restore action defaults"));
   frame();
   key(ImGuiKey_Backslash, true);
   CHECK(!app.showFilmstrip);
+
+  // The second alias conflicts. Restoring Filmstrip must retain both the
+  // custom assignment and the other action's shortcut, without adding the first alias.
+  using Command = ui::ApplicationCommand;
+  app.keyboardBindings = ui::KeyboardBindings{
+      {ImGuiKey_Home, {Command::Filmstrip}},
+      {ImGuiMod_Super | ImGuiKey_Backslash, {Command::Inspector}},
+  };
+  frame(settings->GetID("Restore action defaults"));
+  frame();
+  CHECK(app.settingsWindow.shortcutFeedback.find("Already assigned to Inspector") != std::string::npos);
+  const auto &bindings = ui::effectiveKeyboardBindings(app);
+  CHECK(bindings.size() == 2 && bindings[0].trigger == ImGuiKey_Home && bindings[0].invokes(Command::Filmstrip));
+  CHECK(bindings[1].trigger == (ImGuiMod_Super | ImGuiKey_Backslash) && bindings[1].invokes(Command::Inspector));
+
+  frame(settings->GetID("Add shortcut..."));
+  frame();
+  CHECK(ImGui::GetTopMostPopupModal());
+  key(ImGuiKey_Escape);
+  CHECK(!ImGui::GetTopMostPopupModal() && app.keyboardBindings->size() == 2);
+
+  frame(settings->GetID("Add shortcut..."));
+  frame();
+  const auto primary = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+  io.AddKeyEvent(primary, true);
+  io.AddKeyEvent(ImGuiKey_Space, true);
+  frame();
+  CHECK(!ImGui::GetTopMostPopupModal() && app.keyboardBindings->size() == 3);
+  io.AddKeyEvent(primary, false);
+  frame();
+  // Preview polls the level of Space while starting a pan.
+  CHECK(!ImGui::IsKeyDown(ImGuiKey_Space));
+  io.AddKeyEvent(ImGuiKey_Space, false);
+  frame();
   frame(settings->GetID("Restore all defaults"));
   frame();
   CHECK(!app.keyboardBindings);
@@ -746,6 +839,7 @@ bool globalLayout() {
 bool testPreferences() {
   for (const auto &test : {
        std::make_pair("codec, optional fields and pair fallbacks", codecAndOptionalFields),
+       std::make_pair("keyboard defaults match the base revision", defaultKeyboardBindings),
        std::make_pair("keyboard binding preference compatibility, recovery and restart", keyboardBindingsLifecycle),
        std::make_pair("keyboard shortcut Settings capture, conflicts, clearing and restore", keyboardShortcutSettings),
        std::make_pair("List/Graph preference compatibility and validation", nodesViewPreference),

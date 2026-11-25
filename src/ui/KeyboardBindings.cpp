@@ -50,7 +50,7 @@ constexpr struct {
 #undef KEY
 };
 
-const char *reservedShortcut(ImGuiKeyChord chord, bool mac) {
+const char *reservedShortcut(ImGuiKeyChord chord) {
   const auto key = static_cast<ImGuiKey>(chord & ~ImGuiMod_Mask_);
   const auto mods = chord & ImGuiMod_Mask_;
 
@@ -65,20 +65,8 @@ const char *reservedShortcut(ImGuiKeyChord chord, bool mac) {
   if (mods == 0 || mods == ImGuiMod_Shift) {
     if (key == ImGuiKey_F) return "Reserved for framing the Graph.";
     if (key == ImGuiKey_Space) return "Reserved for panning the Preview.";
-    if (key >= ImGuiKey_LeftArrow && key <= ImGuiKey_End) return "Reserved for keyboard navigation.";
   }
 
-  if (mac) {
-    if (mods == ImGuiMod_Ctrl && (key == ImGuiKey_Q || key == ImGuiKey_H ||
-        key == ImGuiKey_M || key == ImGuiKey_Space || key == ImGuiKey_GraveAccent))
-      return "Reserved by macOS.";
-    if (chord == (ImGuiMod_Ctrl | ImGuiMod_Alt | ImGuiKey_H) ||
-        chord == (ImGuiMod_Ctrl | ImGuiMod_Super | ImGuiKey_F) ||
-        chord == (ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_GraveAccent))
-      return "Reserved by macOS.";
-  } else if (chord == (ImGuiMod_Alt | ImGuiKey_F4)) {
-    return "Reserved for closing the window.";
-  }
   return nullptr;
 }
 }  // namespace
@@ -101,6 +89,18 @@ ImGuiKey keyboardKeyFromId(std::string_view id) {
   for (const auto &entry : keys)
     if (entry.id == id) return entry.key;
   return ImGuiKey_None;
+}
+
+ImGuiKey shortcutModifierFromId(std::string_view id) {
+  for (const auto &modifier : shortcutModifiers)
+    if (modifier.id == id) return modifier.flag;
+  return ImGuiKey_None;
+}
+
+std::optional<ApplicationCommand> commandFromId(std::string_view id) {
+  for (size_t index = 0; index < std::size(applicationCommands); ++index)
+    if (applicationCommands[index].id == id) return static_cast<ApplicationCommand>(index);
+  return std::nullopt;
 }
 
 std::string shortcutLabel(ImGuiKeyChord chord, bool mac) {
@@ -134,11 +134,11 @@ std::string shortcutLabels(const KeyboardBindings &bindings, ApplicationCommand 
   return label;
 }
 
-std::string shortcutAssignmentError(const KeyboardBindings &bindings, ImGuiKeyChord chord, bool mac,
+std::string shortcutAssignmentError(const KeyboardBindings &bindings, ImGuiKeyChord chord,
                                     ImGuiKeyChord replacing) {
   if (keyboardKeyId(static_cast<ImGuiKey>(chord & ~ImGuiMod_Mask_)).empty())
     return "This key cannot be assigned.";
-  if (const char *reserved = reservedShortcut(chord, mac)) return reserved;
+  if (const char *reserved = reservedShortcut(chord)) return reserved;
   for (const auto &binding : bindings) {
     if (binding.trigger != replacing && binding.trigger == chord) {
       if (binding.commands.size() == 1)

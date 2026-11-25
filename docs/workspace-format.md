@@ -75,7 +75,9 @@ of `commands` that currently contains one command ID. For example,
 and Control on Windows and Linux. Omit the field for platform defaults. An empty
 array clears all keyboard bindings. The first valid assignment for a chord wins
 when a file contains duplicates. Invalid entries produce a preferences warning
-and valid entries still load.
+and valid entries still load. A non-empty array with no valid entries uses
+platform defaults. The operating system or window manager may intercept a
+configured assignment before RawNode receives it.
 
 Both colour pairs use stable IDs, for example:
 

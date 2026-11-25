@@ -19,7 +19,6 @@ bool drawCapture(App &app) {
     return false;
 
   auto &window = app.settingsWindow;
-  const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
   ImGui::TextUnformatted(commandInfo(window.shortcutCommand).label);
   ImGui::TextUnformatted("Press a key or key combination. Escape cancels.");
 
@@ -28,9 +27,9 @@ bool drawCapture(App &app) {
     const auto key = static_cast<ImGuiKey>(index);
     if (keyboardKeyId(key).empty() || !ImGui::IsKeyPressed(key, false)) continue;
 
-    // Consume the captured press for the rest of the frame, including any
-    // local panel handlers rendered after the popup closes.
-    ImGui::SetKeyOwner(key, ImGui::GetID(capturePopup), ImGuiInputFlags_LockUntilRelease);
+    // Local panels draw after Settings and their public key queries honor locks.
+    // Keep Space locked even if its modifier is released before Space itself.
+    ImGui::SetKeyOwner(key, ImGuiKeyOwner_Any, ImGuiInputFlags_LockUntilRelease);
     if (key == ImGuiKey_Escape) {
       close = true;
       break;
@@ -38,7 +37,7 @@ bool drawCapture(App &app) {
 
     const ImGuiKeyChord chord = key | ImGui::GetIO().KeyMods;
     auto bindings = effectiveKeyboardBindings(app);
-    window.shortcutFeedback = shortcutAssignmentError(bindings, chord, mac, window.shortcutBeingChanged);
+    window.shortcutFeedback = shortcutAssignmentError(bindings, chord, window.shortcutBeingChanged);
     if (window.shortcutFeedback.empty()) {
       const auto previous = std::find_if(bindings.begin(), bindings.end(), [&](const auto &binding) {
         return binding.trigger == window.shortcutBeingChanged;
@@ -79,7 +78,7 @@ void restoreCommandDefaults(App &app, ApplicationCommand command, bool mac) {
   for (const auto &binding : defaultKeyboardBindings(mac)) {
     if (!binding.invokes(command)) continue;
     auto &feedback = app.settingsWindow.shortcutFeedback;
-    feedback = shortcutAssignmentError(bindings, binding.trigger, mac);
+    feedback = shortcutAssignmentError(bindings, binding.trigger);
     if (!feedback.empty()) {
       feedback = shortcutLabel(binding.trigger, mac) + ". " + feedback;
       return;

@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -45,12 +46,6 @@ struct KeyboardBinding {
 
 using KeyboardBindings = std::vector<KeyboardBinding>;
 
-#ifdef __APPLE__
-inline constexpr bool nativeMacKeyboard = true;
-#else
-inline constexpr bool nativeMacKeyboard = false;
-#endif
-
 // In pinned ImGui, Ctrl means the primary modifier (Command on macOS).
 // Super is the other modifier (physical Control on macOS).
 struct ShortcutModifier {
@@ -69,10 +64,12 @@ inline constexpr ShortcutModifier shortcutModifiers[] = {
 const KeyboardBindings &defaultKeyboardBindings(bool mac);
 std::string_view keyboardKeyId(ImGuiKey key);
 ImGuiKey keyboardKeyFromId(std::string_view id);
+ImGuiKey shortcutModifierFromId(std::string_view id);
+std::optional<ApplicationCommand> commandFromId(std::string_view id);
 std::string shortcutLabel(ImGuiKeyChord chord, bool mac);
 std::string shortcutLabels(const KeyboardBindings &bindings, ApplicationCommand command, bool mac);
 // Empty means assignable. Skip the previous trigger while changing an assignment.
-std::string shortcutAssignmentError(const KeyboardBindings &bindings, ImGuiKeyChord chord, bool mac,
+std::string shortcutAssignmentError(const KeyboardBindings &bindings, ImGuiKeyChord chord,
                                     ImGuiKeyChord replacing = 0);
 
 }  // namespace ui

@@ -470,14 +470,13 @@ static void drawCommandMenuItem(const App &app, std::optional<Command> &selected
 }
 
 static bool keyboardShortcutBlocked(const App &app) {
-  return app.exportDialog.open || uiEditInProgress(app) || ImGui::GetTopMostPopupModal() ||
-         ImGui::IsAnyItemActive() || ImGui::GetIO().WantTextInput ||
-         ImGui::GetInputTextState(ImGui::GetActiveID());
+  return app.exportDialog.open || uiEditInProgress(app) ||
+         ImGui::IsAnyItemActive() || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup);
 }
 
 static void dispatchKeyboardShortcut(App &app) {
-  // Widgets have submitted their keys by this point. Match only exact chords
-  // with unowned keys, leaving ImGui navigation and local panel inputs first use.
+  // Require an exact chord and a base key that ImGui has neither owned nor locked.
+  // Panel shortcuts that poll without claiming keys are reserved at assignment.
   for (const auto &binding : ui::effectiveKeyboardBindings(app)) {
     if (binding.commands.size() != 1) continue;
     if (ImGui::IsKeyChordPressed(binding.trigger, ImGuiInputFlags_None, ImGuiKeyOwner_NoOwner)) {
@@ -522,6 +521,7 @@ bool canUndoGrade(const App &app) { return historyIdle(app) && app.history.canUn
 bool canRedoGrade(const App &app) { return historyIdle(app) && app.history.canRedo(); }
 
 void DrawUiFrame(App &app) {
+  // Drawing can end an edit or close a popup before the frame's key is dispatched.
   const bool shortcutWasBlocked = keyboardShortcutBlocked(app);
   if (!app.preferencesWarning.empty()) {
     bool visible = true;
@@ -657,7 +657,8 @@ void DrawUiFrame(App &app) {
     ImGui::EndPopup();
   }
 
-  if (!selectedCommand && !settingsRequested && !capturingShortcut &&
+  // A capture can both open and close during drawSettings in a single frame.
+  if (!selectedCommand && !capturingShortcut &&
       !shortcutWasBlocked && !keyboardShortcutBlocked(app))
     dispatchKeyboardShortcut(app);
 

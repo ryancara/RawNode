@@ -82,14 +82,22 @@ struct Ui {
     hover(app, p); ImGui::GetIO().AddMouseButtonEvent(0, true); tick(app);
     ImGui::GetIO().AddMouseButtonEvent(0, false); tick(app);
   }
-  void key(App &app, ImGuiKey key, bool shift = false, bool modifier = false) {
+  void chordEvent(ImGuiKeyChord chord, bool down) {
     auto &io = ImGui::GetIO();
-    if (modifier) io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, true);
-    if (shift) io.AddKeyEvent(ImGuiMod_Shift, true);
-    io.AddKeyEvent(key, true); tick(app); io.AddKeyEvent(key, false);
-    if (shift) io.AddKeyEvent(ImGuiMod_Shift, false);
-    if (modifier) io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, false);
+    // Feed physical modifier events, as the GLFW backend does.
+    if (chord & ImGuiMod_Ctrl) io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl, down);
+    if (chord & ImGuiMod_Super) io.AddKeyEvent(io.ConfigMacOSXBehaviors ? ImGuiMod_Ctrl : ImGuiMod_Super, down);
+    if (chord & ImGuiMod_Shift) io.AddKeyEvent(ImGuiMod_Shift, down);
+    io.AddKeyEvent(static_cast<ImGuiKey>(chord & ~ImGuiMod_Mask_), down);
+  }
+  void chord(App &app, ImGuiKeyChord chord) {
+    chordEvent(chord, true);
     tick(app);
+    chordEvent(chord, false);
+    tick(app);
+  }
+  void key(App &app, ImGuiKey key, bool shift = false, bool primary = false) {
+    chord(app, key | (shift ? ImGuiMod_Shift : 0) | (primary ? ImGuiMod_Ctrl : 0));
   }
   void type(App &app, const char *value) {
     key(app, ImGuiKey_A, false, true);
@@ -386,7 +394,9 @@ bool shortcutsAndMenus() {
   for (const bool mac : {false, true}) {
     Files files; App app; Ui ui; ui.full = true;
     app.showRight = app.showNodes = app.showFilmstrip = false;
-    ImGui::GetIO().ConfigMacOSXBehaviors = mac;
+    auto &io = ImGui::GetIO();
+    io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigMacOSXBehaviors = mac;
     CHECK(openPath(app, files.photo("keys.png")) && addNativeExposureNode(app));
     ui.tick(app); ui.tick(app);
     CHECK(canUndoGrade(app) && !canRedoGrade(app));
@@ -400,6 +410,8 @@ bool shortcutsAndMenus() {
     ui.click(app, ui.textPoint); ImGui::GetIO().AddInputCharactersUTF8("abc"); ui.tick(app);
     ui.key(app, ImGuiKey_Z, false, true);
     CHECK(app.nodes.size() == 2); // ImGui text undo owns the chord.
+    ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_RightBracket);
+    CHECK(!app.showRight);  // The application must protect its own chord, too.
     ui.click(app, {900, 600}); ui.tick(app);
     app.sidecarWriteBlockedPath = app.path;
     CHECK(!canUndoGrade(app) && !canRedoGrade(app));
@@ -416,7 +428,7 @@ bool shortcutsAndMenus() {
     // A modal keeps ownership even when no text item is active.
     app.showAbout = true;
     ui.tick(app);
-    CHECK(ImGui::GetTopMostPopupModal());
+    CHECK(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
     ui.key(app, ImGuiKey_Z, false, true);
     CHECK(app.nodes.size() == 2);
     ImGui::ClosePopupToLevel(0, true);
@@ -430,12 +442,12 @@ bool shortcutsAndMenus() {
     ui.click(app, redo); CHECK(app.nodes.size() == 2); // Disabled Redo.
     ui.click(app, undo); CHECK(app.nodes.size() == 1);
     ui.click(app, {65, 10}); ui.click(app, redo); CHECK(app.nodes.size() == 2);
-    ui.key(app, ImGuiKey_Escape);
+    ui.click(app, {900, 600});
     app.keyboardBindings = ui::KeyboardBindings{{ImGuiKey_F8, {ui::ApplicationCommand::Undo}}};
     ui.click(app, {65, 10});
     CHECK(ui.log.find("Undo") != std::string::npos && ui.log.find("F8") != std::string::npos);
     CHECK(ui.log.find(mac ? "⌘+Z" : "Ctrl+Z") == std::string::npos);
-    ui.key(app, ImGuiKey_Escape);
+    ui.click(app, {900, 600});
     ui.key(app, ImGuiKey_Z, false, true);
     CHECK(app.nodes.size() == 2);
     ui.key(app, ImGuiKey_F8);
@@ -444,7 +456,7 @@ bool shortcutsAndMenus() {
     app.keyboardBindings->clear();
     ui.click(app, {65, 10});
     CHECK(ui.log.find("Undo") != std::string::npos && ui.log.find("F8") == std::string::npos);
-    ui.key(app, ImGuiKey_Escape);
+    ui.click(app, {900, 600});
     ui.key(app, ImGuiKey_F8);
     CHECK(app.nodes.size() == 2);
     app.keyboardBindings.reset();
@@ -453,10 +465,82 @@ bool shortcutsAndMenus() {
   }
   return true;
 }
+
+bool clipboardAndPanelShortcuts() {
+  for (const bool mac : {false, true}) {
+    Files files;
+    App app;
+    std::string clipboard;
+    Ui ui;
+    ui.full = true;
+    app.showRight = app.showNodes = app.showFilmstrip = false;
+    auto &io = ImGui::GetIO();
+    io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigMacOSXBehaviors = mac;
+    auto &platform = ImGui::GetPlatformIO();
+    platform.Platform_ClipboardUserData = &clipboard;
+    platform.Platform_GetClipboardTextFn = [](ImGuiContext *context) {
+      return static_cast<std::string *>(context->PlatformIO.Platform_ClipboardUserData)->c_str();
+    };
+    platform.Platform_SetClipboardTextFn = [](ImGuiContext *context, const char *text) {
+      *static_cast<std::string *>(context->PlatformIO.Platform_ClipboardUserData) = text;
+    };
+    CHECK(openPath(app, files.photo("clipboard-keys.png")) && addNativeExposureNode(app));
+    ui.tick(app);
+    ui.tick(app);
+
+    PersistTransfer transfer;
+    std::string error;
+    ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_C);
+    CHECK(decodeTransferPayload(clipboard, transfer, error) && std::holds_alternative<PersistFragment>(transfer));
+    ui.chord(app, ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C);
+    CHECK(decodeTransferPayload(clipboard, transfer, error) && std::holds_alternative<PersistGrade>(transfer));
+    ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_C);
+    ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_V);
+    CHECK(app.nodes.size() == 3);
+
+    ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_RightBracket);
+    CHECK(app.showRight);
+    ui.chord(app, ImGuiMod_Super | ImGuiKey_RightBracket);
+    CHECK(!app.showRight);
+    ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_Backslash);
+    CHECK(app.showFilmstrip);
+    ui.chord(app, ImGuiMod_Super | ImGuiKey_Backslash);
+    CHECK(!app.showFilmstrip);
+
+    ui.click(app, {65, 10});
+    CHECK(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
+    ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_RightBracket);
+    CHECK(!app.showRight);
+    ui.click(app, {900, 600});
+    CHECK(!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
+
+    ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_RightBracket);
+    ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_F);
+    io.AddInputCharactersUTF8("test");
+    ui.tick(app);
+    CHECK(std::string(app.paramFilter) == "test" && ImGui::IsAnyItemActive());
+    app.keyboardBindings = ui::KeyboardBindings{{ImGuiKey_F8, {ui::ApplicationCommand::Filmstrip}}};
+
+    // Escape ends the active text edit during DrawUiFrame. A second key from
+    // that frame must still belong to the text interaction.
+    ui.chordEvent(ImGuiKey_Escape, true);
+    ui.chordEvent(ImGuiKey_F8, true);
+    ui.tick(app);
+    CHECK(!ImGui::IsAnyItemActive() && !app.showFilmstrip);
+    ui.chordEvent(ImGuiKey_Escape, false);
+    ui.chordEvent(ImGuiKey_F8, false);
+    ui.tick(app);
+    ui.chord(app, ImGuiKey_F8);
+    CHECK(app.showFilmstrip);
+  }
+  return true;
+}
 }
 
 bool testHistoryUi() {
   if (!radialInspectorBoolean() || !radialInspectorGestures() || !opacityGesturesAndPersistence() || !nativeGestures() || !ctlDeferredInputAndFailure() || !droppedPhotoCompletesOutgoingGesture() || !shortcutsAndMenus()) return false;
+  if (!clipboardAndPanelShortcuts()) return false;
   std::puts("ok  History UI: native gestures, numeric commits/interruption, discrete buttons, shortcuts and eligibility");
   return true;
 }
