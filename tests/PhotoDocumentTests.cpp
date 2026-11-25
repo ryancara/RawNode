@@ -1031,7 +1031,10 @@ bool scanAndInitialGrades() {
   const auto a = photo(files, "a.png"), b = photo(files, "b.png", 0.5f);
   const auto before = entries(files.dir);
   CHECK(listFolderImages(files.dir.string()).size() == 2);
-  App scan; scan.folderDir = files.dir.string(); refreshFilmstrip(scan);
+  App scan; scan.folderDir = files.dir.string();
+  scan.presetDirectory = files.dir.u8string();
+  scan.defaultPreset = "not-loaded.rawnode.json";
+  refreshFilmstrip(scan);
   CHECK(scan.filmstrip.size() == 2);
   std::vector<unsigned char> rgba; int w = 0, h = 0;
   CHECK(loadThumbnailRGBA(a, 16, rgba, w, h) && !rgba.empty());
@@ -1358,6 +1361,142 @@ bool syntheticRaw(const std::string &path, Image &out, ColorEncoding &detected, 
   for (int i = 0; i < out.w * out.h; ++i)
     out.px.insert(out.px.end(), {float(encodeTransfer(red, requested.gamma)),
         float(encodeTransfer(1.5, requested.gamma)), float(encodeTransfer(0.25, requested.gamma)), 0.75f});
+  return true;
+}
+
+int defaultPresetDecodeCalls = 0;
+bool decodeForDefaultPreset(const std::string &path, Image &out, ColorEncoding &detected,
+                            bool &raw, ColorEncoding requested) {
+  ++defaultPresetDecodeCalls;
+  return syntheticRaw(path, out, detected, raw, requested);
+}
+
+bool defaultPresetOpening() {
+  Files files;
+  const auto fresh = files.path("a.nef"), marked = files.path("b.nef");
+  const auto sourceOnly = files.path("source-only.nef"), graded = files.path("graded.nef");
+  const auto preset = files.path("Looks/Default.RAWNODE.JSON");
+  CHECK(fs::create_directory(files.dir / "Looks"));
+  const std::string presetColours = R"("color":{"rawWorking":{"colorSpace":"aces-ap1","gamma":"rec709-camera"},"output":{"colorSpace":"display-p3","gamma":"srgb"}})";
+  const auto originalPreset = file(missing + ',' + exposure + ',' + source, "gain",
+      R"(,"positions":{"gain":{"x":-12.5,"y":8.25}})", R"({"mark":"reject"})", presetColours);
+  write(preset, originalPreset);
+  write(inputSidecarPath(sourceOnly), file());
+  write(inputSidecarPath(graded), file(exposure + ',' + source, "gain"));
+  const std::string metadata = R"({ "mark" : "pick" })";
+  write(inputSidecarPath(marked), R"({"format":"rawnode","version":1,"metadata":)" + metadata + '}');
+
+  App app;
+  app.presetDirectory = files.dir.u8string();
+  app.defaultPreset = "Looks/Default.RAWNODE.JSON";
+  Options options;
+  int saves = 0;
+  options.beforeSave = [&] { ++saves; return Fault::None; };
+  options.decode = decodeForDefaultPreset;
+  defaultPresetDecodeCalls = 0;
+  CHECK(document_detail::openPhoto(app, fresh, {}, options));
+  CHECK(saves == 1 && defaultPresetDecodeCalls == 1);
+  const ColorEncoding raw{RgbGamut::ACES_AP1, TransferFunction::Rec709};
+  const ColorEncoding output{RgbGamut::DisplayP3, TransferFunction::SRGB};
+  CHECK(app.inputIsRaw && app.inputEncoding == raw && app.photoRawWorkingEncoding == raw && app.outputEncoding == output);
+  // BT.709 OETF at the synthetic decoder's linear green value of 1.5.
+  const double expectedGreen = 1.0 + 1.09929682680944 * (std::pow(1.5, 0.45) - 1.0);
+  CHECK(std::abs(app.full.px.at(1) - expectedGreen) < 1e-6);
+  CHECK(app.primarySource == NodeId{"camera-root"} && app.documentOutput == (OutputRef{NodeId{"gain"}, ports::image}));
+  const auto *unavailable = findNode(app, NodeId{"unavailable"});
+  CHECK(app.nodes.size() == 3 && unavailable && unavailable->isMissingProcessor());
+  const auto *gain = findNode(app, NodeId{"gain"});
+  CHECK(gain && gain->processor && gain->fixedInputs.at(ports::image) == (OutputRef{app.primarySource, ports::image}));
+  CHECK(app.nodePositions.at("gain").x == -12.5 && app.nodePositions.at("gain").y == 8.25);
+  CHECK(app.history.size() == 1 && !app.history.canUndo() && !app.history.canRedo());
+  const auto savedFresh = read(inputSidecarPath(fresh));
+  CHECK(savedFresh.grade && savedFresh.grade->graph.nodes.size() == 3 && !savedFresh.metadataJson);
+  CHECK(savedFresh.grade->graph.nodes[0].paramsJson.at("huge") == "9007199254740993");
+  CHECK(std::stod(savedFresh.grade->graph.nodes[1].paramsJson.at("exposure")) == 1.0);
+  CHECK(savedFresh.grade->color.rawColorSpace == "aces-ap1" && savedFresh.grade->color.rawGamma == "rec709-camera");
+  CHECK(savedFresh.grade->color.outputColorSpace == "display-p3" && savedFresh.grade->color.outputGamma == "srgb");
+  CHECK(app.currentPhotoMark == PhotoMark::Unmarked);
+  CHECK(setNodeParameterValue(app, NodeId{"gain"}, "exposure", 2.0));
+  CHECK(app.history.recordCompletedEdit(app));
+  CHECK(app.history.canUndo() && app.history.undo(app) && !app.history.canUndo());
+  CHECK(capturedGrade(app) == bytes(inputSidecarPath(fresh)));
+
+  CHECK(document_detail::openPhoto(app, marked, {}, options));
+  CHECK(app.currentPhotoMark == PhotoMark::Pick && app.history.size() == 1);
+  CHECK(section(inputSidecarPath(marked), "grade") == section(inputSidecarPath(fresh), "grade"));
+  CHECK(section(inputSidecarPath(marked), "metadata") == metadata && bytes(preset) == originalPreset);
+
+  app.defaultPreset = "missing.rawnode.json";
+  const auto saved = bytes(inputSidecarPath(fresh));
+  CHECK(document_detail::openPhoto(app, fresh, {}, options) && bytes(inputSidecarPath(fresh)) == saved);
+  CHECK(app.nodes.size() == 3 && app.photoRawWorkingEncoding == raw && !app.isPhotoProtected());
+  CHECK(document_detail::openPhoto(app, sourceOnly, {}, options) && !app.isPhotoProtected());
+  CHECK(app.nodes.size() == 1 && app.primarySource == NodeId{"camera-root"});
+  CHECK(document_detail::openPhoto(app, graded, {}, options) && !app.isPhotoProtected());
+  CHECK(app.nodes.size() == 2 && app.photoRawWorkingEncoding.gamut == RgbGamut::Rec2020);
+  const auto protectedPhoto = files.path("protected.nef");
+  write(inputSidecarPath(protectedPhoto), R"({"format":"rawnode","version":999})");
+  CHECK(document_detail::openPhoto(app, protectedPhoto, {}, options));
+  CHECK(app.isPhotoProtected() && app.nodes.size() == 1);
+  CHECK(bytes(inputSidecarPath(protectedPhoto)) == R"({"format":"rawnode","version":999})");
+  return true;
+}
+
+bool defaultPresetFailures() {
+  Files files;
+  const auto current = photo(files, "current.png"), incoming = files.path("incoming.nef");
+  const auto failedRaw = files.path("failed.nef");
+  const auto preset = files.path("look.rawnode.json"), sidecar = inputSidecarPath(incoming);
+  const std::string metadataOnly = R"({"format":"rawnode","version":1,"metadata":{"mark":"pick"}})";
+  App app;
+  CHECK(openPath(app, current) && addNativeExposureNode(app));
+  const auto oldGrade = capturedGrade(app);
+  const auto oldPreview = app.preview;
+  const auto historySize = app.history.size();
+  app.presetDirectory = files.dir.u8string();
+  app.defaultPreset = "look.rawnode.json";
+  Options options;
+  options.decode = decodeForDefaultPreset;
+  defaultPresetDecodeCalls = 0;
+  const auto unchanged = [&] {
+    return app.path == current && capturedGrade(app) == oldGrade && app.preview == oldPreview &&
+           app.history.size() == historySize && !app.isPhotoProtected() && app.defaultPreset == "look.rawnode.json";
+  };
+  CHECK(!document_detail::openPhoto(app, incoming, {}, options));
+  CHECK(unchanged() && !fs::exists(sidecar) && defaultPresetDecodeCalls == 0);
+  CHECK(app.getStatus().find("default preset look.rawnode.json") != std::string::npos);
+  CHECK(app.getStatus().find("Preset does not exist") != std::string::npos);
+  CHECK(app.getStatus().find("Change or clear the default in File > Settings") != std::string::npos);
+
+  write(sidecar, metadataOnly);
+  write(preset, "{");
+  CHECK(!document_detail::openPhoto(app, incoming, {}, options));
+  CHECK(unchanged() && bytes(sidecar) == metadataOnly && defaultPresetDecodeCalls == 0);
+  CHECK(app.getStatus().find("default preset look.rawnode.json") != std::string::npos);
+
+  const auto invalidParameter = std::string(exposure).replace(exposure.find("1.0"), 3, "true");
+  write(preset, file(invalidParameter + ',' + source, "gain"));
+  PersistGrade readable;
+  std::string error;
+  CHECK(loadPresetFile(preset, readable, error));
+  CHECK(!document_detail::openPhoto(app, incoming, {}, options));
+  CHECK(unchanged() && bytes(sidecar) == metadataOnly && defaultPresetDecodeCalls == 0);
+  CHECK(app.getStatus().find("Invalid parameter value: exposure") != std::string::npos);
+  CHECK(app.getStatus().find("Change or clear the default in File > Settings") != std::string::npos);
+
+  write(preset, file(exposure + ',' + source, "gain"));
+  CHECK(!document_detail::openPhoto(app, failedRaw, {}, options));
+  CHECK(unchanged() && !fs::exists(inputSidecarPath(failedRaw)) && defaultPresetDecodeCalls == 1);
+  CHECK(app.getStatus().find("Could not decode") != std::string::npos);
+
+  options.beforeSave = [attempt = 0]() mutable { return ++attempt == 2 ? Fault::Replace : Fault::None; };
+  CHECK(document_detail::openPhoto(app, incoming, {}, options));
+  CHECK(app.path == incoming && !app.isPhotoProtected() && app.nodes.size() == 2 && app.history.size() == 1);
+  CHECK(!app.persistenceWarning.empty() && bytes(sidecar) == metadataOnly && app.currentPhotoMark == PhotoMark::Pick);
+  CHECK(saveCurrentInputSidecar(app) && app.persistenceWarning.empty());
+  const auto saved = read(sidecar);
+  CHECK(saved.grade && saved.grade->graph.documentOutput.nodeId == NodeId{"gain"});
+  CHECK(photoMark(saved) == PhotoMark::Pick);
   return true;
 }
 
@@ -1796,6 +1935,8 @@ bool testPhotoDocuments() {
        std::make_pair("Linux dialog exit mapping and safe helper absence", linuxDialogDecisions),
 #endif
        std::make_pair("scan, thumbnails, Source-only and metadata-only initial grades", scanAndInitialGrades),
+       std::make_pair("default preset defines initial RAW decode, full grade, history and persistence", defaultPresetOpening),
+       std::make_pair("default preset load, reconstruction, decode and initial save failures", defaultPresetFailures),
        std::make_pair("folder scanning and opening include only direct images", folderImagesStayLocal),
        std::make_pair("shuffled full graph, off-spine nodes, precision, positions and unchanged saves", restorationAndUnchangedSave),
        std::make_pair("Slots and allocation history through the production open/departure path", slotRestoration),

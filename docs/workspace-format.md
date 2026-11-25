@@ -23,7 +23,7 @@ preferences nor docking.
 The optional `nodesView` string accepts `"list"` or `"graph"`. Missing or invalid
 values use List; invalid values warn without discarding other valid preferences.
 The optional `showNodes` and `showPresetPanel` booleans default to true and false,
-respectively. Preset selection and canvas pan/zoom are transient.
+respectively. The Preset Panel's selection and canvas pan/zoom are transient.
 Photo layout coordinates remain in `grade.positions`. Default docking places
 Preview above Nodes, Inspector right and Filmstrip across the bottom.
 New custom/floating arrangements persist normally; historical
@@ -40,6 +40,15 @@ and empty strings both mean no directory is configured. Settings reports
 unavailable saved paths when opened and keeps the paths available to change or
 clear. Choosing a folder requires an existing directory. Cancelling the picker
 keeps the prior selection.
+
+The **Default preset** selector under **Presets** lists **None** and presets
+discovered in the configured root and its subfolders. The list refreshes each
+time the selector opens. The optional `defaultPreset` string stores the chosen
+UTF-8 path relative to `presetDirectory`, for example
+`Portraits/Warm.rawnode.json`. A missing or empty value means **None**. Changing
+or clearing the configured root clears this selection. If RawNode cannot read
+the selected file as a preset, Settings shows the saved selection and the read
+error so the user can change or clear it.
 
 Preferences load before UI initialisation and the first photo opening, and save
 on normal shutdown even without an opened folder. A cancelled photo-save departure
@@ -72,9 +81,10 @@ Both colour pairs use stable IDs, for example:
 
 Missing pairs use RAW Rec.2020/Linear and Output Rec.709/sRGB. Malformed,
 incomplete or unknown pairs warn and use that pair's own built-in fallback.
-Valid stored pairs initialise new grades. Saved grades and preset Replace retain
-their own photo colours; photo adjustments and folder switching never change
-global defaults. Default-colour Settings UI and default presets remain later work.
+Valid stored pairs initialise new grades when there is no selected default
+preset. Saved grades and presets applied with Replace supply their own colours.
+Photo adjustments and folder switching preserve the global defaults.
+Default-colour Settings UI remains later work.
 
 `workspace.ofxrawhost.json`, per-folder `.ofxrawhost-layout.ini` and CWD
 `ofxrawhost.ini` are retired. RawNode does not read, rewrite, migrate, create or

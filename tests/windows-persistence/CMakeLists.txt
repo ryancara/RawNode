@@ -19,6 +19,7 @@ set(imgui "${root}/native-deps/imgui")
 add_library(PersistenceCore STATIC
   ${root}/src/persist/ProjectPersistSave.cpp ${root}/src/persist/ProjectPersistLoad.cpp
   ${root}/src/persist/Json.cpp ${root}/src/persist/Preferences.cpp
+  ${root}/src/platform/DirectoryDiscovery.cpp
   ${root}/src/GraphModel.cpp ${root}/src/GraphValidation.cpp
   ${root}/src/color/ColorEncoding.cpp ${root}/src/color/TransferFunction.cpp
   ${root}/src/color/LinearColorTransform.cpp ${root}/src/ui/Themes.cpp

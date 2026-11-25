@@ -93,11 +93,13 @@ A successfully removed current source is cleared through DocumentActions inside
 that same ownership contract: path/save protection, pixels, graph/history,
 selection/inspection and presentation are retired. Its save identity is never
 retained for shutdown or navigation. The existing prepared-open operation opens
-the first decodable remaining photograph in folder order, independently of
+the first remaining photograph it can prepare in folder order, independently of
 filters, without another outgoing save. Its nested DocumentMutation is intentional:
 mutation depth keeps preview dispatch closed until the outer Trash scope ends;
-current-source clearing asserts that the outer mutation owns this App. If none opens, the Source-only empty
-editor remains usable. A failed current-photo move normally retains its grade,
+current-source clearing asserts that the outer mutation owns this App. If none
+opens, the Source-only empty editor remains usable. The Trash summary includes
+the first opening error even if a later photograph opens. Counts describe file
+removal outcomes. A failed current-photo move normally retains its grade,
 history and preview; if the native call reports failure but the source has
 actually disappeared, detach it conservatively and report the failure.
 

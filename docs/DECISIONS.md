@@ -490,9 +490,9 @@ and ImGui `layout.ini`; optional settings receive independent defaults. Photo
 colour controls affect the photo only. Read/validate stored global colour
 defaults with built-in fallback; the future Settings UI configures these same
 fields, without temporary default controls.
-The default grade preset is separate and remains later work. Parameter-group
-expansion is transient in every scope/transfer; optional node positions remain
-photo graph layout (D048).
+The default grade preset uses the same global preferences. Parameter-group
+expansion is transient in every scope/transfer, and optional node positions
+remain photo graph layout (D048).
 
 See [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md#persistence-direction) for accepted
 workflow semantics and [STEP7_PERSISTENCE_DESIGN.md](STEP7_PERSISTENCE_DESIGN.md)
@@ -526,8 +526,9 @@ overwrite sidecars (D049); exports remain sidecar-free (D038).
 
 The live editor is authoritative while a photograph is open; concurrent external
 sidecar edits are outside the supported workflow. Keep destination validation
-and atomic replacement. Future default-preset application failure policy remains
-deferred to that feature's milestone.
+and atomic replacement. Default-preset loading or reconstruction failures stop
+eligible openings before publication or initial saving, as described in
+[project context](PROJECT_CONTEXT.md#saved-grades-and-default-presets).
 
 ## D051 — Contextual Inspector and editing workspace
 

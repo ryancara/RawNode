@@ -167,6 +167,7 @@ struct App {
 
   std::string folderDir;
   std::string presetDirectory;
+  std::string defaultPreset;
   bool showPresetPanel = false;
   ui::PresetPanelState presetPanel;
   std::string ctlScriptsDirectory;
@@ -174,6 +175,9 @@ struct App {
   struct SettingsWindow {
     bool open = false;
     std::string presetFeedback;
+    std::vector<std::string> defaultPresetChoices;
+    std::string defaultPresetFeedback;
+    bool defaultPresetScanError = false;
     std::string ctlScriptsFeedback;
   } settingsWindow;
   std::vector<FilmstripEntry> filmstrip;

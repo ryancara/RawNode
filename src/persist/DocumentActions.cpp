@@ -165,6 +165,15 @@ bool savePreset(App &app, const std::string &path, const OverwritePrompt &confir
   return document_detail::savePreset(app, path, confirm, {});
 }
 
+bool loadDefaultPreset(const App &app, PersistGrade &grade, std::string &error) {
+  if (app.presetDirectory.empty() || !validDefaultPresetPath(app.defaultPreset)) {
+    error = "Choose a preset under the root preset directory in Settings.";
+    return false;
+  }
+  const auto path = fs::u8path(app.presetDirectory) / fs::u8path(app.defaultPreset);
+  return loadPresetFile(path.u8string(), grade, error);
+}
+
 static bool sameNodeIdentity(const Node &a, const Node &b) {
   return a.id == b.id && a.operation == b.operation &&
          a.storedBackend == b.storedBackend && a.storedIdentifier == b.storedIdentifier;
@@ -404,6 +413,13 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
       protectedSource = true;
     }
     const bool initialSave = !protectedSource && !file.grade;
+    const bool useDefaultPreset = initialSave && !app.defaultPreset.empty();
+    const PersistGrade *incomingGrade = !protectedSource && file.grade ? &*file.grade : nullptr;
+    PersistGrade preset;
+    const auto reportPresetFailure = [&](const std::string &reason) {
+      app.setStatus("Could not apply default preset " + app.defaultPreset + ": " + reason +
+                    ". Change or clear the default in File > Settings.");
+    };
     ColorEncoding raw, output;
     {
       std::lock_guard<std::mutex> lock(app.colorMutex);
@@ -412,25 +428,36 @@ bool openPreparedPhoto(App &app, const std::string &path, const ActionTestOption
     }
     RestoredGraph restored;
     PersistPositions positions;
-    if (!protectedSource && file.grade) {
+    if (incomingGrade || useDefaultPreset) {
       try {
-        auto prepared = restorePhotoGrade(*file.grade);
+        if (useDefaultPreset) {
+          if (!loadDefaultPreset(app, preset, error)) {
+            reportPresetFailure(error);
+            return false;
+          }
+          incomingGrade = &preset;
+        }
+        auto prepared = restorePhotoGrade(*incomingGrade);
         restored = std::move(prepared.graph);
         raw = prepared.raw;
         output = prepared.output;
-        positions = file.grade->positions;
+        positions = incomingGrade->positions;
       } catch (const std::exception &failure) {
+        // A broken saved grade allows a protected source view. A failed
+        // default preset stops the incoming opening.
+        if (useDefaultPreset) {
+          reportPresetFailure(failure.what());
+          return false;
+        }
         error = inputSidecarPath(path) + ": " + failure.what();
         protectedSource = true;
       }
     }
-    if (protectedSource || !file.grade) {
-      restored = sourceOnlyGraph();
+    if (protectedSource || !incomingGrade) restored = sourceOnlyGraph();
+    if (protectedSource) {
       positions.clear();
-      if (protectedSource) {
-        raw = {RgbGamut::Rec709, TransferFunction::Linear};
-        output = {RgbGamut::Rec709, TransferFunction::SRGB};
-      }
+      raw = {RgbGamut::Rec709, TransferFunction::Linear};
+      output = {RgbGamut::Rec709, TransferFunction::SRGB};
     }
     Image decoded;
     ColorEncoding detected;

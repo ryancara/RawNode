@@ -5,6 +5,7 @@
 #include "ui/Themes.h"
 #include "color/LinearColorTransform.h"
 #include "color/TransferFunction.h"
+#include "platform/DirectoryDiscovery.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -47,6 +48,12 @@ void size(const Value &root, const char *key, float &out, double low, double hig
     else warn(warning, std::string(key) + ": invalid size; using default");
   }
 }
+bool isValidUtf8Path(const std::string &path) {
+  // Native filenames can contain byte sequences the strict preferences file cannot store.
+  Value value;
+  std::string error;
+  return persist_json::read(jsonStringValue(path), value, error);
+}
 fs::path absoluteDirectoryPath(const std::string &path) {
   if (path.find('\0') != std::string::npos) return {};
   const auto nativePath = fs::u8path(path);
@@ -77,6 +84,16 @@ std::string pairJson(ColorEncoding encoding) {
          ",\"gamma\":" + jsonStringValue(transferFunctionId(encoding.gamma)) + "}";
 }
 }  // namespace
+
+bool validDefaultPresetPath(const std::string &path) {
+  if (path.find('\0') != std::string::npos || !hasFilenameSuffix(path, ".rawnode.json")) return false;
+  if (!isValidUtf8Path(path)) return false;
+  const auto relative = fs::u8path(path);
+  if (relative.has_root_path()) return false;
+  for (const auto &component : relative)
+    if (component.has_root_path() || component == "." || component == "..") return false;
+  return true;
+}
 
 ConfigPaths preferences_detail::configPaths(const std::string &home, const std::string &configHome,
                                             std::string &warning) {
@@ -173,6 +190,14 @@ bool loadPreferences(const std::string &path, Preferences &out, std::string &war
   size(root, "filmstripH", out.filmstripH, 48, 240, warning);
   directory(root, "presetDirectory", out.presetDirectory, warning);
   directory(root, "ctlScriptsDirectory", out.ctlScriptsDirectory, warning);
+  if (const auto *value = optional(root, "defaultPreset")) {
+    if (value->type != Type::String || (!value->string.empty() && !validDefaultPresetPath(value->string)))
+      warn(warning, "defaultPreset: expected a preset path relative to the root directory; leaving unset");
+    else if (!value->string.empty() && out.presetDirectory.empty())
+      warn(warning, "defaultPreset: no root preset directory is configured; leaving unset");
+    else
+      out.defaultPreset = value->string;
+  }
   if (!warning.empty()) warning = path + ":\n" + warning;
   return true;
 }
@@ -195,6 +220,7 @@ bool preferences_detail::save(const std::string &path, const Preferences &p, std
       << ",\n  \"rightW\":" << p.rightW
       << ",\n  \"filmstripH\":" << p.filmstripH;
   if (!p.presetDirectory.empty()) out << ",\n  \"presetDirectory\":" << jsonStringValue(p.presetDirectory);
+  if (!p.defaultPreset.empty()) out << ",\n  \"defaultPreset\":" << jsonStringValue(p.defaultPreset);
   if (!p.ctlScriptsDirectory.empty()) out << ",\n  \"ctlScriptsDirectory\":" << jsonStringValue(p.ctlScriptsDirectory);
   out << "\n}\n";
   return persist_detail::replaceFileAtomically(path, out.str(), error, fault);
@@ -206,10 +232,7 @@ bool savePreferences(const std::string &path, const Preferences &preferences, st
 
 std::string directoryPreferenceError(const std::string &path) {
   if (path.empty()) return {};
-  // Native directory names can contain bytes the strict preferences reader rejects.
-  Value value;
-  std::string jsonError;
-  if (!persist_json::read(jsonStringValue(path), value, jsonError))
+  if (!isValidUtf8Path(path))
     return "The directory path must be valid UTF-8.";
   const auto nativePath = absoluteDirectoryPath(path);
   if (nativePath.empty()) return "Choose a valid absolute directory path.";
@@ -236,6 +259,7 @@ Preferences capturePreferences(const App &app) {
   p.showPresetPanel = app.showPresetPanel;
   p.rightW = app.rightW; p.filmstripH = app.filmstripH;
   p.presetDirectory = app.presetDirectory;
+  p.defaultPreset = app.defaultPreset;
   p.ctlScriptsDirectory = app.ctlScriptsDirectory;
   return p;
 }
@@ -257,6 +281,7 @@ void applyPreferences(App &app, const Preferences &p) {
   app.showPresetPanel = p.showPresetPanel;
   app.rightW = p.rightW; app.filmstripH = p.filmstripH;
   app.presetDirectory = p.presetDirectory;
+  app.defaultPreset = p.defaultPreset;
   app.ctlScriptsDirectory = p.ctlScriptsDirectory;
 }
 

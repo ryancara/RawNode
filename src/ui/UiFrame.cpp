@@ -305,8 +305,9 @@ static void openFolderDialog(App &app) {
   if (!path.empty()) app.pendingFolderDir = path;
 }
 
-static void drawDirectorySetting(const char *label, const char *pickerTitle, std::string &path,
+static bool drawDirectorySetting(const char *label, const char *pickerTitle, std::string &path,
                                  std::string &feedback) {
+  bool changed = false;
   ImGui::PushID(label);
   ImGui::TextUnformatted(label);
   if (ImGui::Button("Choose Folder...")) {
@@ -316,14 +317,17 @@ static void drawDirectorySetting(const char *label, const char *pickerTitle, std
       auto selected = pfd::select_folder(pickerTitle, directoryPreferenceError(path).empty() ? path : "").result();
       if (!selected.empty()) {
         feedback = directoryPreferenceError(selected);
-        if (feedback.empty()) path = std::move(selected);
-        else feedback = "Could not use the selected folder. " + feedback;
+        if (feedback.empty()) {
+          changed = path != selected;
+          path = std::move(selected);
+        } else feedback = "Could not use the selected folder. " + feedback;
       }
     }
   }
   ImGui::SameLine();
   ImGui::BeginDisabled(path.empty());
   if (ImGui::Button("Clear")) {
+    changed = true;
     path.clear();
     feedback.clear();
   }
@@ -332,6 +336,57 @@ static void drawDirectorySetting(const char *label, const char *pickerTitle, std
   else ImGui::TextWrapped("%s", path.c_str());
   if (!feedback.empty()) ImGui::TextWrapped("%s", feedback.c_str());
   ImGui::PopID();
+  return changed;
+}
+
+static void appendPresetChoices(const DirectoryFolder &folder, const fs::path &root,
+                                std::vector<std::string> &choices) {
+  for (const auto &child : folder.folders) appendPresetChoices(child, root, choices);
+  for (const auto &file : folder.files) {
+    auto relative = file.lexically_relative(root).generic_u8string();
+    if (validDefaultPresetPath(relative)) choices.push_back(std::move(relative));
+  }
+}
+
+static void refreshDefaultPresetFeedback(App &app) {
+  auto &feedback = app.settingsWindow.defaultPresetFeedback;
+  feedback.clear();
+  if (app.defaultPreset.empty()) return;
+  PersistGrade grade;
+  std::string error;
+  if (!loadDefaultPreset(app, grade, error)) feedback = "Could not read default preset. " + error;
+}
+
+static void drawDefaultPresetSetting(App &app) {
+  auto &window = app.settingsWindow;
+  const char *preview = app.defaultPreset.empty() ? "None" : app.defaultPreset.c_str();
+  if (ImGui::BeginCombo("Default preset", preview)) {
+    if (ImGui::IsWindowAppearing()) {
+      const auto listing = discoverDirectory(fs::u8path(app.presetDirectory), ".rawnode.json");
+      window.defaultPresetChoices.clear();
+      appendPresetChoices(listing.contents, listing.contents.path, window.defaultPresetChoices);
+      window.defaultPresetScanError = listing.scanError;
+      refreshDefaultPresetFeedback(app);
+    }
+    if (ImGui::Selectable("None", app.defaultPreset.empty())) {
+      app.defaultPreset.clear();
+      window.defaultPresetFeedback.clear();
+    }
+    for (size_t i = 0; i < window.defaultPresetChoices.size(); ++i) {
+      const auto &choice = window.defaultPresetChoices[i];
+      ImGui::PushID(static_cast<int>(i));
+      if (ImGui::Selectable(choice.c_str(), app.defaultPreset == choice)) {
+        app.defaultPreset = choice;
+        refreshDefaultPresetFeedback(app);
+      }
+      ImGui::PopID();
+    }
+    if (window.defaultPresetScanError) ImGui::TextDisabled("Some preset locations could not be read.");
+    ImGui::EndCombo();
+  }
+  if (!app.defaultPreset.empty()) ImGui::SetItemTooltip("%s", app.defaultPreset.c_str());
+  ImGui::TextWrapped("Applies when opening a photograph without a saved grade.");
+  if (!window.defaultPresetFeedback.empty()) ImGui::TextWrapped("%s", window.defaultPresetFeedback.c_str());
 }
 
 static void drawSettings(App &app, bool requested) {
@@ -340,14 +395,19 @@ static void drawSettings(App &app, bool requested) {
     window.open = true;
     window.presetFeedback = directoryPreferenceError(app.presetDirectory);
     window.ctlScriptsFeedback = directoryPreferenceError(app.ctlScriptsDirectory);
+    refreshDefaultPresetFeedback(app);
     ImGui::SetNextWindowFocus();
   }
   if (!window.open) return;
   ImGui::SetNextWindowSize(ImVec2(460, 300), ImGuiCond_FirstUseEver);
   if (ImGui::Begin("Settings", &window.open, ImGuiWindowFlags_NoDocking)) {
     ImGui::SeparatorText("Presets");
-    drawDirectorySetting("Root preset directory", "Choose the root preset directory",
-                         app.presetDirectory, window.presetFeedback);
+    if (drawDirectorySetting("Root preset directory", "Choose the root preset directory",
+                             app.presetDirectory, window.presetFeedback)) {
+      app.defaultPreset.clear();
+      window.defaultPresetFeedback.clear();
+    }
+    drawDefaultPresetSetting(app);
     ImGui::Spacing();
     ImGui::SeparatorText("Processors");
     drawDirectorySetting("CTL scripts directory", "Choose the CTL scripts directory",
