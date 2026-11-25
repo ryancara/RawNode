@@ -10,6 +10,7 @@
 namespace ui {
 namespace {
 constexpr const char *capturePopup = "Assign keyboard shortcut";
+constexpr const char *sequencePopup = "Edit command sequence";
 
 void beginCapture(App &app, ImGuiKeyChord replacing) {
   app.settingsWindow.shortcutBeingChanged = replacing;
@@ -22,7 +23,8 @@ bool drawCapture(App &app) {
     return false;
 
   auto &window = app.settingsWindow;
-  ImGui::TextUnformatted(commandInfo(window.shortcutCommand).label);
+  if (window.draftCommands.size() > 1) ImGui::Text("Sequence of %zu commands", window.draftCommands.size());
+  else ImGui::TextUnformatted(commandInfo(window.draftCommands.front().kind).label);
   ImGui::TextUnformatted("Press a key or key combination. Escape cancels.");
 
   bool close = false;
@@ -55,11 +57,17 @@ bool drawCapture(App &app) {
 
   if (!window.shortcutFeedback.empty()) ImGui::TextUnformatted(window.shortcutFeedback.c_str());
   if (ImGui::Button("Cancel")) close = true;
-  if (close) {
+  bool buildSequence = false;
+  if (!close && !window.shortcutBeingChanged && window.draftCommands.size() == 1) {
+    ImGui::SameLine();
+    buildSequence = ImGui::Button("Build sequence...");
+  }
+  if (close || buildSequence) {
     window.shortcutFeedback.clear();
     ImGui::CloseCurrentPopup();
   }
   ImGui::EndPopup();
+  if (buildSequence) ImGui::OpenPopup(sequencePopup);
   return true;
 }
 
@@ -123,7 +131,13 @@ void drawOperand(const App &app, CommandStep &step) {
       }
       ImGui::EndCombo();
     }
-    ImGui::InputText("Backend", &identity->backend);
+    if (ImGui::BeginCombo("Backend", identity->backend.c_str())) {
+      for (auto backend : {ProcessorBackend::Native, ProcessorBackend::OFX, ProcessorBackend::CTL}) {
+        const char *id = processorBackendName(backend);
+        if (ImGui::Selectable(id, identity->backend == id)) identity->backend = id;
+      }
+      ImGui::EndCombo();
+    }
     ImGui::InputText("Processor ID", &identity->identifier);
   } else if (auto *parameter = std::get_if<std::string>(&step.operand)) {
     if (ImGui::BeginCombo("Parameter in grade", parameter->c_str())) {
@@ -143,10 +157,9 @@ void drawOperand(const App &app, CommandStep &step) {
       ImGui::EndCombo();
     }
     ImGui::InputText("Parameter ID", parameter);
+    ImGui::TextWrapped("Applies to the processor selected when this command runs.");
   }
 }
-
-constexpr const char *sequencePopup = "Edit command sequence";
 
 void beginSequence(App &app, ImGuiKeyChord trigger, CommandSequence commands) {
   auto &window = app.settingsWindow;
@@ -184,7 +197,7 @@ void drawSequenceEditor(App &app) {
       ImGui::Separator();
       if (up || down || remove) break;
     }
-    if (ImGui::Button("Add command")) commands.emplace_back(ApplicationCommand::SelectCurrent);
+    if (ImGui::Button("Add command")) commands.emplace_back(ApplicationCommand::SelectNext);
   }
   ImGui::EndChild();
   const auto error = sequenceError(commands);
@@ -235,7 +248,10 @@ void drawShortcutSettings(App &app) {
     }
     ImGui::PopID();
     if (edit) beginSequence(app, binding.trigger, binding.commands);
-    if (change) beginCapture(app, binding.trigger);
+    if (change) {
+      window.draftCommands = binding.commands;
+      beginCapture(app, binding.trigger);
+    }
   }
   if (remove) removeAssignment(app, remove);
   if (!assigned) ImGui::TextDisabled("Unassigned");
@@ -243,10 +259,8 @@ void drawShortcutSettings(App &app) {
   if (ImGui::Button("Add shortcut...")) {
     window.draftCommands = {window.shortcutCommand};
     if (std::holds_alternative<std::monostate>(window.draftCommands.front().operand)) beginCapture(app, 0);
-    else beginSequence(app, 0, window.draftCommands);
+    else beginSequence(app, 0, std::move(window.draftCommands));
   }
-  ImGui::SameLine();
-  if (ImGui::Button("New sequence...")) beginSequence(app, 0, {window.shortcutCommand});
   const auto &defaults = defaultKeyboardBindings(mac);
   if (std::any_of(defaults.begin(), defaults.end(), [&](const auto &b) { return b.invokes(window.shortcutCommand); })) {
     if (ImGui::Button("Restore action defaults")) restoreCommandDefaults(app, window.shortcutCommand, mac);

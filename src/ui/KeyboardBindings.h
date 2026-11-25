@@ -11,8 +11,9 @@
 namespace ui {
 
 enum class ApplicationCommand {
+  // PR #135 actions through Filmstrip retain their standalone feedback.
   OpenImage, OpenFolder, Export, Undo, Redo, CopyNode, CopyFullGrade, Paste, Inspector, Filmstrip,
-  SelectCurrent, SelectPosition, SelectNext, SelectPrevious, SelectProcessor, TargetParameter,
+  SelectPosition, SelectNext, SelectPrevious, SelectProcessor, TargetParameter,
   SetValue, AdjustValue, Increase, Decrease, ResetParameter, ToggleNode,
   NextPhoto, PreviousPhoto, MarkPick, MarkReject, MarkUnmarked, Count
 };
@@ -33,7 +34,6 @@ inline constexpr ApplicationCommandInfo applicationCommands[] = {
     {"paste", "Paste"},
     {"toggle-inspector", "Inspector"},
     {"toggle-filmstrip", "Filmstrip"},
-    {"select-current", "Select Current Node"},
     {"select-position", "Select Node by List Position"},
     {"select-next", "Select Next Node"},
     {"select-previous", "Select Previous Node"},

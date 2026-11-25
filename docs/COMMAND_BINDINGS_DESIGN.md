@@ -4,7 +4,7 @@ PR #135 introduced configurable shortcuts. PR 2 extends the same bindings with o
 
 ## Keyboard bindings and Settings
 
-A binding pairs one keyboard chord with a nonempty ordered list of typed commands. Settings groups assignments by their first action. **Add shortcut** assigns a single action. **New sequence** and **Edit commands** open an ordered editor with command choices, operand fields and Up, Down and Remove controls. A picker lists processors and editable scalar parameters from the open grade. The same backend, processor ID and parameter ID can be entered manually, including for a grade that is currently unavailable. The parameter picker supplies only a parameter ID. It applies to whichever node is selected when that step runs.
+A binding pairs one keyboard chord with a nonempty ordered list of typed commands. Settings groups assignments by their first action. **Add shortcut** captures a key for a simple action. Choose **Build sequence** in capture to open the ordered editor. Actions with operands open the editor directly, and **Edit commands** opens it for an existing assignment. The editor provides command choices, operand fields and Up, Down and Remove controls. A picker lists processors and editable scalar parameters from the open grade. Choose the backend and enter processor and parameter IDs manually for targets outside the current grade. The parameter picker supplies only a parameter ID. It applies to whichever node is selected when that step runs.
 
 Change and Clear operate on the whole assignment. Restoring an action's defaults replaces only its one-action shortcuts. If a default chord belongs to another binding, restoration reports the conflict and keeps all assignments. Restore all defaults returns to the platform defaults from PR #135. Menu labels list only bindings that invoke that single menu action. PR 2 adds no default shortcuts.
 
@@ -12,7 +12,7 @@ Chord recognition uses ImGui's existing key ownership, exact modifiers and frame
 
 ## Execution and photograph actions
 
-The application evaluates each step against the current document after the preceding operation completes. It stops on the first unavailable, failed or cancelled operation and identifies the step in a dismissible toolbar message that survives preview updates until the next shortcut. Completed operations keep their ordinary Undo boundaries. Opening an image, choosing a folder and opening Export must end a sequence. For deferred actions, the terminal step requests the dialog or folder change. There is no pending sequence to resume.
+The application evaluates each step against the current document after the preceding operation completes. A sequence stops on the first unavailable, failed or cancelled step and identifies it in a dismissible toolbar message that survives preview updates until the next shortcut. Original standalone shortcuts retain their existing action feedback. New standalone commands report failures through the same toolbar message as sequences. Completed operations keep their ordinary Undo boundaries. Opening an image, choosing a folder and opening Export must end a sequence. For deferred actions, the terminal step requests the dialog or folder change. There is no pending sequence to resume.
 
 Toggle Node uses the selected node's existing enable/bypass operation. Pick, Reject and Unmarked update the open photograph through the existing mark writer. Next and Previous search the Filmstrip in the chosen direction from the open photograph's position, including when a filter just hid it. Without a current entry they start at the first or last visible photograph. At the boundary they stop. Plain thumbnail activation completes outgoing edits, handles departure-save choices and replaces the selection and anchor only after a successful open. For example, **Mark as Reject → Next Photograph** keeps the reject mark if departure is cancelled. **Copy Full Grade → Next Photograph → Paste** gives the destination photograph its ordinary paste history entry.
 
@@ -24,7 +24,7 @@ Select changes the shared Graph/List selection. Target Parameter associates one 
 
 ## Scalar edits
 
-Each operation reads fresh parameter metadata. The target must be a visible, enabled, editable Double or Integer. Set accepts an absolute value and Adjust a signed amount in parameter units. Both require finite values. Integer inputs must be whole and the result must be representable. Increase/Decrease use a declared positive step (a whole step for an integer), otherwise one integer unit or 1% of a meaningful finite floating-point display span. An unbounded float without a declared step needs an explicit amount.
+Each operation reads fresh parameter metadata. The target must be a visible, enabled, editable Double or Integer. Set accepts an absolute value and Adjust a signed amount in parameter units. Both require finite values. Integer inputs must be whole and the result must be representable. Increase/Decrease use a declared positive step (a whole step for an integer), otherwise one integer unit or 1% of a meaningful finite floating-point display span. An unbounded CTL float without a declared step needs an explicit amount. OFX retains the Inspector’s existing display fallback when the plug-in declares no range.
 
 Hard bounds limit the result. Display bounds supply an increment and never pull a value back into the slider range. Inspector Plus/Minus use the same calculation. For example, native Exposure at +7 EV steps to +7.1 EV on Plus, using its −5 to +5 display span and −10 to +10 hard limits.
 
@@ -37,6 +37,18 @@ The optional version-1 `keyboardBindings` array continues to store stable key an
 ## PR 3 and future scope
 
 PR 3 is planned to add held adjustment keys and modified vertical wheel input on the idle Preview canvas. It will retain normal zoom, scrolling and input ownership and group each hold or modifier-wheel session into one completed edit. An eligible wheel gesture consumes the wheel event even when its target is missing. Only a single adjustment can repeat. Complete the edit on release, a context, target or focus change, or before a competing edit, save, departure, export or teardown. Use existing ImGui ownership, gesture completion and pending grade history. The design uses neither global raw-wheel polling nor an idle timer. Native wheel/trackpad behaviour and fractional deltas still require validation. Keyboard sequences in PR 2 run once per press.
+
+Validate PR 3 on native desktops. Check that normal wheel zoom, pinch, Graph
+zoom and panel scrolling retain their input ownership. Active text and numeric
+controls, modal dialogs and active canvas gestures must retain theirs. Verify
+that an eligible modifier-wheel gesture cannot also zoom Preview, including
+when its target is unavailable. Exercise fractional trackpad deltas and held
+keys with real input.
+
+Verify one Undo entry per tap, completed hold and modifier-held wheel session.
+Exercise release, target or focus changes, and completion before competing
+edits, save, departure, export and teardown. Reuse the existing gesture
+completion and pending history tests where practical.
 
 MIDI, OSC, external hardware, scripting, specialised parameter types, custom node naming and multi-photo grade application remain outside these stages.
 

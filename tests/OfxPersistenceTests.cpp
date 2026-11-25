@@ -874,9 +874,21 @@ bool parameterGestureFrames(Plugin &plugin) {
   target.operand = std::string("visiblePersistent");
   CHECK(!ui::executeCommands(app, {processor, target}) && app.selectedNodeId() == duplicate);
   properties().propSetInt(H(&gain->props), kOfxParamPropEnabled, 0, 1);
+  const auto fallback = parameter(*selectedNode(app), "visiblePersistent");
+  CHECK(fallback.min == 0 && fallback.max == 1 && fallback.displayMin == 0 && fallback.displayMax == 1);
+  ui.inspector(app, "visiblePersistent");
+  const float pitch = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x;
+  ui.click(app, {ui.reset.x + 2 * pitch, ui.reset.y});
+  CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(0.99));
+  CHECK(ui::executeCommands(app, {target, Command::Increase}));
+  CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(1.0));
+  value.operand = 2.0;
+  CHECK(ui::executeCommands(app, {value}));
+  CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(1.0));
   properties().propSetDouble(H(&gain->props), kOfxParamPropIncrement, 0, 0.25);
   CHECK(ui::executeCommands(app, {target, Command::Decrease}));
   CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(0.75));
+  CHECK(ui.inspector(app, "visiblePersistent").find("0.750") != std::string::npos);
   plugin.syncCacheOnCapture = false;
   std::puts("ok  OFX ImGui gestures: string/vector/numeric/choice/bool/reset/button grouping, one sync at completion, metadata exclusion");
   return true;
@@ -1246,6 +1258,20 @@ bool historyCaptureFailureAndMemory(SyncPlugin &plugin) {
   CHECK(app.history.undo(app) && findNode(app, id)->enabled);
   CHECK(app.history.redo(app) && !findNode(app, id)->enabled);
   CHECK(app.outputEncoding == (ColorEncoding{RgbGamut::Rec709, TransferFunction::SRGB}));
+  {
+    Ui ui;
+    App donor;
+    using Command = ui::ApplicationCommand;
+    CHECK(addNativeExposureNode(donor) && copySelectedNode(donor) && selectNode(app, id));
+    auto &pasteState = privateState(effect(*findNode(app, id)));
+    pasteState.status = kOfxStatFailed;
+    defer(app, *findNode(app, id), 6);
+    CHECK(!ui::executeCommands(app, {Command::Paste, Command::Inspector}));
+    CHECK(app.nodes.size() == 3 && app.history.hasUnrecordedEdit() && app.showRight);
+    CHECK(app.shortcutFailure == "Step 1 (Paste): Unavailable or cancelled");
+    pasteState.status = kOfxStatOK;
+    CHECK(app.history.recordCompletedEdit(app));
+  }
   CHECK(setNodeParameterValue(app, id, "privateText", std::string(2 * 1024 * 1024, 'a')));
   document_detail::GradeSnapshot large;
   CHECK(document_detail::captureGradeSnapshot(app, large));

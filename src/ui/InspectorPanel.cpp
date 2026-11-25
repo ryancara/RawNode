@@ -38,9 +38,10 @@ static void drawProcessorParameters(App &app) {
     ImGui::PopID();
     return;
   }
+  const auto parameters = node->processor->parameters();
   if (!app.targetedParameter.empty()) {
     std::string label = app.targetedParameter;
-    for (const auto &param : node->processor->parameters())
+    for (const auto &param : parameters)
       if (param.id == app.targetedParameter && !param.label.empty()) label = param.label;
     ImGui::TextDisabled("Target: %s", label.c_str());
   }
@@ -60,7 +61,7 @@ static void drawProcessorParameters(App &app) {
     if (iconBtn("##clearFilter", ICON_FA_XMARK)) app.paramFilter[0] = '\0';
   }
   ImGui::Separator();
-  drawParams(app, *node, "");
+  drawParams(app, *node, parameters);
   ImGui::PopID();
 }
 

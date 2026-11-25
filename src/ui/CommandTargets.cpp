@@ -1,6 +1,7 @@
 #include "ui/CommandTargets.h"
 
 #include "NodeGraph.h"
+#include "ui/KeyboardBindings.h"
 #include "ui/NodeList.h"
 
 #include <algorithm>
@@ -39,25 +40,26 @@ const Node *resolveProcessor(const App &app, const ProcessorIdentity &identity) 
   return nullptr;
 }
 
-bool selectCommandNode(App &app, const CommandStep &step) {
+bool selectCommandNode(App &app, const CommandStep &step, std::string &error) {
   if (step.kind == Command::SelectProcessor) {
     const auto &identity = std::get<ProcessorIdentity>(step.operand);
     if (const auto *node = resolveProcessor(app, identity)) return selectNode(app, node->id);
-    app.setStatus("Processor unavailable: " + identity.backend + " / " + identity.identifier);
+    error = "Processor unavailable: " + identity.backend + " / " + identity.identifier;
     return false;
   }
   const auto rows = processorRows(app);
   const auto current = std::find(rows.begin(), rows.end(), selectedNode(app));
   int index = static_cast<int>(current - rows.begin());
   switch (step.kind) {
-    case Command::SelectCurrent: break;
     case Command::SelectPosition: index = std::get<int>(step.operand) - 1; break;
     case Command::SelectNext: index = current == rows.end() ? 0 : index + 1; break;
     case Command::SelectPrevious: --index; break;
     default: return false;
   }
   if (index >= 0 && index < static_cast<int>(rows.size())) return selectNode(app, rows[index]->id);
-  app.setStatus("No processing node at the requested List position");
+  if (step.kind == Command::SelectNext) error = "No next processing node";
+  else if (step.kind == Command::SelectPrevious) error = "No previous processing node";
+  else error = "No processing node at the requested List position";
   return false;
 }
 
@@ -85,10 +87,10 @@ static std::optional<ProcessorParameter> scalarParameter(const Node &node, const
   return std::nullopt;
 }
 
-bool targetParameter(App &app, const std::string &id) {
+bool targetParameter(App &app, const std::string &id, std::string &error) {
   const auto *node = selectedNode(app);
   if (!node || !scalarParameter(*node, id)) {
-    app.setStatus("Editable scalar parameter unavailable: " + id);
+    error = "Editable scalar parameter unavailable: " + id;
     return false;
   }
   app.targetedParameter = id;
@@ -101,59 +103,66 @@ static double automaticStep(const ProcessorParameter &param) {
            std::trunc(param.step) == param.step ? param.step : 1;
   }
   if (std::isfinite(param.step) && param.step > 0) return param.step;
-  if (!param.hasRange || !param.hasDisplayRange) return 0;
+  if (!param.hasRange) return 0;
   const double step = (param.displayMax - param.displayMin) / 100;
   return std::isfinite(step) && step > 0 ? step : 0;
 }
 
-bool editScalarParameter(App &app, const Node &node, const std::string &id, const CommandStep &step) {
+static std::optional<ParameterValue> scalarResult(const ProcessorParameter &param, ScalarEdit edit,
+                                                   double amount, std::string &error) {
+  const bool integer = param.type == ParameterType::Integer;
+  if (edit == ScalarEdit::Increase || edit == ScalarEdit::Decrease) {
+    amount = automaticStep(param);
+    if (amount == 0) {
+      error = "No automatic step for " + param.id + ". Enter an explicit amount.";
+      return std::nullopt;
+    }
+    if (edit == ScalarEdit::Decrease) amount = -amount;
+  } else if (integer && std::trunc(amount) != amount) {
+    error = "An integer parameter requires a whole number";
+    return std::nullopt;
+  }
+
+  double value = amount;
+  if (edit != ScalarEdit::Set)
+    value += integer ? std::get<int>(param.value) : std::get<double>(param.value);
+  if (!std::isfinite(value) || (integer && (value < std::numeric_limits<int>::min() ||
+                                           value > std::numeric_limits<int>::max()))) {
+    error = "Value outside the representable range for " + param.id;
+    return std::nullopt;
+  }
+  if (param.hasRange && param.min <= param.max) {
+    double low = param.min, high = param.max;
+    if (integer) {
+      low = std::max(std::ceil(low), double(std::numeric_limits<int>::min()));
+      high = std::min(std::floor(high), double(std::numeric_limits<int>::max()));
+    }
+    if (low > high) {
+      error = "Empty scalar range for " + param.id;
+      return std::nullopt;
+    }
+    value = std::clamp(value, low, high);
+  }
+  return integer ? ParameterValue(static_cast<int>(value)) : ParameterValue(value);
+}
+
+bool editScalarParameter(App &app, const Node &node, const std::string &id, ScalarEdit edit,
+                         double operand, std::string &error) {
   if (!requireEditableGraph(app) || !app.renderer.canEditParameters()) return false;
   const auto param = scalarParameter(node, id);
   if (!param) {
-    app.setStatus("Editable scalar parameter unavailable: " + id);
+    error = "Editable scalar parameter unavailable: " + id;
     return false;
   }
 
-  if (step.kind == Command::ResetParameter) {
+  if (edit == ScalarEdit::Reset) {
     if (param->value == param->defaultValue) return true;
     if (!resetNodeParameter(app, node.id, id)) return false;
   } else {
-    const bool integer = param->type == ParameterType::Integer;
-    const double current = integer ? std::get<int>(param->value) : std::get<double>(param->value);
-    double value;
-    if (step.kind == Command::Increase || step.kind == Command::Decrease) {
-      const double amount = automaticStep(*param);
-      if (amount == 0) {
-        app.setStatus("No automatic step for " + id + "; enter an explicit amount");
-        return false;
-      }
-      value = step.kind == Command::Increase ? current + amount : current - amount;
-    } else {
-      value = std::get<double>(step.operand);
-      if (integer && std::trunc(value) != value) {
-        app.setStatus("An integer parameter requires a whole number");
-        return false;
-      }
-      if (step.kind == Command::AdjustValue) value += current;
-    }
-    if (!std::isfinite(value) || (integer && (value < std::numeric_limits<int>::min() ||
-                                             value > std::numeric_limits<int>::max()))) {
-      app.setStatus("Value outside the representable range for " + id);
-      return false;
-    }
-    if (param->hasRange && param->min <= param->max) {
-      // Intersect hard bounds with the type's domain before integer conversion.
-      double low = param->min, high = param->max;
-      if (integer) {
-        low = std::max(std::ceil(low), double(std::numeric_limits<int>::min()));
-        high = std::min(std::floor(high), double(std::numeric_limits<int>::max()));
-      }
-      if (low > high) { app.setStatus("Empty scalar range for " + id); return false; }
-      value = std::clamp(value, low, high);
-    }
-    ParameterValue result = integer ? ParameterValue(static_cast<int>(value)) : ParameterValue(value);
-    if (param->value == result) return true;
-    if (!setNodeParameterValue(app, node.id, id, result)) return false;
+    const auto value = scalarResult(*param, edit, operand, error);
+    if (!value) return false;
+    if (param->value == *value) return true;
+    if (!setNodeParameterValue(app, node.id, id, *value)) return false;
   }
   return app.path.empty() || app.history.recordCompletedEdit(app);
 }

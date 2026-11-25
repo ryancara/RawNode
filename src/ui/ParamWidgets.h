@@ -17,7 +17,7 @@ struct ParameterGesture {
 }
 
 void drawNodeOpacity(App &app, Node &node);
-void drawParams(App &app, Node &node, const std::string &parent);
+void drawParams(App &app, Node &node, const std::vector<ProcessorParameter> &parameters);
 // Called after drawing, or explicitly before navigation/discrete actions.
 // A vanished/disabled item completes its actual live edit. Export defers capture.
 // True means a full capture was attempted, including failure. A combined

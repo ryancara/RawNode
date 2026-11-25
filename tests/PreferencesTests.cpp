@@ -783,7 +783,11 @@ bool keyboardShortcutSettings() {
   CHECK(!app.keyboardBindings);
   // Create and reorder a sequence through the real Settings modal. Restoring
   // Filmstrip alone must keep a binding that happens to begin with Filmstrip.
-  frame(settings->GetID("New sequence..."));
+  frame(settings->GetID("Add shortcut..."));
+  frame();
+  auto *capture = ImGui::GetTopMostPopupModal();
+  CHECK(capture);
+  frame(capture->GetID("Build sequence..."));
   frame();
   auto *editor = ImGui::GetTopMostPopupModal();
   CHECK(editor);
@@ -795,7 +799,7 @@ bool keyboardShortcutSettings() {
   CHECK(app.settingsWindow.draftCommands.size() == 2);
   frame(ImHashStr("Up", 0, rows->GetID(1)));
   frame();
-  CHECK(app.settingsWindow.draftCommands.front().kind == Command::SelectCurrent);
+  CHECK(app.settingsWindow.draftCommands.front().kind == Command::SelectNext);
   frame(ImHashStr("Down", 0, rows->GetID(0)));
   frame();
   frame(editor->GetID("Assign shortcut..."));
@@ -808,7 +812,7 @@ bool keyboardShortcutSettings() {
   const auto &restored = *app.keyboardBindings;
   const auto sequence = std::find_if(restored.begin(), restored.end(), [](const auto &b) { return b.trigger == ImGuiKey_F9; });
   CHECK(sequence != restored.end() && sequence->commands.size() == 2);
-  CHECK(sequence->commands[0].kind == Command::Filmstrip && sequence->commands[1].kind == Command::SelectCurrent);
+  CHECK(sequence->commands[0].kind == Command::Filmstrip && sequence->commands[1].kind == Command::SelectNext);
   // Configure the same typed processor operand used by manual preferences
   // through a live-grade picker, then edit the saved binding in place.
   CHECK(addNativeExposureNode(app));
@@ -837,7 +841,7 @@ bool keyboardShortcutSettings() {
   frame();
   frame(editor->GetID("Save commands"));
   frame();
-  CHECK(app.keyboardBindings->back().trigger == ImGuiKey_F10 && app.keyboardBindings->back().invokes(Command::SelectCurrent));
+  CHECK(app.keyboardBindings->back().trigger == ImGuiKey_F10 && app.keyboardBindings->back().invokes(Command::SelectNext));
   return true;
 }
 

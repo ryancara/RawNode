@@ -248,8 +248,8 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
 
     const double lo = param.displayMin;
     const double hi = param.displayMax;
-    const double hardLo = std::isfinite(param.min) ? param.min : lo;
-    const double hardHi = std::isfinite(param.max) ? param.max : hi;
+    const double hardLo = param.min;
+    const double hardHi = param.max;
 
     auto commitNumeric = [&](double v) {
       if (asInt) {
@@ -292,8 +292,10 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       ImGui::SameLine(0, gap);
       if (paramStepButton(plus)) {
         finishParameterGesture(app, true);
+        std::string error;
         ui::editScalarParameter(app, node, param.id,
-                                plus ? ui::ApplicationCommand::Increase : ui::ApplicationCommand::Decrease);
+                                plus ? ui::ScalarEdit::Increase : ui::ScalarEdit::Decrease, 0, error);
+        if (!error.empty()) app.setStatus(error);
       }
     }
 
@@ -304,6 +306,7 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     if (asInt) {
       std::snprintf(sliderFormat, sizeof sliderFormat, "%%.0f");
     } else if (param.step > 0.0 && node.processor->backend() != ProcessorBackend::OFX) {
+      // OFX increments guide step buttons. Its sliders retain their original precision.
       int decimals = 0;
       double scaled = param.step;
       while (decimals < 6 && std::fabs(scaled - std::round(scaled)) > 1e-9) {
@@ -493,8 +496,6 @@ static void drawParamsImpl(App &app, Node &node, const std::vector<ProcessorPara
   }
 }
 
-void drawParams(App &app, Node &node, const std::string &parent) {
-  if (!node.processor) return;
-  const auto params = node.processor->parameters();
-  drawParamsImpl(app, node, params, parent);
+void drawParams(App &app, Node &node, const std::vector<ProcessorParameter> &parameters) {
+  drawParamsImpl(app, node, parameters, "");
 }

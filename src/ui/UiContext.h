@@ -18,7 +18,7 @@ void drawFilmstripPanel(App &app, const SaveFailurePrompt &prompt = promptSaveFa
                         const PhotoTrashConfirmation &confirm = promptPhotoTrash,
                         const TrashOperation &move = moveFileToTrash,
                         const std::function<void(const PhotoTrashResult &)> &report = reportPhotoTrash);
-bool navigateFilmstrip(App &app, bool forward, const SaveFailurePrompt &prompt);
+bool navigateFilmstrip(App &app, bool forward, const SaveFailurePrompt &prompt, std::string &error);
 void DrawUiFrame(App &app);
 bool canUndoGrade(const App &app);
 bool canRedoGrade(const App &app);

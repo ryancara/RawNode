@@ -34,7 +34,7 @@ static bool activateFilmstripPhoto(App &app, std::string path, const SaveFailure
   return true;
 }
 
-bool navigateFilmstrip(App &app, bool forward, const SaveFailurePrompt &prompt) {
+bool navigateFilmstrip(App &app, bool forward, const SaveFailurePrompt &prompt, std::string &error) {
   const int size = static_cast<int>(app.filmstrip.size());
   int index = app.filmstripIndex;
   if (index < 0 || index >= size) index = forward ? -1 : size;
@@ -43,7 +43,7 @@ bool navigateFilmstrip(App &app, bool forward, const SaveFailurePrompt &prompt) 
     const auto &entry = app.filmstrip[index];
     if (filmstripEntryVisible(app, entry)) return activateFilmstripPhoto(app, entry.path, prompt);
   }
-  app.setStatus(forward ? "No next visible photograph" : "No previous visible photograph");
+  error = forward ? "No next visible photograph" : "No previous visible photograph";
   return false;
 }
 

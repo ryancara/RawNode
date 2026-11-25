@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <string>
 
 namespace {
@@ -46,32 +45,32 @@ ProcessorParameter snapshotParameter(const Param &param) {
   out.groupInitiallyOpen = dprop(param.props, kOfxParamPropGroupOpen, 0, 1) != 0;
 
   switch (out.type) {
-    case ParameterType::Double:
-    case ParameterType::Integer: {
-      const bool integer = out.type == ParameterType::Integer;
-      const double infinity = std::numeric_limits<double>::infinity();
-      out.min = dprop(param.props, kOfxParamPropMin, 0, -infinity);
-      out.max = dprop(param.props, kOfxParamPropMax, 0, infinity);
-      double lo = dprop(param.props, kOfxParamPropDisplayMin, 0, out.min);
-      double hi = dprop(param.props, kOfxParamPropDisplayMax, 0, out.max);
-      out.hasDisplayRange = std::fabs(lo) < 1e7 && std::fabs(hi) < 1e7 && lo < hi;
-      // Preserve the slider's usable display range even for unbounded parameters.
-      const double fallback = integer ? 100 : 1;
-      if (!param.props.m.count(kOfxParamPropDisplayMax) && !param.props.m.count(kOfxParamPropMax)) hi = fallback;
+    case ParameterType::Double: {
+      double lo = dprop(param.props, kOfxParamPropDisplayMin, 0, dprop(param.props, kOfxParamPropMin, 0, 0));
+      double hi = dprop(param.props, kOfxParamPropDisplayMax, 0, dprop(param.props, kOfxParamPropMax, 0, 1));
       if (!(std::fabs(lo) < 1e7)) lo = 0;
-      if (!(std::fabs(hi) < 1e7) || hi <= lo) hi = lo + fallback;
+      if (!(std::fabs(hi) < 1e7) || hi <= lo) hi = lo + 1;
+      out.min = dprop(param.props, kOfxParamPropMin, 0, lo);
+      out.max = dprop(param.props, kOfxParamPropMax, 0, hi);
       out.displayMin = lo;
       out.displayMax = hi;
       out.step = dprop(param.props, kOfxParamPropIncrement, 0, 0);
-      const double value = param.v.empty() ? 0 : param.v[0];
-      const double initial = dprop(param.props, kOfxParamPropDefault, 0, 0);
-      if (integer) {
-        out.value = static_cast<int>(std::lround(value));
-        out.defaultValue = static_cast<int>(std::lround(initial));
-      } else {
-        out.value = value;
-        out.defaultValue = initial;
-      }
+      out.value = param.v.empty() ? 0.0 : param.v[0];
+      out.defaultValue = dprop(param.props, kOfxParamPropDefault, 0, 0);
+      break;
+    }
+    case ParameterType::Integer: {
+      double lo = dprop(param.props, kOfxParamPropDisplayMin, 0, dprop(param.props, kOfxParamPropMin, 0, 0));
+      double hi = dprop(param.props, kOfxParamPropDisplayMax, 0, dprop(param.props, kOfxParamPropMax, 0, 100));
+      if (!(std::fabs(lo) < 1e7)) lo = 0;
+      if (!(std::fabs(hi) < 1e7) || hi <= lo) hi = lo + 100;
+      out.min = dprop(param.props, kOfxParamPropMin, 0, lo);
+      out.max = dprop(param.props, kOfxParamPropMax, 0, hi);
+      out.displayMin = lo;
+      out.displayMax = hi;
+      out.step = dprop(param.props, kOfxParamPropIncrement, 0, 0);
+      out.value = param.v.empty() ? 0 : (int)std::lround(param.v[0]);
+      out.defaultValue = (int)std::lround(dprop(param.props, kOfxParamPropDefault, 0, 0));
       break;
     }
     case ParameterType::Boolean:

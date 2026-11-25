@@ -39,7 +39,6 @@ struct ProcessorParameter {
   // declared min/max metadata. In that case the UI must not invent a slider
   // range and should use a direct numeric editor instead.
   bool hasRange = true;
-  bool hasDisplayRange = true; // False when a slider uses synthetic display bounds.
   // Optional preferred increment for buttons/drags. A non-positive value lets
   // the UI derive a sensible step from the declared range.
   double step = 0.0;

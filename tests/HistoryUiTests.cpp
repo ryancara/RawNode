@@ -440,7 +440,7 @@ bool orderedNodeCommands() {
   selectOutput(app);
   CHECK(ui::executeCommands(app, {processor, target, amount}) && app.selectedNodeId() == first);
   CHECK(!ui::executeCommands(app, {amount, Command::SelectPrevious, Command::ResetParameter}));
-  CHECK(app.shortcutFailure.find("Step 2 (Select Previous Node)") != std::string::npos);
+  CHECK(app.shortcutFailure == "Step 2 (Select Previous Node): No previous processing node");
   CHECK(exposure(app, first) == 1.0 && app.targetedParameter == "exposure");
   CHECK(ui::executeCommands(app, {Command::ResetParameter, position, target, Command::ResetParameter}));
   CHECK(exposure(app, first) == 0 && exposure(app, second) == 0);
@@ -451,7 +451,10 @@ bool orderedNodeCommands() {
   processor.operand = ui::ProcessorIdentity{"native", "missing"};
   CHECK(!ui::executeCommands(app, {processor}) && app.selectedNodeId() == first);
   target.operand = std::string("missing");
+  CHECK(!ui::executeCommands(app, {target}));
+  CHECK(app.shortcutFailure == "Step 1 (Target Parameter): Editable scalar parameter unavailable: missing");
   CHECK(!ui::executeCommands(app, {target, amount}) && app.selectedNodeId() == first);
+  CHECK(app.shortcutFailure == "Step 1 (Target Parameter): Editable scalar parameter unavailable: missing");
   target.operand = std::string("exposure");
   amount.operand = 50.0;
   CHECK(ui::executeCommands(app, {target, amount}) && exposure(app, first) == 10);
@@ -522,8 +525,17 @@ bool shortcutsAndMenus() {
     CHECK(openPath(app, files.photo("keys.png")) && addNativeExposureNode(app));
     ui.tick(app); ui.tick(app);
     CHECK(canUndoGrade(app) && !canRedoGrade(app));
+    ui.key(app, ImGuiKey_Z, true, true);
+    CHECK(app.shortcutFailure.empty());
     ui.key(app, ImGuiKey_Z, false, true);
     CHECK(app.nodes.size() == 1 && !canUndoGrade(app) && canRedoGrade(app));
+    app.setStatus("Unrelated preview status");
+    CHECK(!ui::executeCommands(app, {ui::ApplicationCommand::Undo, ui::ApplicationCommand::Inspector}));
+    CHECK(app.shortcutFailure == "Step 1 (Undo): Unavailable or cancelled" && !app.showRight);
+    ui.key(app, ImGuiKey_Z, false, true);
+    CHECK(app.shortcutFailure.empty());
+    ui.key(app, ImGuiKey_C, false, true);
+    CHECK(app.shortcutFailure.empty());
     ui.key(app, ImGuiKey_Z, true, true);
     CHECK(app.nodes.size() == 2 && canUndoGrade(app));
     ui.key(app, ImGuiKey_Z, false, true); ui.key(app, ImGuiKey_Y, false, true);

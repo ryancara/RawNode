@@ -450,7 +450,6 @@ static bool canInvokeCommand(const App &app, Command command) {
     case Command::Paste: return !app.renderer.exportInProgress() && !app.isPhotoProtected();
     case Command::Inspector:
     case Command::Filmstrip: return true;
-    case Command::SelectCurrent:
     case Command::SelectPosition:
     case Command::SelectNext:
     case Command::SelectPrevious:
@@ -465,14 +464,24 @@ static bool canInvokeCommand(const App &app, Command command) {
     case Command::AdjustValue:
     case Command::Increase:
     case Command::Decrease:
-    case Command::ResetParameter:
+    case Command::ResetParameter: return !app.isPhotoProtected() && app.renderer.canEditParameters();
     case Command::ToggleNode: return !app.isPhotoProtected() && app.renderer.canEditParameters() && selectedNode(app);
     case Command::Count: break;
   }
   return false;
 }
 
-static bool invokeCommand(App &app, const ui::CommandStep &step, const SaveFailurePrompt &prompt) {
+static bool editTargetedParameter(App &app, ui::ScalarEdit edit, double operand, std::string &error) {
+  const auto *node = selectedNode(app);
+  if (!node || app.targetedParameter.empty()) {
+    error = "Select a parameter first";
+    return false;
+  }
+  return ui::editScalarParameter(app, *node, app.targetedParameter, edit, operand, error);
+}
+
+static bool invokeCommand(App &app, const ui::CommandStep &step, const SaveFailurePrompt &prompt,
+                          std::string &error) {
   if (!canInvokeCommand(app, step.kind)) return false;
   switch (step.kind) {
     case Command::OpenImage: return openImageDialog(app);
@@ -485,25 +494,22 @@ static bool invokeCommand(App &app, const ui::CommandStep &step, const SaveFailu
     case Command::Paste: return pasteFromClipboard(app);
     case Command::Inspector: app.showRight = !app.showRight; return true;
     case Command::Filmstrip: app.showFilmstrip = !app.showFilmstrip; return true;
-    case Command::SelectCurrent:
     case Command::SelectPosition:
     case Command::SelectNext:
     case Command::SelectPrevious:
-    case Command::SelectProcessor: return ui::selectCommandNode(app, step);
-    case Command::TargetParameter: return ui::targetParameter(app, std::get<std::string>(step.operand));
-    case Command::SetValue:
-    case Command::AdjustValue:
-    case Command::Increase:
-    case Command::Decrease:
-    case Command::ResetParameter:
-      if (app.targetedParameter.empty()) { app.setStatus("Select a parameter first"); return false; }
-      return ui::editScalarParameter(app, *selectedNode(app), app.targetedParameter, step);
+    case Command::SelectProcessor: return ui::selectCommandNode(app, step, error);
+    case Command::TargetParameter: return ui::targetParameter(app, std::get<std::string>(step.operand), error);
+    case Command::SetValue: return editTargetedParameter(app, ui::ScalarEdit::Set, std::get<double>(step.operand), error);
+    case Command::AdjustValue: return editTargetedParameter(app, ui::ScalarEdit::Adjust, std::get<double>(step.operand), error);
+    case Command::Increase: return editTargetedParameter(app, ui::ScalarEdit::Increase, 0, error);
+    case Command::Decrease: return editTargetedParameter(app, ui::ScalarEdit::Decrease, 0, error);
+    case Command::ResetParameter: return editTargetedParameter(app, ui::ScalarEdit::Reset, 0, error);
     case Command::ToggleNode: {
       const auto *node = selectedNode(app);
       return setNodeEnabled(app, node->id, !node->enabled);
     }
-    case Command::NextPhoto: return navigateFilmstrip(app, true, prompt);
-    case Command::PreviousPhoto: return navigateFilmstrip(app, false, prompt);
+    case Command::NextPhoto: return navigateFilmstrip(app, true, prompt, error);
+    case Command::PreviousPhoto: return navigateFilmstrip(app, false, prompt, error);
     case Command::MarkPick: return assignPhotoMark(app, app.path, PhotoMark::Pick);
     case Command::MarkReject: return assignPhotoMark(app, app.path, PhotoMark::Reject);
     case Command::MarkUnmarked: return assignPhotoMark(app, app.path, PhotoMark::Unmarked);
@@ -516,10 +522,13 @@ bool ui::executeCommands(App &app, const CommandSequence &commands, const SaveFa
   app.shortcutFailure = sequenceError(commands);
   if (!app.shortcutFailure.empty()) return false;
   for (size_t i = 0; i < commands.size(); ++i) {
-    const auto revision = app.getStatusRevision();
-    if (invokeCommand(app, commands[i], prompt)) continue;
-    const std::string reason = app.getStatusRevision() == revision ? "Unavailable or cancelled" : app.getStatus();
-    app.shortcutFailure = "Step " + std::to_string(i + 1) + " (" + commandInfo(commands[i].kind).label + "): " + reason;
+    const auto &step = commands[i];
+    std::string reason;
+    if (invokeCommand(app, step, prompt, reason)) continue;
+    // The original standalone shortcuts use the action's existing feedback.
+    if (commands.size() == 1 && step.kind <= Command::Filmstrip) return false;
+    if (reason.empty()) reason = "Unavailable or cancelled";
+    app.shortcutFailure = "Step " + std::to_string(i + 1) + " (" + commandInfo(step.kind).label + "): " + reason;
     return false;
   }
   return true;
@@ -684,7 +693,10 @@ void DrawUiFrame(App &app) {
   }
 
   drawFileToolbar(app, selectedCommand);
-  if (selectedCommand) invokeCommand(app, *selectedCommand, promptSaveFailure);
+  if (selectedCommand) {
+    std::string reason;
+    invokeCommand(app, *selectedCommand, promptSaveFailure, reason);
+  }
   drawSettings(app, settingsRequested);
   drawExportDialog(app);
   DockLayout::BeginMainDockSpace(app);
