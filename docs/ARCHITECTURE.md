@@ -114,8 +114,11 @@ Keyboard bindings express ordered application commands (D061). Scalar commands
 carry a processor identity and parameter ID. The UI resolves them against the
 current graph using the selected instance first and Nodes List order second,
 then invokes the existing parameter edit and history paths. Explicit selection
-commands use the shared Graph/List selection. PR 3 plans to reuse the scalar
-address and existing gesture lifecycle for continuous adjustments in idle Preview.
+commands use the shared Graph/List selection. Preview routes held adjustments
+alongside its wheel zoom, using the same scalar address and parameter setter.
+It keeps the activator, resolved node ID and any Integer wheel fraction for the
+duration of a hold. The shared parameter gesture completes live edits through
+GradeHistory.
 
 ### Document / graph API
 

@@ -1,12 +1,12 @@
 # RawNode — Configurable commands and input bindings
 
-PR #135 introduced configurable shortcuts. PR 2 extends the same bindings with ordered commands. Both stages use the existing application actions, Graph/List selection, processor parameters and grade history.
+PR #135 introduced configurable shortcuts. PR #136 added ordered commands and direct scalar edits. Adjust While Held uses the same binding list, parameter addresses and grade history.
 
 ## Keyboard bindings and Settings
 
-A binding pairs one keyboard chord with a nonempty ordered list of typed commands. Settings lists all configured inputs with their actions in execution order and offers Edit and Remove on each row. **Add binding** and **Edit** open the same editor. Record a key or chord, choose a command, and use Add command, Up, Down and Remove to shape a sequence. Save applies the entire assignment. Cancel discards the draft. The editor reports reserved keys, conflicting chords and invalid commands.
+A binding pairs one keyboard chord with a nonempty list of typed commands. Settings lists assignments by input, marks held keys, and displays each sequence in execution order. **Add binding** and **Edit** open the same editor. Record a key or chord, choose from the command categories, and use Add command, Up, Down and Remove to shape a discrete sequence. Save applies the entire assignment. Cancel discards the draft. The editor reports reserved keys, conflicting chords and invalid commands. The draft uses a zero key value until a key has been recorded.
 
-**Restore all defaults** reinstates the platform defaults from PR #135. Restoring individual actions, including actions with no assigned key, would require an additional action chooser. Menu labels list only bindings that invoke that single menu action. PR 2 adds no default shortcuts.
+**Restore all defaults** reinstates the platform defaults from PR #135. Menu labels list only bindings that invoke that single menu action. Held adjustments are opt-in.
 
 Chord recognition uses ImGui's existing key ownership, exact modifiers and frame-boundary checks around active controls, capture, menus and popups. The primary modifier is Command on macOS and Control elsewhere. The operating system or window manager determines which chords reach RawNode.
 
@@ -20,7 +20,7 @@ Toggle Node uses the selected node's existing enable/bypass operation. Pick, Rej
 
 Explicit selection commands change the shared Graph/List selection. Processing positions are one-based in Nodes List order, including processing nodes in the Other graph nodes section. Source, Output, section headings and non-processor rows occupy no position. Next and Previous stop at the ends. From any non-processing selection they select the first or last processor respectively.
 
-A scalar command stores the processor's backend and identifier, including the script identity for CTL, and the parameter ID. A Set or Adjust command also stores its numerical operand. The current-grade picker chooses the processor and editable scalar together and saves their identifiers. The backend, processor ID and parameter ID are available for manual entry when a target is absent from the grade.
+A scalar command stores the processor's backend and identifier, including the script identity for CTL, and the parameter ID. Set and Adjust also store their numerical operand. The current-grade picker chooses the processor and editable scalar together. **Manual identifiers** exposes the backend, processor ID and parameter ID when a target is absent from the grade.
 
 For processor selection and scalar commands, use the currently selected processor if its identity matches. Otherwise use the first match in Nodes List order. An unavailable processor or parameter fails the step. The resolver checks the parameter only on the resolved instance. Scalar commands leave the shared selection as it was. For example, one binding can adjust Native Exposure while an OFX processor remains selected, then reset a scalar on another processor.
 
@@ -32,6 +32,18 @@ Hard bounds limit the result. Display bounds supply an increment and never pull 
 
 A changed value or reset goes through the existing NodeGraph setter or reset, backend notification and preview request, followed by one completed grade edit. An already satisfied adjustment succeeds without another write. Protection and export restrictions apply at use time. Selection, marking, copy and navigation add no artificial grade-history entries.
 
+## Adjust While Held
+
+Choose **Adjust While Held** as the only command in a binding. Record a single key, choose a scalar, and leave **Automatic step** on or enter a positive step in parameter units. An Integer requires a whole step. Up and Down are reserved as adjustment controls for the hold and cannot serve as activators. A held activator conflicts with the same unmodified input. Modified chords such as the primary modifier plus E remain available.
+
+With idle Preview focused or the pointer over its canvas, press and hold the assigned key. Up and Down step once per press and use ImGui key repeat. Vertical wheel input over the canvas uses the same step. Each wheel unit adds one step. Doubles apply fractional units directly and Integers accumulate signed wheel fractions until a whole unit is reached. Arrows use whole steps and leave that remainder intact. Release discards the remainder. GLFW already delivers precise macOS scrolling and fractional Windows wheel messages through the shared ImGui backend. There is no extra device or momentum filtering.
+
+The first adjustment resolves the selected matching processor or the first match in Nodes List order. The hold retains that node ID, leaves Graph/List selection intact, and continues to own the controls if resolution fails or the target becomes invalid. A new press is required to resolve again. The first eligible activator stays in control until the hold ends. A second activator needs a fresh press.
+
+Only a changed tick starts the existing parameter gesture. It writes through the scalar calculation and NodeGraph setter and leaves capture to gesture completion. Release, context interruptions and competing edits complete the gesture, as do Save Grade, saving a preset, photograph departure, export and teardown. History compares the completed grade with the current snapshot, giving mixed arrow and wheel input one Undo entry and a tap or net-unchanged hold none. Capture failure retains the live edits and the existing pending-history state.
+
+Preview consumes vertical wheel input for a hold before applying ordinary wheel zoom. Pinch continues through its existing path. Outside the idle context, graph and panel interactions, text and numeric controls, popups, and Space-to-pan continue to own their inputs. An interrupted hold needs a fresh key press.
+
 ## Preferences compatibility
 
 The optional version-1 `keyboardBindings` array continues to store stable key and modifier names. Operand-free actions retain their command strings. A step with operands is an object with an `id`. Select by position adds `position`. Select Processor adds `backend` and `processor`. Scalar steps add `backend`, `processor` and `parameter`, and Set and Adjust also add `value`. For example:
@@ -40,17 +52,19 @@ The optional version-1 `keyboardBindings` array continues to store stable key an
 {"id":"adjust-value","backend":"native","processor":"rawnode.native.exposure","parameter":"exposure","value":0.1}
 ```
 
+An Adjust While Held object uses the ID `adjust-while-held` and the same scalar address. The optional `step` field must be finite and positive. Omitting it selects the automatic step. The binding stores an empty `modifiers` array. Parameter eligibility and Integer step compatibility are checked against the resolved processor at use time.
+
 Missing bindings use the existing platform defaults and an empty array deliberately unbinds all. Invalid entries are skipped as a whole with a warning, the first valid conflicting assignment wins, and an entirely invalid nonempty array falls back to defaults. The temporary contextual assignments from draft PR #136 are covered by these validation rules. Saving uses the existing atomic preferences writer.
 
-## PR 3 and future scope
+## Native desktop validation
 
-PR 3 will add a standalone **Adjust While Held** assignment for one directly addressed scalar parameter. Hold the configured key, for example E for Exposure or C for Contrast, and use Up or Down or scroll vertically over the idle Preview to adjust it. The wheel is implied by the assignment. Steps are automatic by default and may be specified explicitly. Releasing the key ends the session. Pressing and releasing without adjusting has no effect on selection, the grade or Undo. The first adjustment resolves the processor and parameter and retains the resolved node identity for that gesture. Graph/List selection stays as it was.
+Repeat these checks on macOS and Windows. On macOS also test native pinch. On Windows use a precision touchpad and a wheel mouse where available.
 
-Reuse ImGui input ownership, parameter setters, gesture completion and grade history. One completed hold with a grade change produces one Undo entry, including a hold that combines arrows and wheel. Complete the gesture on release, a relevant context or focus change, or before a competing edit, save, departure, export or teardown. Ordinary wheel input continues to zoom when no held setting owns it. An eligible held assignment owns vertical wheel input even if its processor or parameter is unavailable. Preserve pinch, Graph interaction, panel scrolling, text entry and existing canvas gestures.
-
-The assignment needs no separate wheel binding, persistent parameter target, general-purpose ordinary-key modifiers, tap-versus-hold timer or global raw-input polling. PR 3 will determine and validate the input routing, repeat and conflict rules, fractional wheel input and native trackpad behaviour. Native desktop validation should exercise wheel ownership with and without an available addressed processor, mixtures of arrows and wheel, and the completion boundaries above. Discrete keyboard sequences in PR 2 run once per press.
-
-MIDI, OSC, external hardware, scripting, specialised parameter types, custom node naming and multi-photo grade application remain outside these stages.
+1. Configure E for Native Exposure with the automatic step. Configure C for a second scalar with an explicit step. Restart and verify both entries, then edit or remove one and verify the change persists.
+2. Over Preview, hold E, tap Up and Down, then hold Up long enough for repeat. Add wheel input before releasing E. Confirm the operation leaves Graph/List selection intact and Undo and Redo each traverse the entire hold once. Tap E by itself and verify that Undo availability is unchanged.
+3. Use slow vertical touchpad scrolling with a Double and an Integer. Confirm smooth Double adjustment and whole Integer increments. Continue scrolling over Preview after release and confirm that it zooms. Check whether trackpad momentum after release produces unintended zoom and record the device and OS if observed.
+4. Set the binding to an unavailable target and assign a discrete action to bare Up. While holding the activator over Preview, neither Up nor the wheel should take its ordinary action. After release, verify the bare Up shortcut, wheel zoom, Graph zoom, panel scrolling, Space-to-pan, and the platform’s primary-modifier shortcut for the same letter.
+5. While adjusting, switch apps, activate an Inspector control, open a popup, or start a canvas gesture. Verify one completion for a changed hold and that input requires a fresh activator press. Repeat with Save Grade, photograph navigation, Export and app close.
 
 ## Investigation basis
 

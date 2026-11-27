@@ -918,7 +918,7 @@ outside the source-overwrite check.
 
 ## D061 — Configurable commands and input bindings
 
-**Status:** Owner-approved milestone design. Implementation is staged.
+**Status:** Owner-approved milestone design.
 
 Keyboard bindings hold ordered typed commands, including a one-command list
 for an ordinary shortcut. Settings lists assignments by input and edits them
@@ -933,9 +933,10 @@ selection. Scalar commands address a processor and parameter directly and
 leave selection alone. Photograph navigation follows visible Filmstrip order
 from the open photograph.
 
-PR 3 is planned to add standalone Adjust While Held assignments for the idle
-Preview. A held key gives Up, Down and vertical wheel input to one configured
-scalar. Each completed gesture records one Undo entry if the grade changed.
+Standalone Adjust While Held assignments give Up, Down and vertical wheel input
+to one configured scalar in idle Preview. The first adjustment resolves the
+node for the hold. Preview owns the relevant inputs even when the target is
+unavailable. Each completed gesture records one Undo entry if the grade changed.
 See the [command bindings design](COMMAND_BINDINGS_DESIGN.md) for the detailed contract.
 
 ## Pending decisions

@@ -166,4 +166,53 @@ bool editCommandParameter(App &app, const ScalarCommandOperand &operand, ScalarE
   }
   return editScalarParameter(app, *node, operand.address.parameterId, edit, operand.value.value_or(0.0), error);
 }
+
+void adjustHeldParameter(App &app, const ScalarCommandOperand &operand, int arrowSteps, double wheelSteps) {
+  auto &held = *app.previewHeldAdjustment;
+  const auto &address = operand.address;
+  if (held.target && held.target->value.empty()) return;
+  const auto *node = held.target ? findNode(app, *held.target) : nullptr;
+  if (!held.target) {
+    if (arrowSteps == 0 && wheelSteps == 0) return;
+    node = resolveProcessor(app, address.processor);
+    held.target = node ? node->id : NodeId{};
+    app.shortcutFailure.clear();
+  }
+
+  const auto param = node ? scalarParameter(*node, address.parameterId) : std::nullopt;
+  const double step = operand.value ? *operand.value : param ? automaticStep(*param) : 0;
+  const bool integer = param && param->type == ParameterType::Integer;
+  std::string error;
+  if (!node) error = "Processor unavailable: " + address.processor.identifier;
+  else if (!param) error = "Editable scalar parameter unavailable: " + address.parameterId;
+  else if (step <= 0) error = "No automatic step for " + param->id + ". Enter an explicit step.";
+  else if (integer && std::trunc(step) != step) error = "An integer parameter requires a whole step.";
+  if (!error.empty()) {
+    held.target = NodeId{};
+    // Keep owning the controls until release, even though this target is gone.
+    if (app.parameterGesture && app.parameterGesture->heldAdjustment) finishParameterGesture(app, true);
+    app.shortcutFailure = std::move(error);
+    return;
+  }
+
+  if (integer) {
+    const double accumulated = held.integerWheelRemainder + wheelSteps;
+    wheelSteps = std::trunc(accumulated);
+    held.integerWheelRemainder = accumulated - wheelSteps;
+  }
+  const double steps = arrowSteps + wheelSteps;
+  if (steps == 0) return;
+  const auto value = scalarResult(*param, ScalarEdit::Adjust, steps * step, error);
+  if (!value) {
+    app.shortcutFailure = std::move(error);
+    return;
+  }
+  if (*value == param->value) return;
+  if (!setNodeParameterValue(app, node->id, param->id, *value)) {
+    app.shortcutFailure = "Could not adjust " + param->id;
+    return;
+  }
+  if (!app.parameterGesture)
+    app.parameterGesture = ParameterGesture{0, app.path, node->id, param->id, std::nullopt, false, true};
+}
 }  // namespace ui

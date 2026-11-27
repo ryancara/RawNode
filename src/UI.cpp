@@ -83,12 +83,15 @@ int runApp(const std::string &optionalPath) {
       // Keep pumping export until the in-flight photograph and result are ready.
       if (app.exportDialog.session && app.exportDialog.session->running()) {
         app.exportDialog.session->cancel();
-      } else if (prepareShutdown(app, config, preferencesLoaded, promptSaveFailure)) {
-        if (!app.preferencesWarning.empty()) {
-          std::fprintf(stderr, "%s\n", app.preferencesWarning.c_str());
-          pfd::message("Application preferences", app.preferencesWarning, pfd::choice::ok, pfd::icon::warning).result();
+      } else {
+        ui::finishHeldPreviewAdjustment(app);
+        if (prepareShutdown(app, config, preferencesLoaded, promptSaveFailure)) {
+          if (!app.preferencesWarning.empty()) {
+            std::fprintf(stderr, "%s\n", app.preferencesWarning.c_str());
+            pfd::message("Application preferences", app.preferencesWarning, pfd::choice::ok, pfd::icon::warning).result();
+          }
+          break;
         }
-        break;
       }
       glfwSetWindowShouldClose(app.window, GLFW_FALSE);
     }

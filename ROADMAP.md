@@ -379,7 +379,7 @@ selection, direct scalar editing, marking and photograph navigation (PR 2).
 The [command bindings design](docs/COMMAND_BINDINGS_DESIGN.md) covers execution,
 configuration and preferences.
 
-PR 3 will add standalone Adjust While Held bindings in idle Preview. Each
+Standalone Adjust While Held bindings are available in idle Preview. Each
 assignment addresses one scalar and enables Up, Down and vertical wheel
 adjustments within one gesture and Undo boundary.
 

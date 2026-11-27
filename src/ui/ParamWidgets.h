@@ -4,8 +4,8 @@
 
 struct App;
 namespace ui {
-// One active Inspector item. Only numeric text inputs defer a value; live
-// sliders/strings need identity and ImGui lifetime, not a second grade snapshot.
+// One parameter edit in the Inspector or Preview. Only numeric text fields
+// defer their value.
 struct ParameterGesture {
   unsigned item = 0;
   std::string photoPath;
@@ -13,6 +13,7 @@ struct ParameterGesture {
   std::string parameter;
   std::optional<ParameterValue> pendingValue;
   bool nodeStrength = false; // Node control, never a backend parameter with the same ID.
+  bool heldAdjustment = false;
 };
 }
 

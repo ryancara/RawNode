@@ -21,4 +21,5 @@ bool editableScalar(const ProcessorParameter &param, const std::vector<Processor
 bool editScalarParameter(App &app, const Node &node, const std::string &id, ScalarEdit edit,
                          double operand, std::string &error);
 bool editCommandParameter(App &app, const ScalarCommandOperand &operand, ScalarEdit edit, std::string &error);
+void adjustHeldParameter(App &app, const ScalarCommandOperand &operand, int arrowSteps, double wheelSteps);
 }  // namespace ui

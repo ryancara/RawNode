@@ -15,7 +15,7 @@ enum class ApplicationCommand {
   OpenImage, OpenFolder, Export, Undo, Redo, CopyNode, CopyFullGrade, Paste, Inspector, Filmstrip,
   SelectPosition, SelectNext, SelectPrevious, SelectProcessor,
   SetValue, AdjustValue, Increase, Decrease, ResetParameter, ToggleNode,
-  NextPhoto, PreviousPhoto, MarkPick, MarkReject, MarkUnmarked, Count
+  NextPhoto, PreviousPhoto, MarkPick, MarkReject, MarkUnmarked, AdjustWhileHeld, Count
 };
 
 struct ApplicationCommandInfo {
@@ -49,6 +49,7 @@ inline constexpr ApplicationCommandInfo applicationCommands[] = {
     {"mark-pick", "Mark as Pick"},
     {"mark-reject", "Mark as Reject"},
     {"mark-unmarked", "Mark as Unmarked"},
+    {"adjust-while-held", "Adjust While Held"},
 };
 
 inline const ApplicationCommandInfo &commandInfo(ApplicationCommand command) {
@@ -81,6 +82,7 @@ using CommandSequence = std::vector<CommandStep>;
 std::string sequenceError(const CommandSequence &commands);
 
 struct KeyboardBinding {
+  // Zero represents an unassigned key in the Settings draft.
   ImGuiKeyChord trigger;
   CommandSequence commands;
 
@@ -114,7 +116,7 @@ std::optional<ApplicationCommand> commandFromId(std::string_view id);
 std::string shortcutLabel(ImGuiKeyChord chord, bool mac);
 std::string shortcutLabels(const KeyboardBindings &bindings, ApplicationCommand command, bool mac);
 // Empty means assignable. Skip the previous trigger while changing an assignment.
-std::string shortcutAssignmentError(const KeyboardBindings &bindings, ImGuiKeyChord chord,
+std::string shortcutAssignmentError(const KeyboardBindings &bindings, ImGuiKeyChord chord, bool held,
                                     ImGuiKeyChord replacing = 0);
 
 }  // namespace ui

@@ -82,6 +82,7 @@ CommandStep::CommandStep(ApplicationCommand command) : kind(command) {
     case Command::AdjustValue: operand = ScalarCommandOperand{{}, 0.0}; break;
     case Command::Increase:
     case Command::Decrease:
+    case Command::AdjustWhileHeld:
     case Command::ResetParameter: operand = ScalarCommandOperand{}; break;
     default: break;
   }
@@ -90,6 +91,8 @@ CommandStep::CommandStep(ApplicationCommand command) : kind(command) {
 std::string sequenceError(const CommandSequence &commands) {
   if (commands.empty()) return "Add a command.";
   for (const auto &step : commands) {
+    if (step.kind == Command::AdjustWhileHeld && commands.size() != 1)
+      return "Adjust While Held must be the only command.";
     if ((step.kind == Command::OpenImage || step.kind == Command::OpenFolder || step.kind == Command::Export) &&
         &step != &commands.back())
       return std::string(commandInfo(step.kind).label) + " must be the last command.";
@@ -103,6 +106,8 @@ std::string sequenceError(const CommandSequence &commands) {
       return "Enter a parameter identifier.";
     if (scalar && scalar->value && !std::isfinite(*scalar->value))
       return "Enter a finite value.";
+    if (scalar && scalar->value && step.kind == Command::AdjustWhileHeld && *scalar->value <= 0)
+      return "Enter a positive step.";
   }
   return {};
 }
@@ -168,11 +173,15 @@ std::string shortcutLabels(const KeyboardBindings &bindings, ApplicationCommand 
   return label;
 }
 
-std::string shortcutAssignmentError(const KeyboardBindings &bindings, ImGuiKeyChord chord,
+std::string shortcutAssignmentError(const KeyboardBindings &bindings, ImGuiKeyChord chord, bool held,
                                     ImGuiKeyChord replacing) {
-  if (keyboardKeyId(static_cast<ImGuiKey>(chord & ~ImGuiMod_Mask_)).empty())
+  const auto key = static_cast<ImGuiKey>(chord & ~ImGuiMod_Mask_);
+  if (keyboardKeyId(key).empty())
     return "This key cannot be assigned.";
   if (const char *reserved = reservedShortcut(chord)) return reserved;
+  if (held && (chord & ImGuiMod_Mask_)) return "Record a single key for Adjust While Held.";
+  if (held && (key == ImGuiKey_UpArrow || key == ImGuiKey_DownArrow))
+    return "Up and Down arrows are adjustment controls.";
   for (const auto &binding : bindings) {
     if (binding.trigger != replacing && binding.trigger == chord) {
       if (binding.commands.size() == 1)

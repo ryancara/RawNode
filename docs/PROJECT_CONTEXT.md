@@ -909,8 +909,9 @@ assignments by input. A binding can invoke a single action or ordered commands,
 including photograph marking/navigation, explicit node selection and direct
 scalar parameter edits. Scalar edits keep the current Graph/List selection.
 Assignments use global preferences and existing action and Undo boundaries.
-PR 3 plans standalone Adjust While Held bindings for arrow and vertical wheel
-adjustments in the idle Preview. See the [command bindings design](COMMAND_BINDINGS_DESIGN.md). Multi-photo
+Standalone Adjust While Held bindings give one key per scalar for arrow and
+vertical wheel adjustment in idle Preview, with one Undo step per changed hold.
+See the [command bindings design](COMMAND_BINDINGS_DESIGN.md). Multi-photo
 grade/preset application remains a separate workflow in the
 [suggested implementation order](../ROADMAP.md#suggested-implementation-order).
 
