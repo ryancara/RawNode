@@ -235,7 +235,7 @@ The initial in-editor photo-marking slice is merged as #114:
 - current-photo buttons, visible filmstrip indicators and All / Pick / Unmarked /
   Reject filtering composed with All / RAW / Compressed;
 - ordinary single-photo navigation through document opening, with no automatic
-  advance after marking. Future assignable shortcuts invoke the same document
+  advance after marking. Assignable shortcuts invoke the same document
   action. The initial slice adds no fixed marking bindings.
 
 Keep this folder-based with no catalogue/database or automatic deletion. Step 7's
@@ -373,17 +373,15 @@ Graph View.
 
 ## Configurable commands and input bindings
 
-Use [Application Settings](#application-settings) and global preferences to bind
-keyboard and mouse inputs to ordered lists of typed commands. The
-[agreed design](docs/COMMAND_BINDINGS_DESIGN.md) records the requirements,
-implementation recommendations and open product choices.
+[Application Settings](#application-settings) lists keyboard bindings by input.
+It supports conventional shortcuts (PR #135) and ordered sequences for node
+selection, direct scalar editing, marking and photograph navigation (PR 2).
+The [command bindings design](docs/COMMAND_BINDINGS_DESIGN.md) covers execution,
+configuration and preferences.
 
-1. Configure keyboard shortcuts for existing application actions. Each binding
-   contains one command. Menus display the effective assignments.
-2. Add ordered sequences, node and parameter targeting, and scalar parameter
-   editing. Settle photo navigation and marking shortcuts for this stage.
-3. Add held adjustment keys and modifier-wheel adjustment in Preview using
-   the existing gesture and history lifecycle.
+PR 3 will add standalone Adjust While Held bindings in idle Preview. Each
+assignment addresses one scalar and enables Up, Down and vertical wheel
+adjustments within one gesture and Undo boundary.
 
 ## Advanced input systems
 

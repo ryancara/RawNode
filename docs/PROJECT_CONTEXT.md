@@ -904,15 +904,13 @@ compositing or alpha-carrying I/O requires it.
 ## Near-term roadmap
 
 **File → Settings…** configures the optional preset and CTL roots for the Preset
-Panel and the Add Processor picker. Its **Keyboard Shortcuts** section configures
-existing application actions. Each assignment holds one typed command, shares
-action eligibility with the menus, and persists in global preferences. The
-platform defaults apply when the binding field is absent or a non-empty array
-contains no valid entries. An empty array clears all shortcuts. Users choose
-combinations that reach RawNode through their operating system or window manager.
-
-Ordered commands, targets and continuous keyboard and mouse adjustment are later
-stages of the [command bindings design](COMMAND_BINDINGS_DESIGN.md). Multi-photo
+Panel and the Add Processor picker. Its **Keyboard Shortcuts** section lists
+assignments by input. A binding can invoke a single action or ordered commands,
+including photograph marking/navigation, explicit node selection and direct
+scalar parameter edits. Scalar edits keep the current Graph/List selection.
+Assignments use global preferences and existing action and Undo boundaries.
+PR 3 plans standalone Adjust While Held bindings for arrow and vertical wheel
+adjustments in the idle Preview. See the [command bindings design](COMMAND_BINDINGS_DESIGN.md). Multi-photo
 grade/preset application remains a separate workflow in the
 [suggested implementation order](../ROADMAP.md#suggested-implementation-order).
 

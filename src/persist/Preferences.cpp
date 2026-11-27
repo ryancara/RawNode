@@ -9,6 +9,8 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <iomanip>
+#include <limits>
 #include <locale>
 #include <sstream>
 #ifndef _WIN32
@@ -79,18 +81,49 @@ void color(const Value &root, const char *key, ColorEncoding &out, std::string &
   }
   warn(warning, std::string(key) + ": incomplete, malformed or unknown colour pair; using built-in default");
 }
+std::optional<ui::CommandStep> readCommand(const Value &value) {
+  const Value *id = value.type == Type::Object ? optional(value, "id") : &value;
+  if (!id || id->type != Type::String) return std::nullopt;
+  const auto kind = ui::commandFromId(id->string);
+  if (!kind) return std::nullopt;
+
+  ui::CommandStep step(*kind);
+  if (std::holds_alternative<std::monostate>(step.operand))
+    return value.type == Type::String ? std::optional(step) : std::nullopt;
+  if (value.type != Type::Object) return std::nullopt;
+  if (auto *position = std::get_if<int>(&step.operand)) {
+    const auto *field = optional(value, "position");
+    if (!field || !persist_json::integer(*field, *position)) return std::nullopt;
+  } else {
+    auto *scalar = std::get_if<ui::ScalarCommandOperand>(&step.operand);
+    auto &identity = scalar ? scalar->address.processor : std::get<ui::ProcessorIdentity>(step.operand);
+    const auto *backend = optional(value, "backend"), *processor = optional(value, "processor");
+    if (!backend || backend->type != Type::String || !processor || processor->type != Type::String)
+      return std::nullopt;
+    identity = {backend->string, processor->string};
+    if (scalar) {
+      const auto *parameter = optional(value, "parameter");
+      if (!parameter || parameter->type != Type::String) return std::nullopt;
+      scalar->address.parameterId = parameter->string;
+      if (scalar->value) {
+        const auto *field = optional(value, "value");
+        if (!field || !persist_json::finiteNumber(*field, *scalar->value)) return std::nullopt;
+      }
+    }
+  }
+  return step;
+}
+
 std::optional<ui::KeyboardBinding> readKeyboardBinding(const Value &value) {
   const auto *key = optional(value, "key");
   const auto *modifiers = optional(value, "modifiers");
   const auto *commands = optional(value, "commands");
   if (value.type != Type::Object || !key || key->type != Type::String ||
-      !modifiers || modifiers->type != Type::Array || !commands || commands->type != Type::Array ||
-      commands->array.size() != 1 || commands->array.front().type != Type::String)
+      !modifiers || modifiers->type != Type::Array || !commands || commands->type != Type::Array)
     return std::nullopt;
 
   const auto namedKey = ui::keyboardKeyFromId(key->string);
-  const auto command = ui::commandFromId(commands->array.front().string);
-  if (namedKey == ImGuiKey_None || !command) return std::nullopt;
+  if (namedKey == ImGuiKey_None) return std::nullopt;
   ImGuiKeyChord chord = namedKey;
   for (const auto &name : modifiers->array) {
     if (name.type != Type::String) return std::nullopt;
@@ -98,7 +131,14 @@ std::optional<ui::KeyboardBinding> readKeyboardBinding(const Value &value) {
     if (modifier == ImGuiKey_None || (chord & modifier)) return std::nullopt;
     chord |= modifier;
   }
-  return ui::KeyboardBinding{chord, {*command}};
+  ui::KeyboardBinding binding{chord, {}};
+  for (const auto &element : commands->array) {
+    auto step = readCommand(element);
+    if (!step) return std::nullopt;
+    binding.commands.push_back(std::move(*step));
+  }
+  if (!ui::sequenceError(binding.commands).empty()) return std::nullopt;
+  return binding;
 }
 
 void loadKeyboardBindings(const Value &root, Preferences &out, std::string &warning) {
@@ -113,7 +153,7 @@ void loadKeyboardBindings(const Value &root, Preferences &out, std::string &warn
   for (size_t index = 0; index < value->array.size(); ++index) {
     auto binding = readKeyboardBinding(value->array[index]);
     const auto error = binding ? ui::shortcutAssignmentError(bindings, binding->trigger)
-                               : "Expected a known key, modifiers and one supported command.";
+                               : "Expected a known key, modifiers and a valid command sequence.";
     if (error.empty()) bindings.push_back(std::move(*binding));
     else warn(warning, "keyboardBindings entry " + std::to_string(index + 1) + ": " + error);
   }
@@ -135,8 +175,28 @@ void writeKeyboardBindings(std::ostream &out, const ui::KeyboardBindings &bindin
     }
     out << "],\"commands\":[";
     const char *commandSeparator = "";
-    for (auto command : binding.commands) {
-      out << commandSeparator << jsonStringValue(ui::commandInfo(command).id);
+    for (const auto &step : binding.commands) {
+      const auto id = jsonStringValue(ui::commandInfo(step.kind).id);
+      out << commandSeparator;
+      if (std::holds_alternative<std::monostate>(step.operand)) out << id;
+      else {
+        out << "{\"id\":" << id;
+        if (const auto *position = std::get_if<int>(&step.operand)) {
+          out << ",\"position\":" << *position;
+        } else {
+          const auto *scalar = std::get_if<ui::ScalarCommandOperand>(&step.operand);
+          const auto &identity = scalar ? scalar->address.processor : std::get<ui::ProcessorIdentity>(step.operand);
+          out << ",\"backend\":" << jsonStringValue(identity.backend)
+              << ",\"processor\":" << jsonStringValue(identity.identifier);
+          if (scalar) {
+            out << ",\"parameter\":" << jsonStringValue(scalar->address.parameterId);
+            if (scalar->value)
+              out << ",\"value\":" << std::setprecision(std::numeric_limits<double>::max_digits10)
+                  << *scalar->value;
+          }
+        }
+        out << "}";
+      }
       commandSeparator = ",";
     }
     out << "]}";

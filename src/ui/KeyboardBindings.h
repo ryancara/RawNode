@@ -5,12 +5,17 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace ui {
 
 enum class ApplicationCommand {
-  OpenImage, OpenFolder, Export, Undo, Redo, CopyNode, CopyFullGrade, Paste, Inspector, Filmstrip, Count
+  // PR #135 actions through Filmstrip retain their standalone feedback.
+  OpenImage, OpenFolder, Export, Undo, Redo, CopyNode, CopyFullGrade, Paste, Inspector, Filmstrip,
+  SelectPosition, SelectNext, SelectPrevious, SelectProcessor,
+  SetValue, AdjustValue, Increase, Decrease, ResetParameter, ToggleNode,
+  NextPhoto, PreviousPhoto, MarkPick, MarkReject, MarkUnmarked, Count
 };
 
 struct ApplicationCommandInfo {
@@ -29,18 +34,58 @@ inline constexpr ApplicationCommandInfo applicationCommands[] = {
     {"paste", "Paste"},
     {"toggle-inspector", "Inspector"},
     {"toggle-filmstrip", "Filmstrip"},
+    {"select-position", "Select Node by List Position"},
+    {"select-next", "Select Next Node"},
+    {"select-previous", "Select Previous Node"},
+    {"select-processor", "Select Processor"},
+    {"set-value", "Set Value"},
+    {"adjust-value", "Adjust by Amount"},
+    {"increase", "Increase by Automatic Step"},
+    {"decrease", "Decrease by Automatic Step"},
+    {"reset-parameter", "Reset Parameter"},
+    {"toggle-node", "Toggle Node"},
+    {"next-photo", "Next Photograph"},
+    {"previous-photo", "Previous Photograph"},
+    {"mark-pick", "Mark as Pick"},
+    {"mark-reject", "Mark as Reject"},
+    {"mark-unmarked", "Mark as Unmarked"},
 };
 
 inline const ApplicationCommandInfo &commandInfo(ApplicationCommand command) {
   return applicationCommands[static_cast<int>(command)];
 }
 
+struct ProcessorIdentity {
+  std::string backend;
+  std::string identifier;
+};
+
+struct ParameterAddress {
+  ProcessorIdentity processor;
+  std::string parameterId;
+};
+
+struct ScalarCommandOperand {
+  ParameterAddress address;
+  std::optional<double> value;
+};
+
+struct CommandStep {
+  CommandStep(ApplicationCommand command);
+
+  ApplicationCommand kind;
+  std::variant<std::monostate, int, ProcessorIdentity, ScalarCommandOperand> operand;
+};
+
+using CommandSequence = std::vector<CommandStep>;
+std::string sequenceError(const CommandSequence &commands);
+
 struct KeyboardBinding {
   ImGuiKeyChord trigger;
-  std::vector<ApplicationCommand> commands;
+  CommandSequence commands;
 
   bool invokes(ApplicationCommand command) const {
-    return commands.size() == 1 && commands.front() == command;
+    return commands.size() == 1 && commands.front().kind == command;
   }
 };
 

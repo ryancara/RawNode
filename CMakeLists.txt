@@ -22,6 +22,7 @@ add_library(imgui_lib
   ${imgui_SOURCE_DIR}/imgui_draw.cpp
   ${imgui_SOURCE_DIR}/imgui_tables.cpp
   ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+  ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
   ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
@@ -153,6 +154,7 @@ add_executable(OfxRawHost
   src/ui/ImGuiBackend.cpp
   src/ui/DockLayout.cpp
   src/ui/UiFrame.cpp
+  src/ui/CommandTargets.cpp
   src/ui/KeyboardBindings.cpp
   src/ui/ShortcutSettings.cpp
   src/ui/Widgets.cpp

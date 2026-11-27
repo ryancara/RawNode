@@ -1,6 +1,7 @@
 #include "HistoryUiTests.h"
 
 #include "AppState.h"
+#include "GraphCommands.h"
 #include "NodeGraph.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActionsPriv.h"
@@ -40,12 +41,20 @@ struct Ui {
   ImGuiContext *previous = ImGui::GetCurrentContext(), *context = ImGui::CreateContext();
   ImRect item;
   bool visible = true, full = false, opacityOnly = false;
-  std::string log;
+  std::string log, clipboard;
   char text[64] = {};
   ImVec2 textPoint;
   Ui() {
     auto &io = ImGui::GetIO(); io.IniFilename = nullptr; io.ConfigInputTrickleEventQueue = false;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable | ImGuiConfigFlags_NavEnableKeyboard;
+    auto &platform = ImGui::GetPlatformIO();
+    platform.Platform_ClipboardUserData = &clipboard;
+    platform.Platform_GetClipboardTextFn = [](ImGuiContext *context) {
+      return static_cast<std::string *>(context->PlatformIO.Platform_ClipboardUserData)->c_str();
+    };
+    platform.Platform_SetClipboardTextFn = [](ImGuiContext *context, const char *text) {
+      *static_cast<std::string *>(context->PlatformIO.Platform_ClipboardUserData) = text;
+    };
     unsigned char *pixels; int width, height; io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
   }
   ~Ui() { ImGui::DestroyContext(context); ImGui::SetCurrentContext(previous); }
@@ -212,6 +221,11 @@ bool nativeGestures() {
   const auto unchanged = app.history.size();
   ui.click(app, {28 + h * .5f, ui.item.GetCenter().y});
   CHECK(app.history.size() == unchanged);
+  // Display range +/-5 EV, hard range +/-10 EV. Plus at +7 must move
+  // forward by 1% of the ten-stop span (allow one double rounding).
+  ui.click(app, pencil); ui.tick(app); ui.type(app, "7"); ui.key(app, ImGuiKey_Enter);
+  ui.click(app, {28 + 3.5f * h + 3 * gap, ui.item.GetCenter().y});
+  CHECK(std::abs(exposure(app, id) - 7.1) < 1e-14);
   return true;
 }
 
@@ -302,6 +316,18 @@ bool ctlDeferredInputAndFailure() {
   }
   ui.tick(app); CHECK(value() == 21 && !app.parameterGesture && !app.history.hasUnrecordedEdit());
   ui.visible = true; ui.tick(app);
+  using Command = ui::ApplicationCommand;
+  const ui::ParameterAddress gain{{"ctl", findNode(app, id)->processor->identifier()}, "gain"};
+  ui::CommandStep amount(Command::AdjustValue), increase(Command::Increase), reset(Command::ResetParameter);
+  amount.operand = ui::ScalarCommandOperand{gain, -0.5};
+  increase.operand = ui::ScalarCommandOperand{gain, std::nullopt};
+  reset.operand = ui::ScalarCommandOperand{gain, std::nullopt};
+  selectOutput(app);
+  CHECK(ui::executeCommands(app, {amount}) && value() == 20.5 && app.outputSelected());
+  CHECK(!ui::executeCommands(app, {increase, reset}) && value() == 20.5);
+  CHECK(ui::executeCommands(app, {reset}) && value() == 3 && app.outputSelected());
+  std::get<ui::ScalarCommandOperand>(amount.operand).value = 18.0;
+  CHECK(ui::executeCommands(app, {amount}) && value() == 21);
   // A removed reconstruction asset preserves both actual value and cursor.
   const auto cursor = app.history.cursor(); std::filesystem::remove(script);
   CHECK(!app.history.undo(app) && app.history.cursor() == cursor && value() == 21);
@@ -390,6 +416,107 @@ bool droppedPhotoCompletesOutgoingGesture() {
   return true;
 }
 
+bool orderedNodeCommands() {
+  using Command = ui::ApplicationCommand;
+  Files files; App app; Ui ui;
+  CHECK(openPath(app, files.photo("nodes.png")) && addNativeExposureNode(app));
+  const auto first = *app.selectedNodeId();
+  CHECK(addNativeExposureNode(app));
+  const auto second = *app.selectedNodeId();
+  // Put the second processor off-spine and reverse storage. The visible
+  // List still starts at the first processor and includes the second.
+  CHECK(graph::setDocumentOutput(app, {first, ports::image}).ok());
+  std::reverse(app.nodes.begin(), app.nodes.end());
+  ui::CommandStep processor(Command::SelectProcessor), position(Command::SelectPosition);
+  const ui::ParameterAddress parameter{{"native", "rawnode.native.exposure"}, "exposure"};
+  processor.operand = parameter.processor;
+  position.operand = 2;
+  ui::CommandStep amount(Command::AdjustValue), increase(Command::Increase), reset(Command::ResetParameter);
+  amount.operand = ui::ScalarCommandOperand{parameter, 0.5};
+  increase.operand = ui::ScalarCommandOperand{parameter, std::nullopt};
+  reset.operand = ui::ScalarCommandOperand{parameter, std::nullopt};
+
+  const auto history = app.history.size();
+  CHECK(ui::executeCommands(app, {processor, amount, increase}));
+  CHECK(app.selectedNodeId() == second && app.history.size() == history + 2);
+  CHECK(exposure(app, first) == 0 && exposure(app, second) == 0.6);
+  CHECK(ui::executeCommands(app, {Command::Undo}) && exposure(app, second) == 0.5);
+  CHECK(ui::executeCommands(app, {Command::Redo}) && exposure(app, second) == 0.6);
+  selectOutput(app);
+  CHECK(ui::executeCommands(app, {amount}) && app.outputSelected());
+  CHECK(exposure(app, first) == 0.5 && exposure(app, second) == 0.6);
+  CHECK(ui::executeCommands(app, {processor}) && app.selectedNodeId() == first);
+  CHECK(!ui::executeCommands(app, {amount, Command::SelectPrevious, reset}));
+  CHECK(app.shortcutFailure == "Step 2 (Select Previous Node): No previous processing node");
+  CHECK(exposure(app, first) == 1.0 && app.selectedNodeId() == first);
+  CHECK(ui::executeCommands(app, {reset, position, reset}) && app.selectedNodeId() == second);
+  CHECK(exposure(app, first) == 0 && exposure(app, second) == 0);
+  selectOutput(app);
+  CHECK(ui::executeCommands(app, {Command::SelectPrevious}) && app.selectedNodeId() == second);
+  CHECK(!ui::executeCommands(app, {Command::SelectNext}));
+  CHECK(selectNode(app, app.primarySource) && ui::executeCommands(app, {Command::SelectNext}) && app.selectedNodeId() == first);
+
+  auto &adjustment = std::get<ui::ScalarCommandOperand>(amount.operand);
+  adjustment.address.processor.identifier = "missing";
+  CHECK(!ui::executeCommands(app, {amount, increase}) && app.selectedNodeId() == first);
+  CHECK(app.shortcutFailure == "Step 1 (Adjust by Amount): Processor unavailable: native / missing");
+  adjustment.address = {parameter.processor, "missing"};
+  CHECK(!ui::executeCommands(app, {amount, increase}) && exposure(app, first) == 0);
+  CHECK(app.shortcutFailure == "Step 1 (Adjust by Amount): Editable scalar parameter unavailable: missing");
+  adjustment = {parameter, 50.0};
+  CHECK(ui::executeCommands(app, {amount}) && exposure(app, first) == 10);
+  const auto atLimit = app.history.size();
+  CHECK(ui::executeCommands(app, {increase}) && app.history.size() == atLimit);
+  CHECK(ui::executeCommands(app, {Command::ToggleNode}) && !selectedNode(app)->enabled);
+  return true;
+}
+
+bool orderedPhotoCommands() {
+  using Command = ui::ApplicationCommand;
+  Files files; App app; Ui ui;
+  const auto first = files.photo("first.png"), middle = files.photo("middle.png"), last = files.photo("last.png");
+  app.filmstrip = {{first, PhotoMark::Unmarked}, {middle, PhotoMark::Reject}, {last, PhotoMark::Unmarked}};
+  app.filmstripMarkFilter = PhotoMark::Unmarked;
+  CHECK(ui::executeCommands(app, {Command::NextPhoto}) && app.path == first);
+  CHECK(addNativeExposureNode(app));
+  app.filmstripSelection = {first, middle, last};
+  app.filmstripAnchor = last;
+  CHECK(ui::executeCommands(app, {Command::MarkPick, Command::NextPhoto}));
+  CHECK(app.path == last && app.filmstripSelection.size() == 1 && app.filmstripSelection.count(last));
+  CHECK(app.filmstrip[0].mark == PhotoMark::Pick && !ui::executeCommands(app, {Command::NextPhoto}));
+  app.filmstripMarkFilter.reset();
+  CHECK(ui::executeCommands(app, {Command::PreviousPhoto, Command::PreviousPhoto}));
+  CHECK(app.path == first && app.currentPhotoMark == PhotoMark::Pick && !ui::executeCommands(app, {Command::PreviousPhoto}));
+  // A desktop clipboard can refuse a write. Never advance to paste stale data.
+  auto &platform = ImGui::GetPlatformIO();
+  const auto writeClipboard = platform.Platform_SetClipboardTextFn;
+  platform.Platform_SetClipboardTextFn = [](ImGuiContext *, const char *) {};
+  CHECK(!ui::executeCommands(app, {Command::CopyFullGrade, Command::NextPhoto}) && app.path == first);
+  platform.Platform_SetClipboardTextFn = writeClipboard;
+  app.keyboardBindings = ui::KeyboardBindings{{ImGuiKey_F8, {Command::CopyFullGrade, Command::NextPhoto, Command::Paste}}};
+  ui.full = true;
+  ui.tick(app); ui.tick(app); ui.key(app, ImGuiKey_F8);
+  CHECK(app.path == middle && app.nodes.size() == 2 && app.history.size() == 2);
+  CHECK(ui::executeCommands(app, {Command::Undo}) && app.nodes.size() == 1);
+  CHECK(ui::executeCommands(app, {Command::MarkReject, Command::NextPhoto}) && app.path == last);
+  CHECK(app.filmstrip[1].mark == PhotoMark::Reject);
+  // Turn the outgoing sidecar destination into a directory to exercise the
+  // real failed-save prompt. Cancellation must preserve even a multi-selection.
+  const auto sidecar = inputSidecarPath(last);
+  CHECK(std::filesystem::remove(sidecar) && std::filesystem::create_directory(sidecar));
+  app.filmstripSelection = {first, last};
+  app.filmstripAnchor = first;
+  const auto selection = app.filmstripSelection;
+  bool prompted = false;
+  CHECK(!ui::executeCommands(app, {Command::PreviousPhoto, Command::MarkPick}, [&](const std::string &) {
+    prompted = true;
+    return SaveFailureDecision::Cancel;
+  }));
+  CHECK(prompted && app.path == last && app.filmstripSelection == selection && app.filmstripAnchor == first);
+  CHECK(app.currentPhotoMark == PhotoMark::Unmarked);
+  return true;
+}
+
 bool shortcutsAndMenus() {
   for (const bool mac : {false, true}) {
     Files files; App app; Ui ui; ui.full = true;
@@ -400,8 +527,17 @@ bool shortcutsAndMenus() {
     CHECK(openPath(app, files.photo("keys.png")) && addNativeExposureNode(app));
     ui.tick(app); ui.tick(app);
     CHECK(canUndoGrade(app) && !canRedoGrade(app));
+    ui.key(app, ImGuiKey_Z, true, true);
+    CHECK(app.shortcutFailure.empty());
     ui.key(app, ImGuiKey_Z, false, true);
     CHECK(app.nodes.size() == 1 && !canUndoGrade(app) && canRedoGrade(app));
+    app.setStatus("Unrelated preview status");
+    CHECK(!ui::executeCommands(app, {ui::ApplicationCommand::Undo, ui::ApplicationCommand::Inspector}));
+    CHECK(app.shortcutFailure == "Step 1 (Undo): Did not complete" && !app.showRight);
+    ui.key(app, ImGuiKey_Z, false, true);
+    CHECK(app.shortcutFailure.empty());
+    ui.key(app, ImGuiKey_C, false, true);
+    CHECK(app.shortcutFailure.empty());
     ui.key(app, ImGuiKey_Z, true, true);
     CHECK(app.nodes.size() == 2 && canUndoGrade(app));
     ui.key(app, ImGuiKey_Z, false, true); ui.key(app, ImGuiKey_Y, false, true);
@@ -470,21 +606,12 @@ bool clipboardAndPanelShortcuts() {
   for (const bool mac : {false, true}) {
     Files files;
     App app;
-    std::string clipboard;
     Ui ui;
     ui.full = true;
     app.showRight = app.showNodes = app.showFilmstrip = false;
     auto &io = ImGui::GetIO();
     io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigMacOSXBehaviors = mac;
-    auto &platform = ImGui::GetPlatformIO();
-    platform.Platform_ClipboardUserData = &clipboard;
-    platform.Platform_GetClipboardTextFn = [](ImGuiContext *context) {
-      return static_cast<std::string *>(context->PlatformIO.Platform_ClipboardUserData)->c_str();
-    };
-    platform.Platform_SetClipboardTextFn = [](ImGuiContext *context, const char *text) {
-      *static_cast<std::string *>(context->PlatformIO.Platform_ClipboardUserData) = text;
-    };
     CHECK(openPath(app, files.photo("clipboard-keys.png")) && addNativeExposureNode(app));
     ui.tick(app);
     ui.tick(app);
@@ -492,9 +619,9 @@ bool clipboardAndPanelShortcuts() {
     PersistTransfer transfer;
     std::string error;
     ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_C);
-    CHECK(decodeTransferPayload(clipboard, transfer, error) && std::holds_alternative<PersistFragment>(transfer));
+    CHECK(decodeTransferPayload(ui.clipboard, transfer, error) && std::holds_alternative<PersistFragment>(transfer));
     ui.chord(app, ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_C);
-    CHECK(decodeTransferPayload(clipboard, transfer, error) && std::holds_alternative<PersistGrade>(transfer));
+    CHECK(decodeTransferPayload(ui.clipboard, transfer, error) && std::holds_alternative<PersistGrade>(transfer));
     ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_C);
     ui.chord(app, ImGuiMod_Ctrl | ImGuiKey_V);
     CHECK(app.nodes.size() == 3);
@@ -540,7 +667,8 @@ bool clipboardAndPanelShortcuts() {
 
 bool testHistoryUi() {
   if (!radialInspectorBoolean() || !radialInspectorGestures() || !opacityGesturesAndPersistence() || !nativeGestures() || !ctlDeferredInputAndFailure() || !droppedPhotoCompletesOutgoingGesture() || !shortcutsAndMenus()) return false;
-  if (!clipboardAndPanelShortcuts()) return false;
+  if (!orderedNodeCommands() || !orderedPhotoCommands() || !clipboardAndPanelShortcuts()) return false;
+  std::puts("ok  Ordered keyboard commands: parameter targeting, partial completion, per-edit Undo and Filmstrip navigation");
   std::puts("ok  History UI: native gestures, numeric commits/interruption, discrete buttons, shortcuts and eligibility");
   return true;
 }

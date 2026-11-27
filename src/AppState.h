@@ -173,6 +173,8 @@ struct App {
   std::string ctlScriptsDirectory;
   std::string preferencesWarning;
   std::optional<ui::KeyboardBindings> keyboardBindings;
+  // A preview requested by an earlier step can publish status after a failure.
+  std::string shortcutFailure;
   struct SettingsWindow {
     bool open = false;
     std::string presetFeedback;
@@ -180,8 +182,9 @@ struct App {
     std::string defaultPresetFeedback;
     bool defaultPresetScanError = false;
     std::string ctlScriptsFeedback;
-    ui::ApplicationCommand shortcutCommand = ui::ApplicationCommand::OpenImage;
-    ImGuiKeyChord shortcutBeingChanged = 0;
+    ImGuiKeyChord shortcutBeingEdited = 0;
+    ui::KeyboardBinding draftBinding{};
+    bool recordingShortcut = false;
     std::string shortcutFeedback;
   } settingsWindow;
   std::vector<FilmstripEntry> filmstrip;

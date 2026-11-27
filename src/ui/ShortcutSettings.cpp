@@ -1,136 +1,292 @@
 #include "ui/UiContext.h"
+#include "ui/CommandTargets.h"
+#include "NodeGraph.h"
+#include "misc/cpp/imgui_stdlib.h"
 
 #include "imgui_internal.h"
 
 #include <algorithm>
+#include <cstdio>
 
 namespace ui {
 namespace {
-constexpr const char *capturePopup = "Assign keyboard shortcut";
+using Command = ApplicationCommand;
+constexpr const char *bindingPopup = "Edit keyboard binding";
 
-void beginCapture(App &app, ImGuiKeyChord replacing = 0) {
-  app.settingsWindow.shortcutBeingChanged = replacing;
-  app.settingsWindow.shortcutFeedback.clear();
-  ImGui::OpenPopup(capturePopup);
+std::string processorLabel(const ProcessorIdentity &identity, const Node *node) {
+  return node ? nodeDisplayName(*node) + " (" + identity.backend + ")"
+              : identity.backend + " / " + identity.identifier;
 }
 
-bool drawCapture(App &app) {
-  if (!ImGui::BeginPopupModal(capturePopup, nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-    return false;
+std::string parameterLabel(const ParameterAddress &address, const Node *node) {
+  std::string label = address.parameterId;
+  if (node && node->processor) {
+    for (const auto &param : node->processor->parameters()) {
+      if (param.id == address.parameterId && !param.label.empty()) {
+        label = param.label;
+        break;
+      }
+    }
+  }
+  return processorLabel(address.processor, node) + " / " + label;
+}
 
+std::string describeCommands(const App &app, const CommandSequence &commands) {
+  std::string description;
+  for (const auto &step : commands) {
+    if (!description.empty()) description += " -> ";
+    description += commandInfo(step.kind).label;
+    if (const auto *position = std::get_if<int>(&step.operand)) {
+      description += " " + std::to_string(*position);
+    } else if (const auto *identity = std::get_if<ProcessorIdentity>(&step.operand)) {
+      description += " " + processorLabel(*identity, resolveProcessor(app, *identity));
+    } else if (const auto *scalar = std::get_if<ScalarCommandOperand>(&step.operand)) {
+      description += " " + parameterLabel(scalar->address, resolveProcessor(app, scalar->address.processor));
+      if (scalar->value) {
+        char number[32];
+        std::snprintf(number, sizeof number, "%.15g", *scalar->value);
+        description += step.kind == Command::SetValue ? " to " : " by ";
+        description += number;
+      }
+    }
+  }
+  return description;
+}
+
+void beginBindingEditor(App &app, KeyboardBinding binding) {
   auto &window = app.settingsWindow;
-  ImGui::TextUnformatted(commandInfo(window.shortcutCommand).label);
-  ImGui::TextUnformatted("Press a key or key combination. Escape cancels.");
+  window.shortcutBeingEdited = binding.trigger;
+  window.draftBinding = std::move(binding);
+  window.recordingShortcut = false;
+  window.shortcutFeedback.clear();
+  ImGui::OpenPopup(bindingPopup);
+}
 
-  bool close = false;
+void recordShortcut(App &app) {
+  auto &window = app.settingsWindow;
   for (int index = ImGuiKey_Tab; index <= ImGuiKey_KeypadEqual; ++index) {
     const auto key = static_cast<ImGuiKey>(index);
     if (keyboardKeyId(key).empty() || !ImGui::IsKeyPressed(key, false)) continue;
 
-    // Local panels draw after Settings and their public key queries honor locks.
-    // Keep Space locked even if its modifier is released before Space itself.
+    // Other panels query keys after Settings. In particular, keep Space owned
+    // even if its modifier is released before Space itself.
     ImGui::SetKeyOwner(key, ImGuiKeyOwner_Any, ImGuiInputFlags_LockUntilRelease);
     if (key == ImGuiKey_Escape) {
-      close = true;
-      break;
+      window.recordingShortcut = false;
+      window.shortcutFeedback.clear();
+    } else {
+      const ImGuiKeyChord chord = key | ImGui::GetIO().KeyMods;
+      window.shortcutFeedback = shortcutAssignmentError(effectiveKeyboardBindings(app), chord,
+                                                        window.shortcutBeingEdited);
+      if (window.shortcutFeedback.empty()) {
+        window.draftBinding.trigger = chord;
+        window.recordingShortcut = false;
+      }
     }
+    return;
+  }
+}
 
-    const ImGuiKeyChord chord = key | ImGui::GetIO().KeyMods;
-    auto bindings = effectiveKeyboardBindings(app);
-    window.shortcutFeedback = shortcutAssignmentError(bindings, chord, window.shortcutBeingChanged);
-    if (window.shortcutFeedback.empty()) {
-      const auto previous = std::find_if(bindings.begin(), bindings.end(), [&](const auto &binding) {
-        return binding.trigger == window.shortcutBeingChanged;
-      });
-      if (previous == bindings.end()) bindings.push_back({chord, {window.shortcutCommand}});
-      else previous->trigger = chord;
-      app.keyboardBindings = std::move(bindings);
-      close = true;
+bool commandCombo(Command &selected) {
+  bool changed = false;
+  if (ImGui::BeginCombo("Command", commandInfo(selected).label)) {
+    for (int index = 0; index < static_cast<int>(Command::Count); ++index) {
+      const auto command = static_cast<Command>(index);
+      if (ImGui::Selectable(commandInfo(command).label, selected == command)) {
+        selected = command;
+        changed = true;
+      }
     }
-    break;
+    ImGui::EndCombo();
   }
+  return changed;
+}
 
-  if (!window.shortcutFeedback.empty()) ImGui::TextUnformatted(window.shortcutFeedback.c_str());
-  if (ImGui::Button("Cancel")) close = true;
-  if (close) {
-    window.shortcutFeedback.clear();
-    ImGui::CloseCurrentPopup();
+void drawProcessorFields(ProcessorIdentity &identity) {
+  if (ImGui::BeginCombo("Backend", identity.backend.c_str())) {
+    for (auto backend : {ProcessorBackend::Native, ProcessorBackend::OFX, ProcessorBackend::CTL}) {
+      const char *id = processorBackendName(backend);
+      if (ImGui::Selectable(id, identity.backend == id)) identity.backend = id;
+    }
+    ImGui::EndCombo();
   }
+  ImGui::InputText("Processor ID", &identity.identifier);
+}
+
+void drawParameterPicker(const App &app, ParameterAddress &address) {
+  const auto *resolved = resolveProcessor(app, address.processor);
+  const auto preview = address.parameterId.empty() ? "Choose a parameter" : parameterLabel(address, resolved);
+  if (ImGui::BeginCombo("Parameter in grade", preview.c_str())) {
+    for (const auto *node : processorRows(app)) {
+      if (!node->processor) continue;
+      const auto identity = processorIdentity(*node);
+      // A saved address can only reach the instance the command would resolve.
+      if (resolveProcessor(app, identity) != node) continue;
+      const auto name = processorLabel(identity, node);
+      const auto parameters = node->processor->parameters();
+      ImGui::PushID(node->id.value.c_str());
+      for (const auto &param : parameters) {
+        if (!editableScalar(param, parameters)) continue;
+        const auto label = name + " / " + (param.label.empty() ? param.id : param.label);
+        ImGui::PushID(param.id.c_str());
+        if (ImGui::Selectable(label.c_str())) address = {identity, param.id};
+        ImGui::PopID();
+      }
+      ImGui::PopID();
+    }
+    ImGui::EndCombo();
+  }
+  drawProcessorFields(address.processor);
+  ImGui::InputText("Parameter ID", &address.parameterId);
+}
+
+void drawOperand(const App &app, CommandStep &step) {
+  if (auto *position = std::get_if<int>(&step.operand)) {
+    ImGui::InputInt("List position", position);
+  } else if (auto *identity = std::get_if<ProcessorIdentity>(&step.operand)) {
+    const auto label = identity->identifier.empty() ? "Choose a processor"
+        : processorLabel(*identity, resolveProcessor(app, *identity));
+    if (ImGui::BeginCombo("Processor in grade", label.c_str())) {
+      for (const auto *node : processorRows(app)) {
+        ImGui::PushID(node->id.value.c_str());
+        if (ImGui::Selectable(nodeDisplayName(*node).c_str())) *identity = processorIdentity(*node);
+        ImGui::PopID();
+      }
+      ImGui::EndCombo();
+    }
+    drawProcessorFields(*identity);
+  } else if (auto *scalar = std::get_if<ScalarCommandOperand>(&step.operand)) {
+    drawParameterPicker(app, scalar->address);
+    if (scalar->value)
+      ImGui::InputDouble(step.kind == Command::SetValue ? "Value" : "Signed amount", &*scalar->value, 0, 0, "%.15g");
+  }
+}
+
+void drawCommands(const App &app, CommandSequence &commands) {
+  for (size_t i = 0; i < commands.size(); ++i) {
+    ImGui::PushID(static_cast<int>(i));
+    auto &step = commands[i];
+    auto kind = step.kind;
+    if (commandCombo(kind)) step = CommandStep(kind);
+    drawOperand(app, step);
+    bool rearranged = false;
+    if (commands.size() > 1) {
+      ImGui::BeginDisabled(i == 0);
+      const bool up = ImGui::SmallButton("Up");
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      ImGui::BeginDisabled(i + 1 == commands.size());
+      const bool down = ImGui::SmallButton("Down");
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      const bool remove = ImGui::SmallButton("Remove");
+      if (up) std::swap(step, commands[i - 1]);
+      if (down) std::swap(step, commands[i + 1]);
+      if (remove) commands.erase(commands.begin() + i);
+      rearranged = up || down || remove;
+    }
+    ImGui::PopID();
+    ImGui::Separator();
+    if (rearranged) break;
+  }
+  if (ImGui::Button("Add command")) commands.emplace_back(Command::SelectNext);
+}
+
+void drawBindingEditor(App &app) {
+  ImGui::SetNextWindowSize(ImVec2(500, 410), ImGuiCond_FirstUseEver);
+  if (!ImGui::BeginPopupModal(bindingPopup)) return;
+
+  auto &window = app.settingsWindow;
+  auto &draft = window.draftBinding;
+  if (window.recordingShortcut) recordShortcut(app);
+  const auto label = draft.trigger ? shortcutLabel(draft.trigger, ImGui::GetIO().ConfigMacOSXBehaviors)
+                                  : "No key recorded";
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted(label.c_str());
+  ImGui::SameLine();
+  ImGui::BeginDisabled(window.recordingShortcut);
+  if (ImGui::Button("Record key")) window.recordingShortcut = true;
+  ImGui::EndDisabled();
+
+  ImGui::BeginDisabled(window.recordingShortcut);
+  if (ImGui::BeginChild("Commands", ImVec2(0, -2 * ImGui::GetFrameHeightWithSpacing())))
+    drawCommands(app, draft.commands);
+  ImGui::EndChild();
+  ImGui::EndDisabled();
+
+  const auto &bindings = effectiveKeyboardBindings(app);
+  std::string error = !draft.trigger ? "Record a key or key combination."
+      : shortcutAssignmentError(bindings, draft.trigger, window.shortcutBeingEdited);
+  if (draft.trigger && error.empty()) error = sequenceError(draft.commands);
+  if (window.recordingShortcut)
+    ImGui::TextWrapped("%s", window.shortcutFeedback.empty() ? "Press a key or chord. Escape stops recording."
+                                                            : window.shortcutFeedback.c_str());
+  else if (!error.empty()) ImGui::TextWrapped("%s", error.c_str());
+
+  ImGui::BeginDisabled(window.recordingShortcut || !error.empty());
+  const bool save = ImGui::Button("Save");
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  const bool cancel = ImGui::Button("Cancel");
+  if (save) {
+    auto updated = bindings;
+    const auto previous = std::find_if(updated.begin(), updated.end(), [&](const auto &binding) {
+      return binding.trigger == window.shortcutBeingEdited;
+    });
+    if (previous == updated.end()) updated.push_back(std::move(draft));
+    else *previous = std::move(draft);
+    app.keyboardBindings = std::move(updated);
+  }
+  if (save || cancel) ImGui::CloseCurrentPopup();
   ImGui::EndPopup();
-  return true;
-}
-
-void removeAssignment(App &app, ImGuiKeyChord chord) {
-  auto bindings = effectiveKeyboardBindings(app);
-  bindings.erase(std::remove_if(bindings.begin(), bindings.end(), [chord](const auto &binding) {
-    return binding.trigger == chord;
-  }), bindings.end());
-  app.keyboardBindings = std::move(bindings);
-  app.settingsWindow.shortcutFeedback.clear();
-}
-
-void restoreCommandDefaults(App &app, ApplicationCommand command, bool mac) {
-  auto bindings = effectiveKeyboardBindings(app);
-  bindings.erase(std::remove_if(bindings.begin(), bindings.end(), [command](const auto &binding) {
-    return binding.invokes(command);
-  }), bindings.end());
-
-  for (const auto &binding : defaultKeyboardBindings(mac)) {
-    if (!binding.invokes(command)) continue;
-    auto &feedback = app.settingsWindow.shortcutFeedback;
-    feedback = shortcutAssignmentError(bindings, binding.trigger);
-    if (!feedback.empty()) {
-      feedback = shortcutLabel(binding.trigger, mac) + ". " + feedback;
-      return;
-    }
-    bindings.push_back(binding);
-  }
-  app.keyboardBindings = std::move(bindings);
 }
 }  // namespace
 
 void drawShortcutSettings(App &app) {
   if (!ImGui::CollapsingHeader("Keyboard Shortcuts")) return;
 
-  auto &window = app.settingsWindow;
+  const auto &bindings = effectiveKeyboardBindings(app);
   const bool mac = ImGui::GetIO().ConfigMacOSXBehaviors;
-  if (ImGui::BeginCombo("Action", commandInfo(window.shortcutCommand).label)) {
-    for (int index = 0; index < static_cast<int>(ApplicationCommand::Count); ++index) {
-      const auto command = static_cast<ApplicationCommand>(index);
-      if (ImGui::Selectable(commandInfo(command).label, window.shortcutCommand == command)) {
-        window.shortcutCommand = command;
-        window.shortcutFeedback.clear();
-      }
-    }
-    ImGui::EndCombo();
-  }
-
-  ImGuiKeyChord remove = 0;
-  bool assigned = false;
-  for (const auto &binding : effectiveKeyboardBindings(app)) {
-    if (!binding.invokes(window.shortcutCommand)) continue;
-    assigned = true;
-    ImGui::PushID(binding.trigger);
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(shortcutLabel(binding.trigger, mac).c_str());
-    ImGui::SameLine();
-    const bool change = ImGui::Button("Change...");
-    ImGui::SameLine();
-    if (ImGui::Button("Clear")) remove = binding.trigger;
-    ImGui::PopID();
-    if (change) beginCapture(app, binding.trigger);
-  }
-  if (remove) removeAssignment(app, remove);
-  if (!assigned) ImGui::TextDisabled("Unassigned");
-
-  if (ImGui::Button("Add shortcut...")) beginCapture(app);
+  if (ImGui::Button("Add binding")) beginBindingEditor(app, {0, {Command::OpenImage}});
   ImGui::SameLine();
-  if (ImGui::Button("Restore action defaults")) restoreCommandDefaults(app, window.shortcutCommand, mac);
-  if (ImGui::Button("Restore all defaults")) {
-    app.keyboardBindings.reset();
-    window.shortcutFeedback.clear();
+  const bool restore = ImGui::Button("Restore all defaults");
+
+  const KeyboardBinding *edit = nullptr;
+  ImGuiKeyChord remove = 0;
+  if (bindings.empty()) ImGui::TextDisabled("No keyboard bindings");
+  else if (ImGui::BeginTable("Bindings", 3, ImGuiTableFlags_BordersInnerH)) {
+    ImGui::TableSetupColumn("Input", ImGuiTableColumnFlags_WidthFixed);
+    ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch);
+    ImGui::TableSetupColumn("Controls", ImGuiTableColumnFlags_WidthFixed);
+    ImGui::TableHeadersRow();
+    for (const auto &binding : bindings) {
+      ImGui::PushID(binding.trigger);
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextUnformatted(shortcutLabel(binding.trigger, mac).c_str());
+      if (ImGui::TableNextColumn()) {
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextWrapped("%s", describeCommands(app, binding.commands).c_str());
+      }
+      ImGui::TableNextColumn();
+      if (ImGui::SmallButton("Edit")) edit = &binding;
+      ImGui::SameLine();
+      if (ImGui::SmallButton("Remove")) remove = binding.trigger;
+      ImGui::PopID();
+    }
+    ImGui::EndTable();
   }
-  if (!drawCapture(app) && !window.shortcutFeedback.empty())
-    ImGui::TextWrapped("%s", window.shortcutFeedback.c_str());
+
+  if (edit) beginBindingEditor(app, *edit);
+  if (restore) app.keyboardBindings.reset();
+  else if (remove) {
+    auto updated = bindings;
+    updated.erase(std::find_if(updated.begin(), updated.end(), [remove](const auto &binding) {
+      return binding.trigger == remove;
+    }));
+    app.keyboardBindings = std::move(updated);
+  }
+  drawBindingEditor(app);
 }
 }  // namespace ui

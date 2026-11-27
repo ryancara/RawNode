@@ -70,7 +70,8 @@ system.
 
 The optional `keyboardBindings` array records the effective assignments. Each
 entry contains a named `key`, a list of named `modifiers` and an ordered list
-of `commands` that currently contains one command ID. For example,
+of `commands`. Operand-free actions use their existing string IDs. Steps with
+operands use the objects described in the [command bindings design](COMMAND_BINDINGS_DESIGN.md#preferences-compatibility). For example,
 `{"key":"Z","modifiers":["primary"],"commands":["undo"]}` uses Command on macOS
 and Control on Windows and Linux. Omit the field for platform defaults. An empty
 array clears all keyboard bindings. The first valid assignment for a chord wins

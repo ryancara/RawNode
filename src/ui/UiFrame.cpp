@@ -1,4 +1,5 @@
 #include "ui/UiContext.h"
+#include "ui/CommandTargets.h"
 #include "ui/ParamWidgets.h"
 
 #include "persist/DocumentActions.h"
@@ -202,6 +203,15 @@ bool canCopySelectedNode(const App &app) {
   return !app.isPhotoProtected() && node && isProcessorOperation(node->operation);
 }
 
+static bool writeTransferClipboard(App &app, const std::string &json) {
+  // ImGui's setter has no result. A chain may navigate and paste immediately.
+  ImGui::SetClipboardText(json.c_str());
+  const char *stored = ImGui::GetClipboardText();
+  if (stored && json == stored) return true;
+  app.setStatus("Could not copy RawNode data to the clipboard");
+  return false;
+}
+
 bool copySelectedNode(App &app) {
   if (!requireEditableGraph(app) || !canCopySelectedNode(app)) return false;
   PersistFragment fragment;
@@ -210,7 +220,7 @@ bool copySelectedNode(App &app) {
   try {
     std::string json, error;
     if (!encodeTransferPayload(fragment, json, error)) throw std::runtime_error(error);
-    ImGui::SetClipboardText(json.c_str());
+    if (!writeTransferClipboard(app, json)) return false;
     std::string status = "Copied node";
     for (const auto &warning : warnings) status += "; " + warning;
     app.setStatus(status);
@@ -223,7 +233,7 @@ bool copyGrade(App &app) {
   if (!captureGrade(app, grade)) return false;
   std::string json, error;
   if (!encodeTransferPayload(grade, json, error)) { app.setStatus(error); return false; }
-  ImGui::SetClipboardText(json.c_str());
+  if (!writeTransferClipboard(app, json)) return false;
   app.setStatus("Copied full grade");
   return true;
 }
@@ -242,6 +252,7 @@ bool pasteFromClipboard(App &app) {
       : pasteFragment(app, std::get<PersistFragment>(transfer), selectedNode(app) ? app.selectedNodeId() : std::nullopt);
   if (applied) {
     if (grade) app.parameterGesture.reset();
+    if (app.history.hasUnrecordedEdit()) return false;
     app.setStatus(grade ? "Pasted full grade" : "Pasted node/fragment");
   }
   return applied;
@@ -295,17 +306,20 @@ static void openUrl(const std::string &url) {
   std::system(cmd.c_str());
 }
 
-static void openImageDialog(App &app) {
+static bool openImageDialog(App &app) {
   const auto paths = pfd::open_file("Open image", "", openImageDialogFilters()).result();
-  if (!paths.empty()) {
-    finishUiEdits(app);
-    if (openPath(app, paths.front(), promptSaveFailure)) app.parameterGesture.reset();
-  }
+  if (paths.empty()) return false;
+  finishUiEdits(app);
+  if (!openPath(app, paths.front(), promptSaveFailure)) return false;
+  app.parameterGesture.reset();
+  return true;
 }
 
-static void openFolderDialog(App &app) {
+static bool openFolderDialog(App &app) {
   const auto path = pfd::select_folder("Open folder").result();
-  if (!path.empty()) app.pendingFolderDir = path;
+  if (path.empty()) return false;
+  app.pendingFolderDir = path;
+  return true;
 }
 
 static bool drawDirectorySetting(const char *label, const char *pickerTitle, std::string &path,
@@ -396,7 +410,6 @@ static void drawSettings(App &app, bool requested) {
   auto &window = app.settingsWindow;
   if (requested) {
     window.open = true;
-    window.shortcutFeedback.clear();
     window.presetFeedback = directoryPreferenceError(app.presetDirectory);
     window.ctlScriptsFeedback = directoryPreferenceError(app.ctlScriptsDirectory);
     refreshDefaultPresetFeedback(app);
@@ -436,26 +449,82 @@ static bool canInvokeCommand(const App &app, Command command) {
     case Command::Paste: return !app.renderer.exportInProgress() && !app.isPhotoProtected();
     case Command::Inspector:
     case Command::Filmstrip: return true;
+    case Command::SelectPosition:
+    case Command::SelectNext:
+    case Command::SelectPrevious:
+    case Command::SelectProcessor:
+    case Command::NextPhoto:
+    case Command::PreviousPhoto: return !app.renderer.exportInProgress();
+    case Command::MarkPick:
+    case Command::MarkReject:
+    case Command::MarkUnmarked: return !app.path.empty() && !app.isPhotoProtected() && !app.renderer.exportInProgress();
+    case Command::SetValue:
+    case Command::AdjustValue:
+    case Command::Increase:
+    case Command::Decrease:
+    case Command::ResetParameter: return !app.isPhotoProtected() && app.renderer.canEditParameters();
+    case Command::ToggleNode: return !app.isPhotoProtected() && app.renderer.canEditParameters() && selectedNode(app);
     case Command::Count: break;
   }
   return false;
 }
 
-static void invokeCommand(App &app, Command command) {
-  if (!canInvokeCommand(app, command)) return;
-  switch (command) {
-    case Command::OpenImage: openImageDialog(app); break;
-    case Command::OpenFolder: openFolderDialog(app); break;
-    case Command::Export: doExport(app); break;
-    case Command::Undo: app.history.undo(app); break;
-    case Command::Redo: app.history.redo(app); break;
-    case Command::CopyNode: copySelectedNode(app); break;
-    case Command::CopyFullGrade: copyGrade(app); break;
-    case Command::Paste: pasteFromClipboard(app); break;
-    case Command::Inspector: app.showRight = !app.showRight; break;
-    case Command::Filmstrip: app.showFilmstrip = !app.showFilmstrip; break;
+static bool invokeCommand(App &app, const ui::CommandStep &step, const SaveFailurePrompt &prompt,
+                          std::string &error) {
+  if (!canInvokeCommand(app, step.kind)) return false;
+  switch (step.kind) {
+    case Command::OpenImage: return openImageDialog(app);
+    case Command::OpenFolder: return openFolderDialog(app);
+    case Command::Export: doExport(app); return true; // Terminal request to show the export dialog.
+    case Command::Undo: return app.history.undo(app);
+    case Command::Redo: return app.history.redo(app);
+    case Command::CopyNode: return copySelectedNode(app);
+    case Command::CopyFullGrade: return copyGrade(app);
+    case Command::Paste: return pasteFromClipboard(app);
+    case Command::Inspector: app.showRight = !app.showRight; return true;
+    case Command::Filmstrip: app.showFilmstrip = !app.showFilmstrip; return true;
+    case Command::SelectPosition:
+    case Command::SelectNext:
+    case Command::SelectPrevious:
+    case Command::SelectProcessor: return ui::selectCommandNode(app, step, error);
+    case Command::SetValue:
+      return ui::editCommandParameter(app, std::get<ui::ScalarCommandOperand>(step.operand), ui::ScalarEdit::Set, error);
+    case Command::AdjustValue:
+      return ui::editCommandParameter(app, std::get<ui::ScalarCommandOperand>(step.operand), ui::ScalarEdit::Adjust, error);
+    case Command::Increase:
+      return ui::editCommandParameter(app, std::get<ui::ScalarCommandOperand>(step.operand), ui::ScalarEdit::Increase, error);
+    case Command::Decrease:
+      return ui::editCommandParameter(app, std::get<ui::ScalarCommandOperand>(step.operand), ui::ScalarEdit::Decrease, error);
+    case Command::ResetParameter:
+      return ui::editCommandParameter(app, std::get<ui::ScalarCommandOperand>(step.operand), ui::ScalarEdit::Reset, error);
+    case Command::ToggleNode: {
+      const auto *node = selectedNode(app);
+      return setNodeEnabled(app, node->id, !node->enabled);
+    }
+    case Command::NextPhoto: return navigateFilmstrip(app, true, prompt, error);
+    case Command::PreviousPhoto: return navigateFilmstrip(app, false, prompt, error);
+    case Command::MarkPick: return assignPhotoMark(app, app.path, PhotoMark::Pick);
+    case Command::MarkReject: return assignPhotoMark(app, app.path, PhotoMark::Reject);
+    case Command::MarkUnmarked: return assignPhotoMark(app, app.path, PhotoMark::Unmarked);
     case Command::Count: break;
   }
+  return false;
+}
+
+bool ui::executeCommands(App &app, const CommandSequence &commands, const SaveFailurePrompt &prompt) {
+  app.shortcutFailure = sequenceError(commands);
+  if (!app.shortcutFailure.empty()) return false;
+  for (size_t i = 0; i < commands.size(); ++i) {
+    const auto &step = commands[i];
+    std::string reason;
+    if (invokeCommand(app, step, prompt, reason)) continue;
+    // The original standalone shortcuts use the action's existing feedback.
+    if (commands.size() == 1 && step.kind <= Command::Filmstrip) return false;
+    if (reason.empty()) reason = "Did not complete";
+    app.shortcutFailure = "Step " + std::to_string(i + 1) + " (" + commandInfo(step.kind).label + "): " + reason;
+    return false;
+  }
+  return true;
 }
 
 static void drawCommandMenuItem(const App &app, std::optional<Command> &selectedCommand, Command command,
@@ -476,9 +545,8 @@ static void dispatchKeyboardShortcut(App &app) {
   // Require an exact chord and a base key that ImGui has neither owned nor locked.
   // Panel shortcuts that poll without claiming keys are reserved at assignment.
   for (const auto &binding : ui::effectiveKeyboardBindings(app)) {
-    if (binding.commands.size() != 1) continue;
     if (ImGui::IsKeyChordPressed(binding.trigger, ImGuiInputFlags_None, ImGuiKeyOwner_NoOwner)) {
-      invokeCommand(app, binding.commands.front());
+      ui::executeCommands(app, binding.commands);
       return;
     }
   }
@@ -491,6 +559,8 @@ static void drawFileToolbar(App &app, std::optional<Command> &selectedCommand) {
   if (!app.persistenceWarning.empty())
     height += ImGui::CalcTextSize(app.persistenceWarning.c_str(), nullptr, false, width).y +
               ImGui::GetStyle().ItemSpacing.y;
+  if (!app.shortcutFailure.empty())
+    height += ImGui::GetFrameHeightWithSpacing();
   const auto flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings;
   if (ImGui::BeginViewportSideBar("##FileToolbar", viewport, ImGuiDir_Up, height, flags)) {
     ImGui::BeginDisabled(app.renderer.exportInProgress());
@@ -507,6 +577,12 @@ static void drawFileToolbar(App &app, std::optional<Command> &selectedCommand) {
     ImGui::TextUnformatted(status.c_str());
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", status.c_str());
     if (!app.persistenceWarning.empty()) ImGui::TextWrapped("%s", app.persistenceWarning.c_str());
+    if (!app.shortcutFailure.empty()) {
+      if (ImGui::SmallButton("Dismiss")) app.shortcutFailure.clear();
+      ImGui::SameLine();
+      ImGui::TextUnformatted(app.shortcutFailure.c_str());
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", app.shortcutFailure.c_str());
+    }
   }
   ImGui::End();
 }
@@ -610,7 +686,10 @@ void DrawUiFrame(App &app) {
   }
 
   drawFileToolbar(app, selectedCommand);
-  if (selectedCommand) invokeCommand(app, *selectedCommand);
+  if (selectedCommand) {
+    std::string reason;
+    invokeCommand(app, *selectedCommand, promptSaveFailure, reason);
+  }
   drawSettings(app, settingsRequested);
   drawExportDialog(app);
   DockLayout::BeginMainDockSpace(app);

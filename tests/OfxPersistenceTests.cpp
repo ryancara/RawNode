@@ -844,6 +844,67 @@ bool parameterGestureFrames(Plugin &plugin) {
     CHECK(ui::moveGraphNode(app, id, {-10, 25}) && app.history.recordMetadataChange(app));
     CHECK(cache(*findNode(app, id)).syncs == metadataSyncs);
   }
+  using Command = ui::ApplicationCommand;
+  const ui::ProcessorIdentity processor{"ofx", plugin.plugin.pluginIdentifier};
+  const auto scalar = [&](Command kind, const char *parameter, std::optional<double> amount = std::nullopt) {
+    ui::CommandStep step(kind);
+    step.operand = ui::ScalarCommandOperand{{processor, parameter}, amount};
+    return step;
+  };
+  const auto notifications = cache(*findNode(app, id)).notifications;
+  const auto resetInteger = scalar(Command::ResetParameter, "integer");
+  CHECK(ui::executeCommands(app, {scalar(Command::SetValue, "integer", 35), scalar(Command::Increase, "integer")}));
+  CHECK(parameter(*findNode(app, id), "integer").value == ParameterValue(36));
+  CHECK(cache(*findNode(app, id)).notifications == notifications + 6); // Begin, Changed, End for each write.
+  CHECK(ui::executeCommands(app, {scalar(Command::SetValue, "integer", 36)}));
+  CHECK(cache(*findNode(app, id)).notifications == notifications + 6);
+  CHECK(!ui::executeCommands(app, {scalar(Command::SetValue, "integer", 0.5), resetInteger}));
+  CHECK(!ui::executeCommands(app, {scalar(Command::SetValue, "integer", 1e30)}));
+  CHECK(parameter(*findNode(app, id), "integer").value == ParameterValue(36));
+  CHECK(ui::executeCommands(app, {resetInteger}) && parameter(*findNode(app, id), "integer").value == ParameterValue(0));
+  CHECK(!ui::executeCommands(app, {scalar(Command::Increase, "hiddenPersistent")}));
+
+  // A disabled parameter on the selected instance must fail even if its peer
+  // has the same identity and an editable parameter with that ID.
+  CHECK(addNode(app, plugin.index));
+  const auto duplicate = *app.selectedNodeId();
+  auto *effect = static_cast<OfxProcessor *>(selectedNode(app)->processor.get())->effect();
+  auto *gain = findParam(effect, "visiblePersistent");
+  CHECK(gain);
+  properties().propSetInt(H(&gain->props), kOfxParamPropEnabled, 0, 0);
+  CHECK(!ui::executeCommands(app, {scalar(Command::SetValue, "visiblePersistent", 0.5)}));
+  CHECK(app.selectedNodeId() == duplicate && parameter(*findNode(app, id), "visiblePersistent").value == ParameterValue(2.0));
+  properties().propSetInt(H(&gain->props), kOfxParamPropEnabled, 0, 1);
+  const auto fallback = parameter(*selectedNode(app), "visiblePersistent");
+  CHECK(fallback.min == 0 && fallback.max == 1 && fallback.displayMin == 0 && fallback.displayMax == 1);
+  ui.inspector(app, "visiblePersistent");
+  const float pitch = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x;
+  ui.click(app, {ui.reset.x + 2 * pitch, ui.reset.y});
+  CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(0.99));
+  CHECK(ui::executeCommands(app, {scalar(Command::Increase, "visiblePersistent")}));
+  CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(1.0));
+  CHECK(ui::executeCommands(app, {scalar(Command::SetValue, "visiblePersistent", 2.0)}));
+  CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(1.0));
+  properties().propSetDouble(H(&gain->props), kOfxParamPropIncrement, 0, 0.25);
+  CHECK(ui::executeCommands(app, {scalar(Command::Decrease, "visiblePersistent")}));
+  CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(0.75));
+  CHECK(ui.inspector(app, "visiblePersistent").find("0.750") != std::string::npos);
+
+  CHECK(addNativeExposureNode(app));
+  const auto exposure = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app, exposure, "exposure", 7.0) && app.history.recordCompletedEdit(app));
+  CHECK(selectNode(app, duplicate));
+  ui::CommandStep adjustExposure(Command::AdjustValue);
+  adjustExposure.operand = ui::ScalarCommandOperand{{{"native", "rawnode.native.exposure"}, "exposure"}, 0.1};
+  const auto size = app.history.size();
+  CHECK(ui::executeCommands(app, {adjustExposure, scalar(Command::SetValue, "visiblePersistent", 0.5)}));
+  CHECK(app.selectedNodeId() == duplicate && app.history.size() == size + 2);
+  CHECK(parameter(*findNode(app, exposure), "exposure").value == ParameterValue(7.1));
+  CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(0.5));
+  CHECK(app.history.undo(app));
+  CHECK(parameter(*findNode(app, duplicate), "visiblePersistent").value == ParameterValue(0.75));
+  CHECK(parameter(*findNode(app, exposure), "exposure").value == ParameterValue(7.1));
+  CHECK(app.history.undo(app) && parameter(*findNode(app, exposure), "exposure").value == ParameterValue(7.0));
   plugin.syncCacheOnCapture = false;
   std::puts("ok  OFX ImGui gestures: string/vector/numeric/choice/bool/reset/button grouping, one sync at completion, metadata exclusion");
   return true;
@@ -1213,6 +1274,20 @@ bool historyCaptureFailureAndMemory(SyncPlugin &plugin) {
   CHECK(app.history.undo(app) && findNode(app, id)->enabled);
   CHECK(app.history.redo(app) && !findNode(app, id)->enabled);
   CHECK(app.outputEncoding == (ColorEncoding{RgbGamut::Rec709, TransferFunction::SRGB}));
+  {
+    Ui ui;
+    App donor;
+    using Command = ui::ApplicationCommand;
+    CHECK(addNativeExposureNode(donor) && copySelectedNode(donor) && selectNode(app, id));
+    auto &pasteState = privateState(effect(*findNode(app, id)));
+    pasteState.status = kOfxStatFailed;
+    defer(app, *findNode(app, id), 6);
+    CHECK(!ui::executeCommands(app, {Command::Paste, Command::Inspector}));
+    CHECK(app.nodes.size() == 3 && app.history.hasUnrecordedEdit() && app.showRight);
+    CHECK(app.shortcutFailure == "Step 1 (Paste): Did not complete");
+    pasteState.status = kOfxStatOK;
+    CHECK(app.history.recordCompletedEdit(app));
+  }
   CHECK(setNodeParameterValue(app, id, "privateText", std::string(2 * 1024 * 1024, 'a')));
   document_detail::GradeSnapshot large;
   CHECK(document_detail::captureGradeSnapshot(app, large));

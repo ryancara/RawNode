@@ -54,6 +54,7 @@ ProcessorParameter snapshotParameter(const Param &param) {
       out.max = dprop(param.props, kOfxParamPropMax, 0, hi);
       out.displayMin = lo;
       out.displayMax = hi;
+      out.step = dprop(param.props, kOfxParamPropIncrement, 0, 0);
       out.value = param.v.empty() ? 0.0 : param.v[0];
       out.defaultValue = dprop(param.props, kOfxParamPropDefault, 0, 0);
       break;
@@ -67,6 +68,7 @@ ProcessorParameter snapshotParameter(const Param &param) {
       out.max = dprop(param.props, kOfxParamPropMax, 0, hi);
       out.displayMin = lo;
       out.displayMax = hi;
+      out.step = dprop(param.props, kOfxParamPropIncrement, 0, 0);
       out.value = param.v.empty() ? 0 : (int)std::lround(param.v[0]);
       out.defaultValue = (int)std::lround(dprop(param.props, kOfxParamPropDefault, 0, 0));
       break;

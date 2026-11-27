@@ -1,4 +1,5 @@
 #include "ui/ParamWidgets.h"
+#include "ui/CommandTargets.h"
 #include "AppState.h"
 #include "NodeGraph.h"
 
@@ -249,8 +250,6 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     const double hi = param.displayMax;
     const double hardLo = param.min;
     const double hardHi = param.max;
-    const double step = asInt ? 1.0
-                              : (param.step > 0.0 ? param.step : std::max((hi - lo) / 100.0, 1e-6));
 
     auto commitNumeric = [&](double v) {
       if (asInt) {
@@ -289,19 +288,15 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
       value = typed;
     }
 
-    ImGui::SameLine(0, gap);
-    if (paramStepButton(false)) {
-      finishParameterGesture(app, true);
-      value = std::clamp(value - step, lo, hi);
-      commitNumeric(value);
-      complete();
-    }
-    ImGui::SameLine(0, gap);
-    if (paramStepButton(true)) {
-      finishParameterGesture(app, true);
-      value = std::clamp(value + step, lo, hi);
-      commitNumeric(value);
-      complete();
+    for (bool plus : {false, true}) {
+      ImGui::SameLine(0, gap);
+      if (paramStepButton(plus)) {
+        finishParameterGesture(app, true);
+        std::string error;
+        ui::editScalarParameter(app, node, param.id,
+                                plus ? ui::ScalarEdit::Increase : ui::ScalarEdit::Decrease, 0, error);
+        if (!error.empty()) app.setStatus(error);
+      }
     }
 
     ImGui::SameLine(0, gap);
@@ -310,7 +305,8 @@ static void drawParam(App &app, Node &node, ProcessorParameter param) {
     char sliderFormat[16] = "%.3f";
     if (asInt) {
       std::snprintf(sliderFormat, sizeof sliderFormat, "%%.0f");
-    } else if (param.step > 0.0) {
+    } else if (param.step > 0.0 && node.processor->backend() != ProcessorBackend::OFX) {
+      // OFX increments guide step buttons. Its sliders retain their original precision.
       int decimals = 0;
       double scaled = param.step;
       while (decimals < 6 && std::fabs(scaled - std::round(scaled)) > 1e-9) {

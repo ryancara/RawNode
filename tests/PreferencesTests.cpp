@@ -149,7 +149,7 @@ bool defaultKeyboardBindings() {
         return binding.trigger == trigger && binding.invokes(command);
       });
     };
-    for (const auto &binding : expected) CHECK(matches(binding.trigger, binding.commands.front()) == 1);
+    for (const auto &binding : expected) CHECK(matches(binding.trigger, binding.commands.front().kind) == 1);
     CHECK(matches(ImGuiMod_Ctrl | ImGuiKey_Y, Command::Redo) == (mac ? 0 : 1));
   }
   return true;
@@ -170,7 +170,7 @@ bool keyboardBindingsLifecycle() {
     {"key":"K","modifiers":["shift","primary"],"commands":["redo"]},
     {"key":"Backspace","modifiers":[],"commands":["paste"]},
     {"key":625,"modifiers":[],"commands":["export"]},
-    {"key":"P","modifiers":[],"commands":["paste","redo"]},
+    {"key":"P","modifiers":[],"commands":["export","redo"]},
     {"key":"PageDown","modifiers":[],"commands":["toggle-filmstrip"]},
     {"key":"Home","modifiers":[],"commands":["toggle-inspector"]},
     {"key":"Q","modifiers":["primary"],"commands":["copy-node"]},
@@ -215,6 +215,49 @@ bool keyboardBindingsLifecycle() {
   App invalidEntries;
   CHECK(initialisePreferences(invalidEntries, config) && !invalidEntries.preferencesWarning.empty());
   CHECK(!invalidEntries.keyboardBindings && invalidEntries.themeIndex == 1);
+  return true;
+}
+
+bool typedBindingRoundTrip() {
+  using Command = ui::ApplicationCommand;
+  Files files;
+  const auto path = files.path("commands.json");
+  write(path, "{" + header + R"(,"keyboardBindings":[
+    {"key":"F8","modifiers":[],"commands":[{"id":"select-position","position":2},
+      {"id":"select-processor","backend":"ctl","processor":"/future/grade.ctl"},
+      {"id":"adjust-value","backend":"ctl","processor":"/future/grade.ctl","parameter":"gain","value":-0.12345678901234567},
+      {"id":"reset-parameter","backend":"native","processor":"rawnode.native.exposure","parameter":"exposure"}]},
+    {"key":"F9","modifiers":[],"commands":["toggle-inspector",
+      {"id":"adjust-value","backend":"ctl","processor":"look.ctl","parameter":"gain","value":"1"}]},
+    {"key":"F10","modifiers":[],"commands":[{"id":"select-position","position":0}]},
+    {"key":"F11","modifiers":[],"commands":[{"id":"target-parameter","parameter":"gain"},{"id":"adjust-value","value":1}]},
+    {"key":"F12","modifiers":[],"commands":["increase"]}
+  ]})");
+  Preferences preferences;
+  std::string warning;
+  CHECK(loadPreferences(path, preferences, warning));
+  CHECK(warning.find("entry 2") != std::string::npos && warning.find("entry 5") != std::string::npos);
+  for (int read = 0; read < 2; ++read) {
+    CHECK(preferences.keyboardBindings && preferences.keyboardBindings->size() == 1);
+    const auto &binding = preferences.keyboardBindings->front();
+    CHECK(binding.trigger == ImGuiKey_F8 && binding.commands.size() == 4);
+    const auto &steps = binding.commands;
+    CHECK(steps[0].kind == Command::SelectPosition && std::get<int>(steps[0].operand) == 2);
+    const auto &identity = std::get<ui::ProcessorIdentity>(steps[1].operand);
+    CHECK(steps[1].kind == Command::SelectProcessor && identity.backend == "ctl" && identity.identifier == "/future/grade.ctl");
+    const auto &adjust = std::get<ui::ScalarCommandOperand>(steps[2].operand);
+    CHECK(steps[2].kind == Command::AdjustValue && adjust.address.processor.backend == "ctl");
+    CHECK(adjust.address.processor.identifier == "/future/grade.ctl" && adjust.address.parameterId == "gain");
+    CHECK(adjust.value == -0.12345678901234567);
+    const auto &reset = std::get<ui::ScalarCommandOperand>(steps[3].operand);
+    CHECK(steps[3].kind == Command::ResetParameter && !reset.value);
+    CHECK(reset.address.processor.backend == "native" && reset.address.processor.identifier == "rawnode.native.exposure" &&
+          reset.address.parameterId == "exposure");
+    if (read == 0) {
+      CHECK(savePreferences(path, preferences, warning));
+      CHECK(loadPreferences(path, preferences, warning) && warning.empty());
+    }
+  }
   return true;
 }
 
@@ -649,20 +692,20 @@ bool keyboardShortcutSettings() {
   auto &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
   io.ConfigInputTrickleEventQueue = false;
+  using Command = ui::ApplicationCommand;
   App app;
   app.settingsWindow.open = true;
-  app.settingsWindow.shortcutCommand = ui::ApplicationCommand::Filmstrip;
   const auto frame = [&](ImGuiID activate = 0) {
     if (activate) ImGui::ActivateItemByID(activate);
     beginFrame(); DrawUiFrame(app); ImGui::EndFrame();
   };
-  const auto key = [&](ImGuiKey key, bool primary = false, ImGuiID activate = 0) {
-    const auto modifier = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
-    if (primary) io.AddKeyEvent(modifier, true);
+  const auto primary = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+  const auto key = [&](ImGuiKey key, bool withPrimary = false) {
+    if (withPrimary) io.AddKeyEvent(primary, true);
     io.AddKeyEvent(key, true);
-    frame(activate);
+    frame();
     io.AddKeyEvent(key, false);
-    if (primary) io.AddKeyEvent(modifier, false);
+    if (withPrimary) io.AddKeyEvent(primary, false);
     frame();
   };
 
@@ -670,83 +713,112 @@ bool keyboardShortcutSettings() {
   auto *settings = ImGui::FindWindowByName("Settings");
   CHECK(settings);
   settings->StateStorage.SetInt(settings->GetID("Keyboard Shortcuts"), 1);
-  frame();
-  frame(settings->GetID("Action"));
-  frame();
-  CHECK(ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
-  key(ImGuiKey_RightBracket, true);
-  CHECK(app.showRight && ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
-  auto *combo = ImGui::FindWindowByName("##Combo_00");
-  CHECK(combo && combo->Active);
-  key(ImGuiKey_RightBracket, true, combo->GetID("Filmstrip"));
-  CHECK(app.showRight && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup));
-
-  const auto change = ImHashStr("Change...", 0, settings->GetID(ImGuiMod_Ctrl | ImGuiKey_Backslash));
-  frame(change);
-  frame();
-  CHECK(ImGui::GetTopMostPopupModal());
+  frame(); frame();
+  const auto rowButton = [&](ImGuiKeyChord chord, const char *name) {
+    return ImHashStr(name, 0, ImHashData(&chord, sizeof chord, settings->GetID("Bindings")));
+  };
+  const auto edit = [&](ImGuiID button) {
+    frame(button); frame();
+    return ImGui::GetTopMostPopupModal();
+  };
+  auto *editor = edit(rowButton(ImGuiMod_Ctrl | ImGuiKey_Backslash, "Edit"));
+  CHECK(editor);
+  frame(editor->GetID("Record key"));
   key(ImGuiKey_RightBracket, true);
   CHECK(app.showRight && app.showFilmstrip && !app.keyboardBindings);
-  CHECK(app.settingsWindow.shortcutFeedback == "Already assigned to Inspector.");
-  key(ImGuiKey_LeftArrow);
-  CHECK(!ImGui::GetTopMostPopupModal() && app.showFilmstrip && app.keyboardBindings);
-  key(ImGuiKey_Backslash, true);
-  CHECK(app.showFilmstrip);  // The replaced default has no second dispatch path.
-  key(ImGuiKey_LeftArrow);
-  CHECK(!app.showFilmstrip);
-  key(ImGuiKey_LeftArrow);
-  CHECK(app.showFilmstrip);
-
-  frame(ImHashStr("Clear", 0, settings->GetID(ImGuiKey_LeftArrow)));
-  frame();
-  const auto &remaining = ui::effectiveKeyboardBindings(app);
-  CHECK(std::none_of(remaining.begin(), remaining.end(), [](const auto &binding) {
-    return binding.trigger == ImGuiKey_LeftArrow;
-  }));
-  key(ImGuiKey_LeftArrow);
-  CHECK(app.showFilmstrip);
-  frame(settings->GetID("Restore action defaults"));
-  frame();
-  key(ImGuiKey_Backslash, true);
-  CHECK(!app.showFilmstrip);
-
-  // The second alias conflicts. Restoring Filmstrip must retain both the
-  // custom assignment and the other action's shortcut, without adding the first alias.
-  using Command = ui::ApplicationCommand;
-  app.keyboardBindings = ui::KeyboardBindings{
-      {ImGuiKey_Home, {Command::Filmstrip}},
-      {ImGuiMod_Super | ImGuiKey_Backslash, {Command::Inspector}},
-  };
-  frame(settings->GetID("Restore action defaults"));
-  frame();
-  CHECK(app.settingsWindow.shortcutFeedback.find("Already assigned to Inspector") != std::string::npos);
-  const auto &bindings = ui::effectiveKeyboardBindings(app);
-  CHECK(bindings.size() == 2 && bindings[0].trigger == ImGuiKey_Home && bindings[0].invokes(Command::Filmstrip));
-  CHECK(bindings[1].trigger == (ImGuiMod_Super | ImGuiKey_Backslash) && bindings[1].invokes(Command::Inspector));
-
-  frame(settings->GetID("Add shortcut..."));
-  frame();
-  CHECK(ImGui::GetTopMostPopupModal());
+  CHECK(app.settingsWindow.recordingShortcut &&
+        app.settingsWindow.shortcutFeedback == "Already assigned to Inspector.");
   key(ImGuiKey_Escape);
-  CHECK(!ImGui::GetTopMostPopupModal() && app.keyboardBindings->size() == 2);
+  CHECK(!app.settingsWindow.recordingShortcut && ImGui::GetTopMostPopupModal() == editor);
+  CHECK(app.settingsWindow.draftBinding.trigger == (ImGuiMod_Ctrl | ImGuiKey_Backslash));
 
-  const auto primary = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+  frame(editor->GetID("Record key"));
   io.AddKeyEvent(primary, true);
   io.AddKeyEvent(ImGuiKey_Space, true);
-  // Open and complete capture in one frame, leaving no popup at either dispatch check.
-  frame(settings->GetID("Add shortcut..."));
-  CHECK(!ImGui::GetTopMostPopupModal() && !app.showFilmstrip && app.keyboardBindings->size() == 3);
+  frame();
+  CHECK(app.settingsWindow.draftBinding.trigger == (ImGuiMod_Ctrl | ImGuiKey_Space));
+  CHECK(app.showFilmstrip && !app.keyboardBindings);
+  frame(editor->GetID("Save"));
+  CHECK(!ImGui::GetTopMostPopupModal() && app.showFilmstrip && app.keyboardBindings);
   io.AddKeyEvent(primary, false);
   frame();
-  // Preview polls the level of Space while starting a pan.
-  CHECK(!ImGui::IsKeyDown(ImGuiKey_Space));
+  CHECK(!ImGui::IsKeyDown(ImGuiKey_Space)); // Preview's level query still honours ownership.
   io.AddKeyEvent(ImGuiKey_Space, false);
   frame();
-  key(ImGuiKey_Space, true);
+  key(ImGuiKey_Backslash, true);
   CHECK(app.showFilmstrip);
+  key(ImGuiKey_Space, true);
+  CHECK(!app.showFilmstrip);
+
+  frame(rowButton(ImGuiMod_Ctrl | ImGuiKey_Space, "Remove"));
+  frame();
+  key(ImGuiKey_Space, true);
+  CHECK(!app.showFilmstrip);
+  const auto &remaining = ui::effectiveKeyboardBindings(app);
+  CHECK(std::none_of(remaining.begin(), remaining.end(), [](const auto &binding) {
+    return binding.trigger == (ImGuiMod_Ctrl | ImGuiKey_Space);
+  }));
   frame(settings->GetID("Restore all defaults"));
   frame();
   CHECK(!app.keyboardBindings);
+  key(ImGuiKey_Backslash, true);
+  CHECK(app.showFilmstrip);
+
+  // Configure an ordinary command and a live scalar in one binding editor.
+  CHECK(addNativeExposureNode(app));
+  const auto node = *app.selectedNodeId();
+  selectOutput(app);
+  app.keyboardBindings = ui::KeyboardBindings{};
+  editor = edit(settings->GetID("Add binding"));
+  CHECK(editor);
+  ImGuiWindow *rows = nullptr;
+  for (auto *child : editor->DC.ChildWindows) if (child->ChildId == editor->GetID("Commands")) rows = child;
+  CHECK(rows);
+  const auto chooseCommand = [&](int index, const char *label) {
+    frame(ImHashStr("Command", 0, rows->GetID(index))); frame();
+    auto *combo = ImGui::FindWindowByName("##Combo_00");
+    if (!combo || !combo->Active) return false;
+    frame(combo->GetID(label)); frame();
+    return true;
+  };
+  CHECK(chooseCommand(0, "Filmstrip"));
+  frame(rows->GetID("Add command"));
+  frame();
+  CHECK(chooseCommand(1, "Increase by Automatic Step"));
+  frame(ImHashStr("Parameter in grade", 0, rows->GetID(1)));
+  frame();
+  auto *combo = ImGui::FindWindowByName("##Combo_00");
+  CHECK(combo && combo->Active);
+  const auto parameterId = ImHashStr("exposure", 0, combo->GetID(node.value.c_str()));
+  frame(ImHashStr("Exposure (native) / Exposure", 0, parameterId));
+  frame();
+  const auto &draft = app.settingsWindow.draftBinding;
+  CHECK(draft.commands.size() == 2 && app.outputSelected());
+  const auto &address = std::get<ui::ScalarCommandOperand>(draft.commands[1].operand).address;
+  CHECK(address.processor.backend == "native" && address.processor.identifier == "rawnode.native.exposure" &&
+        address.parameterId == "exposure");
+  frame(ImHashStr("Up", 0, rows->GetID(1))); frame();
+  CHECK(draft.commands.front().kind == Command::Increase);
+  frame(ImHashStr("Down", 0, rows->GetID(0))); frame();
+  CHECK(draft.commands.front().kind == Command::Filmstrip);
+  frame(editor->GetID("Record key"));
+  key(ImGuiKey_F9);
+  frame(editor->GetID("Save"));
+  frame();
+  CHECK(app.keyboardBindings->size() == 1 && app.keyboardBindings->front().trigger == ImGuiKey_F9);
+  CHECK(app.keyboardBindings->front().commands.size() == 2 && app.keyboardBindings->front().commands[0].kind == Command::Filmstrip);
+  key(ImGuiKey_F9);
+  CHECK(!app.showFilmstrip && app.outputSelected());
+  CHECK(findNode(app, node)->processor->parameters().front().value == ParameterValue(0.1));
+
+  CHECK(edit(rowButton(ImGuiKey_F9, "Edit")) == editor);
+  frame(ImHashStr("Remove", 0, rows->GetID(1))); frame();
+  frame(editor->GetID("Cancel")); frame();
+  CHECK(app.keyboardBindings->front().commands.size() == 2);
+  CHECK(edit(rowButton(ImGuiKey_F9, "Edit")) == editor);
+  frame(ImHashStr("Remove", 0, rows->GetID(0))); frame();
+  frame(editor->GetID("Save")); frame();
+  CHECK(app.keyboardBindings->front().trigger == ImGuiKey_F9 && app.keyboardBindings->front().invokes(Command::Increase));
   return true;
 }
 
@@ -840,9 +912,10 @@ bool globalLayout() {
 bool testPreferences() {
   for (const auto &test : {
        std::make_pair("codec, optional fields and pair fallbacks", codecAndOptionalFields),
+       std::make_pair("typed keyboard commands and malformed sequence isolation", typedBindingRoundTrip),
        std::make_pair("keyboard defaults match the base revision", defaultKeyboardBindings),
        std::make_pair("keyboard binding preference compatibility, recovery and restart", keyboardBindingsLifecycle),
-       std::make_pair("keyboard shortcut Settings capture, conflicts, clearing and restore", keyboardShortcutSettings),
+       std::make_pair("keyboard binding Settings editing, capture, conflicts and restore", keyboardShortcutSettings),
        std::make_pair("List/Graph preference compatibility and validation", nodesViewPreference),
        std::make_pair("directory preferences persist and clear across startup and shutdown", directoryPreferencesLifecycle),
        std::make_pair("malformed and unavailable directory preferences", invalidDirectoryPreferences),
