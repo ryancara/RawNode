@@ -159,7 +159,6 @@ struct App {
   OutputRef documentOutput{primarySource, ports::image};
   // UI identity only; Output has no NodeId and selection is never persisted.
   InspectorSelection selection;
-  std::string targetedParameter; // Transient ID on the Inspector selection.
   std::optional<NodeId> selectedNodeId() const {
     if (const auto *id = std::get_if<NodeId>(&selection)) return *id;
     return std::nullopt;
@@ -183,9 +182,9 @@ struct App {
     std::string defaultPresetFeedback;
     bool defaultPresetScanError = false;
     std::string ctlScriptsFeedback;
-    ui::ApplicationCommand shortcutCommand = ui::ApplicationCommand::OpenImage;
-    ImGuiKeyChord shortcutBeingChanged = 0;
-    ui::CommandSequence draftCommands;
+    ImGuiKeyChord shortcutBeingEdited = 0;
+    ui::KeyboardBinding draftBinding{};
+    bool recordingShortcut = false;
     std::string shortcutFeedback;
   } settingsWindow;
   std::vector<FilmstripEntry> filmstrip;

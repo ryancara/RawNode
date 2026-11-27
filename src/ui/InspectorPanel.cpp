@@ -38,13 +38,6 @@ static void drawProcessorParameters(App &app) {
     ImGui::PopID();
     return;
   }
-  const auto parameters = node->processor->parameters();
-  if (!app.targetedParameter.empty()) {
-    std::string label = app.targetedParameter;
-    for (const auto &param : parameters)
-      if (param.id == app.targetedParameter && !param.label.empty()) label = param.label;
-    ImGui::TextDisabled("Target: %s", label.c_str());
-  }
   if (!ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopup) &&
       (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F) || ImGui::IsKeyChordPressed(ImGuiMod_Super | ImGuiKey_F)))
     ImGui::SetKeyboardFocusHere();
@@ -61,7 +54,7 @@ static void drawProcessorParameters(App &app) {
     if (iconBtn("##clearFilter", ICON_FA_XMARK)) app.paramFilter[0] = '\0';
   }
   ImGui::Separator();
-  drawParams(app, *node, parameters);
+  drawParams(app, *node, "");
   ImGui::PopID();
 }
 

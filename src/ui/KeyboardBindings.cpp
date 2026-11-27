@@ -78,9 +78,11 @@ CommandStep::CommandStep(ApplicationCommand command) : kind(command) {
   switch (kind) {
     case Command::SelectPosition: operand = 1; break;
     case Command::SelectProcessor: operand = ProcessorIdentity{}; break;
-    case Command::TargetParameter: operand = std::string{}; break;
     case Command::SetValue:
-    case Command::AdjustValue: operand = 0.0; break;
+    case Command::AdjustValue: operand = ScalarCommandOperand{{}, 0.0}; break;
+    case Command::Increase:
+    case Command::Decrease:
+    case Command::ResetParameter: operand = ScalarCommandOperand{}; break;
     default: break;
   }
 }
@@ -93,12 +95,13 @@ std::string sequenceError(const CommandSequence &commands) {
       return std::string(commandInfo(step.kind).label) + " must be the last command.";
     if (const auto *position = std::get_if<int>(&step.operand); position && *position < 1)
       return "List positions start at 1.";
-    if (const auto *identity = std::get_if<ProcessorIdentity>(&step.operand);
-        identity && (identity->backend.empty() || identity->identifier.empty()))
+    const auto *scalar = std::get_if<ScalarCommandOperand>(&step.operand);
+    const auto *processor = scalar ? &scalar->address.processor : std::get_if<ProcessorIdentity>(&step.operand);
+    if (processor && (processor->backend.empty() || processor->identifier.empty()))
       return "Enter the processor backend and identifier.";
-    if (const auto *parameter = std::get_if<std::string>(&step.operand); parameter && parameter->empty())
+    if (scalar && scalar->address.parameterId.empty())
       return "Enter a parameter identifier.";
-    if (const auto *value = std::get_if<double>(&step.operand); value && !std::isfinite(*value))
+    if (scalar && scalar->value && !std::isfinite(*scalar->value))
       return "Enter a finite value.";
   }
   return {};

@@ -87,16 +87,6 @@ static std::optional<ProcessorParameter> scalarParameter(const Node &node, const
   return std::nullopt;
 }
 
-bool targetParameter(App &app, const std::string &id, std::string &error) {
-  const auto *node = selectedNode(app);
-  if (!node || !scalarParameter(*node, id)) {
-    error = "Editable scalar parameter unavailable: " + id;
-    return false;
-  }
-  app.targetedParameter = id;
-  return true;
-}
-
 static double automaticStep(const ProcessorParameter &param) {
   if (param.type == ParameterType::Integer) {
     return param.step > 0 && param.step <= std::numeric_limits<int>::max() &&
@@ -165,5 +155,15 @@ bool editScalarParameter(App &app, const Node &node, const std::string &id, Scal
     if (!setNodeParameterValue(app, node.id, id, *value)) return false;
   }
   return app.path.empty() || app.history.recordCompletedEdit(app);
+}
+
+bool editCommandParameter(App &app, const ScalarCommandOperand &operand, ScalarEdit edit, std::string &error) {
+  const auto &identity = operand.address.processor;
+  const auto *node = resolveProcessor(app, identity);
+  if (!node) {
+    error = "Processor unavailable: " + identity.backend + " / " + identity.identifier;
+    return false;
+  }
+  return editScalarParameter(app, *node, operand.address.parameterId, edit, operand.value.value_or(0.0), error);
 }
 }  // namespace ui

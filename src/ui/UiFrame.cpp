@@ -410,7 +410,6 @@ static void drawSettings(App &app, bool requested) {
   auto &window = app.settingsWindow;
   if (requested) {
     window.open = true;
-    window.shortcutFeedback.clear();
     window.presetFeedback = directoryPreferenceError(app.presetDirectory);
     window.ctlScriptsFeedback = directoryPreferenceError(app.ctlScriptsDirectory);
     refreshDefaultPresetFeedback(app);
@@ -459,7 +458,6 @@ static bool canInvokeCommand(const App &app, Command command) {
     case Command::MarkPick:
     case Command::MarkReject:
     case Command::MarkUnmarked: return !app.path.empty() && !app.isPhotoProtected() && !app.renderer.exportInProgress();
-    case Command::TargetParameter:
     case Command::SetValue:
     case Command::AdjustValue:
     case Command::Increase:
@@ -469,15 +467,6 @@ static bool canInvokeCommand(const App &app, Command command) {
     case Command::Count: break;
   }
   return false;
-}
-
-static bool editTargetedParameter(App &app, ui::ScalarEdit edit, double operand, std::string &error) {
-  const auto *node = selectedNode(app);
-  if (!node || app.targetedParameter.empty()) {
-    error = "Select a parameter first";
-    return false;
-  }
-  return ui::editScalarParameter(app, *node, app.targetedParameter, edit, operand, error);
 }
 
 static bool invokeCommand(App &app, const ui::CommandStep &step, const SaveFailurePrompt &prompt,
@@ -498,12 +487,16 @@ static bool invokeCommand(App &app, const ui::CommandStep &step, const SaveFailu
     case Command::SelectNext:
     case Command::SelectPrevious:
     case Command::SelectProcessor: return ui::selectCommandNode(app, step, error);
-    case Command::TargetParameter: return ui::targetParameter(app, std::get<std::string>(step.operand), error);
-    case Command::SetValue: return editTargetedParameter(app, ui::ScalarEdit::Set, std::get<double>(step.operand), error);
-    case Command::AdjustValue: return editTargetedParameter(app, ui::ScalarEdit::Adjust, std::get<double>(step.operand), error);
-    case Command::Increase: return editTargetedParameter(app, ui::ScalarEdit::Increase, 0, error);
-    case Command::Decrease: return editTargetedParameter(app, ui::ScalarEdit::Decrease, 0, error);
-    case Command::ResetParameter: return editTargetedParameter(app, ui::ScalarEdit::Reset, 0, error);
+    case Command::SetValue:
+      return ui::editCommandParameter(app, std::get<ui::ScalarCommandOperand>(step.operand), ui::ScalarEdit::Set, error);
+    case Command::AdjustValue:
+      return ui::editCommandParameter(app, std::get<ui::ScalarCommandOperand>(step.operand), ui::ScalarEdit::Adjust, error);
+    case Command::Increase:
+      return ui::editCommandParameter(app, std::get<ui::ScalarCommandOperand>(step.operand), ui::ScalarEdit::Increase, error);
+    case Command::Decrease:
+      return ui::editCommandParameter(app, std::get<ui::ScalarCommandOperand>(step.operand), ui::ScalarEdit::Decrease, error);
+    case Command::ResetParameter:
+      return ui::editCommandParameter(app, std::get<ui::ScalarCommandOperand>(step.operand), ui::ScalarEdit::Reset, error);
     case Command::ToggleNode: {
       const auto *node = selectedNode(app);
       return setNodeEnabled(app, node->id, !node->enabled);

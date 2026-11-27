@@ -845,34 +845,35 @@ bool parameterGestureFrames(Plugin &plugin) {
     CHECK(cache(*findNode(app, id)).syncs == metadataSyncs);
   }
   using Command = ui::ApplicationCommand;
-  ui::CommandStep target(Command::TargetParameter), value(Command::SetValue);
-  target.operand = std::string("integer");
+  const ui::ProcessorIdentity processor{"ofx", plugin.plugin.pluginIdentifier};
+  const auto scalar = [&](Command kind, const char *parameter, std::optional<double> amount = std::nullopt) {
+    ui::CommandStep step(kind);
+    step.operand = ui::ScalarCommandOperand{{processor, parameter}, amount};
+    return step;
+  };
   const auto notifications = cache(*findNode(app, id)).notifications;
-  value.operand = 35.0;
-  CHECK(ui::executeCommands(app, {target, value, Command::Increase}));
+  const auto resetInteger = scalar(Command::ResetParameter, "integer");
+  CHECK(ui::executeCommands(app, {scalar(Command::SetValue, "integer", 35), scalar(Command::Increase, "integer")}));
   CHECK(parameter(*findNode(app, id), "integer").value == ParameterValue(36));
   CHECK(cache(*findNode(app, id)).notifications == notifications + 6); // Begin, Changed, End for each write.
-  value.operand = 36.0;
-  CHECK(ui::executeCommands(app, {value}) && cache(*findNode(app, id)).notifications == notifications + 6);
-  value.operand = 0.5;
-  CHECK(!ui::executeCommands(app, {value, Command::ResetParameter}));
-  value.operand = 1e30;
-  CHECK(!ui::executeCommands(app, {value}) && parameter(*findNode(app, id), "integer").value == ParameterValue(36));
-  CHECK(ui::executeCommands(app, {Command::ResetParameter}) && parameter(*findNode(app, id), "integer").value == ParameterValue(0));
-  target.operand = std::string("hiddenPersistent");
-  CHECK(!ui::executeCommands(app, {target}));
-  // Two instances share the identity. Make the selected instance's own
-  // value unavailable and verify the command cannot fall through to its peer.
+  CHECK(ui::executeCommands(app, {scalar(Command::SetValue, "integer", 36)}));
+  CHECK(cache(*findNode(app, id)).notifications == notifications + 6);
+  CHECK(!ui::executeCommands(app, {scalar(Command::SetValue, "integer", 0.5), resetInteger}));
+  CHECK(!ui::executeCommands(app, {scalar(Command::SetValue, "integer", 1e30)}));
+  CHECK(parameter(*findNode(app, id), "integer").value == ParameterValue(36));
+  CHECK(ui::executeCommands(app, {resetInteger}) && parameter(*findNode(app, id), "integer").value == ParameterValue(0));
+  CHECK(!ui::executeCommands(app, {scalar(Command::Increase, "hiddenPersistent")}));
+
+  // A disabled parameter on the selected instance must fail even if its peer
+  // has the same identity and an editable parameter with that ID.
   CHECK(addNode(app, plugin.index));
   const auto duplicate = *app.selectedNodeId();
   auto *effect = static_cast<OfxProcessor *>(selectedNode(app)->processor.get())->effect();
   auto *gain = findParam(effect, "visiblePersistent");
   CHECK(gain);
   properties().propSetInt(H(&gain->props), kOfxParamPropEnabled, 0, 0);
-  ui::CommandStep processor(Command::SelectProcessor);
-  processor.operand = ui::ProcessorIdentity{"ofx", plugin.plugin.pluginIdentifier};
-  target.operand = std::string("visiblePersistent");
-  CHECK(!ui::executeCommands(app, {processor, target}) && app.selectedNodeId() == duplicate);
+  CHECK(!ui::executeCommands(app, {scalar(Command::SetValue, "visiblePersistent", 0.5)}));
+  CHECK(app.selectedNodeId() == duplicate && parameter(*findNode(app, id), "visiblePersistent").value == ParameterValue(2.0));
   properties().propSetInt(H(&gain->props), kOfxParamPropEnabled, 0, 1);
   const auto fallback = parameter(*selectedNode(app), "visiblePersistent");
   CHECK(fallback.min == 0 && fallback.max == 1 && fallback.displayMin == 0 && fallback.displayMax == 1);
@@ -880,15 +881,30 @@ bool parameterGestureFrames(Plugin &plugin) {
   const float pitch = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x;
   ui.click(app, {ui.reset.x + 2 * pitch, ui.reset.y});
   CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(0.99));
-  CHECK(ui::executeCommands(app, {target, Command::Increase}));
+  CHECK(ui::executeCommands(app, {scalar(Command::Increase, "visiblePersistent")}));
   CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(1.0));
-  value.operand = 2.0;
-  CHECK(ui::executeCommands(app, {value}));
+  CHECK(ui::executeCommands(app, {scalar(Command::SetValue, "visiblePersistent", 2.0)}));
   CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(1.0));
   properties().propSetDouble(H(&gain->props), kOfxParamPropIncrement, 0, 0.25);
-  CHECK(ui::executeCommands(app, {target, Command::Decrease}));
+  CHECK(ui::executeCommands(app, {scalar(Command::Decrease, "visiblePersistent")}));
   CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(0.75));
   CHECK(ui.inspector(app, "visiblePersistent").find("0.750") != std::string::npos);
+
+  CHECK(addNativeExposureNode(app));
+  const auto exposure = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app, exposure, "exposure", 7.0) && app.history.recordCompletedEdit(app));
+  CHECK(selectNode(app, duplicate));
+  ui::CommandStep adjustExposure(Command::AdjustValue);
+  adjustExposure.operand = ui::ScalarCommandOperand{{{"native", "rawnode.native.exposure"}, "exposure"}, 0.1};
+  const auto size = app.history.size();
+  CHECK(ui::executeCommands(app, {adjustExposure, scalar(Command::SetValue, "visiblePersistent", 0.5)}));
+  CHECK(app.selectedNodeId() == duplicate && app.history.size() == size + 2);
+  CHECK(parameter(*findNode(app, exposure), "exposure").value == ParameterValue(7.1));
+  CHECK(parameter(*selectedNode(app), "visiblePersistent").value == ParameterValue(0.5));
+  CHECK(app.history.undo(app));
+  CHECK(parameter(*findNode(app, duplicate), "visiblePersistent").value == ParameterValue(0.75));
+  CHECK(parameter(*findNode(app, exposure), "exposure").value == ParameterValue(7.1));
+  CHECK(app.history.undo(app) && parameter(*findNode(app, exposure), "exposure").value == ParameterValue(7.0));
   plugin.syncCacheOnCapture = false;
   std::puts("ok  OFX ImGui gestures: string/vector/numeric/choice/bool/reset/button grouping, one sync at completion, metadata exclusion");
   return true;

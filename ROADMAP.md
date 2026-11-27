@@ -373,13 +373,15 @@ Graph View.
 
 ## Configurable commands and input bindings
 
-[Application Settings](#application-settings) supports one-action keyboard assignments
-(PR #135) and ordered sequences for node selection, scalar editing, marking and
-photograph navigation (PR 2). The [command bindings design](docs/COMMAND_BINDINGS_DESIGN.md)
-covers execution, configuration and preferences.
+[Application Settings](#application-settings) lists keyboard bindings by input.
+It supports conventional shortcuts (PR #135) and ordered sequences for node
+selection, direct scalar editing, marking and photograph navigation (PR 2).
+The [command bindings design](docs/COMMAND_BINDINGS_DESIGN.md) covers execution,
+configuration and preferences.
 
-PR 3 will add held adjustment keys and modifier-wheel adjustment in Preview,
-using the existing gesture and history lifecycle.
+PR 3 will add standalone Adjust While Held bindings in idle Preview. Each
+assignment addresses one scalar and enables Up, Down and vertical wheel
+adjustments within one gesture and Undo boundary.
 
 ## Advanced input systems
 

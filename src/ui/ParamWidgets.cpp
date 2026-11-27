@@ -496,6 +496,8 @@ static void drawParamsImpl(App &app, Node &node, const std::vector<ProcessorPara
   }
 }
 
-void drawParams(App &app, Node &node, const std::vector<ProcessorParameter> &parameters) {
-  drawParamsImpl(app, node, parameters, "");
+void drawParams(App &app, Node &node, const std::string &parent) {
+  if (!node.processor) return;
+  const auto params = node.processor->parameters();
+  drawParamsImpl(app, node, params, parent);
 }

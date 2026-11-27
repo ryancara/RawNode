@@ -920,19 +920,22 @@ outside the source-overwrite check.
 
 **Status:** Owner-approved milestone design. Implementation is staged.
 
-Keyboard and modifier-wheel bindings share a vocabulary of typed commands.
-Each binding holds an ordered list, including a one-command list for an
-ordinary shortcut. Settings edits structured assignments. Global preferences,
-ImGui input ownership and existing application, graph and history operations
-provide the implementation boundaries.
+Keyboard bindings hold ordered typed commands, including a one-command list
+for an ordinary shortcut. Settings lists assignments by input and edits them
+in one editor. Global preferences, ImGui input ownership and existing
+application, graph and history operations provide the implementation boundaries.
 
-The first stage configures currently effective application shortcuts and derives
-menu labels from those assignments. Users choose assignments their operating
-system or window manager delivers to RawNode. Native shortcuts retain their
-platform behaviour. Ordered commands resolve each target on the current document,
-stop on failure and preserve completed edits. Node and parameter commands share
-the Inspector selection. Photograph navigation follows visible Filmstrip order
-from the open photograph. Continuous adjustments are planned for PR 3.
+The first stage configures existing shortcuts and derives menu labels from
+those assignments. Native shortcuts retain their platform behaviour. Ordered
+commands resolve each operation on the current document, stop on failure and
+preserve completed edits. Explicit selection uses the shared Graph/List
+selection. Scalar commands address a processor and parameter directly and
+leave selection alone. Photograph navigation follows visible Filmstrip order
+from the open photograph.
+
+PR 3 is planned to add standalone Adjust While Held assignments for the idle
+Preview. A held key gives Up, Down and vertical wheel input to one configured
+scalar. Each completed gesture records one Undo entry if the grade changed.
 See the [command bindings design](COMMAND_BINDINGS_DESIGN.md) for the detailed contract.
 
 ## Pending decisions

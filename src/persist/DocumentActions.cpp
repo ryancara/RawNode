@@ -237,7 +237,6 @@ static bool applyGradeState(App &app, const PersistGrade &incoming,
     // All fallible work precedes publication. Retired nodes/pixels are destroyed
     // while this DocumentMutation still excludes preview and full export.
     app.previewInteraction = {};
-    app.targetedParameter.clear();
     app.nodes.swap(restored.nodes);
     std::swap(app.primarySource, restored.primarySource);
     std::swap(app.documentOutput, restored.output);

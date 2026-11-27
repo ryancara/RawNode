@@ -13,7 +13,7 @@ namespace ui {
 enum class ApplicationCommand {
   // PR #135 actions through Filmstrip retain their standalone feedback.
   OpenImage, OpenFolder, Export, Undo, Redo, CopyNode, CopyFullGrade, Paste, Inspector, Filmstrip,
-  SelectPosition, SelectNext, SelectPrevious, SelectProcessor, TargetParameter,
+  SelectPosition, SelectNext, SelectPrevious, SelectProcessor,
   SetValue, AdjustValue, Increase, Decrease, ResetParameter, ToggleNode,
   NextPhoto, PreviousPhoto, MarkPick, MarkReject, MarkUnmarked, Count
 };
@@ -38,7 +38,6 @@ inline constexpr ApplicationCommandInfo applicationCommands[] = {
     {"select-next", "Select Next Node"},
     {"select-previous", "Select Previous Node"},
     {"select-processor", "Select Processor"},
-    {"target-parameter", "Target Parameter"},
     {"set-value", "Set Value"},
     {"adjust-value", "Adjust by Amount"},
     {"increase", "Increase by Automatic Step"},
@@ -61,11 +60,21 @@ struct ProcessorIdentity {
   std::string identifier;
 };
 
+struct ParameterAddress {
+  ProcessorIdentity processor;
+  std::string parameterId;
+};
+
+struct ScalarCommandOperand {
+  ParameterAddress address;
+  std::optional<double> value;
+};
+
 struct CommandStep {
   CommandStep(ApplicationCommand command);
 
   ApplicationCommand kind;
-  std::variant<std::monostate, int, ProcessorIdentity, std::string, double> operand;
+  std::variant<std::monostate, int, ProcessorIdentity, ScalarCommandOperand> operand;
 };
 
 using CommandSequence = std::vector<CommandStep>;

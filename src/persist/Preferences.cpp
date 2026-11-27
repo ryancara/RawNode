@@ -94,18 +94,22 @@ std::optional<ui::CommandStep> readCommand(const Value &value) {
   if (auto *position = std::get_if<int>(&step.operand)) {
     const auto *field = optional(value, "position");
     if (!field || !persist_json::integer(*field, *position)) return std::nullopt;
-  } else if (auto *identity = std::get_if<ui::ProcessorIdentity>(&step.operand)) {
+  } else {
+    auto *scalar = std::get_if<ui::ScalarCommandOperand>(&step.operand);
+    auto &identity = scalar ? scalar->address.processor : std::get<ui::ProcessorIdentity>(step.operand);
     const auto *backend = optional(value, "backend"), *processor = optional(value, "processor");
     if (!backend || backend->type != Type::String || !processor || processor->type != Type::String)
       return std::nullopt;
-    *identity = {backend->string, processor->string};
-  } else if (auto *parameter = std::get_if<std::string>(&step.operand)) {
-    const auto *field = optional(value, "parameter");
-    if (!field || field->type != Type::String) return std::nullopt;
-    *parameter = field->string;
-  } else {
-    const auto *field = optional(value, "value");
-    if (!field || !persist_json::finiteNumber(*field, std::get<double>(step.operand))) return std::nullopt;
+    identity = {backend->string, processor->string};
+    if (scalar) {
+      const auto *parameter = optional(value, "parameter");
+      if (!parameter || parameter->type != Type::String) return std::nullopt;
+      scalar->address.parameterId = parameter->string;
+      if (scalar->value) {
+        const auto *field = optional(value, "value");
+        if (!field || !persist_json::finiteNumber(*field, *scalar->value)) return std::nullopt;
+      }
+    }
   }
   return step;
 }
@@ -177,14 +181,20 @@ void writeKeyboardBindings(std::ostream &out, const ui::KeyboardBindings &bindin
       if (std::holds_alternative<std::monostate>(step.operand)) out << id;
       else {
         out << "{\"id\":" << id;
-        if (const auto *position = std::get_if<int>(&step.operand)) out << ",\"position\":" << *position;
-        else if (const auto *identity = std::get_if<ui::ProcessorIdentity>(&step.operand))
-          out << ",\"backend\":" << jsonStringValue(identity->backend)
-              << ",\"processor\":" << jsonStringValue(identity->identifier);
-        else if (const auto *parameter = std::get_if<std::string>(&step.operand))
-          out << ",\"parameter\":" << jsonStringValue(*parameter);
-        else out << ",\"value\":" << std::setprecision(std::numeric_limits<double>::max_digits10)
-                 << std::get<double>(step.operand);
+        if (const auto *position = std::get_if<int>(&step.operand)) {
+          out << ",\"position\":" << *position;
+        } else {
+          const auto *scalar = std::get_if<ui::ScalarCommandOperand>(&step.operand);
+          const auto &identity = scalar ? scalar->address.processor : std::get<ui::ProcessorIdentity>(step.operand);
+          out << ",\"backend\":" << jsonStringValue(identity.backend)
+              << ",\"processor\":" << jsonStringValue(identity.identifier);
+          if (scalar) {
+            out << ",\"parameter\":" << jsonStringValue(scalar->address.parameterId);
+            if (scalar->value)
+              out << ",\"value\":" << std::setprecision(std::numeric_limits<double>::max_digits10)
+                  << *scalar->value;
+          }
+        }
         out << "}";
       }
       commandSeparator = ",";

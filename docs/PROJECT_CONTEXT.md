@@ -904,11 +904,13 @@ compositing or alpha-carrying I/O requires it.
 ## Near-term roadmap
 
 **File → Settings…** configures the optional preset and CTL roots for the Preset
-Panel and the Add Processor picker. Its **Keyboard Shortcuts** section configures
-one action or an ordered sequence, including photograph marking/navigation,
-node selection and scalar parameter editing. Assignments use global preferences
-and existing action and Undo boundaries. Held-key and modifier-wheel adjustments
-are planned for PR 3. See the [command bindings design](COMMAND_BINDINGS_DESIGN.md). Multi-photo
+Panel and the Add Processor picker. Its **Keyboard Shortcuts** section lists
+assignments by input. A binding can invoke a single action or ordered commands,
+including photograph marking/navigation, explicit node selection and direct
+scalar parameter edits. Scalar edits keep the current Graph/List selection.
+Assignments use global preferences and existing action and Undo boundaries.
+PR 3 plans standalone Adjust While Held bindings for arrow and vertical wheel
+adjustments in the idle Preview. See the [command bindings design](COMMAND_BINDINGS_DESIGN.md). Multi-photo
 grade/preset application remains a separate workflow in the
 [suggested implementation order](../ROADMAP.md#suggested-implementation-order).
 

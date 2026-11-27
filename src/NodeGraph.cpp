@@ -99,7 +99,6 @@ bool selectNode(App &app, std::optional<NodeId> id) {
     app.previewInteraction.stop();
     const auto mode = previewMode(app);
     app.selection = std::move(selection);
-    app.targetedParameter.clear();
     app.paramFilter[0] = '\0';
     if (mode != PreviewMode::Photo && !setPreviewMode(app, mode)) setPreviewMode(app, PreviewMode::Photo);
   }
@@ -111,7 +110,6 @@ void selectOutput(App &app) {
     app.previewInteraction.stop();
     const auto mode = previewMode(app);
     app.selection = InspectorEndpoint::Output;
-    app.targetedParameter.clear();
     app.paramFilter[0] = '\0';
     if (mode != PreviewMode::Photo) setPreviewMode(app, PreviewMode::Photo);
   }
