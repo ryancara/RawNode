@@ -17,6 +17,7 @@
 
 #if defined(__APPLE__)
 #include "ui/MacPinch.h"
+#include "ui/MacWindow.h"
 #endif
 
 // ImGui OpenGL3 backend loads GL symbols; do not include gl.h/gl3.h here.
@@ -55,6 +56,7 @@ int runApp(const std::string &optionalPath) {
   glfwMakeContextCurrent(app.window);
   glfwSwapInterval(1);
 #if defined(__APPLE__)
+  MacWindow_SetSRGBColorSpace(app.window);
   MacPinch_Install();
 #endif
 

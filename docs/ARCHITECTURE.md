@@ -595,6 +595,17 @@ a conversion operation during architecture refactors.
 
 Monitor/display conversion belongs after the processed-image boundary.
 
+Preview presents SDR sRGB-encoded pixels. On macOS, RawNode declares sRGB on
+its native window so the compositor can match those colours to the display
+profile. On Windows and Linux, the result depends on the available OS or
+compositor colour management. Native display behaviour on those platforms
+still needs validation. Wide-gamut Preview, HDR and soft proofing are outside
+this correction.
+
+**Unimplemented suggestion.** Filmstrip thumbnails currently assume sRGB
+without interpreting embedded ICC profiles. ICC-aware thumbnail decoding is
+a separate potential improvement.
+
 ## Alpha
 
 No permanent global alpha representation is approved yet.
