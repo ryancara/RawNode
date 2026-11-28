@@ -72,6 +72,5 @@ struct PreviewHeldAdjustment {
 };
 
 void finishHeldPreviewAdjustment(App &app);
-void finishInterruptedHeldPreviewAdjustment(App &app);
 
 }  // namespace ui

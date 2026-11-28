@@ -2,6 +2,7 @@
 
 #include "AppState.h"
 #include "NodeGraph.h"
+#include "ui/PreviewInteraction.h"
 #include "ui/Widgets.h"
 
 #include "IconsFontAwesome6.h"
@@ -109,7 +110,9 @@ void ui::drawNodeList(App &app) {
   ImGui::EndChild();
   // Apply one row-control intent after all references into the node list have
   // expired. Intents and drag/drop retain identity, never storage positions.
-  if (remove) destroyNode(app, *remove);
-  else if (moveFrom && moveTo) moveNode(app, *moveFrom, *moveTo);
+  if (remove) {
+    finishHeldPreviewAdjustment(app);
+    destroyNode(app, *remove);
+  } else if (moveFrom && moveTo) moveNode(app, *moveFrom, *moveTo);
   else if (enable) setNodeEnabled(app, *enable, enabled);
 }

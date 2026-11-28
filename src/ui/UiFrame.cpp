@@ -605,8 +605,6 @@ bool canUndoGrade(const App &app) { return historyIdle(app) && app.history.canUn
 bool canRedoGrade(const App &app) { return historyIdle(app) && app.history.canRedo(); }
 
 void DrawUiFrame(App &app) {
-  // Complete before other panels can act on a press that interrupts Preview.
-  ui::finishInterruptedHeldPreviewAdjustment(app);
   // Drawing can end an edit or close a popup before the frame's key is dispatched.
   const bool shortcutWasBlocked = keyboardShortcutBlocked(app);
   if (!app.preferencesWarning.empty()) {

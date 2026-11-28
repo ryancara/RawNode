@@ -27,6 +27,60 @@ bool heldPreviewInputBlocked(const App &app) {
          ImGui::IsKeyDown(ImGuiKey_Space);
 }
 
+void adjustHeldParameter(App &app, PreviewHeldAdjustment &held, const ScalarCommandOperand &operand,
+                         int arrowSteps, double wheelSteps) {
+  const auto &address = operand.address;
+  if (held.target && held.target->value.empty()) return;
+  const auto *node = held.target ? findNode(app, *held.target) : nullptr;
+  if (!held.target) {
+    if (arrowSteps == 0 && wheelSteps == 0) return;
+    node = resolveProcessor(app, address.processor);
+    held.target = node ? node->id : NodeId{};
+    app.shortcutFailure.clear();
+  }
+
+  const auto param = node ? scalarParameter(*node, address.parameterId) : std::nullopt;
+  const double step = operand.value ? *operand.value : param ? automaticStep(*param) : 0;
+  const bool integer = param && param->type == ParameterType::Integer;
+  std::string error;
+  if (!node) error = "Processor unavailable: " + address.processor.identifier;
+  else if (!param) error = "Editable scalar parameter unavailable: " + address.parameterId;
+  else if (step <= 0) error = "No automatic step for " + param->id + ". Enter an explicit step.";
+  else if (integer && std::trunc(step) != step) error = "An integer parameter requires a whole step.";
+  if (!error.empty()) {
+    held.target = NodeId{};
+    // Keep owning the controls until release, even though this target is gone.
+    if (app.parameterGesture && app.parameterGesture->heldAdjustment) finishParameterGesture(app, true);
+    app.shortcutFailure = std::move(error);
+    return;
+  }
+
+  if (integer) {
+    const double accumulated = held.integerWheelRemainder + wheelSteps;
+    wheelSteps = std::trunc(accumulated);
+    held.integerWheelRemainder = accumulated - wheelSteps;
+  }
+  const double steps = arrowSteps + wheelSteps;
+  if (steps == 0) return;
+  const auto value = scalarResult(*param, ScalarEdit::Adjust, steps * step, error);
+  if (!value) {
+    app.shortcutFailure = std::move(error);
+    return;
+  }
+  if (*value == param->value) return;
+  if (!setNodeParameterValue(app, node->id, param->id, *value)) {
+    app.shortcutFailure = "Could not adjust " + param->id;
+    return;
+  }
+  if (!app.parameterGesture) {
+    auto &gesture = app.parameterGesture.emplace();
+    gesture.photoPath = app.path;
+    gesture.node = node->id;
+    gesture.parameter = param->id;
+    gesture.heldAdjustment = true;
+  }
+}
+
 // Returns whether the held binding owns the Preview's vertical wheel.
 bool updateHeldPreviewAdjustment(App &app, bool canvasHovered) {
   if ((!canvasHovered && !ImGui::IsWindowFocused()) || heldPreviewInputBlocked(app)) {
@@ -49,6 +103,8 @@ bool updateHeldPreviewAdjustment(App &app, bool canvasHovered) {
   if (!app.previewHeldAdjustment)
     app.previewHeldAdjustment = PreviewHeldAdjustment{static_cast<ImGuiKey>(binding->trigger), std::nullopt};
 
+  // Preview runs before ordinary shortcut dispatch. Keyboard navigation is
+  // disabled, and earlier panels leave these arrows free in the idle context.
   const auto arrowStep = [](ImGuiKey key) {
     const bool pressed = ImGui::IsKeyPressed(key, ImGuiInputFlags_Repeat, ImGuiKeyOwner_NoOwner);
     // A frame-only lock leaves the key free for controls on the next frame.
@@ -58,9 +114,8 @@ bool updateHeldPreviewAdjustment(App &app, bool canvasHovered) {
   const int up = arrowStep(ImGuiKey_UpArrow);
   const int down = arrowStep(ImGuiKey_DownArrow);
   const double wheel = canvasHovered ? ImGui::GetIO().MouseWheel : 0;
-  if (wheel != 0)
-    ImGui::SetKeyOwner(ImGuiKey_MouseWheelY, ImGuiKeyOwner_NoOwner, ImGuiInputFlags_LockThisFrame);
-  adjustHeldParameter(app, std::get<ScalarCommandOperand>(binding->commands.front().operand),
+  adjustHeldParameter(app, *app.previewHeldAdjustment,
+                      std::get<ScalarCommandOperand>(binding->commands.front().operand),
                       up - down, wheel);
   return canvasHovered;
 }
@@ -69,12 +124,6 @@ bool updateHeldPreviewAdjustment(App &app, bool canvasHovered) {
 void finishHeldPreviewAdjustment(App &app) {
   app.previewHeldAdjustment.reset();
   if (app.parameterGesture && app.parameterGesture->heldAdjustment) finishParameterGesture(app, true);
-}
-
-void finishInterruptedHeldPreviewAdjustment(App &app) {
-  if (app.previewHeldAdjustment && (heldPreviewInputBlocked(app) ||
-                                    !ImGui::IsKeyDown(app.previewHeldAdjustment->key)))
-    finishHeldPreviewAdjustment(app);
 }
 }  // namespace ui
 

@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <cstdio>
-#include <initializer_list>
 
 namespace ui {
 namespace {
@@ -56,10 +55,11 @@ std::string describeCommands(const App &app, const CommandSequence &commands) {
       if (scalar->value) {
         char number[32];
         std::snprintf(number, sizeof number, "%.15g", *scalar->value);
-        description += step.kind == Command::SetValue ? " to " : " by ";
+        if (step.kind == Command::AdjustWhileHeld) description += ", step ";
+        else description += step.kind == Command::SetValue ? " to " : " by ";
         description += number;
       }
-      if (step.kind == Command::AdjustWhileHeld) description += " — Up/Down/Scroll";
+      if (step.kind == Command::AdjustWhileHeld) description += " - Up/Down/Scroll";
     }
   }
   return description;
@@ -103,26 +103,21 @@ void recordShortcut(App &app) {
 bool commandCombo(Command &selected, bool standalone) {
   bool changed = false;
   if (ImGui::BeginCombo("Command", commandInfo(selected).label, ImGuiComboFlags_HeightLarge)) {
-    const auto category = [&](const char *heading, std::initializer_list<Command> commands) {
-      ImGui::SeparatorText(heading);
-      for (const auto command : commands) {
-        if (ImGui::Selectable(commandInfo(command).label, selected == command,
-                              command == Command::AdjustWhileHeld && !standalone
-                                  ? ImGuiSelectableFlags_Disabled : ImGuiSelectableFlags_None)) {
-          selected = command;
-          changed = true;
-        }
+    std::string_view previousCategory;
+    for (int index = 0; index < static_cast<int>(Command::Count); ++index) {
+      const auto command = static_cast<Command>(index);
+      const auto &info = commandInfo(command);
+      if (previousCategory != info.category) {
+        ImGui::SeparatorText(info.category);
+        previousCategory = info.category;
       }
-    };
-    category("File", {Command::OpenImage, Command::OpenFolder, Command::Export});
-    category("Edit", {Command::Undo, Command::Redo, Command::CopyNode, Command::CopyFullGrade, Command::Paste});
-    category("View", {Command::Inspector, Command::Filmstrip});
-    category("Nodes", {Command::SelectPosition, Command::SelectNext, Command::SelectPrevious,
-                       Command::SelectProcessor, Command::ToggleNode});
-    category("Parameters", {Command::SetValue, Command::AdjustValue, Command::Increase, Command::Decrease,
-                            Command::ResetParameter, Command::AdjustWhileHeld});
-    category("Photographs", {Command::NextPhoto, Command::PreviousPhoto, Command::MarkPick,
-                             Command::MarkReject, Command::MarkUnmarked});
+      const auto flags = command == Command::AdjustWhileHeld && !standalone
+          ? ImGuiSelectableFlags_Disabled : ImGuiSelectableFlags_None;
+      if (ImGui::Selectable(info.label, selected == command, flags)) {
+        selected = command;
+        changed = true;
+      }
+    }
     ImGui::EndCombo();
   }
   return changed;

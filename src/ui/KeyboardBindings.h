@@ -13,43 +13,44 @@ namespace ui {
 enum class ApplicationCommand {
   // PR #135 actions through Filmstrip retain their standalone feedback.
   OpenImage, OpenFolder, Export, Undo, Redo, CopyNode, CopyFullGrade, Paste, Inspector, Filmstrip,
-  SelectPosition, SelectNext, SelectPrevious, SelectProcessor,
-  SetValue, AdjustValue, Increase, Decrease, ResetParameter, ToggleNode,
-  NextPhoto, PreviousPhoto, MarkPick, MarkReject, MarkUnmarked, AdjustWhileHeld, Count
+  SelectPosition, SelectNext, SelectPrevious, SelectProcessor, ToggleNode,
+  SetValue, AdjustValue, Increase, Decrease, ResetParameter, AdjustWhileHeld,
+  NextPhoto, PreviousPhoto, MarkPick, MarkReject, MarkUnmarked, Count
 };
 
 struct ApplicationCommandInfo {
   const char *id;
   const char *label;
+  const char *category;
 };
 
 inline constexpr ApplicationCommandInfo applicationCommands[] = {
-    {"open-image", "Open image"},
-    {"open-folder", "Open Folder"},
-    {"export", "Export"},
-    {"undo", "Undo"},
-    {"redo", "Redo"},
-    {"copy-node", "Copy Node"},
-    {"copy-full-grade", "Copy Full Grade"},
-    {"paste", "Paste"},
-    {"toggle-inspector", "Inspector"},
-    {"toggle-filmstrip", "Filmstrip"},
-    {"select-position", "Select Node by List Position"},
-    {"select-next", "Select Next Node"},
-    {"select-previous", "Select Previous Node"},
-    {"select-processor", "Select Processor"},
-    {"set-value", "Set Value"},
-    {"adjust-value", "Adjust by Amount"},
-    {"increase", "Increase by Automatic Step"},
-    {"decrease", "Decrease by Automatic Step"},
-    {"reset-parameter", "Reset Parameter"},
-    {"toggle-node", "Toggle Node"},
-    {"next-photo", "Next Photograph"},
-    {"previous-photo", "Previous Photograph"},
-    {"mark-pick", "Mark as Pick"},
-    {"mark-reject", "Mark as Reject"},
-    {"mark-unmarked", "Mark as Unmarked"},
-    {"adjust-while-held", "Adjust While Held"},
+    {"open-image", "Open image", "File"},
+    {"open-folder", "Open Folder", "File"},
+    {"export", "Export", "File"},
+    {"undo", "Undo", "Edit"},
+    {"redo", "Redo", "Edit"},
+    {"copy-node", "Copy Node", "Edit"},
+    {"copy-full-grade", "Copy Full Grade", "Edit"},
+    {"paste", "Paste", "Edit"},
+    {"toggle-inspector", "Inspector", "View"},
+    {"toggle-filmstrip", "Filmstrip", "View"},
+    {"select-position", "Select Node by List Position", "Nodes"},
+    {"select-next", "Select Next Node", "Nodes"},
+    {"select-previous", "Select Previous Node", "Nodes"},
+    {"select-processor", "Select Processor", "Nodes"},
+    {"toggle-node", "Toggle Node", "Nodes"},
+    {"set-value", "Set Value", "Parameters"},
+    {"adjust-value", "Adjust by Amount", "Parameters"},
+    {"increase", "Increase by Automatic Step", "Parameters"},
+    {"decrease", "Decrease by Automatic Step", "Parameters"},
+    {"reset-parameter", "Reset Parameter", "Parameters"},
+    {"adjust-while-held", "Adjust While Held", "Parameters"},
+    {"next-photo", "Next Photograph", "Photographs"},
+    {"previous-photo", "Previous Photograph", "Photographs"},
+    {"mark-pick", "Mark as Pick", "Photographs"},
+    {"mark-reject", "Mark as Reject", "Photographs"},
+    {"mark-unmarked", "Mark as Unmarked", "Photographs"},
 };
 
 inline const ApplicationCommandInfo &commandInfo(ApplicationCommand command) {

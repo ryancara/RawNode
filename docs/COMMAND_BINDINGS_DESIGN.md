@@ -40,9 +40,11 @@ With idle Preview focused or the pointer over its canvas, press and hold the ass
 
 The first adjustment resolves the selected matching processor or the first match in Nodes List order. The hold retains that node ID, leaves Graph/List selection intact, and continues to own the controls if resolution fails or the target becomes invalid. A new press is required to resolve again. The first eligible activator stays in control until the hold ends. A second activator needs a fresh press.
 
-Only a changed tick starts the existing parameter gesture. It writes through the scalar calculation and NodeGraph setter and leaves capture to gesture completion. Release, context interruptions and competing edits complete the gesture, as do Save Grade, saving a preset, photograph departure, export and teardown. History compares the completed grade with the current snapshot, giving mixed arrow and wheel input one Undo entry and a tap or net-unchanged hold none. Capture failure retains the live edits and the existing pending-history state.
+Only a changed tick starts the existing parameter gesture. It writes through the scalar calculation and NodeGraph setter and leaves capture to gesture completion. Release, context interruptions and competing edits complete the gesture, as do Save Grade, saving a preset, photograph departure, export and teardown. List and Graph complete the held edit before recording a deletion, so each operation has its own Undo step. History gives mixed arrow and wheel input one Undo entry when the final stored grade differs from the current snapshot. A tap or an exactly unchanged grade adds no entry. Opposing Double steps can leave a floating-point residual that counts as a change. Capture failure retains the live edits and the existing pending-history state.
 
 Preview consumes vertical wheel input for a hold before applying ordinary wheel zoom. Pinch continues through its existing path. Outside the idle context, graph and panel interactions, text and numeric controls, popups, and Space-to-pan continue to own their inputs. An interrupted hold needs a fresh key press.
+
+Preview locks adjustment arrows for the current frame before ordinary shortcut dispatch. ImGui keyboard navigation is disabled, and earlier panels leave these arrows free in the idle context.
 
 ## Preferences compatibility
 
@@ -55,6 +57,10 @@ The optional version-1 `keyboardBindings` array continues to store stable key an
 An Adjust While Held object uses the ID `adjust-while-held` and the same scalar address. The optional `step` field must be finite and positive. Omitting it selects the automatic step. The binding stores an empty `modifiers` array. Parameter eligibility and Integer step compatibility are checked against the resolved processor at use time.
 
 Missing bindings use the existing platform defaults and an empty array deliberately unbinds all. Invalid entries are skipped as a whole with a warning, the first valid conflicting assignment wins, and an entirely invalid nonempty array falls back to defaults. The temporary contextual assignments from draft PR #136 are covered by these validation rules. Saving uses the existing atomic preferences writer.
+
+## Scope
+
+MIDI, OSC, external hardware, scripting, specialised parameter types, custom node naming and multi-photo grade application remain outside these stages.
 
 ## Native desktop validation
 

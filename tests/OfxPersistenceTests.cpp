@@ -935,6 +935,15 @@ bool parameterGestureFrames(Plugin &plugin) {
   CHECK(integerValue() == ParameterValue(6) && app.history.size() == 1);
   press(ImGuiKey_E, false);
   CHECK(app.history.size() == 2 && app.history.undo(app) && integerValue() == ParameterValue(0));
+
+  app.keyboardBindings->front().commands.front() = scalar(Command::AdjustWhileHeld, "integer", .5);
+  press(ImGuiKey_E, true);
+  press(ImGuiKey_UpArrow, true); press(ImGuiKey_UpArrow, false);
+  wheel(2);
+  press(ImGuiKey_E, false);
+  CHECK(integerValue() == ParameterValue(0) && app.history.canRedo() && app.previewZoom == 1 &&
+        app.shortcutFailure == "An integer parameter requires a whole step.");
+
   press(ImGuiKey_C, true);
   wheel(-.75f);
   CHECK(integerValue() == ParameterValue(0)); // The previous fractional remainder ended with its hold.

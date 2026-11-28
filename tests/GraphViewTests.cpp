@@ -135,7 +135,7 @@ bool coordinateTransforms() {
 struct Ui {
   ImGuiContext *context = ImGui::CreateContext();
   ImVec2 listButton{}, graphButton{}, frameButton{}, canvasOrigin{}, canvasSize{};
-  bool showOtherPanel = false, showInspector = false;
+  bool showOtherPanel = false, showInspector = false, showPreview = false;
   ImGuiID inspectorLastItem = 0;
   ImGuiItemFlags inspectorItemFlags = 0;
   ImRect inspectorLastRect;
@@ -148,7 +148,7 @@ struct Ui {
     return ImGui::FindWindowByName("Inspector test")->GetID(label);
   }
   char text[32] = {};
-  ImVec2 textInput{}, otherButton{};
+  ImVec2 textInput{}, otherButton{}, previewPoint{};
   Ui() {
     auto &io = ImGui::GetIO(); io.IniFilename = nullptr;
     io.ConfigInputTrickleEventQueue = false;
@@ -160,7 +160,7 @@ struct Ui {
     auto &io = ImGui::GetIO(); io.DisplaySize = {1280, 800}; io.DeltaTime = 1.0f / 60;
     ImGui::NewFrame();
     ImGui::SetNextWindowPos({20, 20});
-    ImGui::SetNextWindowSize({(showOtherPanel || showInspector) ? 900.0f : nodesWidth, 680});
+    ImGui::SetNextWindowSize({(showOtherPanel || showInspector || showPreview) ? 900.0f : nodesWidth, 680});
     ImGui::Begin("Nodes test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoMove |
                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     const auto start = ImGui::GetCursorScreenPos(); const auto &style = ImGui::GetStyle();
@@ -202,6 +202,15 @@ struct Ui {
       textInput = {ImGui::GetItemRectMin().x + 20, ImGui::GetItemRectMin().y + 8};
       ImGui::Button("Focus other panel");
       otherButton = {ImGui::GetItemRectMin().x + 20, ImGui::GetItemRectMin().y + 8};
+      ImGui::End();
+    }
+    if (showPreview) {
+      ImGui::SetNextWindowPos({940, 20}); ImGui::SetNextWindowSize({300, 300});
+      ImGui::Begin("Preview test", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollbar |
+                   ImGuiWindowFlags_NoScrollWithMouse);
+      drawPreviewPanel(app, [](App &) {});
+      previewPoint = ImGui::GetItemRectMin();
+      previewPoint.x += 50; previewPoint.y += 50;
       ImGui::End();
     }
     ImGui::EndFrame();
@@ -1596,6 +1605,46 @@ bool listDeletionRulesAndViewSwitching() {
   return true;
 }
 
+bool deletionCompletesHeldAdjustment() {
+  for (const auto view : {NodesView::List, NodesView::Graph}) {
+    Ui ui; ui.showPreview = true;
+    App app; app.path = "held-then-delete.png"; app.nodesView = view;
+    app.tex = 1; app.texW = app.texH = 1;
+    CHECK(addNativeExposureNode(app)); const auto exposure = *app.selectedNodeId();
+    CHECK(addNativeCstNode(app)); const auto removed = *app.selectedNodeId();
+    const auto exposureValue = [&] {
+      return findNode(app, exposure)->processor->parameters().front().value;
+    };
+    ui::CommandStep held(ui::ApplicationCommand::AdjustWhileHeld);
+    held.operand = ui::ScalarCommandOperand{{{"native", "rawnode.native.exposure"}, "exposure"}, .25};
+    app.keyboardBindings = ui::KeyboardBindings{{ImGuiKey_E, {held}}};
+    ui.tick(app); ui.tick(app);
+    if (view == NodesView::List) ui.click(app, ui.listProcessorFromEnd());
+    else {
+      const auto pos = app.nodePositions.at(removed.value);
+      ui.click(app, ui.screen(app, {pos.x + 50, pos.y + 16}));
+    }
+    CHECK(app.selectedNodeId() == removed && app.history.reset(app));
+    ui.hover(app, ui.previewPoint);
+
+    auto &io = ImGui::GetIO();
+    io.AddKeyEvent(ImGuiKey_E, true); ui.tick(app);
+    key(ui, app, ImGuiKey_UpArrow);
+    CHECK(exposureValue() == ParameterValue(.25) && app.history.size() == 1 &&
+          app.history.hasUnrecordedEdit());
+    key(ui, app, view == NodesView::List ? ImGuiKey_Backspace : ImGuiKey_Delete);
+    CHECK(!findNode(app, removed) && !app.previewHeldAdjustment && !app.parameterGesture);
+    CHECK(app.history.size() == 3 && !app.history.hasUnrecordedEdit());
+    key(ui, app, ImGuiKey_UpArrow); // E is still down.
+    CHECK(exposureValue() == ParameterValue(.25) && !app.history.hasUnrecordedEdit());
+    io.AddKeyEvent(ImGuiKey_E, false); ui.tick(app);
+
+    CHECK(app.history.undo(app) && findNode(app, removed) && exposureValue() == ParameterValue(.25));
+    CHECK(app.history.undo(app) && findNode(app, removed) && exposureValue() == ParameterValue(0.0));
+  }
+  return true;
+}
+
 bool gestureEndpointLifecycle() {
   Ui ui; App app; app.path = "gesture-photo-a"; app.nodesView = NodesView::Graph;
   CHECK(addNativeExposureNode(app)); const auto a = *app.selectedNodeId();
@@ -1918,6 +1967,7 @@ bool testGraphView() {
        std::make_pair("List Delete/Backspace reuse splice, selection cleanup and render behaviour", listDeletionFrames),
        std::make_pair("List deletion focus, endpoints, protection, export, modifiers and held keys", listDeletionSafetyFrames),
        std::make_pair("List deletion refusal, disconnected consumers, view switches and X button", listDeletionRulesAndViewSwitching),
+       std::make_pair("List and Graph deletion finish held adjustment in a separate Undo step", deletionCompletesHeldAdjustment),
        std::make_pair("UI-only cancellation for removed endpoints, modifiers, views and photos", gestureEndpointLifecycle),
        std::make_pair("node/input menus close after same-photo Full Grade Paste reuses IDs, including macOS Ctrl+click", contextMenusAfterGradePaste),
        std::make_pair("edited wire topology and fractional positions save, switch and reopen", editedWirePhotoPersistence),

@@ -373,12 +373,16 @@ bool heldExposureInput() {
   arrow(ImGuiKey_UpArrow);
   CHECK(near(parameter(app, first, "exposure"), 7.1) && app.selectedNodeId() == mask);
   selectNode(app, second);
+  ui.key(app, ImGuiKey_C, true);
   wheel(.5f);
   CHECK(near(parameter(app, first, "exposure"), 7.15) && parameter(app, second, "exposure") == 0);
   CHECK(app.previewZoom == 1 && app.selectedNodeId() == second);
   CHECK(app.history.size() == before && app.history.hasUnrecordedEdit());
   ui.key(app, ImGuiKey_E, false);
   CHECK(app.history.size() == before + 1 && !app.parameterGesture && !app.history.hasUnrecordedEdit());
+  arrow(ImGuiKey_UpArrow); // C is already down and needs a fresh press.
+  CHECK(parameter(app, second, "exposure") == 0 && !app.previewHeldAdjustment);
+  ui.key(app, ImGuiKey_C, false);
   CHECK(app.history.undo(app) && parameter(app, first, "exposure") == 7 && app.selectedNodeId() == second);
   CHECK(app.history.redo(app) && near(parameter(app, first, "exposure"), 7.15));
   wheel(1);
@@ -416,6 +420,13 @@ bool heldExposureInput() {
   ui.press(app, centre); ui.release(app);
   arrow(ImGuiKey_DownArrow); ui.key(app, ImGuiKey_C, false);
   CHECK(parameter(app, second, "exposure") == 9.75);
+
+  ui.hover(app, ui.textPoint); // Preview retains focus from the click.
+  ui.key(app, ImGuiKey_C, true);
+  arrow(ImGuiKey_DownArrow);
+  wheel(1);
+  ui.key(app, ImGuiKey_C, false);
+  CHECK(parameter(app, second, "exposure") == 9.5 && app.history.size() == capped + 2);
   return true;
 }
 
@@ -502,6 +513,11 @@ bool heldOwnershipAndCommandBoundaries() {
   arrow();
   CHECK(app.history.size() == before + 2);
   const auto primary = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+  key(primary, true);
+  CHECK(!app.previewHeldAdjustment && !app.parameterGesture && app.history.size() == before + 3);
+  key(primary, false);
+  arrow(); // Releasing the modifier while E remains down cannot resume the hold.
+  CHECK(near(parameter(app, exposure, "exposure"), .2) && !app.previewHeldAdjustment);
   key(primary, true); key(ImGuiKey_E, false); key(ImGuiKey_E, true);
   CHECK(app.exportDialog.open && app.history.size() == before + 3 &&
         near(parameter(app, exposure, "exposure"), .2));
