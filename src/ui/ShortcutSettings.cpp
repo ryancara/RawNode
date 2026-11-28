@@ -35,9 +35,19 @@ std::string describeCommands(const App &app, const CommandSequence &commands) {
   std::string description;
   for (const auto &step : commands) {
     if (!description.empty()) description += " -> ";
-    description += commandInfo(step.kind).label;
+    switch (step.kind) {
+      case Command::SelectPosition: description += "Select node #"; break;
+      case Command::SelectProcessor: description += "Select"; break;
+      case Command::SetValue: description += "Set"; break;
+      case Command::AdjustValue:
+      case Command::AdjustWhileHeld: description += "Adjust"; break;
+      case Command::Increase: description += "Increase"; break;
+      case Command::Decrease: description += "Decrease"; break;
+      case Command::ResetParameter: description += "Reset"; break;
+      default: description += commandInfo(step.kind).label; break;
+    }
     if (const auto *position = std::get_if<int>(&step.operand)) {
-      description += " " + std::to_string(*position);
+      description += std::to_string(*position);
     } else if (const auto *identity = std::get_if<ProcessorIdentity>(&step.operand)) {
       description += " " + processorLabel(*identity, resolveProcessor(app, *identity));
     } else if (const auto *scalar = std::get_if<ScalarCommandOperand>(&step.operand)) {
@@ -45,9 +55,11 @@ std::string describeCommands(const App &app, const CommandSequence &commands) {
       if (scalar->value) {
         char number[32];
         std::snprintf(number, sizeof number, "%.15g", *scalar->value);
-        description += step.kind == Command::SetValue ? " to " : " by ";
+        if (step.kind == Command::AdjustWhileHeld) description += ", step ";
+        else description += step.kind == Command::SetValue ? " to " : " by ";
         description += number;
       }
+      if (step.kind == Command::AdjustWhileHeld) description += " - Up/Down/Scroll";
     }
   }
   return description;
@@ -77,6 +89,7 @@ void recordShortcut(App &app) {
     } else {
       const ImGuiKeyChord chord = key | ImGui::GetIO().KeyMods;
       window.shortcutFeedback = shortcutAssignmentError(effectiveKeyboardBindings(app), chord,
+                                                        window.draftBinding.invokes(Command::AdjustWhileHeld),
                                                         window.shortcutBeingEdited);
       if (window.shortcutFeedback.empty()) {
         window.draftBinding.trigger = chord;
@@ -87,12 +100,20 @@ void recordShortcut(App &app) {
   }
 }
 
-bool commandCombo(Command &selected) {
+bool commandCombo(Command &selected, bool standalone) {
   bool changed = false;
-  if (ImGui::BeginCombo("Command", commandInfo(selected).label)) {
+  if (ImGui::BeginCombo("Command", commandInfo(selected).label, ImGuiComboFlags_HeightLarge)) {
+    std::string_view previousCategory;
     for (int index = 0; index < static_cast<int>(Command::Count); ++index) {
       const auto command = static_cast<Command>(index);
-      if (ImGui::Selectable(commandInfo(command).label, selected == command)) {
+      const auto &info = commandInfo(command);
+      if (previousCategory != info.category) {
+        ImGui::SeparatorText(info.category);
+        previousCategory = info.category;
+      }
+      const auto flags = command == Command::AdjustWhileHeld && !standalone
+          ? ImGuiSelectableFlags_Disabled : ImGuiSelectableFlags_None;
+      if (ImGui::Selectable(info.label, selected == command, flags)) {
         selected = command;
         changed = true;
       }
@@ -136,8 +157,10 @@ void drawParameterPicker(const App &app, ParameterAddress &address) {
     }
     ImGui::EndCombo();
   }
-  drawProcessorFields(address.processor);
-  ImGui::InputText("Parameter ID", &address.parameterId);
+  if (ImGui::CollapsingHeader("Manual identifiers")) {
+    drawProcessorFields(address.processor);
+    ImGui::InputText("Parameter ID", &address.parameterId);
+  }
 }
 
 void drawOperand(const App &app, CommandStep &step) {
@@ -154,11 +177,20 @@ void drawOperand(const App &app, CommandStep &step) {
       }
       ImGui::EndCombo();
     }
-    drawProcessorFields(*identity);
+    if (ImGui::CollapsingHeader("Manual identifiers")) drawProcessorFields(*identity);
   } else if (auto *scalar = std::get_if<ScalarCommandOperand>(&step.operand)) {
     drawParameterPicker(app, scalar->address);
-    if (scalar->value)
+    if (step.kind == Command::AdjustWhileHeld) {
+      bool automatic = !scalar->value;
+      if (ImGui::Checkbox("Automatic step", &automatic)) {
+        if (automatic) scalar->value.reset();
+        else scalar->value = 1.0;
+      }
+      if (scalar->value) ImGui::InputDouble("Step", &*scalar->value, 0, 0, "%.15g");
+      ImGui::TextWrapped("Hold the key in idle Preview. Press Up or Down, or scroll vertically over the image.");
+    } else if (scalar->value) {
       ImGui::InputDouble(step.kind == Command::SetValue ? "Value" : "Signed amount", &*scalar->value, 0, 0, "%.15g");
+    }
   }
 }
 
@@ -167,7 +199,7 @@ void drawCommands(const App &app, CommandSequence &commands) {
     ImGui::PushID(static_cast<int>(i));
     auto &step = commands[i];
     auto kind = step.kind;
-    if (commandCombo(kind)) step = CommandStep(kind);
+    if (commandCombo(kind, commands.size() == 1)) step = CommandStep(kind);
     drawOperand(app, step);
     bool rearranged = false;
     if (commands.size() > 1) {
@@ -189,7 +221,8 @@ void drawCommands(const App &app, CommandSequence &commands) {
     ImGui::Separator();
     if (rearranged) break;
   }
-  if (ImGui::Button("Add command")) commands.emplace_back(Command::SelectNext);
+  if ((commands.empty() || commands.front().kind != Command::AdjustWhileHeld) && ImGui::Button("Add command"))
+    commands.emplace_back(Command::SelectNext);
 }
 
 void drawBindingEditor(App &app) {
@@ -215,8 +248,9 @@ void drawBindingEditor(App &app) {
   ImGui::EndDisabled();
 
   const auto &bindings = effectiveKeyboardBindings(app);
+  const bool held = draft.invokes(Command::AdjustWhileHeld);
   std::string error = !draft.trigger ? "Record a key or key combination."
-      : shortcutAssignmentError(bindings, draft.trigger, window.shortcutBeingEdited);
+      : shortcutAssignmentError(bindings, draft.trigger, held, window.shortcutBeingEdited);
   if (draft.trigger && error.empty()) error = sequenceError(draft.commands);
   if (window.recordingShortcut)
     ImGui::TextWrapped("%s", window.shortcutFeedback.empty() ? "Press a key or chord. Escape stops recording."
@@ -264,7 +298,9 @@ void drawShortcutSettings(App &app) {
       ImGui::TableNextRow();
       ImGui::TableNextColumn();
       ImGui::AlignTextToFramePadding();
-      ImGui::TextUnformatted(shortcutLabel(binding.trigger, mac).c_str());
+      const auto input = shortcutLabel(binding.trigger, mac) +
+                         (binding.invokes(Command::AdjustWhileHeld) ? " (held)" : "");
+      ImGui::TextUnformatted(input.c_str());
       if (ImGui::TableNextColumn()) {
         ImGui::AlignTextToFramePadding();
         ImGui::TextWrapped("%s", describeCommands(app, binding.commands).c_str());

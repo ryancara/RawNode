@@ -261,6 +261,49 @@ bool typedBindingRoundTrip() {
   return true;
 }
 
+bool heldBindingRoundTrip() {
+  using Command = ui::ApplicationCommand;
+  Files files;
+  const auto path = files.path("held-commands.json");
+  const std::string exposure = R"({"id":"adjust-while-held","backend":"native","processor":"rawnode.native.exposure","parameter":"exposure"})";
+  write(path, "{" + header + R"(,"keyboardBindings":[
+    {"key":"E","modifiers":[],"commands":[)" + exposure + R"(]},
+    {"key":"E","modifiers":[],"commands":["undo"]},
+    {"key":"E","modifiers":["primary"],"commands":["export"]},
+    {"key":"C","modifiers":[],"commands":[{"id":"adjust-while-held","backend":"ctl","processor":"contrast.ctl","parameter":"contrast","step":0.125}]},
+    {"key":"F9","modifiers":[],"commands":["redo"]},
+    {"key":"F9","modifiers":[],"commands":[)" + exposure + R"(]},
+    {"key":"V","modifiers":["shift"],"commands":[)" + exposure + R"(]},
+    {"key":"DownArrow","modifiers":[],"commands":[)" + exposure + R"(]},
+    {"key":"G","modifiers":[],"commands":[)" + exposure + R"(,"undo"]},
+    {"key":"I","modifiers":[],"commands":[{"id":"adjust-while-held","backend":"ctl","processor":"look.ctl","parameter":"gain","step":0}]},
+    {"key":"J","modifiers":[],"commands":[{"id":"adjust-while-held","backend":"ctl","processor":"look.ctl","parameter":"gain","step":"1"}]}
+  ]})");
+  Preferences preferences;
+  std::string warning;
+  CHECK(loadPreferences(path, preferences, warning));
+  for (int entry : {2, 6, 7, 8, 9, 10, 11})
+    CHECK(warning.find("entry " + std::to_string(entry) + ":") != std::string::npos);
+  for (int read = 0; read < 2; ++read) {
+    CHECK(preferences.keyboardBindings && preferences.keyboardBindings->size() == 4);
+    const auto &bindings = *preferences.keyboardBindings;
+    CHECK(bindings[0].trigger == ImGuiKey_E && bindings[0].invokes(Command::AdjustWhileHeld));
+    const auto &automatic = std::get<ui::ScalarCommandOperand>(bindings[0].commands.front().operand);
+    CHECK(!automatic.value && automatic.address.parameterId == "exposure");
+    CHECK(bindings[1].trigger == (ImGuiMod_Ctrl | ImGuiKey_E) && bindings[1].invokes(Command::Export));
+    CHECK(bindings[2].trigger == ImGuiKey_C && bindings[2].invokes(Command::AdjustWhileHeld));
+    const auto &manual = std::get<ui::ScalarCommandOperand>(bindings[2].commands.front().operand);
+    CHECK(manual.value == .125 && manual.address.processor.backend == "ctl" &&
+          manual.address.processor.identifier == "contrast.ctl" && manual.address.parameterId == "contrast");
+    CHECK(bindings[3].trigger == ImGuiKey_F9 && bindings[3].invokes(Command::Redo));
+    if (read == 0) {
+      CHECK(savePreferences(path, preferences, warning));
+      CHECK(loadPreferences(path, preferences, warning) && warning.empty());
+    }
+  }
+  return true;
+}
+
 bool nodesViewPreference() {
   Files files;
   const auto path = files.path("preferences.json");
@@ -819,6 +862,26 @@ bool keyboardShortcutSettings() {
   frame(ImHashStr("Remove", 0, rows->GetID(0))); frame();
   frame(editor->GetID("Save")); frame();
   CHECK(app.keyboardBindings->front().trigger == ImGuiKey_F9 && app.keyboardBindings->front().invokes(Command::Increase));
+
+  CHECK(edit(settings->GetID("Add binding")) == editor);
+  CHECK(chooseCommand(0, "Adjust While Held"));
+  CHECK(draft.commands.size() == 1 && draft.invokes(Command::AdjustWhileHeld));
+  frame(ImHashStr("Parameter in grade", 0, rows->GetID(0))); frame();
+  CHECK(combo->Active);
+  frame(ImHashStr("Exposure (native) / Exposure", 0, parameterId)); frame();
+  frame(editor->GetID("Record key"));
+  key(ImGuiKey_E, true);
+  CHECK(app.settingsWindow.recordingShortcut && draft.trigger == 0);
+  key(ImGuiKey_E);
+  CHECK(!app.settingsWindow.recordingShortcut && draft.trigger == ImGuiKey_E);
+  frame(editor->GetID("Save")); frame();
+  CHECK(app.keyboardBindings->size() == 2 && app.keyboardBindings->back().invokes(Command::AdjustWhileHeld));
+  CHECK(edit(rowButton(ImGuiKey_E, "Edit")) == editor);
+  frame(ImHashStr("Automatic step", 0, rows->GetID(0))); frame();
+  frame(editor->GetID("Save")); frame();
+  CHECK(std::get<ui::ScalarCommandOperand>(app.keyboardBindings->back().commands.front().operand).value == 1.0);
+  frame(rowButton(ImGuiKey_E, "Remove")); frame();
+  CHECK(app.keyboardBindings->size() == 1 && app.keyboardBindings->front().invokes(Command::Increase));
   return true;
 }
 
@@ -913,6 +976,7 @@ bool testPreferences() {
   for (const auto &test : {
        std::make_pair("codec, optional fields and pair fallbacks", codecAndOptionalFields),
        std::make_pair("typed keyboard commands and malformed sequence isolation", typedBindingRoundTrip),
+       std::make_pair("held binding steps, conflicts and version-one round trip", heldBindingRoundTrip),
        std::make_pair("keyboard defaults match the base revision", defaultKeyboardBindings),
        std::make_pair("keyboard binding preference compatibility, recovery and restart", keyboardBindingsLifecycle),
        std::make_pair("keyboard binding Settings editing, capture, conflicts and restore", keyboardShortcutSettings),

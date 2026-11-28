@@ -3,6 +3,7 @@
 #include "AppState.h"
 #include "NodeGraph.h"
 #include "GraphCommands.h"
+#include "ui/PreviewInteraction.h"
 
 #include "imgui.h"
 
@@ -475,8 +476,10 @@ void drawGraphCanvas(App &app) {
   ImGui::EndChild();
   finishGraphDrag(app);
   // All frame-local geometry borrows live nodes. Dispatch after drawing/menus.
-  if (remove && app.renderer.canEditParameters()) destroyNode(app, *remove);
-  else if (enable && app.renderer.canEditParameters()) setNodeEnabled(app, enable->first, enable->second);
+  if (remove && app.renderer.canEditParameters()) {
+    finishHeldPreviewAdjustment(app);
+    destroyNode(app, *remove);
+  } else if (enable && app.renderer.canEditParameters()) setNodeEnabled(app, enable->first, enable->second);
   else if (drop) commitWire(app, drop->first, drop->second);
   else if (disconnect && app.renderer.canEditParameters()) {
     const auto result = graph::disconnect(app, *disconnect);

@@ -87,9 +87,15 @@ bool finishParameterGesture(App &app, bool force) {
     app.parameterGesture.reset();
     return false;
   }
-  const auto &context = *ImGui::GetCurrentContext();
-  if (!force && !ImGui::GetIO().AppFocusLost && context.ActiveId == app.parameterGesture->item &&
-      context.ActiveIdIsAlive == app.parameterGesture->item) return false;
+  if (!force) {
+    if (app.parameterGesture->heldAdjustment) {
+      if (app.previewHeldAdjustment) return false;
+    } else {
+      const auto &context = *ImGui::GetCurrentContext();
+      if (!ImGui::GetIO().AppFocusLost && context.ActiveId == app.parameterGesture->item &&
+          context.ActiveIdIsAlive == app.parameterGesture->item) return false;
+    }
+  }
   // Export can start while a widget is losing focus. Complete once it releases
   // execution, without repeatedly attempting capture or changing export status.
   if (!app.renderer.canCaptureSnapshot()) return false;

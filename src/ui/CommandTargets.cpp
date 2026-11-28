@@ -79,7 +79,7 @@ bool editableScalar(const ProcessorParameter &param, const std::vector<Processor
   return true;
 }
 
-static std::optional<ProcessorParameter> scalarParameter(const Node &node, const std::string &id) {
+std::optional<ProcessorParameter> scalarParameter(const Node &node, const std::string &id) {
   if (!node.processor) return std::nullopt;
   const auto params = node.processor->parameters();
   for (const auto &param : params)
@@ -87,7 +87,7 @@ static std::optional<ProcessorParameter> scalarParameter(const Node &node, const
   return std::nullopt;
 }
 
-static double automaticStep(const ProcessorParameter &param) {
+double automaticStep(const ProcessorParameter &param) {
   if (param.type == ParameterType::Integer) {
     return param.step > 0 && param.step <= std::numeric_limits<int>::max() &&
            std::trunc(param.step) == param.step ? param.step : 1;
@@ -98,8 +98,8 @@ static double automaticStep(const ProcessorParameter &param) {
   return std::isfinite(step) && step > 0 ? step : 0;
 }
 
-static std::optional<ParameterValue> scalarResult(const ProcessorParameter &param, ScalarEdit edit,
-                                                   double amount, std::string &error) {
+std::optional<ParameterValue> scalarResult(const ProcessorParameter &param, ScalarEdit edit,
+                                           double amount, std::string &error) {
   const bool integer = param.type == ParameterType::Integer;
   if (edit == ScalarEdit::Increase || edit == ScalarEdit::Decrease) {
     amount = automaticStep(param);
@@ -166,4 +166,5 @@ bool editCommandParameter(App &app, const ScalarCommandOperand &operand, ScalarE
   }
   return editScalarParameter(app, *node, operand.address.parameterId, edit, operand.value.value_or(0.0), error);
 }
+
 }  // namespace ui

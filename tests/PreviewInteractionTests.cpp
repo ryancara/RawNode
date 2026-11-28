@@ -9,7 +9,9 @@
 #include "RenderPipeline.h"
 #include "RenderRuntimeTestAccess.h"
 #include "persist/DocumentActions.h"
+#include "persist/DocumentActionsPriv.h"
 #include "ui/ParamWidgets.h"
+#include "ui/DockLayout.h"
 #include "ui/UiContext.h"
 #include "imgui_internal.h"
 
@@ -334,6 +336,192 @@ bool ownershipAndZoom() {
   ui.key(app, ImGuiKey_Space, true); ui.press(app, empty);
   ui.hover(app, {empty.x + 25, empty.y + 25}); ui.release(app); ui.key(app, ImGuiKey_Space, false);
   CHECK(app.previewPanX == 25 && app.previewPanY == 25);
+  return true;
+}
+
+ui::CommandStep heldExposure(std::optional<double> step = std::nullopt) {
+  ui::CommandStep command(ui::ApplicationCommand::AdjustWhileHeld);
+  command.operand = ui::ScalarCommandOperand{{{"native", "rawnode.native.exposure"}, "exposure"}, step};
+  return command;
+}
+
+bool heldExposureInput() {
+  App app; Ui ui; CHECK(fixture(app));
+  const auto mask = *app.selectedNodeId();
+  const NodeId first = app.documentOutput.nodeId;
+  selectOutput(app); CHECK(addNativeExposureNode(app));
+  const auto second = *app.selectedNodeId();
+  CHECK(setNodeParameterValue(app, first, "exposure", 7.0));
+  app.history.reset(app);
+  const auto before = app.history.size();
+  app.keyboardBindings = ui::KeyboardBindings{{ImGuiKey_E, {heldExposure()}},
+                                              {ImGuiKey_C, {heldExposure(.25)}}};
+  auto &io = ImGui::GetIO();
+  const auto wheel = [&](float delta) { io.AddMouseWheelEvent(0, delta); ui.tick(app); };
+  const auto arrow = [&](ImGuiKey key) { ui.key(app, key, true); ui.key(app, key, false); };
+  ui.tick(app); ui.tick(app);
+  const auto centre = ui.canvas.GetCenter();
+  ui.hover(app, centre);
+
+  ui.key(app, ImGuiKey_E, true);
+  ui.key(app, ImGuiKey_E, false);
+  CHECK(app.history.size() == before && app.selectedNodeId() == second &&
+        !app.parameterGesture && !app.history.hasUnrecordedEdit());
+
+  ui.key(app, ImGuiKey_E, true);
+  selectNode(app, mask); // Selection at the first input determines the target.
+  arrow(ImGuiKey_UpArrow);
+  CHECK(near(parameter(app, first, "exposure"), 7.1) && app.selectedNodeId() == mask);
+  selectNode(app, second);
+  ui.key(app, ImGuiKey_C, true);
+  wheel(.5f);
+  CHECK(near(parameter(app, first, "exposure"), 7.15) && parameter(app, second, "exposure") == 0);
+  CHECK(app.previewZoom == 1 && app.selectedNodeId() == second);
+  CHECK(app.history.size() == before && app.history.hasUnrecordedEdit());
+  ui.key(app, ImGuiKey_E, false);
+  CHECK(app.history.size() == before + 1 && !app.parameterGesture && !app.history.hasUnrecordedEdit());
+  arrow(ImGuiKey_UpArrow); // C is already down and needs a fresh press.
+  CHECK(parameter(app, second, "exposure") == 0 && !app.previewHeldAdjustment);
+  ui.key(app, ImGuiKey_C, false);
+  CHECK(app.history.undo(app) && parameter(app, first, "exposure") == 7 && app.selectedNodeId() == second);
+  CHECK(app.history.redo(app) && near(parameter(app, first, "exposure"), 7.15));
+  wheel(1);
+  CHECK(near(app.previewZoom, 1.1));
+
+  ui.key(app, ImGuiKey_C, true);
+  ui.key(app, ImGuiKey_DownArrow, true);
+  CHECK(parameter(app, second, "exposure") == -.25);
+  for (int i = 0; i < 30; ++i) ui.tick(app);
+  CHECK(parameter(app, second, "exposure") < -.25 && app.history.size() == before + 1);
+  ui.key(app, ImGuiKey_DownArrow, false);
+  const auto repeated = parameter(app, second, "exposure");
+  io.AddFocusEvent(false); ui.tick(app);
+  CHECK(app.history.size() == before + 2 && !app.parameterGesture && !app.previewHeldAdjustment);
+  io.AddFocusEvent(true); ui.tick(app);
+  arrow(ImGuiKey_UpArrow);
+  CHECK(parameter(app, second, "exposure") == repeated);
+
+  CHECK(setNodeParameterValue(app, second, "exposure", 10.0));
+  app.history.recordCompletedEdit(app);
+  const auto capped = app.history.size();
+  ui.key(app, ImGuiKey_E, true); wheel(4); arrow(ImGuiKey_UpArrow);
+  ui.key(app, ImGuiKey_E, false);
+  CHECK(parameter(app, second, "exposure") == 10 && app.history.size() == capped);
+  ui.key(app, ImGuiKey_C, true); arrow(ImGuiKey_DownArrow); arrow(ImGuiKey_UpArrow);
+  ui.key(app, ImGuiKey_C, false);
+  CHECK(parameter(app, second, "exposure") == 10 && app.history.size() == capped);
+
+  ui.otherControls = true; ui.tick(app); ui.tick(app); ui.hover(app, centre);
+  ui.key(app, ImGuiKey_C, true);
+  arrow(ImGuiKey_DownArrow);
+  ui.press(app, ui.textPoint); ui.release(app);
+  io.AddInputCharacter('x'); ui.tick(app);
+  CHECK(std::string(ui.text) == "x" && app.history.size() == capped + 1 && !app.previewHeldAdjustment);
+  ui.press(app, centre); ui.release(app);
+  arrow(ImGuiKey_DownArrow); ui.key(app, ImGuiKey_C, false);
+  CHECK(parameter(app, second, "exposure") == 9.75);
+
+  ui.hover(app, ui.textPoint); // Preview retains focus from the click.
+  ui.key(app, ImGuiKey_C, true);
+  arrow(ImGuiKey_DownArrow);
+  wheel(1);
+  ui.key(app, ImGuiKey_C, false);
+  CHECK(parameter(app, second, "exposure") == 9.5 && app.history.size() == capped + 2);
+  return true;
+}
+
+bool heldSaveAndDeparture() {
+  Files files;
+  App app; Ui ui;
+  const auto photo = files.path("held.png");
+  const auto next = files.path("next.png");
+  Image source; source.w = source.h = 1; source.px = {.25f, .5f, .75f, 1};
+  const ColorEncoding linear{RgbGamut::Rec709, TransferFunction::Linear};
+  CHECK(writeImage(source, photo, linear) && writeImage(source, next, linear));
+  CHECK(openPath(app, photo) && addNativeExposureNode(app));
+  const auto exposure = *app.selectedNodeId();
+  const auto before = app.history.size();
+  app.keyboardBindings = ui::KeyboardBindings{{ImGuiKey_E, {heldExposure(.25)}}};
+  ui.tick(app); ui.tick(app); ui.hover(app, ui.canvas.GetCenter());
+  const auto step = [&] {
+    ui.key(app, ImGuiKey_E, true);
+    ui.key(app, ImGuiKey_UpArrow, true); ui.key(app, ImGuiKey_UpArrow, false);
+  };
+  step();
+  const auto preset = files.path("held.rawnode.json");
+  CHECK(app.history.size() == before && savePresetDialog(app, preset));
+  CHECK(!app.parameterGesture && app.history.size() == before + 1 && std::filesystem::exists(preset));
+  ui.key(app, ImGuiKey_E, false);
+  step();
+  CHECK(app.history.size() == before + 1 && parameter(app, exposure, "exposure") == .5);
+  bool completedBeforeSave = false;
+  document_detail::ActionTestOptions options;
+  options.beforeSave = [&] {
+    completedBeforeSave = !app.parameterGesture && app.history.size() == before + 2;
+    return persist_detail::FileFault::None;
+  };
+  CHECK(openDroppedPhoto(app, next, {}, options) && completedBeforeSave && app.path == next);
+  return true;
+}
+
+bool heldOwnershipAndCommandBoundaries() {
+  using Command = ui::ApplicationCommand;
+  App app; Ui ui; CHECK(fixture(app));
+  const NodeId exposure = app.documentOutput.nodeId;
+  auto missing = heldExposure();
+  std::get<ui::ScalarCommandOperand>(missing.operand).address.parameterId = "missing";
+  app.keyboardBindings = ui::KeyboardBindings{{ImGuiKey_E, {heldExposure()}},
+      {ImGuiKey_C, {missing}}, {ImGuiKey_UpArrow, {Command::Filmstrip}},
+      {ImGuiMod_Ctrl | ImGuiKey_E, {Command::Export}}, {ImGuiKey_F9, {Command::ToggleNode}}};
+  app.showRight = app.showNodes = false;
+  app.tex = 1; app.texW = app.full.w; app.texH = app.full.h;
+  auto &io = ImGui::GetIO();
+  const auto frame = [&] {
+    io.DisplaySize = {1400, 900}; io.DeltaTime = 1.0f / 60;
+    ImGui::NewFrame(); DrawUiFrame(app); ImGui::EndFrame();
+  };
+  const auto key = [&](ImGuiKey key, bool down) { io.AddKeyEvent(key, down); frame(); };
+  const auto arrow = [&] { key(ImGuiKey_UpArrow, true); key(ImGuiKey_UpArrow, false); };
+  frame(); frame();
+  const auto *preview = ImGui::FindWindowByName(DockLayout::kPreview);
+  CHECK(preview);
+  const auto centre = preview->InnerRect.GetCenter();
+  io.AddMousePosEvent(centre.x, centre.y); frame();
+
+  const auto before = app.history.size();
+  key(ImGuiKey_C, true);
+  arrow();
+  io.AddMouseWheelEvent(0, 1); frame();
+  CHECK(app.showFilmstrip && app.previewZoom == 1 &&
+        app.shortcutFailure.find("missing") != std::string::npos && app.history.size() == before);
+  key(ImGuiKey_C, false);
+  arrow();
+  CHECK(!app.showFilmstrip);
+
+  key(ImGuiKey_E, true);
+  arrow();
+  CHECK(near(parameter(app, exposure, "exposure"), .1) && app.history.size() == before);
+  key(ImGuiKey_F9, true); key(ImGuiKey_F9, false);
+  CHECK(app.history.size() == before + 2 && !app.previewHeldAdjustment &&
+        !findNode(app, *app.selectedNodeId())->enabled);
+  arrow();
+  CHECK(near(parameter(app, exposure, "exposure"), .1));
+  key(ImGuiKey_E, false);
+
+  key(ImGuiKey_E, true);
+  // The preceding bare arrow enabled the Filmstrip again.
+  arrow();
+  CHECK(app.history.size() == before + 2);
+  const auto primary = io.ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+  key(primary, true);
+  CHECK(!app.previewHeldAdjustment && !app.parameterGesture && app.history.size() == before + 3);
+  key(primary, false);
+  arrow(); // Releasing the modifier while E remains down cannot resume the hold.
+  CHECK(near(parameter(app, exposure, "exposure"), .2) && !app.previewHeldAdjustment);
+  key(primary, true); key(ImGuiKey_E, false); key(ImGuiKey_E, true);
+  CHECK(app.exportDialog.open && app.history.size() == before + 3 &&
+        near(parameter(app, exposure, "exposure"), .2));
+  key(ImGuiKey_E, false); key(primary, false);
   return true;
 }
 
@@ -976,9 +1164,11 @@ bool sameSizeBackends() {
   { std::ofstream script(path); script <<
       "void main(input varying float rIn,input varying float gIn,input varying float bIn,"
       "output varying float rOut,output varying float gOut,output varying float bOut,"
-      "output varying float aOut,input varying float aIn=1.0)"
-      "{rOut=rIn;gOut=gIn;bOut=bIn;aOut=aIn;}\n"; }
-  selectOutput(app); CHECK(addCtlNode(app,path)); selectNode(app,mask); ui.tick(app);
+      "output varying float aOut,input varying float aIn=1.0,input uniform float gain=1.0)"
+      "{rOut=rIn*gain;gOut=gIn*gain;bOut=bIn*gain;aOut=aIn;}\n"; }
+  selectOutput(app); CHECK(addCtlNode(app,path));
+  const auto ctl = *app.selectedNodeId();
+  selectNode(app,mask); ui.tick(app);
   CHECK(ui::radialPlacement(app).mapping == CoordinateMapping::identity());
   // Resolution changes preserve normalized placement and use the new texture's
   // actual dimensions. Pan/zoom do not change graph placement or saved geometry.
@@ -991,6 +1181,22 @@ bool sameSizeBackends() {
   const float size = ui.view.size.x;
   ui.drag(app,PreviewDrag::Centre,{size/8,0});
   CHECK(near(parameter(app,mask,"centreX"),before+.125));
+
+  auto adjustment = heldExposure();
+  auto &operand = std::get<ui::ScalarCommandOperand>(adjustment.operand);
+  operand.address = {{"ctl", findNode(app, ctl)->processor->identifier()}, "gain"};
+  app.keyboardBindings = ui::KeyboardBindings{{ImGuiKey_E, {adjustment}}};
+  ui.key(app, ImGuiKey_E, true);
+  ImGui::GetIO().AddMouseWheelEvent(0, 1); ui.tick(app);
+  CHECK(parameter(app, ctl, "gain") == 1 && app.previewZoom == 2 &&
+        app.shortcutFailure.find("No automatic step") != std::string::npos);
+  ui.key(app, ImGuiKey_E, false);
+  operand.value = .25;
+  app.keyboardBindings->front().commands.front() = adjustment;
+  ui.key(app, ImGuiKey_E, true);
+  ImGui::GetIO().AddMouseWheelEvent(0, .5f); ui.tick(app);
+  ui.key(app, ImGuiKey_E, false);
+  CHECK(parameter(app, ctl, "gain") == 1.125 && app.previewZoom == 2 && app.selectedNodeId() == mask);
   return true;
 }
 
@@ -1002,7 +1208,8 @@ bool testPreviewInteraction() {
       !liveWorkerHandleDrag(true,false,true) || !liveWorkerHandleDrag(false,false,false,true) ||
       !liveWorkerHandleDrag(true,false,true,true) || !liveWorkerIdleCaptures() || !previewDemandRequests() ||
       !mappingsAndOverlap() || !collapsedRadiusRecovery() || !editsAndHistory() || !doubleClicks() ||
-      !ownershipAndZoom() || !interruptionsAndAlignment() ||
+      !ownershipAndZoom() || !heldExposureInput() || !heldOwnershipAndCommandBoundaries() || !heldSaveAndDeparture() ||
+      !interruptionsAndAlignment() ||
       !savedGeometryAndPixels() || !affineGeometryAndDrag() || !sharedPlacementAndPublication() || !runtimeGenerationPairing()) return false;
   std::printf("ok  Preview mappings, Radial handles, mouse ownership, history and interruptions\n");
   return true;

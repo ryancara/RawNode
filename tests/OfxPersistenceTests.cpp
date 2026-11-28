@@ -905,6 +905,61 @@ bool parameterGestureFrames(Plugin &plugin) {
   CHECK(parameter(*findNode(app, duplicate), "visiblePersistent").value == ParameterValue(0.75));
   CHECK(parameter(*findNode(app, exposure), "exposure").value == ParameterValue(7.1));
   CHECK(app.history.undo(app) && parameter(*findNode(app, exposure), "exposure").value == ParameterValue(7.0));
+
+  auto &io = ImGui::GetIO();
+  io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableKeyboard;
+  app.tex = 1; app.texW = app.texH = 1;
+  app.keyboardBindings = ui::KeyboardBindings{
+      {ImGuiKey_E, {scalar(Command::AdjustWhileHeld, "integer", 3)}},
+      {ImGuiKey_C, {scalar(Command::AdjustWhileHeld, "integer")}}};
+  const auto frame = [&] {
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos({20, 20}); ImGui::SetNextWindowSize({600, 700});
+    ImGui::Begin("OFX persistence Preview", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    drawPreviewPanel(app, [](App &) {});
+    ImGui::End();
+    ImGui::EndFrame();
+  };
+  const auto wheel = [&](float delta) { io.AddMouseWheelEvent(0, delta); frame(); };
+  const auto press = [&](ImGuiKey key, bool down) { io.AddKeyEvent(key, down); frame(); };
+  const auto integerValue = [&] { return parameter(*findNode(app, duplicate), "integer").value; };
+  CHECK(selectNode(app, duplicate) && integerValue() == ParameterValue(0) && app.history.reset(app));
+  frame();
+  io.AddMousePosEvent(320, 370); frame();
+  press(ImGuiKey_E, true);
+  wheel(.75f);
+  CHECK(integerValue() == ParameterValue(0) && app.previewZoom == 1);
+  press(ImGuiKey_UpArrow, true); press(ImGuiKey_UpArrow, false);
+  CHECK(integerValue() == ParameterValue(3));
+  wheel(.5f);
+  CHECK(integerValue() == ParameterValue(6) && app.history.size() == 1);
+  press(ImGuiKey_E, false);
+  CHECK(app.history.size() == 2 && app.history.undo(app) && integerValue() == ParameterValue(0));
+
+  app.keyboardBindings->front().commands.front() = scalar(Command::AdjustWhileHeld, "integer", .5);
+  press(ImGuiKey_E, true);
+  press(ImGuiKey_UpArrow, true); press(ImGuiKey_UpArrow, false);
+  wheel(2);
+  press(ImGuiKey_E, false);
+  CHECK(integerValue() == ParameterValue(0) && app.history.canRedo() && app.previewZoom == 1 &&
+        app.shortcutFailure == "An integer parameter requires a whole step.");
+
+  press(ImGuiKey_C, true);
+  wheel(-.75f);
+  CHECK(integerValue() == ParameterValue(0)); // The previous fractional remainder ended with its hold.
+  wheel(-.25f);
+  CHECK(integerValue() == ParameterValue(-1));
+  wheel(-200);
+  CHECK(integerValue() == ParameterValue(-100));
+  auto *instance = static_cast<OfxProcessor *>(findNode(app, duplicate)->processor.get())->effect();
+  properties().propSetInt(H(&findParam(instance, "integer")->props), kOfxParamPropEnabled, 0, 0);
+  frame();
+  CHECK(app.history.size() == 2 && !app.parameterGesture);
+  selectNode(app, id);
+  wheel(1);
+  CHECK(parameter(*findNode(app, id), "integer").value == ParameterValue(0) &&
+        app.selectedNodeId() == id && app.previewZoom == 1);
+  press(ImGuiKey_C, false);
   plugin.syncCacheOnCapture = false;
   std::puts("ok  OFX ImGui gestures: string/vector/numeric/choice/bool/reset/button grouping, one sync at completion, metadata exclusion");
   return true;

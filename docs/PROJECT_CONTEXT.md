@@ -448,7 +448,8 @@ button even without a folder or visible thumbnail; protected opening leaves it
 Unknown. Failed saves/navigation never change the selected mark. A single-row
 filmstrip toolbar and inline mark-warning tooltip preserve thumbnail space at
 the unchanged default height. Unknown sidecars remain distinct from Unmarked.
-Configurable input bindings and multi-photo operations are separate milestones.
+Configurable commands invoke the same marking actions. Multi-photo grade
+application is a separate milestone.
 See [photo marking](PHOTO_MARKING.md) for scope and validation.
 
 Filmstrip multi-photo selection is merged as PR #115, independently of
@@ -590,7 +591,7 @@ management system.
 Photo sidecars own each photograph's complete grade, colour settings and photo
 metadata. Global application preferences own theme, dock/window layout, export
 defaults, default RAW working/Output settings, the preset root, its default
-preset selection, the CTL scripts directory and keyboard shortcut assignments.
+preset selection, the CTL scripts directory and keyboard bindings.
 Future DCTL/OFX locations and additional input mappings belong to this same
 scope when implemented. There are no competing folder-level RAW defaults.
 
@@ -904,14 +905,17 @@ compositing or alpha-carrying I/O requires it.
 ## Near-term roadmap
 
 **File → Settings…** configures the optional preset and CTL roots for the Preset
-Panel and the Add Processor picker. Its **Keyboard Shortcuts** section lists
-assignments by input. A binding can invoke a single action or ordered commands,
-including photograph marking/navigation, explicit node selection and direct
-scalar parameter edits. Scalar edits keep the current Graph/List selection.
-Assignments use global preferences and existing action and Undo boundaries.
-PR 3 plans standalone Adjust While Held bindings for arrow and vertical wheel
-adjustments in the idle Preview. See the [command bindings design](COMMAND_BINDINGS_DESIGN.md). Multi-photo
-grade/preset application remains a separate workflow in the
+Panel and the Add Processor picker. The configurable command bindings milestone
+is implemented across PRs #135–137. **Keyboard Shortcuts** lists conventional
+shortcuts, ordered command sequences and standalone **Adjust While Held** bindings
+by keyboard input. Sequences can mark or navigate photographs, explicitly select
+nodes and edit scalar parameters. Scalar edits keep the current Graph/List
+selection. Bindings use global preferences and existing action and Undo
+boundaries. Each held binding gives one key per scalar and includes Up, Down and
+vertical scrolling in idle Preview, with one Undo step per changed hold. See
+the [command bindings design](COMMAND_BINDINGS_DESIGN.md).
+
+Multi-photo grade/preset application remains a separate workflow in the
 [suggested implementation order](../ROADMAP.md#suggested-implementation-order).
 
 Step 8 masking can proceed alongside those workflows. Its agreed exit gate is
@@ -1044,8 +1048,8 @@ behaviour and photo/global settings ownership in "Persistence direction" above.
 Editor opening establishes a grade; unopened metadata-only photos remain valid.
 No live dirty/presence tracking is required for lifecycle saves (D050).
 Step 7 completed the preset/clipboard transition and workspace-persistence
-cleanup. Configurable input bindings and multi-photo grade application remain
-separate workflow milestones.
+cleanup. Configurable command bindings are implemented. Multi-photo grade
+application remains a separate workflow milestone.
 
 **Accepted sidecar/layout direction (D048):** each editable source photograph
 uses one sidecar for the authoritative graph and optional compact X/Y positions

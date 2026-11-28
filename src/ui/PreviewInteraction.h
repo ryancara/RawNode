@@ -64,4 +64,13 @@ bool drawPreviewInteraction(App &app, const PreviewTransform &view, bool hovered
                             bool active, bool textInputWasActive);
 bool finishPreviewInteraction(App &app, bool force = false);
 
+struct PreviewHeldAdjustment {
+  ImGuiKey key;
+  // Assigned on the first adjustment. An empty ID means the target was unavailable.
+  std::optional<NodeId> target;
+  double integerWheelRemainder = 0;
+};
+
+void finishHeldPreviewAdjustment(App &app);
+
 }  // namespace ui

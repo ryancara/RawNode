@@ -108,6 +108,7 @@ struct App {
   GradeHistory history;
   std::optional<ui::ParameterGesture> parameterGesture;
   ui::PreviewInteraction previewInteraction;
+  std::optional<ui::PreviewHeldAdjustment> previewHeldAdjustment;
   // Colour state is read by the render worker and written by the UI/document
   // thread. Guard snapshots/updates so gamut+gamma pairs remain coherent.
   mutable std::mutex colorMutex;

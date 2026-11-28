@@ -36,7 +36,10 @@ SaveFailureDecision promptSaveFailure(const std::string &error) {
 }
 
 static bool uiEditInProgress(const App &app) {
-  return app.parameterGesture || app.previewInteraction.drag != ui::PreviewDrag::None ||
+  // Competing actions stay eligible during a hold so they can finish the
+  // held gesture through their existing completion paths.
+  return (app.parameterGesture && !app.parameterGesture->heldAdjustment) ||
+         app.previewInteraction.drag != ui::PreviewDrag::None ||
          app.previewInteraction.editPending || app.graphCanvas.dragging || app.graphCanvas.positionEditPending;
 }
 
@@ -46,6 +49,7 @@ static bool canExport(const App &app) {
 }
 
 static void doExport(App &app) {
+  ui::finishHeldPreviewAdjustment(app);
   app.exportDialog = {};
   app.exportDialog.open = true;
   app.exportDialog.scope = canExportCurrent(app) ? ExportScope::Current : ExportScope::Selected;
@@ -190,6 +194,7 @@ static void drawExportDialog(App &app) {
 }
 
 void finishUiEdits(App &app) {
+  app.previewHeldAdjustment.reset();
   ui::finishPreviewInteraction(app, true);
   // Parameter completion may already have attempted a full capture.
   // Ending a simultaneous canvas interaction must not repeat that attempt.
@@ -260,6 +265,7 @@ bool pasteFromClipboard(App &app) {
 
 bool savePresetDialog(App &app, std::string path) {
   if (!requireEditableGraph(app)) return false;
+  ui::finishHeldPreviewAdjustment(app);
   if (path.empty()) {
     // Confirmation is performed after extension normalization, so it always
     // names the exact file updated by the validated atomic writer.
@@ -464,6 +470,7 @@ static bool canInvokeCommand(const App &app, Command command) {
     case Command::Decrease:
     case Command::ResetParameter: return !app.isPhotoProtected() && app.renderer.canEditParameters();
     case Command::ToggleNode: return !app.isPhotoProtected() && app.renderer.canEditParameters() && selectedNode(app);
+    case Command::AdjustWhileHeld:
     case Command::Count: break;
   }
   return false;
@@ -506,6 +513,7 @@ static bool invokeCommand(App &app, const ui::CommandStep &step, const SaveFailu
     case Command::MarkPick: return assignPhotoMark(app, app.path, PhotoMark::Pick);
     case Command::MarkReject: return assignPhotoMark(app, app.path, PhotoMark::Reject);
     case Command::MarkUnmarked: return assignPhotoMark(app, app.path, PhotoMark::Unmarked);
+    case Command::AdjustWhileHeld:
     case Command::Count: break;
   }
   return false;
@@ -514,6 +522,7 @@ static bool invokeCommand(App &app, const ui::CommandStep &step, const SaveFailu
 bool ui::executeCommands(App &app, const CommandSequence &commands, const SaveFailurePrompt &prompt) {
   app.shortcutFailure = sequenceError(commands);
   if (!app.shortcutFailure.empty()) return false;
+  finishHeldPreviewAdjustment(app);
   for (size_t i = 0; i < commands.size(); ++i) {
     const auto &step = commands[i];
     std::string reason;
@@ -545,7 +554,10 @@ static void dispatchKeyboardShortcut(App &app) {
   // Require an exact chord and a base key that ImGui has neither owned nor locked.
   // Panel shortcuts that poll without claiming keys are reserved at assignment.
   for (const auto &binding : ui::effectiveKeyboardBindings(app)) {
-    if (ImGui::IsKeyChordPressed(binding.trigger, ImGuiInputFlags_None, ImGuiKeyOwner_NoOwner)) {
+    if (binding.invokes(Command::AdjustWhileHeld)) continue;
+    const auto key = static_cast<ImGuiKey>(binding.trigger & ~ImGuiMod_Mask_);
+    if (ImGui::TestKeyOwner(key, ImGuiKeyOwner_Any) &&
+        ImGui::IsKeyChordPressed(binding.trigger, ImGuiInputFlags_None, ImGuiKeyOwner_NoOwner)) {
       ui::executeCommands(app, binding.commands);
       return;
     }
@@ -625,8 +637,10 @@ void DrawUiFrame(App &app) {
     if (ImGui::BeginMenu("File")) {
       drawCommandMenuItem(app, selectedCommand, Command::OpenImage);
       drawCommandMenuItem(app, selectedCommand, Command::OpenFolder);
-      if (ImGui::MenuItem("Save Grade", nullptr, false, !app.path.empty() && !app.isPhotoProtected()))
+      if (ImGui::MenuItem("Save Grade", nullptr, false, !app.path.empty() && !app.isPhotoProtected())) {
+        ui::finishHeldPreviewAdjustment(app);
         saveCurrentInputSidecar(app);
+      }
       drawCommandMenuItem(app, selectedCommand, Command::Export);
       ImGui::Separator();
       settingsRequested = ImGui::MenuItem("Settings...");
@@ -709,6 +723,7 @@ void DrawUiFrame(App &app) {
     ImGuiWindowFlags previewFlags =
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse;
     if (ImGui::Begin(DockLayout::kPreview, nullptr, previewFlags)) drawPreviewPanel(app);
+    else ui::finishHeldPreviewAdjustment(app);
     ImGui::End();
   }
   if (app.showFilmstrip) {

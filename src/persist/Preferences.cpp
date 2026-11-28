@@ -108,6 +108,9 @@ std::optional<ui::CommandStep> readCommand(const Value &value) {
       if (scalar->value) {
         const auto *field = optional(value, "value");
         if (!field || !persist_json::finiteNumber(*field, *scalar->value)) return std::nullopt;
+      } else if (step.kind == ui::ApplicationCommand::AdjustWhileHeld) {
+        if (const auto *field = optional(value, "step");
+            field && !persist_json::finiteNumber(*field, scalar->value.emplace())) return std::nullopt;
       }
     }
   }
@@ -152,7 +155,8 @@ void loadKeyboardBindings(const Value &root, Preferences &out, std::string &warn
   ui::KeyboardBindings bindings;
   for (size_t index = 0; index < value->array.size(); ++index) {
     auto binding = readKeyboardBinding(value->array[index]);
-    const auto error = binding ? ui::shortcutAssignmentError(bindings, binding->trigger)
+    const auto error = binding ? ui::shortcutAssignmentError(bindings, binding->trigger,
+        binding->invokes(ui::ApplicationCommand::AdjustWhileHeld))
                                : "Expected a known key, modifiers and a valid command sequence.";
     if (error.empty()) bindings.push_back(std::move(*binding));
     else warn(warning, "keyboardBindings entry " + std::to_string(index + 1) + ": " + error);
@@ -191,7 +195,8 @@ void writeKeyboardBindings(std::ostream &out, const ui::KeyboardBindings &bindin
           if (scalar) {
             out << ",\"parameter\":" << jsonStringValue(scalar->address.parameterId);
             if (scalar->value)
-              out << ",\"value\":" << std::setprecision(std::numeric_limits<double>::max_digits10)
+              out << (step.kind == ui::ApplicationCommand::AdjustWhileHeld ? ",\"step\":" : ",\"value\":")
+                  << std::setprecision(std::numeric_limits<double>::max_digits10)
                   << *scalar->value;
           }
         }
