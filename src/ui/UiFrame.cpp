@@ -36,6 +36,8 @@ SaveFailureDecision promptSaveFailure(const std::string &error) {
 }
 
 static bool uiEditInProgress(const App &app) {
+  // Competing actions stay eligible during a hold so they can finish the
+  // held gesture through their existing completion paths.
   return (app.parameterGesture && !app.parameterGesture->heldAdjustment) ||
          app.previewInteraction.drag != ui::PreviewDrag::None ||
          app.previewInteraction.editPending || app.graphCanvas.dragging || app.graphCanvas.positionEditPending;

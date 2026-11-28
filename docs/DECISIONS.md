@@ -918,25 +918,28 @@ outside the source-overwrite check.
 
 ## D061 — Configurable commands and input bindings
 
-**Status:** Owner-approved milestone design.
+**Status:** Accepted and implemented in PRs #135–137.
 
 Keyboard bindings hold ordered typed commands, including a one-command list
 for an ordinary shortcut. Settings lists assignments by input and edits them
 in one editor. Global preferences, ImGui input ownership and existing
 application, graph and history operations provide the implementation boundaries.
 
-The first stage configures existing shortcuts and derives menu labels from
-those assignments. Native shortcuts retain their platform behaviour. Ordered
-commands resolve each operation on the current document, stop on failure and
-preserve completed edits. Explicit selection uses the shared Graph/List
-selection. Scalar commands address a processor and parameter directly and
-leave selection alone. Photograph navigation follows visible Filmstrip order
-from the open photograph.
+1. **Conventional shortcuts (#135).** Settings configures existing shortcuts
+   and menu labels reflect those assignments. Native shortcuts retain their
+   platform behaviour.
+2. **Ordered commands and direct scalar edits (#136).** Each step resolves
+   against the current document. A failure stops the sequence and preserves
+   completed edits. Explicit selection uses the shared Graph/List selection.
+   Scalar commands address a processor and parameter directly and leave
+   selection alone. Photograph navigation follows visible Filmstrip order from
+   the open photograph.
+3. **Adjust While Held (#137).** Standalone keyboard bindings give Up, Down and
+   vertical wheel input to one configured scalar in idle Preview. The first
+   adjustment resolves the node for the hold. Preview owns the relevant inputs
+   even when the target is unavailable. Each completed gesture records one Undo
+   entry if the grade changed.
 
-Standalone Adjust While Held assignments give Up, Down and vertical wheel input
-to one configured scalar in idle Preview. The first adjustment resolves the
-node for the hold. Preview owns the relevant inputs even when the target is
-unavailable. Each completed gesture records one Undo entry if the grade changed.
 See the [command bindings design](COMMAND_BINDINGS_DESIGN.md) for the detailed contract.
 
 ## Pending decisions

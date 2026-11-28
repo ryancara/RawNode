@@ -56,7 +56,7 @@ The optional version-1 `keyboardBindings` array continues to store stable key an
 
 An Adjust While Held object uses the ID `adjust-while-held` and the same scalar address. The optional `step` field must be finite and positive. Omitting it selects the automatic step. The binding stores an empty `modifiers` array. Parameter eligibility and Integer step compatibility are checked against the resolved processor at use time.
 
-Missing bindings use the existing platform defaults and an empty array deliberately unbinds all. Invalid entries are skipped as a whole with a warning, the first valid conflicting assignment wins, and an entirely invalid nonempty array falls back to defaults. The temporary contextual assignments from draft PR #136 are covered by these validation rules. Saving uses the existing atomic preferences writer.
+Missing bindings use the existing platform defaults and an empty array deliberately unbinds all. Invalid entries are skipped as a whole with a warning, the first valid conflicting assignment wins, and an entirely invalid nonempty array falls back to defaults. Saving uses the existing atomic preferences writer.
 
 ## Scope
 

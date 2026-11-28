@@ -11,7 +11,8 @@
 namespace ui {
 
 enum class ApplicationCommand {
-  // PR #135 actions through Filmstrip retain their standalone feedback.
+  // Keep conventional commands through Filmstrip first. When invoked alone,
+  // they use their own failure and cancellation feedback.
   OpenImage, OpenFolder, Export, Undo, Redo, CopyNode, CopyFullGrade, Paste, Inspector, Filmstrip,
   SelectPosition, SelectNext, SelectPrevious, SelectProcessor, ToggleNode,
   SetValue, AdjustValue, Increase, Decrease, ResetParameter, AdjustWhileHeld,
@@ -24,6 +25,7 @@ struct ApplicationCommandInfo {
   const char *category;
 };
 
+// Match ApplicationCommand order and group commands by category for Settings headings.
 inline constexpr ApplicationCommandInfo applicationCommands[] = {
     {"open-image", "Open image", "File"},
     {"open-folder", "Open Folder", "File"},
@@ -69,6 +71,9 @@ struct ParameterAddress {
 
 struct ScalarCommandOperand {
   ParameterAddress address;
+  // Set Value uses an absolute value. Adjust by Amount uses a signed amount.
+  // Adjust While Held uses an explicit increment when present and an automatic
+  // step otherwise. Increase, Decrease and Reset leave this unused.
   std::optional<double> value;
 };
 

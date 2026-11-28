@@ -34,8 +34,7 @@ The current codebase is a clean base for feature development. New work should re
 2. [Preset Panel](#preset-panel) using the existing preset format and Replace/Append operations (implemented).
 3. [Default preset selection and automatic application](#default-grade-preset)
    through Settings and grade replacement (implemented).
-4. [Configurable commands and input bindings](#configurable-commands-and-input-bindings),
-   beginning with keyboard shortcuts for existing actions.
+4. [Configurable commands and input bindings](#configurable-commands-and-input-bindings) (implemented).
 5. [Multi-photo grade/preset application](#multi-photo-grade-and-preset-application)
    using Filmstrip selection and existing grade persistence.
 6. [Completion of the practical Step 8 masking core](#masks-and-local-adjustments).
@@ -44,7 +43,7 @@ The current codebase is a clean base for feature development. New work should re
 
 ### Hard dependencies
 
-Default preset selection and configurable keyboard and mouse assignments require
+Default preset selection and configurable command bindings require
 the Settings UI. The Preset Panel depends on the preset root stored in Settings and
 existing preset operations. CTL discovery depends on the stored CTL scripts
 directory. Multi-photo application builds on the merged Filmstrip selection
@@ -157,9 +156,9 @@ configured directory and its subfolders each time the picker opens.
 Both browsers match filename suffixes without regard to ASCII case and skip
 symbolic-link entries found within their configured directories.
 
+Keyboard bindings are stored alongside the default preset in global preferences.
 Add controls for global RAW/Output defaults and relevant export/UI preferences
-in later work. Store configurable input assignments alongside the default preset
-in global preferences. Add configurable DCTL and OFX search locations and
+in later work. Add configurable DCTL and OFX search locations and
 backend-specific pages when needed for usable features.
 
 ## Preset Panel
@@ -361,7 +360,7 @@ need; the planned Step 9 quality milestone is not another graph migration step.
 Completed graph decisions remain binding until explicitly changed with owner
 approval, including during Step 9.
 
-Add number-key node selection as a separate small interaction improvement.
+Number keys can be assigned to **Select Node by List Position** in Settings.
 
 Graph View enable/bypass (#113) uses the same enabled state, edit/history command
 and protections as List View.
@@ -373,15 +372,15 @@ Graph View.
 
 ## Configurable commands and input bindings
 
-[Application Settings](#application-settings) lists keyboard bindings by input.
-It supports conventional shortcuts (PR #135) and ordered sequences for node
-selection, direct scalar editing, marking and photograph navigation (PR 2).
-The [command bindings design](docs/COMMAND_BINDINGS_DESIGN.md) covers execution,
-configuration and preferences.
+**Implemented in PRs #135–137.** [Application Settings](#application-settings)
+lists keyboard bindings by input. It supports conventional shortcuts for
+existing actions and ordered sequences for node selection, direct scalar editing,
+marking and photograph navigation.
 
-Standalone Adjust While Held bindings are available in idle Preview. Each
-assignment addresses one scalar and enables Up, Down and vertical wheel
-adjustments within one gesture and Undo boundary.
+Standalone **Adjust While Held** bindings address one scalar in idle Preview.
+Up, Down and vertical scrolling are built into each held binding and share one
+gesture and Undo boundary. The [command bindings design](docs/COMMAND_BINDINGS_DESIGN.md)
+covers execution, configuration and preferences.
 
 ## Advanced input systems
 
