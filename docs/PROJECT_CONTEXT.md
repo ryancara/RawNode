@@ -359,6 +359,12 @@ Display/monitor conversion conceptually occurs after the processed-image
 boundary. A display conversion change should not require rerunning expensive
 image processors when the processed image is still valid.
 
+The macOS SDR fix declares the native window as sRGB at startup. Independent
+review is complete, and the owner reports that photographs now display
+correctly on macOS. Display transitions, live profile changes and window
+lifecycle checks remain pending. [PR #138](https://github.com/ryancara/RawNode/pull/138) ·
+[Presentation contract](ARCHITECTURE.md#colour-semantics)
+
 Masks are not image alpha. Global alpha association remains deliberately
 unresolved and is not a prerequisite for Step 5 mask-contract discussion.
 Before transparent compositing or alpha-carrying workflows, explicitly revisit

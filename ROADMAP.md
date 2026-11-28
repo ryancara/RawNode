@@ -452,6 +452,8 @@ masking core and the Step 9 audit.
 - Prefer a shared cross-platform implementation, with platform-specific
   differences only where necessary. Use Dear ImGui's native window management;
   do not introduce a custom window-management system.
+- Declare each additional native macOS window as sRGB. See the
+  [presentation contract](docs/ARCHITECTURE.md#colour-semantics).
 - Validate window positioning, display scaling, input handling and layout
   restoration across macOS, Linux and Windows. Record native validation of
   detaching, moving between monitors and docking again, including displays
